@@ -632,6 +632,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixi
                         "timestamp": "2020-01-02",
                         "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
                     },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [

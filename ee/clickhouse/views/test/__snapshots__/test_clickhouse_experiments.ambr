@@ -312,7 +312,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['test', 'control'] as breakdown_value) ARRAY
+                (SELECT ['control', 'test'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -345,7 +345,7 @@
                    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
                    AND timestamp <= '2020-01-06 23:59:59'
                    AND trim(BOTH '"'
-                            FROM JSONExtractRaw(properties, '$feature_flag_response')) in (['test', 'control']) )
+                            FROM JSONExtractRaw(properties, '$feature_flag_response')) in (['control', 'test']) )
               GROUP BY person_id,
                        breakdown_value)
            GROUP BY day_start,
