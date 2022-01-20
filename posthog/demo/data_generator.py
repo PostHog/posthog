@@ -76,7 +76,7 @@ class DataGenerator:
             array.append(value)
 
     def add_event(self, **kw):
-        if kw.get("properties", None):
+        if kw.get("properties", None) and kw.get("timestamp", None):
             kw["properties"]["$time"] = kw["timestamp"].timestamp()
         self.events.append(kw)
 
