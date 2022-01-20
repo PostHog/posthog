@@ -1,5 +1,5 @@
 import { BreakPointFunction, kea } from 'kea'
-import { errorToast, successToast, toParams } from 'lib/utils'
+import { errorToast, objectsEqual, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
@@ -114,7 +114,7 @@ export const eventsTableLogic = kea<
         startDownload: true,
     },
 
-    reducers: {
+    reducers: () => ({
         pollingIsActive: [
             true,
             {
@@ -205,7 +205,7 @@ export const eventsTableLogic = kea<
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    },
+    }),
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
@@ -259,24 +259,24 @@ export const eventsTableLogic = kea<
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            const queryByDateTime = values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]
-            let chosenProperties: PropertyFilter[] = queryByDateTime
-                ? [
-                      {
-                          key: '$time',
-                          operator: PropertyOperator.IsDateAfter,
-                          type: 'event',
-                          value: '-365d',
-                      },
-                  ]
-                : []
-            if (searchParams.properties?.length > 0) {
-                chosenProperties = searchParams.properties
-            } else if (values.properties?.length > 0) {
-                chosenProperties = values.properties
+            const properties = searchParams.properties || values.properties || {}
+
+            const oneYearAgo = {
+                key: '$time',
+                operator: PropertyOperator.IsDateAfter,
+                type: 'event',
+                value: '-365d',
             }
 
-            actions.setProperties(chosenProperties)
+            if (
+                values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] &&
+                !objectsEqual(properties[0], oneYearAgo)
+            ) {
+                properties.unshift(oneYearAgo)
+                console.log(properties, 'added one year ago')
+            }
+
+            actions.setProperties(properties)
 
             if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)

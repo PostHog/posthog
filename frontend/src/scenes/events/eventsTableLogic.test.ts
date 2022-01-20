@@ -38,7 +38,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
-    operator: null,
+    operator: PropertyOperator.Exact,
     type: 't',
     value: 'v',
 })
@@ -142,7 +142,7 @@ describe('eventsTableLogic', () => {
                 initKeaTestLogic({
                     logic: eventsTableLogic,
                     props: {
-                        key: 'test-key',
+                        key: 'test-key-date-querying-flagged-on',
                         sceneUrl: urls.events(),
                     },
                     onLogic: (l) => (dateFlagOnLogic = l),
@@ -243,7 +243,11 @@ describe('eventsTableLogic', () => {
 
                 it('can build the export URL when there are no properties or filters', async () => {
                     await expectLogic(dateFlagOnLogic, () => {}).toMatchValues({
-                        exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
+                        exportUrl:
+                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D' +
+                            '&orderBy=%5B%22-timestamp%22%5D' +
+                            '&after=2020-05-05T00%3A00%3A00.000Z',
                     })
                 })
 
@@ -251,7 +255,24 @@ describe('eventsTableLogic', () => {
                     await expectLogic(dateFlagOnLogic, () => {
                         dateFlagOnLogic.actions.setProperties([makePropertyFilter('fixed value')])
                     }).toMatchValues({
-                        exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
+                        exportUrl:
+                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%2C%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D' +
+                            '&orderBy=%5B%22-timestamp%22%5D' +
+                            '&after=2020-05-05T00%3A00%3A00.000Z',
+                    })
+                })
+
+                it('can not pinned property', async () => {
+                    const firstFilter = makePropertyFilter('fixed value')
+                    const secondFilter = makePropertyFilter('another value')
+                    await expectLogic(dateFlagOnLogic, () => {
+                        dateFlagOnLogic.actions.setProperties([firstFilter])
+                        dateFlagOnLogic.actions.setProperties([firstFilter, secondFilter])
+                        dateFlagOnLogic.actions.setProperties([secondFilter])
+                        dateFlagOnLogic.actions.setProperties([])
+                    }).toMatchValues({
+                        properties: [filterAfterOneYearAgo],
                     })
                 })
             })
@@ -261,7 +282,7 @@ describe('eventsTableLogic', () => {
                 initKeaTestLogic({
                     logic: eventsTableLogic,
                     props: {
-                        key: 'test-key',
+                        key: 'test-key-date-querying-flagged-off',
                         sceneUrl: urls.events(),
                     },
                     onLogic: (l) => (dateFlagOffLogic = l),
@@ -359,8 +380,21 @@ describe('eventsTableLogic', () => {
                     }).toMatchValues({
                         exportUrl:
                             `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D' +
+                            '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D' +
                             '&after=2020-05-05T00%3A00%3A00.000Z',
+                    })
+                })
+
+                it('can remove all properties', async () => {
+                    const firstFilter = makePropertyFilter('fixed value')
+                    const secondFilter = makePropertyFilter('another value')
+                    await expectLogic(dateFlagOffLogic, () => {
+                        dateFlagOffLogic.actions.setProperties([firstFilter])
+                        dateFlagOffLogic.actions.setProperties([firstFilter, secondFilter])
+                        dateFlagOffLogic.actions.setProperties([secondFilter])
+                        dateFlagOffLogic.actions.setProperties([])
+                    }).toMatchValues({
+                        properties: [],
                     })
                 })
             })
