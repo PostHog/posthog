@@ -10,6 +10,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface QueryLimit {
     before?: string
@@ -260,14 +261,16 @@ export const eventsTableLogic = kea<
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            let chosenProperties: PropertyFilter[] = [
-                {
-                    key: '$time',
-                    operator: PropertyOperator.IsDateAfter,
-                    type: 'event',
-                    value: '-365d',
-                },
-            ]
+            let chosenProperties: PropertyFilter[] = values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]
+                ? [
+                      {
+                          key: '$time',
+                          operator: PropertyOperator.IsDateAfter,
+                          type: 'event',
+                          value: '-365d',
+                      },
+                  ]
+                : []
             if (searchParams.properties?.length > 0) {
                 chosenProperties = searchParams.properties
             } else if (values.properties?.length > 0) {
@@ -320,6 +323,11 @@ export const eventsTableLogic = kea<
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                     ...(queryLimits || {}),
+                }
+
+                if (!values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
+                    params['after'] =
+                        values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
                 }
 
                 let apiResponse = null
