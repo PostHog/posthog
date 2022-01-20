@@ -1369,7 +1369,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | null
+    id: number
     name: string
     description?: string
     feature_flag_key: string

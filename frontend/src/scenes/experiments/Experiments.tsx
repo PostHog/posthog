@@ -17,8 +17,6 @@ import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
-import { deleteWithUndo } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -27,8 +25,7 @@ export const scene: SceneExport = {
 
 export function Experiments(): JSX.Element {
     const { experiments, experimentsLoading, tab } = useValues(experimentsLogic)
-    const { setExperimentsFilters, loadExperiments } = useActions(experimentsLogic)
-    const { currentTeamId } = useValues(teamLogic)
+    const { setExperimentsFilters, deleteExperiment } = useActions(experimentsLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -95,13 +92,7 @@ export function Experiments(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
-                                    onClick={() =>
-                                        deleteWithUndo({
-                                            object: experiment,
-                                            endpoint: `projects/${currentTeamId}/insights`,
-                                            callback: loadExperiments,
-                                        })
-                                    }
+                                    onClick={() => deleteExperiment(experiment.id)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
                                 >

@@ -42,7 +42,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
                     const tabFilter =
                         tab === ExperimentsTabs.Yours ? toParams({ user: true }) : toParams({ archived: true })
                     if (tab === ExperimentsTabs.All) {
-                        actions.loadExperiments()
+                        actions.loadExperiments(toParams({ all: true }))
                     } else {
                         actions.loadExperiments(tabFilter)
                     }
