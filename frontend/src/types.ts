@@ -802,7 +802,6 @@ export enum ChartDisplayType {
     FunnelViz = 'FunnelViz',
 }
 
-export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
@@ -856,7 +855,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsType
+    shown_as?: ShownAsValue
+    session?: string
     period?: string
 
     retention_type?: RetentionType

@@ -63,6 +63,41 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_insight_trends_clean_arg(self):
+
+        events_by_actor = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+        }
+        created_actors = journeys_for(events_by_actor, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": None,  # this argument will now be removed from the request instead of becoming a string
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "key", "value": "val"}],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        actors = get_people_from_url_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
+
+        # this would return 2 people prior to #8103 fix
+        # 'None' values have to be purged before formatting into the actor url
+        assert sorted([p["id"] for p in actors]) == sorted([str(created_actors["1"].uuid)])
+
+    @snapshot_clickhouse_queries
     def test_insight_trends_aggregate(self):
 
         events_by_person = {
