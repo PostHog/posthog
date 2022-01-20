@@ -1,6 +1,4 @@
-import { BuiltLogic } from 'kea'
-import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -42,7 +40,7 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 })
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
+    let logic: ReturnType<typeof eventsTableLogic.build>
 
     mockAPI(async () => {
         // delay the API response so the default value test can complete before it

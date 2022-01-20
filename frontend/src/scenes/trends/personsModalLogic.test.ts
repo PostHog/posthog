@@ -1,15 +1,13 @@
-import { BuiltLogic } from 'kea'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { LoadPeopleFromUrlProps, personsModalLogic, PersonsModalParams } from './personsModalLogic'
-import { personsModalLogicType } from './personsModalLogicType'
+import { personsModalLogic } from './personsModalLogic'
 import { router } from 'kea-router'
 
 jest.mock('lib/api')
 
 describe('personModalLogic', () => {
-    let logic: BuiltLogic<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>
+    let logic: ReturnType<typeof personsModalLogic.build>
 
     mockAPI(defaultAPIMocks)
 
