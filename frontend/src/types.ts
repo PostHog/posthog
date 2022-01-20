@@ -449,6 +449,7 @@ export type EntityFilter = {
     custom_name?: string
     index?: number
     order?: number
+    properties?: PropertyFilter[]
 }
 
 export interface FunnelStepRangeEntityFilter extends EntityFilter {

@@ -19,6 +19,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     PropertyFilter,
+    EntityFilter,
 } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
@@ -585,16 +586,17 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                                 {experimentInsightType === InsightType.TRENDS ? (
                                                     <Row>
-                                                        <b style={{ paddingRight: 4 }}>Count:</b>{' '}
-                                                        {countDataForVariant(variant)}{' '}
-                                                        {'action' in experimentResults.insight[0] && (
-                                                            <Row style={{ paddingLeft: 4 }}>
-                                                                <EntityFilterInfo
-                                                                    filter={experimentResults.insight[0].action}
-                                                                />
-                                                                s
+                                                        <b style={{ paddingRight: 4 }}>
+                                                            <Row>
+                                                                {'action' in experimentResults.insight[0] && (
+                                                                    <EntityFilterInfo
+                                                                        filter={experimentResults.insight[0].action}
+                                                                    />
+                                                                )}
+                                                                <span style={{ paddingLeft: 4 }}>count:</span>
                                                             </Row>
-                                                        )}
+                                                        </b>{' '}
+                                                        {countDataForVariant(variant)}{' '}
                                                     </Row>
                                                 ) : (
                                                     <Row>
@@ -841,15 +843,36 @@ export function ExperimentPreview({
                                 <div className="card-secondary mb-05">
                                     {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
                                 </div>
-                                {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
+                                {experiment?.filters?.events?.map((event: EntityFilter, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">{idx + 1}</div>
+                                            <div className="preview-conversion-goal-num">
+                                                {experimentInsightType === InsightType.FUNNELS
+                                                    ? (event.order || 0) + 1
+                                                    : idx + 1}
+                                            </div>
                                             <b>
                                                 <EntityFilterInfo filter={event} />
                                             </b>
                                         </Row>
                                         {event.properties?.map((prop: PropertyFilter) => (
+                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                        ))}
+                                    </Col>
+                                ))}
+                                {experiment?.filters?.actions?.map((action: ActionFilterType, idx: number) => (
+                                    <Col key={idx} className="mb-05">
+                                        <Row style={{ marginBottom: 4 }}>
+                                            <div className="preview-conversion-goal-num">
+                                                {experimentInsightType === InsightType.FUNNELS
+                                                    ? (action.order || 0) + 1
+                                                    : idx + 1}
+                                            </div>
+                                            <b>
+                                                <EntityFilterInfo filter={action} />
+                                            </b>
+                                        </Row>
+                                        {action.properties?.map((prop: PropertyFilter) => (
                                             <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
                                         ))}
                                     </Col>
