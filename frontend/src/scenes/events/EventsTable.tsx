@@ -83,8 +83,15 @@ export function EventsTable({
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
-        useActions(logic)
+    const {
+        fetchNextEvents,
+        prependNewEvents,
+        setEventFilter,
+        toggleAutomaticLoad,
+        startDownload,
+        setPollingActive,
+        setProperties,
+    } = useActions(logic)
     const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
     const showLinkToPerson = !fixedFilters?.person_id
@@ -353,6 +360,8 @@ export function EventsTable({
                                 }}
                             />
                             <PropertyFilters
+                                propertyFilters={properties}
+                                onChange={setProperties}
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
