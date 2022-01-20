@@ -22,7 +22,7 @@ class EnterpriseFeatureException(APIException):
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
                     if settings.MULTI_TENANCY
-                    else "To use it, contact us for a self-hosted license: https://posthog.com/pricing"
+                    else "To use it, get a self-hosted license: https://license.posthog.com"
                 )
             )
         )

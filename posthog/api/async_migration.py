@@ -1,4 +1,4 @@
-from rest_framework import response, serializers, viewsets
+from rest_framework import permissions, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -10,7 +10,6 @@ from posthog.async_migrations.utils import (
     trigger_migration,
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
-from posthog.permissions import StaffUser
 
 
 class AsyncMigrationSerializer(serializers.ModelSerializer):
@@ -50,7 +49,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all()
-    permission_classes = [StaffUser]
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
     serializer_class = AsyncMigrationSerializer
 
     @action(methods=["POST"], detail=True)
