@@ -36,7 +36,7 @@ class TestExperimentCRUD(APIBaseTest):
                 "description": "",
                 "start_date": "2021-12-01T10:23",
                 "end_date": None,
-                "feature_flag_key": "a-b-tests",
+                "feature_flag_key": "a-b-tests2",
                 "parameters": None,
                 "filters": {
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
