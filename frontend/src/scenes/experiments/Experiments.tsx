@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { Tag } from 'antd'
 
 export const scene: SceneExport = {
