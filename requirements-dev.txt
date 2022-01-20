@@ -4,19 +4,16 @@
 #
 #    pip-compile requirements-dev.in
 #
-appdirs==1.4.4
-    # via black
 asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
 attrs==19.3.0
     # via
-    #   black
     #   flake8-bugbear
     #   pytest
     #   syrupy
-black==19.10b0
+black==21.12b0
     # via -r requirements-dev.in
 certifi==2019.11.28
     # via
@@ -26,7 +23,7 @@ chardet==3.0.4
     # via
     #   -c requirements.txt
     #   requests
-click==7.1.1
+click==8.0.3
     # via
     #   black
     #   pip-tools
@@ -96,22 +93,27 @@ mccabe==0.6.1
 mypy-extensions==0.4.3
     # via
     #   -r requirements-dev.in
+    #   black
     #   mypy
 mypy==0.910
     # via
     #   -r requirements-dev.in
     #   django-stubs
     #   djangorestframework-stubs
-numpy==1.22.0
-    # via -r requirements-dev.in
+numpy==1.21.4
+    # via
+    #   -c requirements.txt
+    #   -r requirements-dev.in
 packaging==20.4
     # via
     #   -r requirements-dev.in
     #   pytest
-pathspec==0.8.0
+pathspec==0.9.0
     # via black
 pip-tools==5.5.0
     # via -r requirements-dev.in
+platformdirs==2.4.1
+    # via black
 pluggy==0.13.1
     # via pytest
 py==1.10.0
@@ -156,8 +158,6 @@ redis==3.4.1
     # via
     #   -c requirements.txt
     #   fakeredis
-regex==2020.6.8
-    # via black
 requests==2.25.1
     # via
     #   -c requirements.txt
@@ -181,11 +181,10 @@ syrupy==1.4.6
     # via -r requirements-dev.in
 toml==0.10.1
     # via
-    #   black
     #   mypy
     #   pytest
     #   pytest-cov
-typed-ast==1.5.1
+tomli==1.2.3
     # via black
 types-freezegun==1.1.3
     # via -r requirements-dev.in
@@ -205,8 +204,9 @@ types-redis==4.0.3
     # via -r requirements-dev.in
 types-requests==2.26.1
     # via -r requirements-dev.in
-typing-extensions==3.7.4.2
+typing-extensions==4.0.1
     # via
+    #   black
     #   django-stubs
     #   djangorestframework-stubs
     #   mypy

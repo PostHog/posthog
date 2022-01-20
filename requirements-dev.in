@@ -22,7 +22,7 @@ django-stubs
 fakeredis
 freezegun
 packaging
-black
+black==21.12b0
 types-Markdown
 types-PyYAML
 types-freezegun
