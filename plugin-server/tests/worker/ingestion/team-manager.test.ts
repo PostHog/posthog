@@ -394,7 +394,16 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                        params: [
+                            expect.any(String),
+                            'anObjectProperty',
+                            false,
+                            teamId,
+                            null,
+                            null,
+                            expect.any(String),
+                            expect.any(String),
+                        ],
                     },
                     postgresQuery
                 )
@@ -411,7 +420,16 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null],
+                        params: [
+                            expect.any(String),
+                            'some_number',
+                            true,
+                            teamId,
+                            'Numeric',
+                            null,
+                            expect.any(String),
+                            expect.any(String),
+                        ],
                     },
                     postgresQuery
                 )
@@ -428,7 +446,16 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_string', false, teamId, 'String', null],
+                        params: [
+                            expect.any(String),
+                            'some_string',
+                            false,
+                            teamId,
+                            'String',
+                            null,
+                            expect.any(String),
+                            expect.any(String),
+                        ],
                     },
                     postgresQuery
                 )
@@ -521,6 +548,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 testcase.expectedPropertyType,
                                 testcase.expectedPropertyTypeFormat,
+                                expect.any(String),
+                                expect.any(String),
                             ],
                         },
                         postgresQuery
@@ -669,6 +698,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 PropertyType.DateTime,
                                 testcase.patternDescription,
+                                expect.any(String),
+                                expect.any(String),
                             ],
                         },
                         postgresQuery
