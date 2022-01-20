@@ -278,26 +278,6 @@ export interface ToolbarProps extends EditorProps {
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
-export enum UnixTimestampPropertyTypeFormat {
-    UNIX_TIMESTAMP = 'unix_timestamp',
-    UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
-}
-
-// TODO duplicated from plugin server. Follow-up to de-duplicate
-export enum DateTimePropertyTypeFormat {
-    ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
-    FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
-    FULL_DATE_INCREASING = 'DD-MM-YYYY hh:mm:ss',
-    DATE = 'YYYY-MM-DD',
-    RFC_822 = 'rfc_822',
-    WITH_SLASHES = 'YYYY/MM/DD hh:mm:ss',
-    WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
-}
-
-// TODO duplicated from plugin server. Follow-up to de-duplicate
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
-// TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -311,8 +291,6 @@ export interface PropertyFilter {
     type: string
     value: PropertyFilterValue
     group_type_index?: number | null
-    property_type?: PropertyType | undefined
-    property_type_format?: PropertyTypeFormat | undefined
 }
 
 export type EmptyPropertyFilter = Partial<PropertyFilter>
@@ -1364,7 +1342,6 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface PersonProperty {

@@ -391,8 +391,10 @@ export const eventsTableLogic = kea<
                 orderBy: [values.orderBy],
             }
 
-            if (values.events[0]?.timestamp) {
+            if (values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
                 params.after = values.events[0]?.timestamp
+            } else {
+                params['after'] = values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
             }
 
             const urlParams = toParams(params)

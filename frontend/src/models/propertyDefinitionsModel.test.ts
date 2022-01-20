@@ -2,7 +2,7 @@ import { initKeaTestLogic } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { DateTimePropertyTypeFormat, PropertyDefinition, PropertyType, UnixTimestampPropertyTypeFormat } from '~/types'
+import { PropertyDefinition, PropertyType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -16,7 +16,6 @@ describe('the property definitions model', () => {
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
-        property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
     }
     const propertyDefinitions: PropertyDefinition[] = [
         {
@@ -33,7 +32,6 @@ describe('the property definitions model', () => {
             volume_30_day: null,
             query_usage_30_day: null,
             property_type: PropertyType.String,
-            property_type_format: undefined,
         },
         {
             id: 'an id',
@@ -42,7 +40,6 @@ describe('the property definitions model', () => {
             volume_30_day: null,
             query_usage_30_day: null,
             property_type: PropertyType.DateTime,
-            property_type_format: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
         },
         timestampPropertyDefinition,
     ]
@@ -79,8 +76,8 @@ describe('the property definitions model', () => {
     })
 
     it('does describe a property that has a server provided type and format', () => {
-        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime (YYYY-MM-DD hh:mm:ss)')
-        expect(logic.values.describeProperty('$time')).toEqual('DateTime (unix_timestamp)')
+        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
+        expect(logic.values.describeProperty('$time')).toEqual('DateTime')
     })
 
     it('can format a property with no formatting needs for display', () => {

@@ -21,7 +21,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property, PropertyDefinition, TableWithProperties
+from posthog.models.property import Property, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -650,166 +650,82 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
     pytest.param(Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
     pytest.param(
-        Property(
-            key="sdk_$time",
-            operator="is_date_before",
-            value="2021-12-25",
-            property_type="DateTime",
-            property_type_format="unix_timestamp",
-        ),
+        Property(key="sdk_$time", operator="is_date_before", value="2021-12-25",),
         [11],
         id="matching a unix timestamp in seconds with fractional seconds after the decimal point",
     ),
     pytest.param(
-        Property(
-            key="unix_timestamp_milliseconds",
-            operator="is_date_after",
-            value="2022-01-11",
-            property_type="DateTime",
-            property_type_format="unix_timestamp_milliseconds",
-        ),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_after", value="2022-01-11",),
         [12],
         id="matching unix timestamp in milliseconds after a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(
-            key="unix_timestamp_milliseconds",
-            operator="is_date_before",
-            value="2022-01-13",
-            property_type="DateTime",
-            property_type_format="unix_timestamp_milliseconds",
-        ),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_before", value="2022-01-13",),
         [12],
         id="matching unix timestamp in milliseconds before a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_before",
-            value="2002-10-02 17:01:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_before", value="2002-10-02 17:01:00",),
         [13],
         id="matching rfc 822 format date with timeszone offset before a given date",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_after",
-            value="2002-10-02 14:59:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 14:59:00",),
         [],
         id="matching rfc 822 format date takes into account timeszone offset after a given date",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_after",
-            value="2002-10-02 12:59:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 12:59:00",),
         [13],
         id="matching rfc 822 format date after a given date",
     ),
     pytest.param(
-        Property(
-            key="iso_8601_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY-MM-DDThh:mm:ssZ",
-        ),
+        Property(key="iso_8601_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [14],
         id="matching ISO 8601 format date before a given date",
     ),
     pytest.param(
-        Property(
-            key="iso_8601_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY-MM-DDThh:mm:ssZ",
-        ),
+        Property(key="iso_8601_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [14],
         id="matching ISO 8601 format date after a given date",
     ),
     pytest.param(
-        Property(
-            key="full_date_increasing_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="DD-MM-YYYY hh:mm:ss",
-        ),
+        Property(key="full_date_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [15],
         id="matching full format date with date parts n increasing order before a given date",
     ),
     pytest.param(
-        Property(
-            key="full_date_increasing_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="DD-MM-YYYY hh:mm:ss",
-        ),
+        Property(key="full_date_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [15],
         id="matching full format date with date parts in increasing order after a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY/MM/DD hh:mm:ss",
-        ),
+        Property(key="with_slashes_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [16],
         id="matching full format date with date parts separated by slashes before a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY/MM/DD hh:mm:ss",
-        ),
+        Property(key="with_slashes_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [16],
         id="matching full format date with date parts separated by slashes after a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_increasing_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="DD/MM/YYYY hh:mm:ss",
-        ),
+        Property(key="with_slashes_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes before a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_increasing_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="DD/MM/YYYY hh:mm:ss",
-        ),
+        Property(key="with_slashes_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes after a given date",
     ),
     pytest.param(
-        Property(key="relative_dates", operator="is_date_after", value="-365", property_type="DateTime",),
+        Property(key="relative_dates", operator="is_date_after", value="-365",),
         [19],
         id="can parse relative dates and match after them",
     ),
     pytest.param(
-        Property(key="relative_dates", operator="is_date_before", value="-365", property_type="DateTime",),
+        Property(key="relative_dates", operator="is_date_before", value="-365",),
         [18],
         id="can parse relative dates and match before them",
     ),

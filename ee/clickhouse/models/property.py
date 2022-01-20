@@ -32,15 +32,7 @@ from ee.clickhouse.sql.person import (
 )
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import (
-    NEGATED_OPERATORS,
-    UNIX_TIMESTAMP,
-    UNIX_TIMESTAMP_MILLISECONDS,
-    OperatorType,
-    Property,
-    PropertyIdentifier,
-    PropertyName,
-)
+from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -142,7 +134,9 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
+            filter_query, filter_params = method(
+                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+            )  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:
@@ -242,17 +236,11 @@ def prop_filter_json_extract(
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) > %({prop_value_param_key})s"
 
-        if (
-            prop.property_definition is not None
-            and prop.property_definition.format is not None
-            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
-        ):
-            # ClickHouse can only parse 9 or 10 digit unix timestamps.
-            # So we drop the fractional seconds from millisecond timestamps
-            # or from after decimal place in seconds timestamps
-            query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) > %({prop_value_param_key})s"
+        query = f"""AND arrayFirst(x -> isNotNull(x), [
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        ]) > %({prop_value_param_key})s"""
 
         return (
             query,
@@ -265,17 +253,10 @@ def prop_filter_json_extract(
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) < %({prop_value_param_key})s"
-
-        if (
-            prop.property_definition is not None
-            and prop.property_definition.format is not None
-            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
-        ):
-            # ClickHouse can only parse 9 or 10 digit unix timestamps.
-            # So we drop the fractional seconds from millisecond timestamps
-            # or from after decimal place in seconds timestamps
-            query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) < %({prop_value_param_key})s"
+        query = f"""AND arrayFirst(x -> isNotNull(x), [
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        ]) < %({prop_value_param_key})s"""
 
         return (
             query,
@@ -402,7 +383,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 

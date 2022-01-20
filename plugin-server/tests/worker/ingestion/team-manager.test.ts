@@ -2,11 +2,11 @@ import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
-import { DateTimePropertyTypeFormat, Hub, PropertyType, UnixTimestampPropertyTypeFormat } from '../../../src/types'
+import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { dateTimeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -413,49 +413,41 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a number',
                     date: 1234567890.123,
-                    expectedPropertyTypeFormat: 'unix_timestamp',
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a number',
                     date: 1234567890.12345,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a number',
                     date: 1234567890,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
                     date: '1234567890',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a number',
                     date: 1234567890123,
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a string',
                     date: '1234567890123',
-                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
                     expectedPropertyType: PropertyType.DateTime,
                 },
             ].flatMap((testcase) => {
@@ -470,14 +462,13 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     ...toEdit,
                     propertyKey: toEdit.propertyKey.replace('timestamp', 'string'),
                     expectedPropertyType: typeof toEdit.date === 'string' ? PropertyType.String : PropertyType.Numeric,
-                    expectedPropertyTypeFormat: null,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
             })
 
             unixTimestampTestCases.forEach((testcase) => {
-                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyTypeFormat}`, async () => {
+                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyType}`, async () => {
                     const properties: Record<string, string | number> = {}
                     properties[testcase.propertyKey] = testcase.date
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
@@ -492,7 +483,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 typeof testcase.date === 'number',
                                 teamId,
                                 testcase.expectedPropertyType,
-                                testcase.expectedPropertyTypeFormat,
+                                null,
                             ],
                         },
                         postgresQuery
@@ -505,15 +496,13 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             const dateTimeFormatTestCases: {
                 propertyKey: string
                 date: string
-                patternDescription: string
-            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternEnum: string) => {
+            }[] = Object.keys(dateTimeFormatPatterns).flatMap((patternEnum: string) => {
                 const patternDescription: string =
                     DateTimePropertyTypeFormat[patternEnum as keyof typeof DateTimePropertyTypeFormat]
                 if (patternDescription === 'rfc_822') {
                     return {
                         propertyKey: 'an_rfc_822_format_date',
                         date: 'Wed, 02 Oct 2002 15:00:00 +0200',
-                        patternDescription,
                     }
                 } else {
                     const date = patternDescription
@@ -527,17 +516,17 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     //iso timestamps can have fractional parts of seconds
                     if (date.includes('T')) {
                         return [
-                            { propertyKey: patternDescription, date, patternDescription },
-                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z'), patternDescription },
+                            { propertyKey: patternDescription, date },
+                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z') },
                         ]
                     } else {
-                        return { propertyKey: patternDescription, date, patternDescription }
+                        return { propertyKey: patternDescription, date }
                     }
                 }
             })
 
             dateTimeFormatTestCases.forEach((testcase) => {
-                it(`matches ${testcase.date} as ${testcase.patternDescription}`, async () => {
+                it(`matches ${testcase.date} as a DateTime`, async () => {
                     const properties: Record<string, string> = {}
                     properties[testcase.propertyKey] = testcase.date
                     await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
@@ -552,7 +541,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 false,
                                 teamId,
                                 PropertyType.DateTime,
-                                testcase.patternDescription,
+                                null,
                             ],
                         },
                         postgresQuery
@@ -573,13 +562,13 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const results = await teamManager.db.postgresQuery(
                     `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    SELECT property_type from posthog_propertydefinition
                     where name=$1
                 `,
                     ['a_timestamp'],
                     'queryForProperty'
                 )
-                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: 'unix_timestamp' })
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime' })
             })
 
             it('does not replace property type if the property was previously saved with a different type', async () => {
