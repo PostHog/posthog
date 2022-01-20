@@ -3,7 +3,7 @@ import './index.scss'
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Modal, Progress, Space, Table, Tabs } from 'antd'
+import { Button, Modal, Progress, Space, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import {
     AsyncMigration,
@@ -19,11 +19,13 @@ import {
     CheckCircleOutlined,
     InfoCircleOutlined,
 } from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 import { SettingUpdateField } from './SettingUpdateField'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { AsyncMigrationDetails } from './AsyncMigrationDetails'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -45,10 +47,94 @@ export function AsyncMigrations(): JSX.Element {
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
 
-    const columns = [
+    const columns: LemonTableColumns<AsyncMigration> = [
+        {
+            title: 'id',
+            dataIndex: 'id',
+        },
+        {
+            title: 'Migration name',
+            dataIndex: 'name',
+        },
+        {
+            title: 'Error cnt',
+            dataIndex: 'error_cnt',
+        },
+        {
+            title: 'Description',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const description = asyncMigration.description
+                return (
+                    <small>
+                        <span>{description.slice(0, 40)}</span>
+                        {description.length > 40 ? (
+                            <a
+                                onClick={() => {
+                                    Modal.info({
+                                        title: `'${asyncMigration.name}' description`,
+                                        content: <pre>{description}</pre>,
+                                        icon: <InfoCircleOutlined />,
+                                        okText: 'Close',
+                                        width: '80%',
+                                    })
+                                }}
+                            >
+                                {` [...]`}
+                            </a>
+                        ) : null}
+                    </small>
+                )
+            },
+        },
+        {
+            title: 'Progress',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const progress = asyncMigration.progress
+                return (
+                    <div>
+                        <Progress percent={progress} />
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const status = asyncMigration.status
+                return <div>{migrationStatusNumberToMessage[status]}</div>
+            },
+        },
+        {
+            title: 'Last operation index',
+            dataIndex: 'current_operation_index',
+        },
+        {
+            title: 'Last query ID',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                return (
+                    <div>
+                        <small>{asyncMigration.current_query_id}</small>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Started at',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const startedAt = asyncMigration.started_at
+                return <div>{humanFriendlyDetailedTime(startedAt)}</div>
+            },
+        },
+        {
+            title: 'Finished at',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const finishedAt = asyncMigration.finished_at
+                return <div>{humanFriendlyDetailedTime(finishedAt)}</div>
+            },
+        },
         {
             title: '',
-            render: function RenderTriggerButton(asyncMigration: AsyncMigration): JSX.Element {
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const status = asyncMigration.status
                 return (
                     <div>
@@ -115,94 +201,6 @@ export function AsyncMigrations(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Migration name',
-            dataIndex: 'name',
-        },
-        {
-            title: 'Description',
-            render: function RenderError(asyncMigration: AsyncMigration): JSX.Element {
-                const description = asyncMigration.description
-                return (
-                    <small>
-                        <span>{description.slice(0, 40)}</span>
-                        {description.length > 40 ? (
-                            <a
-                                onClick={() => {
-                                    Modal.info({
-                                        title: `'${asyncMigration.name}' description`,
-                                        content: <pre>{description}</pre>,
-                                        icon: <InfoCircleOutlined />,
-                                        okText: 'Close',
-                                        width: '80%',
-                                    })
-                                }}
-                            >
-                                {` [...]`}
-                            </a>
-                        ) : null}
-                    </small>
-                )
-            },
-        },
-        {
-            title: 'Progress',
-            dataIndex: 'progress',
-            render: function RenderMigrationProgress(progress: number): JSX.Element {
-                return (
-                    <div>
-                        <Progress percent={progress} />
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            render: function RenderMigrationStatus(status: number): JSX.Element {
-                return <div>{migrationStatusNumberToMessage[status]}</div>
-            },
-        },
-        {
-            title: 'Last operation index',
-            dataIndex: 'current_operation_index',
-        },
-        {
-            title: 'Last query ID',
-            dataIndex: 'current_query_id',
-            render: function RenderQueryId(queryId: string): JSX.Element {
-                return (
-                    <div>
-                        <small>{queryId}</small>
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Celery task ID',
-            dataIndex: 'celery_task_id',
-            render: function RenderCeleryTaskId(celeryTaskId: string): JSX.Element {
-                return (
-                    <div>
-                        <small>{celeryTaskId}</small>
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Started at',
-            dataIndex: 'started_at',
-            render: function RenderStartedAt(startedAt: string): JSX.Element {
-                return <div>{humanFriendlyDetailedTime(startedAt)}</div>
-            },
-        },
-        {
-            title: 'Finished at',
-            dataIndex: 'finished_at',
-            render: function RenderFinishedAt(finishedAt: string): JSX.Element {
-                return <div>{humanFriendlyDetailedTime(finishedAt)}</div>
-            },
-        },
     ]
     return (
         <div className="async-migrations-scene">
@@ -240,11 +238,17 @@ export function AsyncMigrations(): JSX.Element {
                                 </Button>
                             </div>
                             <Space />
-                            <Table
-                                pagination={false}
+                            <LemonTable
+                                pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
                                 columns={columns}
                                 dataSource={asyncMigrations}
+                                expandable={{
+                                    expandedRowRender: function renderExpand(row) {
+                                        return row && <AsyncMigrationDetails asyncMigration={row} />
+                                    },
+                                    rowExpandable: ({ error_cnt }) => error_cnt > 0,
+                                }}
                             />
                         </>
                     ) : activeTab === AsyncMigrationsTab.Settings ? (

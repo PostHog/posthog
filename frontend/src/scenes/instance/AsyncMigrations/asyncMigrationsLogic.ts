@@ -30,6 +30,12 @@ export const migrationStatusNumberToMessage = {
     4: 'Rolled back',
     5: 'Starting',
 }
+
+export interface AsyncMigrationError {
+    id: number
+    description: string
+    created_at: string
+}
 export interface AsyncMigration {
     id: number
     name: string
@@ -43,9 +49,12 @@ export interface AsyncMigration {
     finished_at: string
     posthog_min_version: string
     posthog_max_version: string
+    error_cnt: number
 }
 
-export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration, AsyncMigrationsTab>>({
+export const asyncMigrationsLogic = kea<
+    asyncMigrationsLogicType<AsyncMigration, AsyncMigrationError, AsyncMigrationsTab>
+>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
         triggerMigration: (migrationId: number) => ({ migrationId }),
@@ -81,6 +90,15 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
                     }
                     const settings: InstanceSetting[] = (await api.get('api/instance_settings')).results
                     return settings.filter((setting) => setting.key.includes('ASYNC_MIGRATIONS'))
+                },
+            },
+        ],
+        asyncMigrationErrors: [
+            [] as AsyncMigrationError[],
+            {
+                loadAsyncMigrationErrors: async (migrationId): Promise<AsyncMigrationError[]> => {
+                    console.log(`trying to fetch the errors for ${migrationId}`)
+                    return (await api.get(`api/async_migrations/${migrationId}/errors`)).results
                 },
             },
         ],
