@@ -238,8 +238,11 @@ export const InsightCard: Story = (args) => {
                         apiError={args.apiError}
                         highlighted={args.highlighted}
                         updateColor={setInsightColor}
-                        removeItem={() => setWasItemRemoved(true)}
+                        removeFromDashboard={() => setWasItemRemoved(true)}
                         refresh={() => {}}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        moveToDashboard={() => {}}
                     />
                 )}
                 <InsightCardComponent
@@ -254,8 +257,11 @@ export const InsightCard: Story = (args) => {
                     apiError={false}
                     highlighted={false}
                     updateColor={() => {}}
-                    removeItem={() => {}}
+                    removeFromDashboard={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveToDashboard={() => {}}
                 />
                 <InsightCardComponent
                     insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
@@ -263,8 +269,11 @@ export const InsightCard: Story = (args) => {
                     apiError={false}
                     highlighted={false}
                     updateColor={() => {}}
-                    removeItem={() => {}}
+                    removeFromDashboard={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveToDashboard={() => {}}
                 />
             </div>
         </KeaProvider>

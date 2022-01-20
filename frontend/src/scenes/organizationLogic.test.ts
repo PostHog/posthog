@@ -1,15 +1,13 @@
-import { BuiltLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { mockAPI, MOCK_DEFAULT_ORGANIZATION } from '../lib/api.mock'
 import { AppContext } from '../types'
-import { organizationLogic, OrganizationUpdatePayload } from './organizationLogic'
-import { organizationLogicType } from './organizationLogicType'
+import { organizationLogic } from './organizationLogic'
 
 jest.mock('lib/api')
 
 describe('organizationLogic', () => {
-    let logic: BuiltLogic<organizationLogicType<OrganizationUpdatePayload>>
+    let logic: ReturnType<typeof organizationLogic.build>
 
     mockAPI()
 

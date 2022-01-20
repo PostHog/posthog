@@ -60,6 +60,7 @@ interface LineGraphProps {
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
+    labelGroupType: number | 'people' | 'none'
 }
 
 const noop = (): void => {}
@@ -87,6 +88,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         isCompare = false,
         incompletenessOffsetFromEnd = -1,
         tooltip: tooltipConfig,
+        labelGroupType,
     } = props
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
@@ -355,7 +357,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={
-                                            aggregationLabel(seriesData?.[0]?.action?.math_group_type_index).plural
+                                            labelGroupType === 'people'
+                                                ? 'people'
+                                                : labelGroupType === 'none'
+                                                ? ''
+                                                : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
                                     />

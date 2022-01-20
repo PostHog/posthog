@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { reverseDateMapping } from 'lib/utils'
 
 interface PropertySelectOption extends SelectOption {

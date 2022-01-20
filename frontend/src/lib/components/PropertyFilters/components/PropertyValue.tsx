@@ -5,13 +5,13 @@ import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
-import dayjs, { Dayjs } from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 
-export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
+export const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 type PropValue = {
     id?: number

@@ -10,7 +10,9 @@ from ee.clickhouse.client import sync_execute
 from posthog.models import Person, PersonDistinctId, Team
 
 
-def journeys_for(events_by_person: Dict[str, List[Dict[str, Any]]], team: Team) -> Dict[str, Person]:
+def journeys_for(
+    events_by_person: Dict[str, List[Dict[str, Any]]], team: Team, create_people: bool = True
+) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
 
@@ -36,7 +38,8 @@ def journeys_for(events_by_person: Dict[str, List[Dict[str, Any]]], team: Team) 
     people = {}
     events_to_create = []
     for distinct_id, events in events_by_person.items():
-        people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
+        if create_people:
+            people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
 
         for event in events:
             if "timestamp" not in event:

@@ -14,14 +14,7 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 class EventDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
-        fields = (
-            "id",
-            "name",
-            "volume_30_day",
-            "query_usage_30_day",
-            "created_at",
-            "last_seen_at",
-        )
+        fields = ("id", "name", "volume_30_day", "query_usage_30_day", "created_at", "last_seen_at")
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()

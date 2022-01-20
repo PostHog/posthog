@@ -77,7 +77,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
-                    const settings: InstanceSetting[] = await api.get('api/instance_settings')
+                    const settings: InstanceSetting[] = (await api.get('api/instance_settings')).results
                     return settings.filter((setting) => setting.key.includes('ASYNC_MIGRATIONS'))
                 },
             },

@@ -62,9 +62,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Events & Actions',
     },
-    [Scene.APM]: {
+    [Scene.WebPerformance]: {
         projectBased: true,
-        name: 'APM',
+        name: 'Web Performance',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
@@ -217,7 +217,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
-    [urls.apm()]: Scene.APM,
+    [urls.webPerformance()]: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,

@@ -6,6 +6,7 @@ from typing import List
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult, Variant
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import Variant as CountVariant
+from ee.clickhouse.queries.experiments.trend_experiment_result import calculate_p_value
 
 Probability = float
 
@@ -243,7 +244,7 @@ def calculate_probability_of_winning_for_target_count_data(
         return 0
 
 
-def probability_B_beats_A_count_data(A_count: int, A_exposure: int, B_count: int, B_exposure: int) -> Probability:
+def probability_B_beats_A_count_data(A_count: int, A_exposure: float, B_count: int, B_exposure: float) -> Probability:
     total: Probability = 0
     for i in range(B_count):
         total += exp(
@@ -258,7 +259,7 @@ def probability_B_beats_A_count_data(A_count: int, A_exposure: int, B_count: int
 
 
 def probability_C_beats_A_and_B_count_data(
-    A_count: int, A_exposure: int, B_count: int, B_exposure: int, C_count: int, C_exposure: int
+    A_count: int, A_exposure: float, B_count: int, B_exposure: float, C_count: int, C_exposure: float
 ) -> Probability:
     total: Probability = 0
 
@@ -284,24 +285,31 @@ def probability_C_beats_A_and_B_count_data(
 
 class TestTrendExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
-        variant_a = CountVariant("A", 20, 1)
-        variant_b = CountVariant("B", 30, 1)
+        variant_a = CountVariant("A", 20, 1, 200)
+        variant_b = CountVariant("B", 30, 1, 200)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
         self.assertAlmostEqual(probabilities[1], 0.92, places=1)
 
-        monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
-        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=1)
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
+        self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
+
+        # p value testing matches https://www.evanmiller.org/ab-testing/poisson-means.html
+        p_value = calculate_p_value(variant_a, [variant_b])
+        self.assertAlmostEqual(p_value, 0.20, places=2)
 
     def test_calculate_results_small_numbers(self):
-        variant_a = CountVariant("A", 2, 1)
-        variant_b = CountVariant("B", 1, 1)
+        variant_a = CountVariant("A", 2, 1, 200)
+        variant_b = CountVariant("B", 1, 1, 200)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
         self.assertAlmostEqual(probabilities[1], 0.31, places=1)
 
-        monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
-        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=1)
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
+        self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
+
+        p_value = calculate_p_value(variant_a, [variant_b])
+        self.assertAlmostEqual(p_value, 1, places=2)
 
     def test_calculate_count_data_probability(self):
         probability = probability_B_beats_A_count_data(15, 1, 30, 1)
@@ -313,16 +321,53 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probability, probability2)
 
     def test_calculate_results_with_three_variants(self):
-        variant_a = CountVariant("A", 20, 1)  # control
-        variant_b = CountVariant("B", 26, 1)
-        variant_c = CountVariant("C", 19, 1)
+        variant_a = CountVariant("A", 20, 1, 200)  # control
+        variant_b = CountVariant("B", 26, 1, 200)
+        variant_c = CountVariant("C", 19, 1, 200)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b, variant_c])
         self.assertAlmostEqual(probabilities[0], 0.16, places=1)
         self.assertAlmostEqual(probabilities[1], 0.72, places=1)
         self.assertAlmostEqual(probabilities[2], 0.12, places=1)
 
-        monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_a, [variant_b, variant_c])
+        self.assertAlmostEqual(probabilities[0], computed_probability, places=1)
+
+        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        self.assertAlmostEqual(p_value, 0.46, places=2)
+
+    def test_calculate_significance_when_target_variants_underperform(self):
+        variant_a = CountVariant("A", 250, 1, 200)  # control
+        variant_b = CountVariant("B", 180, 1, 200)
+        variant_c = CountVariant("C", 50, 1, 200)
+
+        # in this case, should choose B as best test variant
+        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        self.assertAlmostEqual(p_value, 0.001, places=3)
+
+        significant = ClickhouseTrendExperimentResult.are_results_significant(variant_a, [variant_b, variant_c])
+        self.assertTrue(significant)
+
+    def test_results_with_different_exposures(self):
+        variant_a = CountVariant("A", 50, 1.3, 260)  # 38
+        variant_b = CountVariant("B", 30, 1.8, 360)  # 16
+        variant_c = CountVariant("C", 20, 0.7, 140)  # 29
+
+        probabilities = ClickhouseTrendExperimentResult.calculate_results(
             variant_a, [variant_b, variant_c]
-        )
-        self.assertAlmostEqual(probabilities[0], monte_carlo_probability, places=1)
+        )  # a is control
+        self.assertAlmostEqual(probabilities[0], 0.86, places=1)
+        self.assertAlmostEqual(probabilities[1], 0, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.13, places=1)
+
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a, variant_c])
+        self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
+
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_a, [variant_b, variant_c])
+        self.assertAlmostEqual(probabilities[0], computed_probability, places=1)
+
+        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        self.assertAlmostEqual(p_value, 0, places=3)
+
+        significant = ClickhouseTrendExperimentResult.are_results_significant(variant_a, [variant_b, variant_c])
+        self.assertTrue(significant)

@@ -1,12 +1,4 @@
-import { BuiltLogic } from 'kea'
-import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import {
-    ApiError,
-    eventsTableLogic,
-    EventsTableLogicProps,
-    OnFetchEventsSuccess,
-    QueryLimit,
-} from 'scenes/events/eventsTableLogic'
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -59,7 +51,7 @@ const filterAfterOneYearAgo = {
 }
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>>
+    let logic: ReturnType<typeof eventsTableLogic.build>
 
     mockAPI(async () => {
         // delay the API response so the default value test can complete before it
@@ -105,12 +97,6 @@ describe('eventsTableLogic', () => {
                 router.actions.push(urls.person('1'))
             },
         })
-
-        it('does not show as scene is events', async () => {
-            await expectLogic(logic).toMatchValues({
-                sceneIsEventsPage: false,
-            })
-        })
     })
 
     describe('when loaded on events page', () => {
@@ -143,7 +129,6 @@ describe('eventsTableLogic', () => {
                 newEvents: [],
                 highlightEvents: {},
                 automaticLoadEnabled: false,
-                sceneIsEventsPage: true,
             })
         })
 
@@ -153,9 +138,7 @@ describe('eventsTableLogic', () => {
             const eventsUrlWithIsDateAfterFilter = `api/projects/${MOCK_TEAM_ID}/events/?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`
 
             describe('when the QUERY_EVENTS_BY_DATETIME flag is on', () => {
-                let dateFlagOnLogic: BuiltLogic<
-                    eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>
-                >
+                let dateFlagOnLogic: ReturnType<typeof eventsTableLogic.build>
                 initKeaTestLogic({
                     logic: eventsTableLogic,
                     props: {
@@ -274,9 +257,7 @@ describe('eventsTableLogic', () => {
             })
 
             describe('when the QUERY_EVENTS_BY_DATETIME flag is off', () => {
-                let dateFlagOffLogic: BuiltLogic<
-                    eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>
-                >
+                let dateFlagOffLogic: ReturnType<typeof eventsTableLogic.build>
                 initKeaTestLogic({
                     logic: eventsTableLogic,
                     props: {
@@ -490,12 +471,6 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     selectedEvent: expect.objectContaining({ id: '4' }),
                 })
-            })
-
-            it('can check if scene is loaded when it is', async () => {
-                await expectLogic(logic, () => {
-                    router.actions.push(urls.events())
-                }).toMatchValues({ sceneIsEventsPage: true })
             })
 
             it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {

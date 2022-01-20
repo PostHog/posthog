@@ -7,7 +7,6 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -115,8 +114,7 @@ export const eventsTableLogic = kea<
         startDownload: true,
     },
 
-    reducers: ({ props }) => ({
-        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
+    reducers: {
         pollingIsActive: [
             true,
             {
@@ -207,7 +205,7 @@ export const eventsTableLogic = kea<
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    }),
+    },
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [

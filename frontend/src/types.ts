@@ -101,6 +101,10 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
+interface OrganizationMetadata {
+    taxonomy_set_events_count: number
+    taxonomy_set_properties_count: number
+}
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -112,6 +116,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
+    metadata?: OrganizationMetadata
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -558,6 +563,9 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
+    PROPERTIES = 'properties',
+    COHORTS = 'cohorts',
+    RELATED = 'related',
 }
 
 export enum LayoutView {
@@ -802,7 +810,6 @@ export enum ChartDisplayType {
     FunnelViz = 'FunnelViz',
 }
 
-export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
@@ -856,7 +863,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsType
+    shown_as?: ShownAsValue
+    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -1243,10 +1251,6 @@ export interface PreflightStatus {
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
-    /** Whether EE code is available (but not necessarily a license). */
-    ee_available?: boolean
-    /** Is ClickHouse used as the analytics database instead of Postgres. */
-    is_clickhouse_enabled?: boolean
     realm: Realm
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends

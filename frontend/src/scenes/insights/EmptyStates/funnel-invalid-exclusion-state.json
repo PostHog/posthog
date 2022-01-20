@@ -238,7 +238,6 @@
                     "can_create_org": true,
                     "email_service_available": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
                         "US/Pacific": -8,

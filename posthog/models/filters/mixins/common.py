@@ -394,3 +394,9 @@ class EntityMathMixin(BaseParamMixin):
     @include_dict
     def entity_math_to_dict(self):
         return {"entity_math": self.target_entity_math} if self.target_entity_math else {}
+
+
+class IncludeRecordingsMixin(BaseParamMixin):
+    @cached_property
+    def include_recordings(self) -> bool:
+        return self._data.get("include_recordings") == "true"

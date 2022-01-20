@@ -48,7 +48,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: Filters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
-        setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -64,12 +63,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     }
                     return newFilters
                 },
-            },
-        ],
-        hasNewKeys: [
-            false,
-            {
-                setHasNewKeys: () => true,
             },
         ],
         activeTab: [
@@ -91,9 +84,8 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             }),
         },
         person: {
-            setPerson: (_, { person }): PersonType | null => {
-                return person
-            },
+            loadPerson: () => null,
+            setPerson: (_, { person }): PersonType | null => person,
         },
     },
     selectors: {
@@ -107,13 +99,10 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             (s) => [s.activeTab, s.showSessionRecordings],
             (activeTab, showSessionRecordings) => {
                 // Ensure the activeTab reflects a valid tab given the available tabs
-                if (!activeTab) {
-                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
-                }
                 if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
                     return PersonsTabType.EVENTS
                 }
-                return activeTab
+                return activeTab || PersonsTabType.PROPERTIES
             },
         ],
         breadcrumbs: [
@@ -174,7 +163,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
 
                 if (!Object.keys(person.properties).includes(key)) {
-                    actions.setHasNewKeys()
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                     action = 'added'
                 } else {
@@ -214,13 +202,11 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    actions.setPerson(null)
                     const response = await api.get(`api/person/?distinct_id=${id}`)
-                    if (!response.results.length) {
-                        router.actions.push(urls.notFound())
+                    const person = response.results[0] || (null as PersonType | null)
+                    if (person) {
+                        actions.reportPersonDetailViewed(person)
                     }
-                    const person = response.results[0] as PersonType
-                    person && actions.reportPersonDetailViewed(person)
                     return person
                 },
             },
@@ -276,7 +262,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
             }
         },
-        '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: personDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
                     if (values.showSessionRecordings) {
@@ -288,8 +274,8 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (person) {
-                    actions.loadPerson(person) // underscore contains the wildcard
+                if (personDistinctId && (!values.person || !values.person.distinct_ids.includes(personDistinctId))) {
+                    actions.loadPerson(personDistinctId) // underscore contains the wildcard
                 }
             }
         },
