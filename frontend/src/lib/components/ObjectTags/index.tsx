@@ -1,6 +1,6 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useEffect, useState } from 'react'
+import React, { CSSProperties, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 
@@ -57,13 +57,6 @@ export function ObjectTags({
         setDeletedTags([...deletedTags, tag])
         onTagDelete && onTagDelete(tag, currentTags, propertyId)
     }
-
-    useEffect(() => {
-        if (!saving) {
-            setAddingNewTag(false)
-            setNewTag('')
-        }
-    }, [saving])
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags.length
@@ -129,7 +122,6 @@ export function ObjectTags({
                                 setNewTag('')
                                 setAddingNewTag(false)
                             }}
-                            disabled={saving}
                             loading={saving}
                             onSearch={(newInput) => {
                                 setNewTag(newInput)
