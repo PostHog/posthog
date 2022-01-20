@@ -142,8 +142,10 @@ describe('eventsTableLogic', () => {
         const orderByTimestamp = '&orderBy=%5B%22-timestamp%22%5D'
         const propertiesAfterOneYearAgo =
             '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D'
-        const propertiesWithFilterValue =
+        const propertiesAfterOneYearAgoWithFilterValue =
             '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%2C%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D'
+        const propertiesWithFilterValue =
+            '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D'
         const emptyProperties = '?properties=%5B%5D'
 
         describe('when the QUERY_EVENTS_BY_DATETIME flag is on', () => {
@@ -180,7 +182,7 @@ describe('eventsTableLogic', () => {
 
                 dateFlagOnLogic.actions.pollEvents()
 
-                expect(api.get).toHaveBeenCalledWith(baseEventsUrl)
+                expect(api.get).toHaveBeenCalledWith(baseEventsUrl + propertiesAfterOneYearAgo + orderByTimestamp)
             })
 
             it('does not remove one year time restriction when setting empty properties', async () => {
@@ -256,7 +258,7 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     exportUrl:
                         `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                        propertiesWithFilterValue +
+                        propertiesAfterOneYearAgoWithFilterValue +
                         orderByTimestamp +
                         afterOneYearAgo,
                 })
