@@ -62,7 +62,7 @@ export class PropertyDefinitionsCache {
         return this.propertyDefinitionsCache.has(teamId)
     }
 
-    shouldUpdate(teamId: number, key: string): boolean {
+    shouldCreate(teamId: number, key: string): boolean {
         const teamCache = this.propertyDefinitionsCache.get(teamId)
         return !teamCache?.has(key) || teamCache?.get(key) === NULL_IN_DATABASE
     }

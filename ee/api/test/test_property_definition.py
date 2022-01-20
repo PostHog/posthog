@@ -1,5 +1,6 @@
 from typing import cast
 
+import dateutil.parser
 import pytest
 from django.db.utils import IntegrityError
 from django.utils import timezone
@@ -58,6 +59,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["name"], "enterprise property")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], ["deprecated"])
+
+        self.assertAlmostEqual(
+            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(), 0, delta=1
+        )
+        self.assertIn("last_seen_at", response_data)
 
     def test_retrieve_create_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

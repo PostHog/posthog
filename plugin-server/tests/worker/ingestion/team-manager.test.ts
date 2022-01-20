@@ -84,13 +84,18 @@ describe('TeamManager()', () => {
                 'testTag'
             )
             await hub.db.postgresQuery(
-                `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6)`,
+                `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
                 [new UUIDT().toString(), 'property_name', false, null, null, 2],
                 'testTag'
             )
             await hub.db.postgresQuery(
-                `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6)`,
+                `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
                 [new UUIDT().toString(), 'numeric_prop', true, null, null, 2],
+                'testTag'
+            )
+            await hub.db.postgresQuery(
+                `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)`,
+                [new UUIDT().toString(), 'property_with_last_seen_at', false, null, null, 2, '2014-03-23T23:23:23Z'],
                 'testTag'
             )
             await hub.db.postgresQuery(
@@ -107,6 +112,7 @@ describe('TeamManager()', () => {
                 property_name: 'efg',
                 number: 4,
                 numeric_prop: 5,
+                property_with_last_seen_at: 42,
             })
             teamManager.teamCache.clear()
 
@@ -183,6 +189,8 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
+                    created_at: expect.any(String),
+                    last_seen_at: null,
                 },
                 {
                     id: expect.any(String),
@@ -193,6 +201,8 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
+                    created_at: expect.any(String),
+                    last_seen_at: null,
                 },
                 {
                     id: expect.any(String),
@@ -203,42 +213,53 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
+                    created_at: expect.any(String),
+                    last_seen_at: '2020-02-27T11:00:36.000Z',
                 },
             ])
         })
 
-        it('sets or updates eventLastSeenCache', async () => {
+        it('sets or updates {event|propertyDefinitions}LastSeenCache', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
 
             expect(teamManager.eventLastSeenCache.length).toEqual(0)
-            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            expect(teamManager.propertyDefinitionsLastSeenCache.length).toEqual(0)
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', { another_test_prop: 'blah' })
             expect(teamManager.eventLastSeenCache.length).toEqual(1)
+            expect(teamManager.propertyDefinitionsLastSeenCache.length).toEqual(1)
             expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150404)
+            expect(teamManager.propertyDefinitionsLastSeenCache.get('[2,"another_test_prop"]')).toEqual(20150404)
 
             // Start tracking queries
             const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
             // New event, 10 sec later (all caches should be hit)
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:14.000Z').getTime())
-            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', { another_test_prop: 'blah' })
             expect(postgresQuery).not.toHaveBeenCalled()
 
             // New event, 1 day later (all caches should be empty)
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-05T04:04:14.000Z').getTime())
-            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', { another_test_prop: 'blah' })
             expect(postgresQuery).toHaveBeenCalledWith(
                 'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
                 [DateTime.now(), 2, 'another_test_event'],
                 'updateEventLastSeenAt'
             )
+            expect(postgresQuery).toHaveBeenCalledWith(
+                'UPDATE posthog_propertydefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
+                [DateTime.now(), 2, 'another_test_prop'],
+                'updatePropertyLastSeenAt'
+            )
 
             // Re-ingest, should add no queries
             postgresQuery.mockClear()
-            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', { another_test_prop: 'blah' })
             expect(postgresQuery).not.toHaveBeenCalled()
-
             expect(teamManager.eventLastSeenCache.length).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
+            expect(teamManager.propertyDefinitionsLastSeenCache.length).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150404)
+            expect(teamManager.propertyDefinitionsLastSeenCache.get('[2,"another_test_prop"]')).toEqual(20150404)
         })
 
         // TODO: #7422 temporary test
@@ -253,10 +274,17 @@ describe('TeamManager()', () => {
             await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}) // Called twice to test both insert and update
             expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
             expect(newTeamManager.eventLastSeenCache.length).toBe(0)
+            expect(newTeamManager.propertyDefinitionsLastSeenCache.length).toBe(0)
             const eventDefinitions = await newHub.db.fetchEventDefinitions()
             for (const def of eventDefinitions) {
-                if (def.name === 'disabled-feature') {
+                if (def.name === '$pageview') {
                     expect(def.last_seen_at).toBe(null)
+                }
+            }
+            const propertyDefinitions = await newHub.db.fetchPropertyDefinitions()
+            for (const propDef of propertyDefinitions) {
+                if (propDef.name === '$pageview') {
+                    expect(propDef.last_seen_at).toBe(null)
                 }
             }
 

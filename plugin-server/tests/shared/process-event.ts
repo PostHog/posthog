@@ -564,6 +564,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -574,6 +576,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -584,6 +588,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -594,6 +600,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -604,6 +612,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -614,6 +624,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -624,6 +636,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -634,6 +648,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -644,6 +660,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -654,6 +672,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -664,6 +684,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
     })
@@ -2010,6 +2032,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -2020,6 +2044,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
             {
                 id: expect.any(String),
@@ -2030,6 +2056,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
 

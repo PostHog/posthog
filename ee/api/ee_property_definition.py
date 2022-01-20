@@ -15,6 +15,8 @@ class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
             "description",
             "tags",
             "is_numerical",
+            "created_at",
+            "last_seen_at",
             "updated_at",
             "updated_by",
             "query_usage_30_day",
@@ -22,7 +24,15 @@ class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
             "property_type",
             "property_type_format",
         )
-        read_only_fields = ["id", "name", "is_numerical", "query_usage_30_day", "is_event_property"]
+        read_only_fields = [
+            "id",
+            "name",
+            "is_numerical",
+            "query_usage_30_day",
+            "is_event_property",
+            "created_at",
+            "last_seen_at",
+        ]
 
     def update(self, event_definition: EnterprisePropertyDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user

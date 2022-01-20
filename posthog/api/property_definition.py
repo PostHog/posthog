@@ -38,6 +38,8 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "query_usage_30_day",
             "property_type",
             "property_type_format",
+            "created_at",
+            "last_seen_at",
             # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
         )
@@ -107,7 +109,7 @@ class PropertyDefinitionViewSet(
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                 """,
                 params=params,
             )
@@ -117,7 +119,7 @@ class PropertyDefinitionViewSet(
                 SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                 """,
                 params=params,
             )

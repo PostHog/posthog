@@ -1,5 +1,6 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
@@ -37,8 +38,10 @@ class PropertyDefinition(UUIDModel):
     )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
-
     property_type_format = models.CharField(max_length=50, choices=PropertyFormat.choices, blank=True, null=True)
+
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
+    last_seen_at: models.DateTimeField = models.DateTimeField(default=None, null=True)
 
     # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(

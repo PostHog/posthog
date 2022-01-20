@@ -818,6 +818,8 @@ export interface PropertyDefinitionType {
     team_id: number
     property_type?: PropertyType
     property_type_format?: PropertyTypeFormat
+    last_seen_at: string // DateTime
+    created_at: string // DateTime
 }
 
 export interface EventPropertyType {
