@@ -12,7 +12,7 @@ export interface PropertyFilterBaseProps {
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: AnyPropertyFilter[]) => void
     urlOverride?: string
 }
 
