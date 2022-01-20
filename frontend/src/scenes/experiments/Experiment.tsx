@@ -19,7 +19,6 @@ import {
     InsightType,
     MultivariateFlagVariant,
     PropertyFilter,
-    EntityFilter,
 } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
@@ -844,7 +843,7 @@ export function ExperimentPreview({
                                 <div className="card-secondary mb-05">
                                     {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
                                 </div>
-                                {experiment?.filters?.events?.map((event: EntityFilter, idx: number) => (
+                                {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
                                             <div className="preview-conversion-goal-num">
