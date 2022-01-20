@@ -33,7 +33,7 @@ export function PayGatePage({
                         to={upgradeLink}
                         type="primary"
                         data-attr={`${featureKey}-upgrade`}
-                        className="LemonLinkButton pay-action-btn"
+                        className="LemonLinkButton"
                     >
                         Upgrade now to get {identifierToHuman(featureKey, 'title')}
                     </LinkButton>
@@ -44,7 +44,7 @@ export function PayGatePage({
                         to={`${docsLink}?utm_medium=in-product&utm_campaign=${featureKey}-upgrade-learn-more`}
                         target="_blank"
                         data-attr={`${featureKey}-learn-more`}
-                        className="LemonLinkButton pay-action-btn"
+                        className="LemonLinkButton"
                     >
                         Check the docs. Learn how to use <IconOpenInNew style={{ marginLeft: 8 }} />
                     </LinkButton>
