@@ -261,7 +261,8 @@ export const eventsTableLogic = kea<
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            let chosenProperties: PropertyFilter[] = values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]
+            const queryByDateTime = values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]
+            let chosenProperties: PropertyFilter[] = queryByDateTime
                 ? [
                       {
                           key: '$time',

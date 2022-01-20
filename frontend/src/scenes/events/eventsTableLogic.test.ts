@@ -15,6 +15,8 @@ import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
@@ -48,6 +50,13 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
     type: 't',
     value: 'v',
 })
+
+const filterAfterOneYearAgo = {
+    key: '$time',
+    operator: PropertyOperator.IsDateAfter,
+    type: 'event',
+    value: '-365d',
+}
 
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>>
@@ -147,14 +156,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions([logic.actionCreators.fetchEvents()])
                     .toMatchValues({
-                        properties: [
-                            {
-                                key: '$time',
-                                operator: PropertyOperator.IsDateAfter,
-                                type: 'event',
-                                value: '-365d',
-                            },
-                        ],
+                        properties: [filterAfterOneYearAgo],
                     })
             })
 
@@ -461,6 +463,55 @@ describe('eventsTableLogic', () => {
             })
 
             describe('the properties', () => {
+                describe('when query by date feature flag is off', () => {
+                    it('can set empty properties when the query by date flag is off', async () => {
+                        const variants = {}
+                        variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = false
+
+                        await expectLogic(logic, () => {
+                            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+                            logic.actions.setProperties([])
+                        }).toMatchValues({ properties: [] })
+
+                        await expectLogic(logic, () => {
+                            logic.actions.setProperties([{} as any])
+                        }).toMatchValues({ properties: [] })
+                    })
+                })
+
+                describe('when query by date feature flag is on', () => {
+                    let featureFlaggedLogic: BuiltLogic<
+                        eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>
+                    >
+                    initKeaTestLogic({
+                        logic: eventsTableLogic,
+                        props: {
+                            key: 'test-key',
+                            sceneUrl: urls.person('1'),
+                            disableActions: true,
+                        },
+                        onLogic: (l) => (featureFlaggedLogic = l),
+                        beforeLogic: () => {
+                            const variants = {}
+                            variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = true
+                            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+                            router.actions.push(urls.events())
+                        },
+                    })
+
+                    it('does not remove one year time restriction when setting empty properties', async () => {
+                        await expectLogic(featureFlaggedLogic, () => {
+                            featureFlaggedLogic.actions.setProperties([])
+                        }).toMatchValues({
+                            properties: [filterAfterOneYearAgo],
+                        })
+
+                        await expectLogic(featureFlaggedLogic, () => {
+                            featureFlaggedLogic.actions.setProperties([{} as any])
+                        }).toMatchValues({ properties: [filterAfterOneYearAgo] })
+                    })
+                })
+
                 it('can set an object inside the array', async () => {
                     const propertyFilter = makePropertyFilter()
                     await expectLogic(logic, () => {
