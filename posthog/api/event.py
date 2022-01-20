@@ -9,16 +9,30 @@ from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.element import chain_to_elements
+from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
+from ee.clickhouse.models.person import get_persons_by_distinct_ids
+from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
+from ee.clickhouse.sql.events import (
+    GET_CUSTOM_EVENTS,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
+    SELECT_ONE_EVENT_SQL,
+)
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
+from posthog.models.team import Team
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
 from posthog.utils import convert_property_value, flatten, relative_date_parse
@@ -43,134 +57,15 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class EventSerializer(serializers.HyperlinkedModelSerializer):
-    elements = serializers.SerializerMethodField()
-    person = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Event
-        fields = [
-            "id",
-            "distinct_id",
-            "properties",
-            "elements",
-            "event",
-            "timestamp",
-            "person",
-        ]
-
-    def get_person(self, event: Event) -> Any:
-        if hasattr(event, "serialized_person"):
-            return event.serialized_person  # type: ignore
-        return None
-
-    def get_elements(self, event: Event):
-        if not event.elements_hash:
-            return []
-        if hasattr(event, "elements_group_cache"):
-            if event.elements_group_cache:  # type: ignore
-                return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
-                    many=True,
-                ).data
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
-            .element_set.all()
-            .order_by("order")
-        )
-        return ElementSerializer(elements, many=True).data
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        if self.context.get("format") == "csv":
-            representation.pop("elements")
-        return representation
-
-
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
-    queryset = Event.objects.all()
-    serializer_class = EventSerializer
+    serializer_class = ClickhouseEventSerializer
     pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # Return at most this number of events in CSV export
     CSV_EXPORT_DEFAULT_LIMIT = 10_000
     CSV_EXPORT_MAXIMUM_LIMIT = 100_000
-
-    def get_queryset(self):
-        queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
-        if self.action == "list" or self.action == "actions":
-            queryset = self._filter_request(self.request, queryset)
-        order_by = self._parse_order_by(self.request)
-        return queryset.order_by(*order_by)
-
-    def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
-        for key, value in request.GET.items():
-            if key == "event":
-                queryset = queryset.filter(event=request.GET["event"])
-            elif key == "after":
-                queryset = queryset.filter(timestamp__gt=request.GET["after"])
-            elif key == "before":
-                queryset = queryset.filter(timestamp__lt=request.GET["before"])
-            elif key == "person_id":
-                queryset = queryset.filter(
-                    distinct_id__in=PersonDistinctId.objects.filter(
-                        team_id=self.team_id, person_id=request.GET["person_id"]
-                    ).values("distinct_id")
-                )
-            elif key == "distinct_id":
-                queryset = queryset.filter(distinct_id=request.GET["distinct_id"])
-            elif key == "action_id":
-                queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
-            elif key == "properties":
-                try:
-                    properties = json.loads(value)
-                except json.decoder.JSONDecodeError:
-                    raise ValidationError("Properties are unparsable!")
-
-                filter = Filter(data={"properties": properties})
-                queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
-        return queryset
-
-    def _prefetch_events(self, events: List[Event]) -> List[Event]:
-        team_id = self.team_id
-        distinct_ids = []
-        hash_ids = []
-        for event in events:
-            distinct_ids.append(event.distinct_id)
-            if event.elements_hash:
-                hash_ids.append(event.elements_hash)
-        people = Person.objects.filter(
-            team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
-        ).prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(team_id=team_id, hash__in=hash_ids).prefetch_related("element_set")
-        else:
-            groups = ElementGroup.objects.none()
-        for event in events:
-            try:
-                for person in people:
-                    if event.distinct_id in person.distinct_ids:
-                        event.serialized_person = {  # type: ignore
-                            "is_identified": person.is_identified,
-                            "distinct_ids": [
-                                person.distinct_ids[0],
-                            ],  # only send the first one to avoid a payload bloat
-                            "properties": {
-                                key: person.properties[key]
-                                for key in ["email", "name", "username"]
-                                if key in person.properties
-                            },
-                        }
-                        break
-            except IndexError:
-                event.serialized_person = None  # type: ignore
-            try:
-                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]  # type: ignore
-            except IndexError:
-                event.elements_group_cache = None  # type: ignore
-        return events
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
@@ -188,10 +83,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
-        monday = now() + timedelta(days=-now().weekday())
-        # Don't allow events too far into the future
-        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
-        next_url: Optional[str] = None
 
         if self.request.GET.get("limit", None):
             limit = int(self.request.GET.get("limit"))  # type: ignore
@@ -202,86 +93,105 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         if is_csv_request:
             limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
-            events = queryset[:limit]
-        else:
-            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[: (limit + 1)]
-            if len(events) < limit + 1:
-                events = queryset[: limit + 1]
 
-            if len(events) > limit:
-                next_url = self._build_next_url(request, events[limit - 1].timestamp)
+        team = self.team
+        filter = Filter(request=request, team=self.team)
 
-            events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
+        query_result = self._query_events_list(filter, team, request, limit=limit)
 
-        prefetched_events = self._prefetch_events(list(events))
+        # Retry the query without the 1 day optimization
+        if len(query_result) < limit and not request.GET.get("after"):
+            query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
-        return response.Response(
+        result = ClickhouseEventSerializer(
+            query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
+        ).data
+
+        next_url: Optional[str] = None
+        if not is_csv_request and len(query_result) > limit:
+            next_url = self._build_next_url(request, query_result[limit - 1][3])
+
+        return response.Response({"next": next_url, "results": result})
+
+    def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
+        distinct_ids = [event[5] for event in query_result]
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        distinct_to_person: Dict[str, Person] = {}
+        for person in persons:
+            for distinct_id in person.distinct_ids:
+                distinct_to_person[distinct_id] = person
+        return distinct_to_person
+
+    def _query_events_list(
+        self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
+    ) -> List:
+        limit += 1
+        limit_sql = "LIMIT %(limit)s"
+        order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
+
+        conditions, condition_params = determine_event_conditions(
+            team,
             {
-                "next": next_url,
-                "results": EventSerializer(
-                    prefetched_events, many=True, context={"format": self.request.accepted_renderer.format}
-                ).data,
-            }
+                "after": (now() - timedelta(days=1)).isoformat(),
+                "before": (now() + timedelta(seconds=5)).isoformat(),
+                **request.GET.dict(),
+            },
+            long_date_from,
         )
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, has_person_id_joined=False)
+
+        if request.GET.get("action_id"):
+            try:
+                action = Action.objects.get(pk=request.GET["action_id"], team_id=team.pk)
+            except Action.DoesNotExist:
+                return []
+            if action.steps.count() == 0:
+                return []
+            action_query, params = format_action_filter(action)
+            prop_filters += " AND {}".format(action_query)
+            prop_filter_params = {**prop_filter_params, **params}
+
+        if prop_filters != "":
+            return sync_execute(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                ),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+            )
+        else:
+            return sync_execute(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+                {"team_id": team.pk, "limit": limit, **condition_params},
+            )
+
+    def retrieve(
+        self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
+    ) -> response.Response:
+        if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
+            return response.Response(
+                {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
+            )
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        if len(query_result) == 0:
+            raise NotFound(detail=f"No events exist for event UUID {pk}")
+        res = ClickhouseEventSerializer(query_result[0], many=False).data
+        return response.Response(res)
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_values(request)
-        return response.Response(result)
-
-    def get_values(self, request: request.Request) -> List[Dict[str, Any]]:
+    def values(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
         key = request.GET.get("key")
-        params: List[Optional[Union[str, int]]] = [key, key]
-
+        team = self.team
+        result = []
+        flattened = []
         if key == "custom_event":
-            event_names = (
-                Event.objects.filter(team_id=self.team_id)
-                .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave", "$screen"]))
-                .values("event")
-                .distinct()
-            )
-            return [{"name": value["event"]} for value in event_names]
-
-        if request.GET.get("value"):
-            where = " AND properties ->> %s ILIKE %s"
-            params.append(key)
-            params.append("%{}%".format(request.GET["value"]))
-        else:
-            where = ""
-
-        params.append(self.team_id)
-        params.append(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-        params.append(timezone.now().strftime("%Y-%m-%d 23:59:59"))
-
-        # This samples a bunch of events with that property, and then orders them by most popular in that sample
-        # This is much quicker than trying to do this over the entire table
-        values = Event.objects.raw(
-            """
-            SELECT
-                value, COUNT(1) as id
-            FROM (
-                SELECT
-                    ("posthog_event"."properties" -> %s) as "value"
-                FROM
-                    "posthog_event"
-                WHERE
-                    ("posthog_event"."properties" -> %s) IS NOT NULL {} AND
-                    ("posthog_event"."team_id" = %s) AND
-                    ("posthog_event"."timestamp" >= %s) AND
-                    ("posthog_event"."timestamp" <= %s)
-                LIMIT 10000
-            ) as "value"
-            GROUP BY value
-            ORDER BY id DESC
-            LIMIT 50;
-        """.format(
-                where
-            ),
-            params,
-        )
-        flattened = flatten([json.loads(value.value) for value in values])
-        return [{"name": convert_property_value(value)} for value in flattened]
-
-
-class LegacyEventViewSet(EventViewSet):
-    legacy_team_compatibility = True
+            events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
+            return response.Response([{"name": event[0]} for event in events])
+        elif key:
+            result = get_property_values_for_key(key, team, value=request.GET.get("value"))
+            for value in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append(json.loads(value[0]))
+                except json.decoder.JSONDecodeError:
+                    flattened.append(value[0])
+        return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
