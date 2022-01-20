@@ -70,7 +70,7 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'p
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
-    title?: string
+    title?: React.ReactNode
     highlight?: 'beta' | 'new'
 }
 
@@ -165,7 +165,7 @@ function Pages(): JSX.Element {
                                     pinnedDashboards.map((dashboard) => (
                                         <PageButton
                                             key={dashboard.id}
-                                            title={dashboard.name}
+                                            title={dashboard.name || <i>Untitled</i>}
                                             identifier={dashboard.id}
                                             onClick={() => setArePinnedDashboardsShown(false)}
                                             to={urls.dashboard(dashboard.id)}
@@ -202,8 +202,8 @@ function Pages(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
                 <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
             )}
-            {featureFlags[FEATURE_FLAGS.APM] && (
-                <PageButton icon={<CoffeeOutlined />} identifier={Scene.APM} to={urls.apm()} />
+            {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />

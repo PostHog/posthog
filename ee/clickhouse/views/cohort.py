@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 from django.conf import settings
 from django.db.models.expressions import F
@@ -85,14 +85,14 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     else:
         query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, substitute_params(query, params))
+    insert_actors_into_cohort_by_query(cohort, query, params)
 
 
-def insert_actors_into_cohort_by_query(cohort: Cohort, query: str):
+def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any]):
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), "team_id": cohort.team.pk},
+            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), "team_id": cohort.team.pk, **params},
         )
 
         cohort.is_calculating = False

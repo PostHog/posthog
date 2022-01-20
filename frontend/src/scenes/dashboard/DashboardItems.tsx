@@ -6,7 +6,7 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile } from 'lib/utils'
-import { InsightModel, DashboardMode } from '~/types'
+import { InsightModel, DashboardMode, DashboardType } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -37,7 +37,7 @@ export function DashboardItems(): JSX.Element {
         setDiveDashboard,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
-    const { duplicateInsight } = useActions(insightsModel)
+    const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
@@ -106,8 +106,13 @@ export function DashboardItems(): JSX.Element {
                             apiError={refreshStatus[item.short_id]?.error || false}
                             highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                             updateColor={(color) => updateItemColor(item.id, color)}
-                            removeItem={() => removeItem(item.id)}
+                            removeFromDashboard={() => removeItem(item.id)}
                             refresh={() => refreshAllDashboardItems([item])}
+                            rename={() => renameInsight(item)}
+                            duplicate={() => duplicateInsight(item)}
+                            moveToDashboard={(dashboardId: DashboardType['id']) =>
+                                duplicateInsight(item, dashboardId, true)
+                            }
                         />
                     ) : (
                         <div key={item.short_id} className="dashboard-item-wrapper">
