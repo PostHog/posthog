@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Type
 
 from django.core.cache import cache
@@ -10,6 +11,20 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelBase,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+    ClickhouseFunnelUnordered,
+)
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.paths.paths import ClickhousePaths
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
@@ -20,7 +35,10 @@ from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_STICKINESS,
+    PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
+    FunnelOrderType,
+    FunnelVizType,
 )
 from posthog.decorators import CacheType, cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
@@ -241,17 +259,17 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
+
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
+                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = stickiness.Stickiness().run(stickiness_filter, team)
+            result = ClickhouseStickiness().run(stickiness_filter, team)
         else:
-            result = trends.Trends().run(filter, team)
+            trends_query = ClickhouseTrends()
+            result = trends_query.run(filter, team)
 
         self._refresh_dashboard(request=request)
-
         return {"result": result}
 
     # ******************************************
@@ -275,30 +293,49 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        refresh = should_refresh(request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
-        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
-        result = {"loading": True}
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+            funnel_order_class = ClickhouseFunnelUnordered
+        elif filter.funnel_order_type == FunnelOrderType.STRICT:
+            funnel_order_class = ClickhouseFunnelStrict
 
-        if refresh:
-            cache.delete(cache_key)
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+            }
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            return {
+                "result": ClickhouseFunnelTimeToConvert(
+                    team=team, filter=filter, funnel_order_class=funnel_order_class
+                ).run()
+            }
         else:
-            cached_result = get_safe_cache(cache_key)
-            if cached_result:
-                task_id = cached_result.get("task_id", None)
-                if not task_id:
-                    return {"result": cached_result["result"]}
-                else:
-                    return {"result": result}
+            return {"result": funnel_order_class(team=team, filter=filter).run()}
 
-        payload = {"filter": filter.toJSON(), "team_id": team.pk}
-        task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
-        if not task.ready():
-            task_id = task.id
-            cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
+    # ******************************************
+    # /projects/:id/insights/funnel/correlation
+    #
+    # params:
+    # - params are the same as for funnel
+    #
+    # Returns significant events, i.e. those that are correlated with a person
+    # making it through a funnel
+    # ******************************************
+    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel_correlation(request)
+        return Response(result)
 
-        self._refresh_dashboard(request=request)
+    @cached_function
+    def calculate_funnel_correlation(self, request: request.Request) -> Dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request)
+
+        base_uri = request.build_absolute_uri("/")
+        result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()
+
         return {"result": result}
 
     # ******************************************
@@ -318,9 +355,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         data = {}
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request)
+        filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = retention.Retention(base_uri=base_uri).run(filter, team)
+        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************
@@ -338,8 +375,20 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={**request.data, "insight": INSIGHT_PATHS})
-        resp = paths.Paths().run(filter=filter, team=team)
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
+
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
+        if funnel_filter_data:
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
+
+        #  backwards compatibility
+        if filter.path_type:
+            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+
         return {"result": resp}
 
     # Checks if a dashboard id has been set and if so, update the refresh date
