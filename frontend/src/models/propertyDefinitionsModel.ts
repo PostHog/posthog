@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import dayjs from 'dayjs'
+import { reverseDateMapping } from 'lib/utils'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -133,6 +134,10 @@ export const propertyDefinitionsModel = kea<
                 return (propertyName: string | undefined, valueToFormat: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
+                    }
+
+                    if (typeof valueToFormat === 'string' && reverseDateMapping[valueToFormat]) {
+                        return reverseDateMapping[valueToFormat]
                     }
 
                     const propertyDefinition = propertyName

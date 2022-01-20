@@ -120,6 +120,10 @@ describe('the property definitions model', () => {
         expect(logic.values.formatForDisplay('$time', undefined)).toEqual(null)
     })
 
+    it('can format a relative date value for display', () => {
+        expect(logic.values.formatForDisplay('$time', '-365d')).toEqual('Last 365 days')
+    })
+
     it('can format an array of datetime string for display', () => {
         expect(logic.values.formatForDisplay('$time', ['1641368752.908', 1641368752.908])).toEqual([
             '2022-01-05 07:45:52',
