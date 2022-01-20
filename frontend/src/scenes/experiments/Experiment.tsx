@@ -1,5 +1,19 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Collapse, Form, Input, InputNumber, Progress, Row, Select, Tag, Tooltip } from 'antd'
+import {
+    Button,
+    Card,
+    Col,
+    Collapse,
+    Form,
+    Input,
+    InputNumber,
+    Progress,
+    Row,
+    Select,
+    Slider,
+    Tag,
+    Tooltip,
+} from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -737,7 +751,8 @@ export function ExperimentPreview({
     runningTime,
     sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId, editingExistingExperiment } = useValues(experimentLogic)
+    const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
@@ -745,22 +760,69 @@ export function ExperimentPreview({
             <Row>
                 <Col span={experimentId === 'new' ? 24 : 12}>
                     <Row className="experiment-preview-row">
-                        <Col>
-                            <div className="card-secondary mb-05">Preview</div>
+                        {experimentId !== 'new' ? (
+                            <Col>
+                                <div className="card-secondary mb-05">Preview</div>
+                                <div>
+                                    <span className="mr-05">
+                                        <b>{experiment?.name}</b>
+                                    </span>
+                                    {experiment?.feature_flag_key && (
+                                        <CopyToClipboardInline
+                                            explicitValue={experiment.feature_flag_key}
+                                            iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                            description="feature flag key"
+                                        >
+                                            <span className="text-muted">{experiment.feature_flag_key}</span>
+                                        </CopyToClipboardInline>
+                                    )}
+                                </div>
+                            </Col>
+                        ) : (
                             <div>
-                                <span className="mr-05">
-                                    <b>{experiment?.name}</b>
-                                </span>
-                                {experiment?.feature_flag_key && (
-                                    <CopyToClipboardInline
-                                        explicitValue={experiment.feature_flag_key}
-                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                        description="feature flag key"
-                                    >
-                                        <span className="text-muted">{experiment.feature_flag_key}</span>
-                                    </CopyToClipboardInline>
-                                )}
+                                <div> Experiment preview </div>
+                                <div>
+                                    Here are the baseline metrics for your experiment. Adjust your minimum detectible
+                                    threshold to adjust for the smallest conversion value you’ll accept, and the
+                                    experiment duration.{' '}
+                                </div>
                             </div>
+                        )}
+                    </Row>
+                    <Row>
+                        <Col span={24}>
+                            <div>Minimum acceptable improvement</div>
+                            <Row className="mde-slider">
+                                <Col span={12}>
+                                    <Slider
+                                        defaultValue={5}
+                                        value={experiment?.parameters.minimum_detectable_effect}
+                                        min={1}
+                                        max={50}
+                                        trackStyle={{ background: 'var(--primary)' }}
+                                        handleStyle={{ background: 'var(--primary)' }}
+                                        onChange={(value) => {
+                                            setNewExperimentData({
+                                                parameters: { minimum_detectable_effect: value },
+                                            })
+                                        }}
+                                        tipFormatter={(value) => `${value}%`}
+                                    />
+                                </Col>
+                                <InputNumber
+                                    min={1}
+                                    max={50}
+                                    defaultValue={5}
+                                    formatter={(value) => `${value}%`}
+                                    style={{ margin: '0 16px' }}
+                                    value={experiment?.parameters.minimum_detectable_effect}
+                                    onChange={(value) => {
+                                        setNewExperimentData({
+                                            parameters: { minimum_detectable_effect: value },
+                                        })
+                                    }}
+                                />
+                            </Row>
                         </Col>
                     </Row>
                     <Row className="experiment-preview-row">
@@ -835,22 +897,24 @@ export function ExperimentPreview({
                                 </div>
                             </Col>
                         </Row>
-                        <Row>
-                            <Col className="mr">
-                                <div className="card-secondary mt">Start date</div>
-                                {experiment?.start_date ? (
-                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </Col>
-                            {experiment?.end_date && (
-                                <Col className="ml">
-                                    <div className="card-secondary mt">Completed date</div>
-                                    <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                        {experimentId !== 'new' && (
+                            <Row>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experiment?.start_date ? (
+                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
                                 </Col>
-                            )}
-                        </Row>
+                                {experiment?.end_date && (
+                                    <Col className="ml">
+                                        <div className="card-secondary mt">Completed date</div>
+                                        <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                    </Col>
+                                )}
+                            </Row>
+                        )}
                     </Row>
                     {experimentId !== 'new' && (
                         <Row className="experiment-preview-row">
@@ -875,7 +939,7 @@ export function ExperimentPreview({
                         </Row>
                     )}
                 </Col>
-                {experimentId !== 'new' && (
+                {experimentId !== 'new' && !editingExistingExperiment && (
                     <Col span={12} className="pl">
                         <div className="card-secondary mb">Feature flag usage and implementation</div>
                         <Row justify="space-between" className="mb-05">
