@@ -1,0 +1,41 @@
+@import '~/vars';
+
+.pay-gate-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-top: $default_spacing;
+
+    h2 {
+        font-size: 32px;
+        font-weight: 600;
+        margin-bottom: 8px;
+
+        .highlight {
+            font-weight: bold;
+        }
+    }
+
+    .pay-caption {
+        max-width: 500px;
+    }
+
+    .pay-buttons {
+        margin-top: $default_spacing;
+        width: 320px;
+        max-width: 90%;
+
+        .ant-btn {
+            margin-bottom: $default_spacing;
+        }
+    }
+
+    // .pay-action-btn {
+    //     min-width: 300px;
+    //     margin-bottom: $default_spacing;
+    //     display: flex;
+    //     align-items: center;
+    //     justify-content: center;
+    // }
+}

@@ -63,6 +63,7 @@ class License(models.Model):
         AvailableFeature.CORRELATION_ANALYSIS,
         AvailableFeature.GROUP_ANALYTICS,
         AvailableFeature.MULTIVARIATE_FLAGS,
+        AvailableFeature.EXPERIMENTATION,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
