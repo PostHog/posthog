@@ -1,10 +1,10 @@
 import json
-import logging
 import os
 from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
+import structlog
 from django.conf import settings
 from django.db import connection
 from psycopg2 import sql
@@ -18,7 +18,7 @@ from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
