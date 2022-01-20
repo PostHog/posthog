@@ -11,6 +11,45 @@ from posthog.test.base import APIBaseTest
 
 
 class TestExperimentCRUD(APIBaseTest):
+    def test_getting_archived_experiments(self):
+        archived_experiment = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "a-b-tests",
+                "parameters": {"archived": True},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+        non_archived_experiment = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "a-b-tests",
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments?archived=true",)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], archived_experiment.json()["id"])
+
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
