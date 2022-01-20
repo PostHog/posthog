@@ -82,9 +82,7 @@ class ClickhouseEventsViewSet(EventViewSet):
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
-    @extend_schema(
-        parameters=[PropertiesSerializer(required=False)],
-    )
+    @extend_schema(parameters=[PropertiesSerializer(required=False)],)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -108,11 +106,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
         result = ClickhouseEventSerializer(
-            query_result[0:limit],
-            many=True,
-            context={
-                "people": self._get_people(query_result, team),
-            },
+            query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
         next_url: Optional[str] = None
@@ -123,14 +117,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
-            return Response(
-                {
-                    "detail": "Invalid UUID",
-                    "code": "invalid",
-                    "type": "validation_error",
-                },
-                status=400,
-            )
+            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400,)
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")

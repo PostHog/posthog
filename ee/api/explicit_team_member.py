@@ -92,8 +92,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
 
 
 class ExplicitTeamMemberViewSet(
-    StructuredViewSetMixin,
-    viewsets.ModelViewSet,
+    StructuredViewSetMixin, viewsets.ModelViewSet,
 ):
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
     pagination_class = None
