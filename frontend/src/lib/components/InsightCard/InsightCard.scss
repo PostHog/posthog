@@ -12,6 +12,7 @@
     overflow: hidden;
     &--highlighted {
         border-color: var(--primary);
+        outline: 1px solid var(--primary);
     }
     .InsightMeta {
         border-bottom: 1px solid var(--border);
