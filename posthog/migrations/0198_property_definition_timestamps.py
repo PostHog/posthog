@@ -5,6 +5,7 @@ import json
 import django.utils.timezone
 from django.conf import settings
 from django.db import migrations, models
+from django.db.models import Case, Q, When
 
 from posthog.constants import AnalyticsDBMS
 
@@ -17,7 +18,8 @@ def set_created_at(apps, schema_editor):
 
     EventDefinition = apps.get_model("posthog", "EventDefinition")
     PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
-    for instance in EventDefinition.objects.filter(created_at=None):
+
+    for instance in EventDefinition.objects.all():
         created_at = None
         property_keys = []
         if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
@@ -47,7 +49,7 @@ def set_created_at(apps, schema_editor):
         if created_at and property_keys:
             # Update all property definitions at once.
             properties = PropertyDefinition.objects.filter(team=instance.team, name__in=property_keys)
-            properties.update(created_at=created_at)
+            properties.update(created_at=Case(When(Q(created_at__lt=created_at) | Q(created_at=None), then=created_at)))
 
 
 def undo_set_created_at(apps, schema_editor):

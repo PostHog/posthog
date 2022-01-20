@@ -105,7 +105,8 @@ export class TeamManager {
 
     private async syncEventDefinitions(team: Team, event: string) {
         const cacheKey = JSON.stringify([team.id, event])
-        const cacheTime = parseInt(DateTime.now().toFormat('yyyyMMdd', { timeZone: 'UTC' }))
+        const now = DateTime.now()
+        const cacheTime = parseInt(now.toFormat('yyyyMMdd', { timeZone: 'UTC' }))
 
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
@@ -113,17 +114,17 @@ export class TeamManager {
                 status.info('Inserting new event definition with last_seen_at')
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+VALUES ($1, $2, NULL, NULL, $3, $4, $5) ON CONFLICT
 ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
-                    [new UUIDT().toString(), event, team.id, DateTime.now()],
+                    [new UUIDT().toString(), event, team.id, now],
                     'insertEventDefinition'
                 )
                 this.eventLastSeenCache.set(cacheKey, cacheTime)
             } else {
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
-VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
-                    [new UUIDT().toString(), event, team.id],
+VALUES ($1, $2, NULL, NULL, $3, $4) ON CONFLICT DO NOTHING`,
+                    [new UUIDT().toString(), event, team.id, now],
                     'insertEventDefinition'
                 )
             }
@@ -134,7 +135,7 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                 if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
                     await this.db.postgresQuery(
                         `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
-                        [DateTime.now(), team.id, event],
+                        [now, team.id, event],
                         'updateEventLastSeenAt'
                     )
                     this.eventLastSeenCache.set(cacheKey, cacheTime)
@@ -168,7 +169,8 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
             const cacheKey = JSON.stringify([team.id, key])
-            const cacheTime = parseInt(DateTime.now().toFormat('yyyyMMdd', { timeZone: 'UTC' }))
+            const now = DateTime.now()
+            const cacheTime = parseInt(now.toFormat('yyyyMMdd', { timeZone: 'UTC' }))
 
             const isNumerical = typeof value === 'number'
             const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
@@ -181,18 +183,12 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                         `
 INSERT INTO posthog_propertydefinition
 (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, last_seen_at, created_at)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, NOW())
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, $8)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL, last_seen_at=$7`,
-                        [
-                            new UUIDT().toString(),
-                            key,
-                            isNumerical,
-                            team.id,
-                            propertyType,
-                            propertyTypeFormat,
-                            DateTime.now(),
-                        ],
+DO UPDATE SET property_type = CASE WHEN posthog_propertydefinition.property_type IS NULL THEN $5 ELSE posthog_propertydefinition.property_type END,
+    property_type_format = CASE WHEN posthog_propertydefinition.property_type IS NULL THEN $6 ELSE posthog_propertydefinition.property_type_format END,
+    last_seen_at = CASE WHEN TRUE THEN $7 ELSE posthog_propertydefinition.last_seen_at END`,
+                        [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat, now, now],
                         'insertPropertyDefinition'
                     )
                     this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
@@ -201,10 +197,10 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                         `
 INSERT INTO posthog_propertydefinition
 (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, created_at)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, NOW())
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
 DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
-                        [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
+                        [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat, now],
                         'insertPropertyDefinition'
                     )
                 }
@@ -215,7 +211,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     if ((this.propertyDefinitionsLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
                         await this.db.postgresQuery(
                             `UPDATE posthog_propertydefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
-                            [DateTime.now(), team.id, key],
+                            [now, team.id, key],
                             'updatePropertyLastSeenAt'
                         )
                         this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
