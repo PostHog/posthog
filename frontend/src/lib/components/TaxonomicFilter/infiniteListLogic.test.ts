@@ -12,7 +12,7 @@ jest.mock('lib/api')
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
-    let logic: ReturnType<typeof infiniteListLogic>
+    let logic: ReturnType<typeof infiniteListLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
