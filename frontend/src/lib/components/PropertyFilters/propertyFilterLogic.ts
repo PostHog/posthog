@@ -21,7 +21,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             group_type_index?: PropertyFilter['group_type_index']
         ) => ({ index, key, value, operator, type, group_type_index }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
-        newFilter: true,
         remove: (index: number) => ({ index }),
     }),
 
@@ -35,9 +34,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                     return newFilters
                 },
                 setFilters: (_, { filters }) => filters,
-                newFilter: (state) => {
-                    return [...state, {} as EmptyPropertyFilter]
-                },
                 remove: (state, { index }) => {
                     const newState = state.filter((_, i) => i !== index)
                     if (newState.length === 0) {
@@ -61,22 +57,21 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         update: () => {
             const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
 
-            // if the last filter is used, add an empty filter to get the "new filter" button
-            if (isValidPropertyFilter(values.filters[values.filters.length - 1])) {
-                actions.newFilter()
-            }
-
             props.onChange(cleanedFilters)
         },
     }),
 
     selectors: {
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
+        filtersWithNew: [
+            (s) => [s.filters],
+            (filters) => {
+                if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
+                    return [...filters, {}]
+                } else {
+                    return filters
+                }
+            },
+        ],
     },
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.newFilter()
-        },
-    }),
 })

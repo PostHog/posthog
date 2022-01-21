@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -40,48 +40,52 @@ export function PropertyFilters({
     eventNames = [],
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
-    const { filters } = useValues(propertyFilterLogic(logicProps))
-    const { remove } = useActions(propertyFilterLogic(logicProps))
+    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+
+    // Update the logic's internal filters when the props change
+    useEffect(() => {
+        setFilters(propertyFilters ?? [])
+    }, [propertyFilters])
 
     return (
         <div className="property-filters" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filters?.length &&
-                    filters.map((item, index) => {
-                        return (
-                            <FilterRow
-                                key={index}
-                                item={item}
-                                index={index}
-                                totalCount={filters.length - 1} // empty state
-                                filters={filters}
-                                pageKey={pageKey}
-                                showConditionBadge={showConditionBadge}
-                                disablePopover={disablePopover}
-                                popoverPlacement={popoverPlacement}
-                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                                showNestedArrow={showNestedArrow}
-                                label={'Add filter'}
-                                onRemove={remove}
-                                greyBadges={greyBadges}
-                                filterComponent={(onComplete) => (
-                                    <TaxonomicPropertyFilter
-                                        key={index}
-                                        pageKey={pageKey}
-                                        index={index}
-                                        onComplete={onComplete}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        eventNames={eventNames}
-                                        disablePopover={disablePopover}
-                                        selectProps={{
-                                            delayBeforeAutoOpen: 150,
-                                            placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                        }}
-                                    />
-                                )}
-                            />
-                        )
-                    })}
+                {filtersWithNew.map((item, index) => {
+                    return (
+                        <FilterRow
+                            key={index}
+                            item={item}
+                            index={index}
+                            totalCount={filtersWithNew.length - 1} // empty state
+                            filters={filtersWithNew}
+                            pageKey={pageKey}
+                            showConditionBadge={showConditionBadge}
+                            disablePopover={disablePopover}
+                            popoverPlacement={popoverPlacement}
+                            taxonomicPopoverPlacement={taxonomicPopoverPlacement}
+                            showNestedArrow={showNestedArrow}
+                            label={'Add filter'}
+                            onRemove={remove}
+                            greyBadges={greyBadges}
+                            filterComponent={(onComplete) => (
+                                <TaxonomicPropertyFilter
+                                    key={index}
+                                    pageKey={pageKey}
+                                    index={index}
+                                    onComplete={onComplete}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                    eventNames={eventNames}
+                                    disablePopover={disablePopover}
+                                    selectProps={{
+                                        delayBeforeAutoOpen: 150,
+                                        placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                    }}
+                                />
+                            )}
+                        />
+                    )
+                })}
             </BindLogic>
         </div>
     )
