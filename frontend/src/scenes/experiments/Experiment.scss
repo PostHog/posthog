@@ -185,16 +185,16 @@
         text-align: center;
         margin-bottom: $default_spacing;
     }
+}
 
-    .preview-conversion-goal-num {
-        height: 24px;
-        width: 24px;
-        text-align: center;
-        background-color: $bg_side;
-        color: $primary_alt;
-        font-weight: 700;
-        margin-right: $default_spacing / 2;
-    }
+.preview-conversion-goal-num {
+    height: 24px;
+    width: 24px;
+    text-align: center;
+    background-color: $bg_side;
+    color: $primary_alt;
+    font-weight: 700;
+    margin-right: $default_spacing / 2;
 }
 
 .experiment-preview-row {
