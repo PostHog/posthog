@@ -10926,10 +10926,10 @@ kea-window-values@^0.1.0:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
   integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
 
-kea@^2.5.6:
-  version "2.5.6"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.6.tgz#c1dec4b196cb7f58389739b08b2555c27a7baa10"
-  integrity sha512-JEZh5PB8prAtEgA7FQK07P++kmV272oFdeUfdg/NiuinDmIuRMyhvd/2upvSxxUoY2kBWORBo0tvo2u8klmrig==
+kea@^2.5.7:
+  version "2.5.7"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.7.tgz#202113e89f069318f4d9c6051e2290f6dbf3d4c4"
+  integrity sha512-ROUmhOlPD0tLBgPhhGfxc+wn1lMUqCnmhcHwot1ApNvhpNmcf+zLAUKLplvIT8sTSHvRhLQXS/EcZe44ZyqHyw==
 
 killable@^1.0.1:
   version "1.0.1"
