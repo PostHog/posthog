@@ -106,6 +106,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         placeholder={UNNAMED_INSIGHT_NAME}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         minLength={1}
+                        maxLength={400} // Sync with Insight model
                         data-attr="insight-name"
                     />
                 }

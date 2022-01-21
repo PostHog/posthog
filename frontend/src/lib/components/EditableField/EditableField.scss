@@ -1,6 +1,10 @@
 @import '~/vars';
 
 .EditableField {
+    max-width: 100%;
+    &:not(.EditableField--multiline) {
+        line-height: 2rem;
+    }
     .EditableField--highlight {
         display: flex;
         flex-direction: row;
@@ -10,14 +14,18 @@
         margin: -0.25rem;
     }
     &--editing .EditableField--highlight {
+        align-items: flex-end;
+        max-width: calc(100% + 0.5rem);
         outline: 1px solid var(--border);
         border-radius: var(--radius);
     }
-    &--multiline .input-area {
-        width: 100%;
+    .EditableField__autosize {
+        align-self: center;
+        min-width: 0;
     }
     input,
     textarea {
+        max-width: 100%;
         border: none;
         background: transparent;
         font: inherit;
@@ -26,6 +34,7 @@
         padding: 0;
     }
     textarea {
+        align-self: flex-start;
         width: 100%;
     }
     button {

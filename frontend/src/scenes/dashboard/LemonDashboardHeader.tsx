@@ -117,6 +117,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                             placeholder="Name this dashboard"
                             onSave={(value) => updateDashboard({ id: dashboard.id, name: value })}
                             minLength={1}
+                            maxLength={400} // Sync with Dashboard model
                         />
                     }
                     buttons={

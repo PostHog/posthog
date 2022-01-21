@@ -13,6 +13,7 @@
     border: none;
     font-size: 0.875rem;
     text-align: left;
+    line-height: 1.5;
     &.LemonRow--status-highlighted {
         background: rgba($primary, 0.1);
         color: var(--text-default);

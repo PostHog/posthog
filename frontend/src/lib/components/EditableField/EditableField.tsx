@@ -15,6 +15,7 @@ interface EditableFieldProps {
     onSave: (value: string) => void
     placeholder?: string
     minLength?: number
+    maxLength?: number
     multiline?: boolean
     compactButtons?: boolean
     className?: string
@@ -28,6 +29,7 @@ export function EditableField({
     onSave,
     placeholder,
     minLength,
+    maxLength,
     multiline = false,
     compactButtons = false,
     className,
@@ -91,6 +93,7 @@ export function EditableField({
                                 onKeyDown={handleKeyDown}
                                 placeholder={placeholder}
                                 minLength={minLength}
+                                maxLength={maxLength}
                                 autoFocus
                             />
                         ) : (
@@ -104,7 +107,9 @@ export function EditableField({
                                 onKeyDown={handleKeyDown}
                                 placeholder={placeholder}
                                 minLength={minLength}
+                                maxLength={maxLength}
                                 autoFocus
+                                className="EditableField__autosize"
                                 injectStyles={false}
                             />
                         )}

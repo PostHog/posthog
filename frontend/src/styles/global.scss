@@ -103,10 +103,18 @@ body strong {
 }
 
 .page-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
     margin: 1.5rem 0 0.75rem;
+    @media screen and (min-width: $md) {
+        flex-wrap: nowrap;
+    }
 }
 
 .page-title {
+    min-width: 0;
     font-size: 28px;
     line-height: 34px;
     margin: 0;
@@ -120,6 +128,8 @@ body strong {
 }
 
 .page-buttons {
+    flex-shrink: 0;
+    flex-grow: 1;
     display: flex;
     align-items: center;
     justify-content: right;
