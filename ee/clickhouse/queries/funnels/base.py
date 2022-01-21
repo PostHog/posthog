@@ -278,6 +278,9 @@ class ClickhouseFunnelBase(ABC):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
+                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
+                for field in event_fields:
+                    cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
@@ -289,13 +292,20 @@ class ClickhouseFunnelBase(ABC):
                 ):
                     duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"last_value(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
+
+                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
+                for field in event_fields:
+                    cols.append(
+                        f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
+                    )
+
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
-                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
+                            f"last_value(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
         return ", ".join(cols)
 
@@ -338,9 +348,18 @@ class ClickhouseFunnelBase(ABC):
     ) -> str:
         entities_to_use = entities or self._filter.entities
 
-        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
-            entities_to_use, entity_name, skip_entity_filter=skip_entity_filter
-        )
+        extra_fields = []
+        extra_event_properties = []
+        if self._filter.include_recordings:
+            extra_fields = ["uuid"]
+            extra_event_properties = ["$window_id", "$session_id"]
+
+        event_query, params = FunnelEventQuery(
+            filter=self._filter,
+            team_id=self._team.pk,
+            extra_fields=extra_fields,
+            extra_event_properties=extra_event_properties,
+        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
 
@@ -402,6 +421,10 @@ class ClickhouseFunnelBase(ABC):
         condition = self._build_step_query(entity, index, entity_name, step_prefix)
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
+
+        event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
+        for field in event_fields:
+            step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
 
         return step_cols
 
@@ -468,6 +491,16 @@ class ClickhouseFunnelBase(ABC):
 
         return " AND ".join(conditions)
 
+    def _get_funnel_person_step_events(self):
+        if self._filter.include_recordings:
+            step_num = self._filter.funnel_step
+            if step_num >= 0:
+                self.params.update({"matching_events_step_num": step_num - 1})
+            else:
+                self.params.update({"matching_events_step_num": abs(step_num) - 2})
+            return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+        return ""
+
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
 
@@ -483,6 +516,22 @@ class ClickhouseFunnelBase(ABC):
 
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
+
+    def _get_matching_events(self, max_steps: int):
+        if self._filter.include_recordings:
+            events = []
+            for i in range(0, max_steps):
+                event_fields = [
+                    "uuid",
+                    "latest",
+                    "$session_id",
+                    "$window_id",
+                ]
+                event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
+                event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+                events.append(event_clause)
+            return "," + ", ".join(events)
+        return ""
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
@@ -507,6 +556,14 @@ class ClickhouseFunnelBase(ABC):
 
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
+
+    # TODO: Do we need to handle inner_query here?
+    def _get_matching_event_arrays(self, max_steps: int):
+        select_clause = ""
+        if self._filter.include_recordings:
+            for i in range(0, max_steps):
+                select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
+        return select_clause
 
     def get_query(self) -> str:
         raise NotImplementedError()

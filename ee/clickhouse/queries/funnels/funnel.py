@@ -1,9 +1,8 @@
 import urllib.parse
-from typing import List, Tuple, cast
+from typing import List, cast
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from posthog.models.cohort import Cohort
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
@@ -47,8 +46,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)}  {self._get_matching_event_arrays(max_steps)}  {breakdown_clause} {outer_timestamps} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {self._get_matching_events(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -145,7 +144,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         exclusion_clause = self._get_exclusion_condition()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {breakdown_query} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_matching_events(max_steps)}  {breakdown_query} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         {'AND exclusion = 0' if exclusion_clause else ''}
@@ -170,13 +169,18 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
+                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
+                for field in event_fields:
+                    cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
-
+                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
+                for field in event_fields:
+                    cols.append(f'if({comparison}, NULL, "{field}_{i}") as "{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"

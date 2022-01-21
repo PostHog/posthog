@@ -297,6 +297,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
                 } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
                     let params
+                    console.log('filters', filters)
                     if (filters.funnel_viz_type === FunnelVizType.Trends) {
                         // funnel trends
                         const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
@@ -320,7 +321,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                    let includeRecordingsParam = ''
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
+                        includeRecordingsParam = 'include_recordings=true&'
+                    }
+                    actors = await api.create(
+                        `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
+                    )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)

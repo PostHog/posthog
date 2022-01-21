@@ -76,12 +76,18 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         if specific_entrance_period_start:
             self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
 
+        max_steps = len(self._filter.entities)
+        event_select_clause = ""
+        if self._filter.include_recordings:
+            event_select_clause = self._get_matching_event_arrays(max_steps)
+
         breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
                 aggregation_target,
                 {trunc_func}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
+                {event_select_clause}
                 {breakdown_clause}
             FROM (
                 {steps_per_person_query}
@@ -158,6 +164,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # Those who dropped off
         did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step+1}"
         return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
+
+    def get_final_step_events(self):
+        if self._filter.include_recordings:
+            to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
+            self.params.update({"matching_events_step_num": to_step - 1})
+            return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+        return ""
 
     def _summarize_data(self, results):
 
