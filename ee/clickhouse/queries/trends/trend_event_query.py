@@ -15,6 +15,7 @@ from posthog.models.filters.mixins.utils import cached_property
 class TrendsEventQuery(ClickhouseEventQuery):
     _entity: Entity
     _filter: Filter
+    dummy: bool
 
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
