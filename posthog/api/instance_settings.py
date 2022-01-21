@@ -19,6 +19,9 @@ def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
     return str_value
 
 
+# test 222
+
+
 class InstanceSetting(object):
     key: str = ""
     value: Union[str, bool, int, None] = None
