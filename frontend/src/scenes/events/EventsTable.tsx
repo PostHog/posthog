@@ -27,7 +27,6 @@ import { IconSync } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -92,7 +91,6 @@ export function EventsTable({
         setPollingActive,
         setProperties,
     } = useActions(logic)
-    const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -400,7 +398,8 @@ export function EventsTable({
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     emptyState={
-                        isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
+                        isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
+                          eventFilter ? (
                             `No events matching filters found in the last ${months} months!`
                         ) : (
                             <>
