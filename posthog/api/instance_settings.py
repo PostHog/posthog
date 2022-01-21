@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Union
 
 from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
@@ -62,12 +62,6 @@ class InstanceSettingsSerializer(serializers.Serializer):
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
             setattr(config, instance.key, new_value_parsed)
             instance.value = new_value_parsed
-
-        if instance.key.startswith("EMAIL_") and "request" in self.context:
-            from posthog.tasks.email import send_canary_email
-
-            send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
-
         return instance
 
 
