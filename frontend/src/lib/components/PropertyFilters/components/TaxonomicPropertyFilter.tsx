@@ -1,7 +1,7 @@
 import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
 import { Button, Col } from 'antd'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
@@ -47,11 +47,13 @@ export function TaxonomicPropertyFilter({
             onComplete?.()
         }
     }
+    const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
+        propertyFilterLogic: builtPropertyFilterLogic,
         filterIndex: index,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,

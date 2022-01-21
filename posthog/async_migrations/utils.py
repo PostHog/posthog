@@ -8,6 +8,7 @@ from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
+from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 
@@ -38,6 +39,13 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str], roll
         last_error=error or "",
         finished_at=datetime.now(),
     )
+
+    if async_migrations_emails_enabled():
+        from posthog.tasks.email import send_async_migration_errored_email
+
+        send_async_migration_errored_email.delay(
+            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error or ""
+        )
 
     if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
         return
@@ -90,18 +98,23 @@ def rollback_migration(migration_instance: AsyncMigration, force: bool = False):
 
 
 def complete_migration(migration_instance: AsyncMigration):
+    now = datetime.now()
     update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.CompletedSuccessfully,
-        finished_at=datetime.now(),
+        finished_at=now,
         progress=100,
     )
 
-    from posthog.async_migrations.runner import run_next_migration
+    if async_migrations_emails_enabled():
+        from posthog.tasks.email import send_async_migration_complete_email
+
+        send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
 
     next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
-
     if next_migration:
+        from posthog.async_migrations.runner import run_next_migration
+
         run_next_migration(next_migration)
 
 
@@ -159,3 +172,7 @@ def update_async_migration(
             execute_update()
     else:
         execute_update()
+
+
+def async_migrations_emails_enabled():
+    return is_email_available() and not getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
