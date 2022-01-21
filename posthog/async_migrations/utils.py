@@ -10,6 +10,7 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +35,7 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */ " + sql)
 
 
-def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True):
+def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True, alert: bool = False):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
 
     update_async_migration(
@@ -46,6 +47,13 @@ def process_error(migration_instance: AsyncMigration, error: str, rollback: bool
 
         send_async_migration_errored_email.delay(
             migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error
+        )
+
+    if alert:
+        send_alert_to_plugins(
+            key="async_migration_errored",
+            description=f"Migration {migration_instance.name} failed with error {error}",
+            level=AlertLevel.P2,
         )
 
     if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):

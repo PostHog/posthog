@@ -134,7 +134,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     except Exception as e:
         error = f"Exception was thrown while running operation {migration_instance.current_operation_index} : {str(e)}"
-        process_error(migration_instance, error)
+        process_error(migration_instance, error, alert=True)
 
     if error:
         return (False, False)
@@ -181,7 +181,7 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
         except Exception as e:
             error = f"At operation {op_index} rollback failed with error:{str(e)}"
 
-            process_error(migration_instance=migration_instance, error=error, rollback=False)
+            process_error(migration_instance=migration_instance, error=error, rollback=False, alert=True)
 
             return
 
