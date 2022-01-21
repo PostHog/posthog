@@ -11,7 +11,7 @@ export function PopupHeader({ title, setPopupVisible }: PopupHeaderProps): JSX.E
     return (
         <div className="PopupHeader">
             <h3>{title}</h3>
-            <LemonButton onClick={() => setPopupVisible(false)} icon={<IconClose />} fullWidth={false} />
+            <LemonButton onClick={() => setPopupVisible(false)} icon={<IconClose />} type="stealth" />
         </div>
     )
 }

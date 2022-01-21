@@ -162,6 +162,8 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
+                                                type="stealth"
+                                                fullWidth
                                             >
                                                 Edit layout (E)
                                             </LemonButton>
@@ -172,6 +174,8 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
+                                                type="stealth"
+                                                fullWidth
                                             >
                                                 Go full screen (F)
                                             </LemonButton>
@@ -180,6 +184,8 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                     onClick={() =>
                                                         unpinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)
                                                     }
+                                                    type="stealth"
+                                                    fullWidth
                                                 >
                                                     Unpin dashboard
                                                 </LemonButton>
@@ -188,6 +194,8 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                     onClick={() =>
                                                         pinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)
                                                     }
+                                                    type="stealth"
+                                                    fullWidth
                                                 >
                                                     Pin dashboard
                                                 </LemonButton>
@@ -201,12 +209,16 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                         show: true,
                                                     })
                                                 }
+                                                type="stealth"
+                                                fullWidth
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
                                             <LemonButton
                                                 onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
                                                 status="danger"
+                                                type="stealth"
+                                                fullWidth
                                             >
                                                 Delete dashboard
                                             </LemonButton>
