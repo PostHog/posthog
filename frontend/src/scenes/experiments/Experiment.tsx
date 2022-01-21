@@ -745,7 +745,8 @@ export function ExperimentPreview({
     runningTime,
     sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId, editingExistingExperiment } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId, editingExistingExperiment, minimumDetectableChange } =
+        useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
@@ -801,7 +802,7 @@ export function ExperimentPreview({
                                 <Col span={8}>
                                     <Slider
                                         defaultValue={5}
-                                        value={experiment?.parameters.minimum_detectable_effect}
+                                        value={minimumDetectableChange}
                                         min={1}
                                         max={50}
                                         trackStyle={{ background: 'var(--primary)' }}
@@ -820,7 +821,7 @@ export function ExperimentPreview({
                                     defaultValue={5}
                                     formatter={(value) => `${value}%`}
                                     style={{ margin: '0 16px' }}
-                                    value={experiment?.parameters.minimum_detectable_effect}
+                                    value={minimumDetectableChange}
                                     onChange={(value) => {
                                         setNewExperimentData({
                                             parameters: { minimum_detectable_effect: value },
@@ -834,10 +835,18 @@ export function ExperimentPreview({
                         {experimentInsightType === InsightType.TRENDS ? (
                             <>
                                 {!experiment?.start_date && (
-                                    <Col span={12}>
-                                        <div className="card-secondary">Baseline Count</div>
-                                        <div className="l4">{trendCount}</div>
-                                    </Col>
+                                    <>
+                                        <Col span={6}>
+                                            <div className="card-secondary">Baseline Count</div>
+                                            <div className="l4">{trendCount}</div>
+                                        </Col>
+                                        <Col span={6}>
+                                            <div className="card-secondary">Minimum Acceptable Count</div>
+                                            <div className="l4">
+                                                {trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100))}
+                                            </div>
+                                        </Col>
+                                    </>
                                 )}
                                 <Col span={12}>
                                     <div className="card-secondary">Recommended running time</div>
@@ -849,19 +858,27 @@ export function ExperimentPreview({
                         ) : (
                             <>
                                 {!experiment?.start_date && (
-                                    <Col span={8}>
-                                        <div className="card-secondary">Baseline Conversion Rate</div>
-                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                    </Col>
+                                    <>
+                                        <Col span={6}>
+                                            <div className="card-secondary">Baseline Conversion Rate</div>
+                                            <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                        </Col>
+                                        <Col span={6}>
+                                            <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
+                                            <div className="l4">
+                                                {(conversionRate + minimumDetectableChange).toFixed(1)}%
+                                            </div>
+                                        </Col>
+                                    </>
                                 )}
-                                <Col span={8}>
+                                <Col span={6}>
                                     <div className="card-secondary">Recommended Sample Size</div>
                                     <div className="pb">
                                         <span className="l4">~{sampleSize}</span> persons
                                     </div>
                                 </Col>
                                 {!experiment?.start_date && (
-                                    <Col span={8}>
+                                    <Col span={6}>
                                         <div className="card-secondary">Recommended running time</div>
                                         <div>
                                             <span className="l4">~{runningTime}</span> days
