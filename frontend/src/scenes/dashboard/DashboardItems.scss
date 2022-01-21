@@ -214,10 +214,10 @@
 .react-grid-item {
     & > .react-resizable-handle {
         position: absolute;
-        width: 40px;
-        height: 40px;
-        bottom: -10px;
-        right: -10px;
+        width: 2rem;
+        height: 2rem;
+        bottom: -0.5rem;
+        right: -0.5rem;
         cursor: se-resize;
         z-index: 10;
     }
@@ -226,15 +226,13 @@
     }
     & > .react-resizable-handle.react-resizable-handle-e {
         top: 0;
-        bottom: 30px;
-        width: 25px;
+        bottom: 2rem;
         height: auto;
         cursor: ew-resize;
     }
     & > .react-resizable-handle.react-resizable-handle-s {
         left: 0;
-        right: 30px;
-        height: 25px;
+        right: 2rem;
         width: auto;
         cursor: ns-resize;
     }
