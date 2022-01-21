@@ -33,7 +33,10 @@ const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+        actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
+    },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
@@ -177,6 +180,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
+                        actions.updateExperiment(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -205,6 +209,8 @@ export const experimentLogic = kea<experimentLogicType>({
 
             if (response?.id) {
                 const experimentId = response.id
+                router.actions.push(urls.experiment(experimentId))
+                actions.addToExperiments(response)
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
@@ -252,7 +258,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
 
             const createdInsight: InsightModel = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
+                `api/projects/${values.currentTeamId}/insights`,
                 newInsight
             )
             actions.setExperimentInsightId(createdInsight.short_id)
@@ -297,7 +303,7 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.loadExperiment()
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new') {
+            if (values.experimentId === 'new' || values.editingExistingExperiment) {
                 actions.createNewExperimentInsight()
             } else {
                 actions.createNewExperimentInsight(values.experimentData?.filters)
