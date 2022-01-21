@@ -36,7 +36,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "end_date",
             "feature_flag_key",
             "parameters",
+            "secondary_metrics",
             "filters",
+            "archived",
             "created_by",
             "created_at",
             "updated_at",
@@ -195,7 +197,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
-        if not experiment.parameters.get("secondary_metrics"):
+        if not experiment.secondary_metrics:
             raise ValidationError("Experiment has no secondary metrics")
 
         metric_id = request.query_params.get("id")
@@ -208,10 +210,10 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         except ValueError:
             raise ValidationError("Secondary metric id must be an integer")
 
-        if parsed_id > len(experiment.parameters.get("secondary_metrics")):
+        if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.parameters["secondary_metrics"][parsed_id])
+        filter = Filter(experiment.secondary_metrics[parsed_id])
 
         result = ClickhouseSecondaryExperimentResult(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
