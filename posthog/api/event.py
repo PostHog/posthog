@@ -57,6 +57,50 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+class EventSerializer(serializers.HyperlinkedModelSerializer):
+    elements = serializers.SerializerMethodField()
+    person = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            "id",
+            "distinct_id",
+            "properties",
+            "elements",
+            "event",
+            "timestamp",
+            "person",
+        ]
+
+    def get_person(self, event: Event) -> Any:
+        if hasattr(event, "serialized_person"):
+            return event.serialized_person  # type: ignore
+        return None
+
+    def get_elements(self, event: Event):
+        if not event.elements_hash:
+            return []
+        if hasattr(event, "elements_group_cache"):
+            if event.elements_group_cache:  # type: ignore
+                return ElementSerializer(
+                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
+                    many=True,
+                ).data
+        elements = (
+            ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
+            .element_set.all()
+            .order_by("order")
+        )
+        return ElementSerializer(elements, many=True).data
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if self.context.get("format") == "csv":
+            representation.pop("elements")
+        return representation
+
+
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
@@ -178,7 +222,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return response.Response(res)
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         team = self.team
         result = []
