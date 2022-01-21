@@ -143,7 +143,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <LemonRow>
+                                                    <LemonRow fullWidth style={{ color: 'var(--muted-alt)' }}>
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
