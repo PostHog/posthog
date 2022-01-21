@@ -70,6 +70,12 @@ export const experimentLogic = kea<experimentLogicType>({
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
                     }
+
+                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
+                    if (experimentData.parameters) {
+                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
+                        return { ...vals, ...experimentData, parameters: newParameters }
+                    }
                     return { ...vals, ...experimentData }
                 },
                 updateExperimentGroup: (state, { variant, idx }) => {
