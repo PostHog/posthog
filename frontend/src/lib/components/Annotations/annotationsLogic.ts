@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import dayjs, { Dayjs, OpUnitType } from 'dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
@@ -24,12 +24,12 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
             content,
             date_marker,
-            created_at: dayjs() as Dayjs,
+            created_at: now(),
             scope,
         }),
         deleteAnnotation: (id: string) => ({ id }),
         updateDiffType: (dates: string[]) => ({ dates }),
-        setDiffType: (type: OpUnitType) => ({ type }),
+        setDiffType: (type: dayjs.OpUnitType) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
@@ -89,7 +89,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             (annotationsList, diffType) =>
                 groupBy(annotationsList, (annotation) =>
                     dayjs(annotation['date_marker'])
-                        .startOf(diffType as OpUnitType)
+                        .startOf(diffType as dayjs.OpUnitType)
                         .format('YYYY-MM-DD')
                 ),
         ],

@@ -29,6 +29,7 @@ export function FunnelLineGraph({
             insightId={insight.id}
             inSharedMode={!!inSharedMode}
             percentage={true}
+            labelGroupType={filters.aggregation_group_type_index ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId
