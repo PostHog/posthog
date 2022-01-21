@@ -478,6 +478,15 @@ describe('eventsTableLogic', () => {
                 })
             })
 
+            it('polling restarts when toggling automatic load', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.toggleAutomaticLoad(true)
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
+
             it('polling success does not pause polling for events when there are not events', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setPollingActive(false)

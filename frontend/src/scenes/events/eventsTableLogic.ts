@@ -114,6 +114,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 setPollingActive: (_, { pollingActive }) => pollingActive,
                 pollEventsSuccess: (state, { events }) => (events && events.length ? false : state),
                 prependNewEvents: () => true,
+                toggleAutomaticLoad: () => true,
             },
         ],
         properties: [
