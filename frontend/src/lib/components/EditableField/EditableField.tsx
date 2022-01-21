@@ -132,7 +132,7 @@ export function EditableField({
                     </>
                 ) : (
                     <>
-                        {value || <i>{placeholder}</i>}
+                        {tentativeValue || <i>{placeholder}</i>}
                         <LemonButton
                             title="Edit"
                             icon={<IconEdit />}

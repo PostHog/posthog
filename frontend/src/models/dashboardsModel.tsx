@@ -157,10 +157,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
             // https://github.com/keajs/kea-typegen/issues/10
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            updateDashboard: (state, dashboardUpdatePayload) => ({
-                ...state,
-                [dashboardUpdatePayload.id]: { ...state[dashboardUpdatePayload.id], ...dashboardUpdatePayload },
-            }),
             updateDashboardSuccess: (state, { dashboard }) =>
                 dashboard ? { ...state, [dashboard.id]: dashboard } : state,
             setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
