@@ -749,6 +749,8 @@ export function ExperimentPreview({
         useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
+    const sliderMaxValue =
+        experimentInsightType === InsightType.FUNNELS ? (100 - conversionRate < 50 ? 100 - conversionRate : 50) : 50
 
     return (
         <Card className="experiment-preview">
@@ -786,51 +788,53 @@ export function ExperimentPreview({
                             </div>
                         )}
                     </Row>
-                    <Row className="mb">
-                        <Col span={24}>
-                            <div>
-                                <b>Minimum acceptable improvement</b>
-                                <Tooltip
-                                    title={
-                                        'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
-                                    }
-                                >
-                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                                </Tooltip>
-                            </div>
-                            <Row className="mde-slider">
-                                <Col span={8}>
-                                    <Slider
-                                        defaultValue={5}
-                                        value={minimumDetectableChange}
+                    {(experimentId === 'new' || editingExistingExperiment) && (
+                        <Row className="mb">
+                            <Col span={24}>
+                                <div>
+                                    <b>Minimum acceptable improvement</b>
+                                    <Tooltip
+                                        title={
+                                            'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
+                                        }
+                                    >
+                                        <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                    </Tooltip>
+                                </div>
+                                <Row className="mde-slider">
+                                    <Col span={8}>
+                                        <Slider
+                                            defaultValue={5}
+                                            value={minimumDetectableChange}
+                                            min={1}
+                                            max={sliderMaxValue}
+                                            trackStyle={{ background: 'var(--primary)' }}
+                                            handleStyle={{ background: 'var(--primary)' }}
+                                            onChange={(value) => {
+                                                setNewExperimentData({
+                                                    parameters: { minimum_detectable_effect: value },
+                                                })
+                                            }}
+                                            tipFormatter={(value) => `${value}%`}
+                                        />
+                                    </Col>
+                                    <InputNumber
                                         min={1}
-                                        max={50}
-                                        trackStyle={{ background: 'var(--primary)' }}
-                                        handleStyle={{ background: 'var(--primary)' }}
+                                        max={sliderMaxValue}
+                                        defaultValue={5}
+                                        formatter={(value) => `${value}%`}
+                                        style={{ margin: '0 16px' }}
+                                        value={minimumDetectableChange}
                                         onChange={(value) => {
                                             setNewExperimentData({
                                                 parameters: { minimum_detectable_effect: value },
                                             })
                                         }}
-                                        tipFormatter={(value) => `${value}%`}
                                     />
-                                </Col>
-                                <InputNumber
-                                    min={1}
-                                    max={50}
-                                    defaultValue={5}
-                                    formatter={(value) => `${value}%`}
-                                    style={{ margin: '0 16px' }}
-                                    value={minimumDetectableChange}
-                                    onChange={(value) => {
-                                        setNewExperimentData({
-                                            parameters: { minimum_detectable_effect: value },
-                                        })
-                                    }}
-                                />
-                            </Row>
-                        </Col>
-                    </Row>
+                                </Row>
+                            </Col>
+                        </Row>
+                    )}
                     <Row className="experiment-preview-row">
                         {experimentInsightType === InsightType.TRENDS ? (
                             <>
