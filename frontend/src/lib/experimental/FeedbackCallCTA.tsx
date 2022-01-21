@@ -16,7 +16,7 @@ const COPY = [
     {
         title: 'Experimentation is launching!',
         description:
-            'Experimentation can help you test whcih product changes optimize your metrics. Give us feedback on your needs!',
+            'Experimentation can help you test which product changes optimize your metrics. Give us feedback on your needs!',
     },
     {
         title: 'Want to test product changes before shipping? 🧪',
