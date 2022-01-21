@@ -1,14 +1,12 @@
 import datetime
 import logging
-import uuid
 from typing import Optional
 
 import structlog
-from django.conf import settings
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Event, Organization, OrganizationInvite, PersonDistinctId, Team, User
+from posthog.models import Event, Organization, OrganizationInvite, PersonDistinctId, Team, User, organization
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
@@ -155,18 +153,6 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         for user in members_to_email:
             message.add_recipient(email=user.email, name=user.first_name)
         message.send()
-
-
-@app.task(max_retries=1)
-def send_canary_email(user_email: str) -> None:
-    message = EmailMessage(
-        campaign_key=f"canary_email_{uuid.uuid4()}",
-        subject="This is a test email of your PostHog instance",
-        template_name="canary_email",
-        template_context={"site_url": settings.SITE_URL},
-    )
-    message.add_recipient(email=user_email)
-    message.send()
 
 
 @app.task(max_retries=1)

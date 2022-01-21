@@ -4,7 +4,6 @@ from typing import List
 from unittest.mock import patch
 
 import pytz
-from constance.test import override_config
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
@@ -70,21 +69,20 @@ class TestEmail(BaseTest):
         Event.objects.create(team=self.team, timestamp=two_weeks_ago, distinct_id=6)
 
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
-        with override_config(EMAIL_HOST=None):
+        with self.settings(EMAIL_HOST=None):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(
                 str(e.exception), "Email is not enabled in this instance.",
             )
 
-        with override_config(EMAIL_ENABLED=False):
+        with self.settings(EMAIL_ENABLED=False):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(
                 str(e.exception), "Email is not enabled in this instance.",
             )
 
-    @override_config(EMAIL_HOST="localhost")
     def test_cant_send_same_campaign_twice(self) -> None:
         sent_at = timezone.now()
 
@@ -92,7 +90,9 @@ class TestEmail(BaseTest):
         record.sent_at = sent_at
         record.save()
 
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+        with self.settings(
+            EMAIL_HOST="localhost", CELERY_TASK_ALWAYS_EAGER=True,
+        ):
 
             _send_email(
                 campaign_key="campaign_1",
@@ -107,14 +107,15 @@ class TestEmail(BaseTest):
         self.assertEqual(record.sent_at, sent_at)
 
     @freeze_time("2020-09-21")
-    @override_config(EMAIL_HOST="localhost")
     def test_weekly_email_report(self) -> None:
 
         record_count: int = MessagingRecord.objects.count()
 
         expected_recipients: List[str] = ["test@posthog.com", "test2@posthog.com"]
 
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="http://localhost:9999"):
+        with self.settings(
+            EMAIL_HOST="localhost", SITE_URL="http://localhost:9999", CELERY_TASK_ALWAYS_EAGER=True,
+        ):
             send_weekly_email_reports()
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set(expected_recipients))
@@ -144,11 +145,12 @@ class TestEmail(BaseTest):
             self.assertTrue((timezone.now() - record.sent_at).total_seconds() < 5)
 
     @patch("posthog.tasks.email.EmailMessage")
-    @override_config(EMAIL_HOST="localhost")
     @freeze_time("2020-09-21")
     def test_weekly_email_report_content(self, mock_email_message):
 
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+        with self.settings(
+            EMAIL_HOST="localhost", CELERY_TASK_ALWAYS_EAGER=True,
+        ):
             send_weekly_email_reports()
 
         self.assertEqual(
