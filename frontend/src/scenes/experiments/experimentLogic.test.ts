@@ -105,17 +105,6 @@ describe('experimentLogic', () => {
     })
 
     describe('selector values', () => {
-        it('given a sample size and conversion rate, calculates correct mde', async () => {
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 20)).toBeCloseTo(5.059)
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 20)).toBeCloseTo(16)
-
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 50)).toBeCloseTo(6.324)
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 50)).toBeCloseTo(20)
-
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 0)).toBeCloseTo(0)
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 0)).toBeCloseTo(0)
-        })
-
         it('given an mde, calculates correct sample size', async () => {
             logic.actions.setNewExperimentData({ parameters: { minimum_detectable_effect: 10 } })
 
@@ -128,18 +117,6 @@ describe('experimentLogic', () => {
             expect(logic.values.minimumSampleSizePerVariant(40)).toEqual(384)
 
             expect(logic.values.minimumSampleSizePerVariant(0)).toEqual(0)
-        })
-
-        it('given count data and exposure, calculates correct mde', async () => {
-            expect(logic.values.mdeGivenCountData(5000)).toEqual(201)
-            expect(logic.values.mdeGivenCountData(500)).toEqual(64)
-
-            expect(logic.values.mdeGivenCountData(1000000)).toEqual(2829)
-            expect(logic.values.mdeGivenCountData(10000)).toEqual(283)
-            expect(logic.values.mdeGivenCountData(1000)).toEqual(90)
-            expect(logic.values.mdeGivenCountData(100)).toEqual(29)
-            expect(logic.values.mdeGivenCountData(10)).toEqual(9)
-            expect(logic.values.mdeGivenCountData(1)).toEqual(3)
         })
 
         it('given sample size and entrants, calculates correct running time', async () => {
@@ -163,32 +140,6 @@ describe('experimentLogic', () => {
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
-        })
-
-        it('calculates bestCountVariant and significance correctly', async () => {
-            router.actions.push(urls.experiment(RUNNING_EXP_ID))
-
-            await expectLogic(logic)
-                .toFinishListeners()
-                .toMatchValues({
-                    bestCountVariant: { value: 500, variant: { key: 'test_2', rollout_percentage: 25 } },
-                    areCountResultsSignificant: true,
-                })
-
-            expect(logic.values.mdeGivenCountData(200)).toEqual(41)
-        })
-
-        it('calculates bestConversionVariant and significance correctly', async () => {
-            router.actions.push(urls.experiment(RUNNING_FUNNEL_EXP_ID))
-
-            await expectLogic(logic)
-                .toFinishListeners()
-                .toMatchValues({
-                    bestConversionVariant: { value: 80, variant: { key: 'test_3', rollout_percentage: 25 } },
-                    areConversionResultsSignificant: true,
-                })
-
-            expect(logic.values.mdeGivenSampleSizeAndConversionRate(200, 50)).toBeCloseTo(14.142)
         })
     })
 })

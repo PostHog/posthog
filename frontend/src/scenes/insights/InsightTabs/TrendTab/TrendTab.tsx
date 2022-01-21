@@ -103,6 +103,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             <GlobalFiltersTitle />
                             <PropertyFilters
+                                propertyFilters={filters.properties}
+                                onChange={(properties) => setFilters({ properties })}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,

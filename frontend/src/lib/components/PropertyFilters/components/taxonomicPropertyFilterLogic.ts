@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
@@ -18,7 +17,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     connect: (props: TaxonomicPropertyFilterLogicProps) => ({
         values: [
-            propertyFilterLogic(props),
+            props.propertyFilterLogic,
             ['filters'],
             taxonomicFilterLogic({
                 taxonomicFilterLogicKey: props.pageKey,
@@ -77,7 +76,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
-                    propertyFilterLogic(props).actions.setFilter(
+                    props.propertyFilterLogic.actions.setFilter(
                         props.filterIndex,
                         'id',
                         propertyKey,
@@ -90,7 +89,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                             ? PropertyOperator.IContains
                             : values.filter?.operator || PropertyOperator.Exact
 
-                    propertyFilterLogic(props).actions.setFilter(
+                    props.propertyFilterLogic.actions.setFilter(
                         props.filterIndex,
                         propertyKey.toString(),
                         null, // Reset value field
