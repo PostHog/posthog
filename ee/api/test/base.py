@@ -36,7 +36,6 @@ class LicensedTestMixin:
                 plan=cls.CONFIG_LICENSE_PLAN,
                 valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC),
             )
-            cls.organization.update_available_features()  # type: ignore
 
 
 class APILicensedTest(LicensedTestMixin, APIBaseTest):
