@@ -1,7 +1,7 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
-import { Empty, Skeleton, Tag } from 'antd'
+import { Empty, Row, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
@@ -26,6 +26,7 @@ import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { definitionPanelLogic } from 'lib/components/DefinitionPanel/definitionPanelLogic'
 
 enum ListTooltip {
     None = 0,
@@ -132,6 +133,88 @@ const renderItemContents = ({
 }
 
 const renderItemPopup = (
+    item: EventDefinition | PropertyDefinition | CohortType | ActionType,
+    listGroupType: TaxonomicFilterGroupType,
+    group: TaxonomicFilterGroup,
+    onItemEdit?: () => void
+): React.ReactNode => {
+    const width = 265
+    let data: KeyMapping | null = null
+    const value = group.getValue(item)
+
+    if (value) {
+        if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
+            return (
+                <div style={{ width, overflowWrap: 'break-word' }}>
+                    <Row align="middle" justify="space-between">
+                        <span>
+                            <AimOutlined /> Actions
+                        </span>
+                        <a
+                            tabIndex={-1}
+                            onClick={() => {
+                                onItemEdit?.()
+                            }}
+                        >
+                            edit
+                        </a>
+                    </Row>
+                    <br />
+                    <h3>
+                        <PropertyKeyInfo value={item.name ?? ''} />
+                    </h3>
+                    {item && <ActionSelectInfo entity={item as ActionType} />}
+                </div>
+            )
+        }
+
+        if (
+            // NB: also update "selectedItemHasPopup" below
+            listGroupType === TaxonomicFilterGroupType.Events ||
+            listGroupType === TaxonomicFilterGroupType.EventProperties ||
+            listGroupType === TaxonomicFilterGroupType.PersonProperties
+        ) {
+            data = getKeyMapping(value.toString(), 'event')
+        } else if (listGroupType === TaxonomicFilterGroupType.Elements) {
+            data = getKeyMapping(value.toString(), 'element')
+        }
+
+        if (data) {
+            return (
+                <div style={{ width, overflowWrap: 'break-word' }}>
+                    <Row align="middle" justify="space-between">
+                        <PropertyKeyTitle data={data} />
+                        <a
+                            tabIndex={-1}
+                            onClick={() => {
+                                onItemEdit?.()
+                            }}
+                        >
+                            edit
+                        </a>
+                    </Row>
+                    {data.description ? <hr /> : null}
+                    <PropertyKeyDescription data={data} value={value.toString()} />
+
+                    {'volume_30_day' in item && (item.volume_30_day || 0) > 0 ? (
+                        <p>
+                            Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                        </p>
+                    ) : null}
+                    {'query_usage_30_day' in item && (item.query_usage_30_day || 0) > 0 ? (
+                        <p>
+                            Used in <strong>{item.query_usage_30_day}</strong> queries.
+                        </p>
+                    ) : null}
+                </div>
+            )
+        }
+    }
+
+    return item.name ?? ''
+}
+
+const renderItemPopupWithoutTaxonomy = (
     item: PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
     group: TaxonomicFilterGroup
@@ -223,6 +306,7 @@ export function InfiniteList(): JSX.Element {
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
     const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
+    const { openDrawer } = useActions(definitionPanelLogic)
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalCount === 0 && !isLoading
@@ -323,7 +407,13 @@ export function InfiniteList(): JSX.Element {
                           style={styles.popper}
                           {...attributes.popper}
                       >
-                          {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
+                          {selectedItem && group
+                              ? featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                                  ? renderItemPopup(selectedItem, listGroupType, group, () => {
+                                        openDrawer(selectedItem.id, listGroupType)
+                                    })
+                                  : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
+                              : null}
                       </div>,
                       document.querySelector('body') as HTMLElement
                   )

@@ -1,6 +1,8 @@
 import datetime
 import logging
-from typing import List, Optional
+from typing import Optional
+
+import structlog
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
@@ -8,7 +10,7 @@ from posthog.models import Event, Organization, OrganizationInvite, PersonDistin
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def send_weekly_email_reports() -> None:

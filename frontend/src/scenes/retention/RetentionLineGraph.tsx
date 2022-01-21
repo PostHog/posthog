@@ -25,6 +25,7 @@ export function RetentionLineGraph({
     const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
+        filters,
         trendSeries,
         people: _people,
         peopleLoading,
@@ -53,6 +54,7 @@ export function RetentionLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 insightId={insight.id}
                 inSharedMode={!!inSharedMode}
+                labelGroupType={filters.aggregation_group_type_index ?? 'people'}
                 percentage={true}
                 tooltip={{
                     rowCutoff: 11, // 11 time units is hardcoded into retention insights

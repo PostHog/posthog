@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.test.testcases import TestCase
 from semantic_version.base import SimpleSpec, Version
 
+from posthog import version_requirement
 from posthog.version_requirement import ServiceVersionRequirement
 
 
@@ -34,37 +35,37 @@ class TestServiceVersionRequirement(TestCase):
 
     def test_service_versions(self):
 
-        version1 = ServiceVersionRequirement.version_string_to_semver("14")
+        version1 = version_requirement.version_string_to_semver("14")
         self.assertEqual(version1.major, 14)
         self.assertEqual(version1.minor, 0)
         self.assertEqual(version1.patch, 0)
 
-        version2 = ServiceVersionRequirement.version_string_to_semver("14.1")
+        version2 = version_requirement.version_string_to_semver("14.1")
         self.assertEqual(version2.major, 14)
         self.assertEqual(version2.minor, 1)
         self.assertEqual(version2.patch, 0)
 
-        version3 = ServiceVersionRequirement.version_string_to_semver("14.1.2")
+        version3 = version_requirement.version_string_to_semver("14.1.2")
         self.assertEqual(version3.major, 14)
         self.assertEqual(version3.minor, 1)
         self.assertEqual(version3.patch, 2)
 
-        version4 = ServiceVersionRequirement.version_string_to_semver("14.1.2.5")
+        version4 = version_requirement.version_string_to_semver("14.1.2.5")
         self.assertEqual(version4.major, 14)
         self.assertEqual(version4.minor, 1)
         self.assertEqual(version4.patch, 2)
 
-        version5 = ServiceVersionRequirement.version_string_to_semver("15.0.0-alpha")
+        version5 = version_requirement.version_string_to_semver("15.0.0-alpha")
         self.assertEqual(version5.major, 15)
         self.assertEqual(version5.minor, 0)
         self.assertEqual(version5.patch, 0)
 
-        version5 = ServiceVersionRequirement.version_string_to_semver("16.0.0.2-alpha")
+        version5 = version_requirement.version_string_to_semver("16.0.0.2-alpha")
         self.assertEqual(version5.major, 16)
         self.assertEqual(version5.minor, 0)
         self.assertEqual(version5.patch, 0)
 
-        version6 = ServiceVersionRequirement.version_string_to_semver("11.13 (Ubuntu 11.13-2.heroku1+1)")
+        version6 = version_requirement.version_string_to_semver("11.13 (Ubuntu 11.13-2.heroku1+1)")
         self.assertEqual(version6.major, 11)
         self.assertEqual(version6.minor, 13)
         self.assertEqual(version6.patch, 0)

@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import dayjs, { Dayjs } from 'dayjs'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import relativeTime from 'dayjs/plugin/relativeTime'

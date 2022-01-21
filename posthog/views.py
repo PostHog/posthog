@@ -21,7 +21,6 @@ from posthog.utils import (
     get_celery_heartbeat,
     get_instance_realm,
     is_celery_alive,
-    is_clickhouse_enabled,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
@@ -100,8 +99,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "ee_available": settings.EE_AVAILABLE,
-            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),

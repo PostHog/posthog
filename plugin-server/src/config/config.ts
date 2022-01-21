@@ -77,7 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
-        NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
+        NEW_PERSON_PROPERTIES_UPDATE_ENABLED: false,
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
     }

@@ -102,7 +102,7 @@ def test_get_internal_metrics_dashboards(db):
     assert Dashboard.objects.count() == 1
     assert dashboard.team_id == team.pk
     assert dashboard.name == CLICKHOUSE_DASHBOARD["name"]
-    assert dashboard.items.count() == len(CLICKHOUSE_DASHBOARD["items"])  # type: ignore
+    assert dashboard.items.count() == len(CLICKHOUSE_DASHBOARD["items"])
 
     assert get_internal_metrics_dashboards() == info
 

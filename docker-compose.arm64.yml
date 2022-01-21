@@ -14,9 +14,8 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
-        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:21.6.5
+        # Built with: yarn arm64:build:clickhouse
+        image: posthog/clickhouse:v21.9.2.17-stable
         depends_on:
             - kafka
             - zookeeper
@@ -26,12 +25,13 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            - ./idl:/idl
-            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./ee/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper
+        restart: always
     kafka:
         image: wurstmeister/kafka
         depends_on:
@@ -43,11 +43,11 @@ services:
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     worker: &worker
         build:
-            context: ../
+            context: .
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker-celery --with-scheduler
         volumes:
-            - ..:/code
+            - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -58,7 +58,6 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
             DEBUG: 'true'
-            PRIMARY_DB: 'clickhouse'
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
@@ -80,11 +79,11 @@ services:
             - '8234:8234'
     plugins:
         build:
-            context: ../
+            context: .
             dockerfile: dev.Dockerfile
         command: ./bin/plugin-server --no-restart-loop
         volumes:
-            - ..:/code
+            - .:/code
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
