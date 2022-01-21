@@ -26,10 +26,9 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     loading: boolean
     /** Whether loading the insight resulted in an error. */
     apiError: boolean
-    /** Whether the card should be highlighted. */
+    /** Whether the card should be highlighted with a blue border. */
     highlighted: boolean
-    /** Whether resize handles should be shown. */
-    resizable: boolean
+    showResizeHandles: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor: (newColor: InsightModel['color']) => void
@@ -193,7 +192,7 @@ function InsightCardInternal(
         loading,
         apiError,
         highlighted,
-        resizable,
+        showResizeHandles,
         updateColor,
         removeFromDashboard,
         refresh,
@@ -234,7 +233,7 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} loading={loading} apiError={apiError} />
             </BindLogic>
-            {resizable && (
+            {showResizeHandles && (
                 <>
                     <ResizeHandle1D orientation="vertical" />
                     <ResizeHandle1D orientation="horizontal" />
