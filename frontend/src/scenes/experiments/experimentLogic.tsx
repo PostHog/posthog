@@ -45,6 +45,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 'reportExperimentLaunched',
                 'reportExperimentCompleted',
                 'reportExperimentViewed',
+                'reportExperimentCreated',
             ],
         ],
     },
@@ -204,6 +205,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
+                    actions.reportExperimentCreated(response)
                 }
             } catch (error) {
                 errorToast(
@@ -280,6 +282,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
@@ -291,24 +294,26 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: async () => {
+            const startDate = dayjs()
             const response: Experiment = await api.update(
                 `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                 {
-                    start_date: dayjs(),
+                    start_date: startDate,
                 }
             )
-            actions.reportExperimentLaunched()
+            actions.reportExperimentLaunched(values.experimentData, startDate)
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
         endExperiment: async () => {
+            const endDate = dayjs()
             const response: Experiment = await api.update(
                 `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                 {
-                    end_date: dayjs(),
+                    end_date: endDate,
                 }
             )
-            actions.reportExperimentCompleted()
+            actions.reportExperimentCompleted(values.experimentData, endDate)
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
@@ -600,7 +605,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
-                    actions.reportExperimentViewed()
                 }
             }
         },
