@@ -33,7 +33,7 @@ Migration Summary
 
 
 def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
-    lt_expression = f"toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
+    lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
     op = AsyncMigrationOperation.simple_op(
         database=AnalyticsDBMS.CLICKHOUSE,
         sql=f"""
@@ -41,7 +41,7 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
         SELECT *
         FROM {EVENTS_TABLE}
         WHERE 
-            toYYYYMM(timestamp) >= {partition_gte} AND {lt_expression}
+            toYYYYMM(timestamp) >= {partition_gte} {lt_expression}
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         resumable=True,
@@ -138,7 +138,8 @@ class Migration(AsyncMigrationDefinition):
             ),
         ]
 
-        return create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
+        _operations = create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
+        return _operations
 
     def is_required(self):
         if settings.MULTI_TENANCY:
