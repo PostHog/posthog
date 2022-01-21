@@ -237,6 +237,7 @@ export const InsightCard: Story = (args) => {
                         loading={args.loading}
                         apiError={args.apiError}
                         highlighted={args.highlighted}
+                        showResizeHandles={args.resizable}
                         updateColor={setInsightColor}
                         removeFromDashboard={() => setWasItemRemoved(true)}
                         refresh={() => {}}
@@ -256,6 +257,7 @@ export const InsightCard: Story = (args) => {
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
                     removeFromDashboard={() => {}}
                     refresh={() => {}}
@@ -268,6 +270,7 @@ export const InsightCard: Story = (args) => {
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
                     removeFromDashboard={() => {}}
                     refresh={() => {}}
