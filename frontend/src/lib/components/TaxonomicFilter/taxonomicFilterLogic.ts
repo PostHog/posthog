@@ -1,4 +1,4 @@
-import { BuiltLogic, kea } from 'kea'
+import { kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
@@ -18,7 +18,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -235,7 +234,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
+            (taxonomicGroupTypes, props): Record<string, ReturnType<typeof infiniteListLogic.build>> =>
                 Object.fromEntries(
                     taxonomicGroupTypes.map((groupType) => [
                         groupType,
