@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import dayjs, { Dayjs } from 'dayjs'
+import { now, dayjs } from 'lib/dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
@@ -14,7 +14,7 @@ export const annotationsModel = kea<annotationsModelType>({
         createGlobalAnnotation: (content: string, date_marker: string, insightId?: number) => ({
             content,
             date_marker,
-            created_at: dayjs() as Dayjs,
+            created_at: now(),
             created_by: userLogic.values.user,
             insightId,
         }),

@@ -3,6 +3,7 @@ import logging
 import uuid
 from typing import Optional
 
+import structlog
 from django.conf import settings
 
 from posthog.celery import app
@@ -11,7 +12,7 @@ from posthog.models import Event, Organization, OrganizationInvite, PersonDistin
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def send_weekly_email_reports() -> None:
@@ -25,6 +26,13 @@ def send_weekly_email_reports() -> None:
 
     for team in Team.objects.order_by("pk"):
         _send_weekly_email_report_for_team.delay(team_id=team.pk)
+
+
+def send_message_to_all_staff_users(message: EmailMessage) -> None:
+    for user in User.objects.filter(is_staff=True):
+        message.add_recipient(email=user.email, name=user.first_name)
+
+    message.send()
 
 
 @app.task(ignore_result=True, max_retries=1)
@@ -159,3 +167,30 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+def send_async_migration_complete_email(migration_key: str, time: str) -> None:
+
+    message = EmailMessage(
+        campaign_key=f"async_migration_complete_{migration_key}",
+        subject=f"Async migration {migration_key} completed",
+        template_name="async_migration_status",
+        template_context={
+            "migration_status_update": f"Async migration {migration_key} completed successfully at {time}."
+        },
+    )
+
+    send_message_to_all_staff_users(message)
+
+
+@app.task(max_retries=1)
+def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
+
+    message = EmailMessage(
+        campaign_key=f"async_migration_error_{migration_key}",
+        subject=f"Async migration {migration_key} errored",
+        template_name="async_migration_error",
+        template_context={"migration_key": migration_key, "time": time, "error": error},
+    )
+
+    send_message_to_all_staff_users(message)

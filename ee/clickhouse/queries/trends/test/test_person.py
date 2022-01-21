@@ -82,11 +82,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             "order": 0,
         }
         filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event],}
+            data={
+                "date_from": "2021-01-21T00:00:00Z",
+                "date_to": "2021-01-22T00:00:00Z",
+                "events": [event],
+                "include_recordings": "true",
+            }
         )
         entity = Entity(event)
 
-        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter, include_recordings=True).get_actors()
+        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
         self.assertEqual(len(serialized_actors), 1)
         self.assertEqual(len(serialized_actors[0]["matched_recordings"]), 1)
         self.assertEqual(serialized_actors[0]["matched_recordings"][0]["session_id"], "s1")
@@ -161,11 +166,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event],}
+            data={
+                "date_from": "2021-01-21T00:00:00Z",
+                "date_to": "2021-01-22T00:00:00Z",
+                "events": [event],
+                "include_recordings": "true",
+            }
         )
         entity = Entity(event)
 
-        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter, include_recordings=True).get_actors()
+        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
 
         self.assertCountEqual(
             serialized_actors[0].get("matched_recordings", []),

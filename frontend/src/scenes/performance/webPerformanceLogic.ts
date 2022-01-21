@@ -2,9 +2,9 @@ import { kea } from 'kea'
 import { EventType, FilterType, PropertyOperator } from '~/types'
 import api from 'lib/api'
 
-import { apmLogicType } from './apmLogicType'
 import { getChartColors } from 'lib/colors'
 
+import { webPerformanceLogicType } from './webPerformanceLogicType'
 const eventApiProps: Partial<FilterType> = {
     properties: [
         { key: '$performance_page_loaded', value: '0', operator: PropertyOperator.GreaterThan, type: 'event' },
@@ -167,8 +167,8 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const apmLogic = kea<apmLogicType<EventPerformanceData>>({
-    path: ['scenes', 'apm'],
+export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData>>({
+    path: ['scenes', 'performance'],
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
             eventToDisplay,

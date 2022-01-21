@@ -43,6 +43,11 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "EMAIL_REPLY_TO": (get_from_env("EMAIL_REPLY_TO", ""), "", str,),
+    "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
+        get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
+        "Used to disable emails from async migrations service",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -58,4 +63,5 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_USE_SSL",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
+    "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
 )

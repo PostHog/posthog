@@ -104,7 +104,8 @@
 
 .LemonTable__scroll {
     width: 100%;
-    overflow: auto hidden;
+    height: 100%;
+    overflow: auto;
 }
 
 .LemonTable__content {

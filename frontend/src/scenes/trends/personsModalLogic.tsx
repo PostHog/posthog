@@ -324,7 +324,15 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
-                    actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+
+                    let includeRecordingsParam = ''
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
+                        includeRecordingsParam = 'include_recordings=true&'
+                    }
+                    actors = await api.create(
+                        `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
+                        cleanedParams
+                    )
 
                     // Manually populate URL data so that cohort creation can use this information
                     const pathsParams = {
@@ -380,7 +388,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 crossDataset,
                 seriesId,
             }) => {
-                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
+                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
                     // A bit hacky (doesn't account for hash params),
                     // but it works and only needed while we have this feature flag
                     url += '&include_recordings=true'

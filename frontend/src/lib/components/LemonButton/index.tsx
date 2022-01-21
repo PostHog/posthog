@@ -86,7 +86,11 @@ export function LemonButtonWithPopup({
     const [popupVisible, setPopupVisible] = useState(false)
 
     if (buttonProps.children && !buttonProps.sideIcon) {
-        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? (
+            <IconChevronRight style={{ position: 'relative', left: '0.5rem' }} />
+        ) : (
+            <IconArrowDropDown />
+        )
     }
 
     return (

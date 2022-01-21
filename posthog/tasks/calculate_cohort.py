@@ -1,7 +1,7 @@
-import logging
 import time
 from typing import Any, Dict, List
 
+import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from posthog.models import Cohort
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 

@@ -14,7 +14,7 @@ import { objectsEqual } from 'lib/utils'
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     style?: CSSProperties
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -22,14 +22,14 @@ interface PropertyFiltersProps {
 }
 
 export function PathItemFilters({
-    propertyFilters = null,
-    onChange = null,
+    propertyFilters,
+    onChange,
     pageKey,
     style = {},
     taxonomicGroupTypes,
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
+    const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 

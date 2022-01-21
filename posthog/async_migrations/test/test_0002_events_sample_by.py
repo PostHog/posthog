@@ -58,10 +58,19 @@ class Test0002EventsSampleBy(BaseTest):
         execute_query(EVENTS_TABLE_MV_SQL)
 
         execute_query(
-            f"INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid) VALUES ('event1', '{str(uuid4())}') ('event2', '{str(uuid4())}') ('event3', '{str(uuid4())}') ('event4', '{str(uuid4())}') ('event5', '{str(uuid4())}')"
+            f"""
+            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp) 
+            VALUES 
+                ('event1', '{str(uuid4())}', now()) 
+                ('event2', '{str(uuid4())}', now()) 
+                ('event3', '{str(uuid4())}', now()) 
+                ('event4', '{str(uuid4())}', now()) 
+                ('event5', '{str(uuid4())}', '2019-01-01')
+            """
         )
 
         definition = ALL_ASYNC_MIGRATIONS[MIGRATION_NAME]
+
         AsyncMigration.objects.get_or_create(
             name=MIGRATION_NAME,
             description=definition.description,

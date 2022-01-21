@@ -21,7 +21,7 @@ export function ActionsPie({
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results } = useValues(logic)
+    const { results, labelGroupType } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results]
@@ -66,6 +66,7 @@ export function ActionsPie({
                         type={GraphType.Pie}
                         datasets={data}
                         labels={data[0].labels}
+                        labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
                         insightId={insight.id}
                         onClick={
