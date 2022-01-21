@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 from semantic_version.base import SimpleSpec
@@ -15,6 +16,7 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
+from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
 from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
@@ -183,10 +185,16 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
         # while rolling back. under normal circumstances, the error is reserved to
         # things that happened during the migration itself
         if force:
+            last_error = f"Force rollback failed with error: {error}"
             update_async_migration(
-                migration_instance=migration_instance,
-                status=MigrationStatus.Errored,
-                last_error=f"Force rollback failed with error: {error}",
+                migration_instance=migration_instance, status=MigrationStatus.Errored, last_error=last_error,
+            )
+
+        if is_email_available():
+            from posthog.tasks.email import send_async_migration_errored_email
+
+            send_async_migration_errored_email.delay(
+                migration_key=migration_instance.name, time=datetime.now().isoformat(), error=last_error
             )
 
             send_alert_to_plugins(

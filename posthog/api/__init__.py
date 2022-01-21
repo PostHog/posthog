@@ -100,7 +100,6 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 
 
-from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
 from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
 from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
 from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
@@ -109,17 +108,17 @@ from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGrou
 from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
 from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
+from posthog.api.action import ActionViewSet
 from posthog.api.insight import InsightViewSet
 
 # Legacy endpoints CH (to be removed eventually)
-router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
 router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
 router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
 router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
 router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
 router.register(r"cohort", LegacyClickhouseCohortViewSet, basename="cohort")
 # Nested endpoints CH
-projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
+projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"events", ClickhouseEventsViewSet, "project_events", ["team_id"])
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])

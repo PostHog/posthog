@@ -2531,11 +2531,8 @@ export const createProcessEventTests = (
     })
 
     test('new person properties update gating', () => {
-        expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(0)).toBeFalsy()
         if (includeNewPropertiesUpdatesTests) {
             expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeTruthy()
-            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(7)).toBeTruthy()
-            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(25)).toBeTruthy()
         } else {
             expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeFalsy()
         }
