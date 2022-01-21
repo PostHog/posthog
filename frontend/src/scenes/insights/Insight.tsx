@@ -23,6 +23,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
+import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -196,6 +197,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         </Col>
                     </Row>
                     <NPSPrompt />
+                    <FeedbackCallCTA />
                 </>
             )}
 
