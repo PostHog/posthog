@@ -30,19 +30,51 @@ CONSTANCE_CONFIG = {
         "Used to disable automatic rollback of failed async migrations",
         bool,
     ),
-    "EMAIL_ENABLED": (get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool), "", bool,),
-    "EMAIL_HOST": (get_from_env("EMAIL_HOST", optional=True), "", str,),
-    "EMAIL_PORT": (get_from_env("EMAIL_PORT", 25, type_cast=int), "", int,),
-    "EMAIL_HOST_USER": (get_from_env("EMAIL_HOST_USER", optional=True), "", str,),
-    "EMAIL_HOST_PASSWORD": (get_from_env("EMAIL_HOST_PASSWORD", optional=True), "", str,),
-    "EMAIL_USE_TLS": (get_from_env("EMAIL_USE_TLS", False, type_cast=str_to_bool), "", bool,),
-    "EMAIL_USE_SSL": (get_from_env("EMAIL_USE_SSL", False, type_cast=str_to_bool), "", bool,),
-    "EMAIL_DEFAULT_FROM": (
-        get_from_env("EMAIL_DEFAULT_FROM", get_from_env("DEFAULT_FROM_EMAIL", "root@localhost")),
-        "",
+    "EMAIL_ENABLED": (
+        get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
+        "Whether email service is enabled or not.",
+        bool,
+    ),
+    "EMAIL_HOST": (
+        get_from_env("EMAIL_HOST", optional=True),
+        "Hostname to connect to for establishing SMTP connections.",
         str,
     ),
-    "EMAIL_REPLY_TO": (get_from_env("EMAIL_REPLY_TO", ""), "", str,),
+    "EMAIL_PORT": (
+        get_from_env("EMAIL_PORT", 25, type_cast=int),
+        "Port that should be used to connect to the email host.",
+        int,
+    ),
+    "EMAIL_HOST_USER": (
+        get_from_env("EMAIL_HOST_USER", optional=True),
+        "Credentials to connect to the email host.",
+        str,
+    ),
+    "EMAIL_HOST_PASSWORD": (
+        get_from_env("EMAIL_HOST_PASSWORD", optional=True),
+        "Credentials to connect to the email host.",
+        str,
+    ),
+    "EMAIL_USE_TLS": (
+        get_from_env("EMAIL_USE_TLS", False, type_cast=str_to_bool),
+        "Whether to use TLS protocol when connecting to the email host.",
+        bool,
+    ),
+    "EMAIL_USE_SSL": (
+        get_from_env("EMAIL_USE_SSL", False, type_cast=str_to_bool),
+        "Whether to use SSL protocol when connecting to the email host.",
+        bool,
+    ),
+    "EMAIL_DEFAULT_FROM": (
+        get_from_env("EMAIL_DEFAULT_FROM", get_from_env("DEFAULT_FROM_EMAIL", "root@localhost")),
+        "Email address that will appear as the sender in emails (From header).",
+        str,
+    ),
+    "EMAIL_REPLY_TO": (
+        get_from_env("EMAIL_REPLY_TO", ""),
+        "Reply address to which email clients should send responses.",
+        str,
+    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
