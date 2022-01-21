@@ -22,6 +22,7 @@ export function PayGatePage({
     featureKey,
 }: PayGatePageInterface): JSX.Element {
     const { upgradeLink } = useValues(userLogic)
+    const featureName = identifierToHuman(featureKey, 'title')
 
     return (
         <div className="pay-gate-page">
@@ -35,7 +36,7 @@ export function PayGatePage({
                         data-attr={`${featureKey}-upgrade`}
                         className="LemonLinkButton"
                     >
-                        Upgrade now to get {identifierToHuman(featureKey, 'title')}
+                        Upgrade now to get {featureName}
                     </LinkButton>
                 )}
                 {docsLink && (
@@ -46,7 +47,7 @@ export function PayGatePage({
                         data-attr={`${featureKey}-learn-more`}
                         className="LemonLinkButton"
                     >
-                        Check the docs. Learn how to use <IconOpenInNew style={{ marginLeft: 8 }} />
+                        Learn more about {featureName} <IconOpenInNew style={{ marginLeft: 8 }} />
                     </LinkButton>
                 )}
             </div>

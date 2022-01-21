@@ -124,12 +124,7 @@ export function Experiments(): JSX.Element {
                             Introducing <span className="highlight">Experimentation</span>!
                         </>
                     }
-                    caption={
-                        <>
-                            Test changes to your product and how they impact your users. A/B test new features and
-                            changes to discover what improves your metrics best.
-                        </>
-                    }
+                    caption="Improve your product by A/B testing new features to discover what works best for your users."
                     docsLink="https://posthog.com/docs/user-guides/experimentation"
                 />
             )}
