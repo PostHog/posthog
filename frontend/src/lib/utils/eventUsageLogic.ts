@@ -350,6 +350,11 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
+        reportNewExperimentButtonClicked: true,
+        reportExperimentCreated: true,
+        reportExperimentViewed: true,
+        reportExperimentLaunched: true,
+        reportExperimentCompleted: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -775,6 +780,21 @@ export const eventUsageLogic = kea<
         },
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
+        },
+        reportNewExperimentButtonClicked: () => {
+            posthog.capture('new experiment button clicked')
+        },
+        reportExperimentCreated: () => {
+            posthog.capture('experiment created')
+        },
+        reportExperimentViewed: () => {
+            posthog.capture('experiment viewed')
+        },
+        reportExperimentLaunched: () => {
+            posthog.capture('experiment launched')
+        },
+        reportExperimentCompleted: () => {
+            posthog.capture('experiment completed')
         },
     }),
 })

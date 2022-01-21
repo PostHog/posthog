@@ -28,12 +28,26 @@ import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+        actions: [
+            experimentsLogic,
+            ['loadExperiments'],
+            eventUsageLogic,
+            [
+                'reportNewExperimentButtonClicked',
+                'reportExperimentLaunched',
+                'reportExperimentCompleted',
+                'reportExperimentViewed',
+            ],
+        ],
+    },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
@@ -283,6 +297,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     start_date: dayjs(),
                 }
             )
+            actions.reportExperimentLaunched()
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
@@ -293,6 +308,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     end_date: dayjs(),
                 }
             )
+            actions.reportExperimentCompleted()
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
@@ -574,6 +590,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
+                    actions.reportNewExperimentButtonClicked()
                 }
 
                 actions.setEditExperiment(false)
@@ -583,6 +600,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
+                    actions.reportExperimentViewed()
                 }
             }
         },
