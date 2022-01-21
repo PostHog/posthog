@@ -1,5 +1,5 @@
 import decideResponse from '../fixtures/api/decide'
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 
 const interceptPropertyDefinitions = () => {
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
@@ -19,9 +19,15 @@ const interceptPropertyDefinitions = () => {
     })
 }
 
+const selectNewTimestampPropertyFilter = () => {
+    cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+    cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
+    cy.get('.taxonomic-list-row').should('have.length', 1).click()
+}
+
 const selectOperator = (operator, openPopUp) => {
     if (openPopUp) {
-        cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
+        cy.get('[data-attr="property-filter-1"] .property-filter .property-filter-button-label').click()
     }
 
     cy.get('.taxonomic-operator').click()
@@ -32,7 +38,7 @@ const selectOperator = (operator, openPopUp) => {
     cy.get('.operator-value-option').contains(operator).click()
 }
 
-const changeFirstPropertyFilterToDateAfter = () => {
+const changeSecondPropertyFilterToDateAfter = () => {
     selectOperator('> after', true)
 }
 
@@ -88,38 +94,34 @@ describe('Events', () => {
 
     it('has before and after for a DateTime property', () => {
         cy.wait('@featureFlagsLoaded').then(() => {
-            cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time > ')
+            selectNewTimestampPropertyFilter()
 
-            cy.get('[data-attr="property-filter-0"] .property-filter').click()
             cy.get('.taxonomic-operator').click()
             cy.get('.operator-value-option').should('contain.text', '> after')
             cy.get('.operator-value-option').should('contain.text', '< before')
-            cy.get('.operator-value-option').contains('< before').click()
-            cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
         })
     })
 
     /**
      * The test setup creates a set of events within the last 14 days
      */
-    it('starts querying after a date and can shift to querying before it', () => {
+    it('can filter after a date and can filter before it', () => {
         cy.intercept(/api\/projects\/\d+\/events\/.*/).as('getEvents')
 
-        const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+        selectNewTimestampPropertyFilter()
 
-        cy.get('[data-attr="property-filter-0"] button').click()
+        const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
         selectOperator('< before', undefined)
-        cy.get('[data-attr="property-filter-0"] button').click() // because of https://github.com/PostHog/posthog/issues/7970
         cy.get('.taxonomic-value-select').click()
-        cy.get('.filter-date-picker').clear().type(oneDayAgo)
+        cy.get('.filter-date-picker').type(oneDayAgo)
         cy.get('.ant-picker-ok').click()
-        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
+        cy.get('[data-attr="property-filter-1"]').should('include.text', 'Time < ')
 
         cy.wait('@getEvents').then(() => {
             cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
             cy.get('tr.event-row').should('have.length', 100)
 
-            changeFirstPropertyFilterToDateAfter()
+            changeSecondPropertyFilterToDateAfter()
 
             cy.wait('@getEvents').then(() => {
                 // as the seeded events are random(-ish) we can't assert on how long ago they will be

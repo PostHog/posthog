@@ -30,6 +30,10 @@
         text-shadow: none;
         box-shadow: none;
     }
+
+    .pinned-filter {
+        cursor: not-allowed;
+    }
 }
 
 .property-filters {
