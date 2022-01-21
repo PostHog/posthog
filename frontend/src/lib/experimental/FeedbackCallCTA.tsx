@@ -14,6 +14,11 @@ const APPEAR_TIMEOUT = 15000
 
 const COPY = [
     {
+        title: 'Experimentation is launching!',
+        description:
+            'Experimentation can help you test whcih product changes optimize your metrics. Give us feedback on your needs!',
+    },
+    {
         title: 'Want to test product changes before shipping? 🧪',
         description:
             'Our new A/B testing feature is launching soon and will let you seamlessly run experiments on your product. Interested?',
@@ -36,7 +41,13 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
         copy: [
             (s) => [s.featureFlagGroup],
             (featureFlagGroup) =>
-                featureFlagGroup === 'variant-0' ? COPY[0] : featureFlagGroup === 'variant-1' ? COPY[1] : null,
+                featureFlagGroup === 'control'
+                    ? COPY[0]
+                    : featureFlagGroup === 'variant-0'
+                    ? COPY[1]
+                    : featureFlagGroup === 'variant-1'
+                    ? COPY[2]
+                    : null,
         ],
     },
     actions: {
