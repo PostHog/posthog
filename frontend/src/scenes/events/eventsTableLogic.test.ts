@@ -478,7 +478,7 @@ describe('eventsTableLogic', () => {
                 })
             })
 
-            it('polling success does nto pause polling for events when there are not events', async () => {
+            it('polling success does not pause polling for events when there are not events', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setPollingActive(false)
                     logic.actions.setPollingActive(true)
