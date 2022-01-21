@@ -13,12 +13,10 @@ from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
+from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, viewsets
-from rest_framework.request import Request
-from rest_framework.response import Response
 
-from posthog.api import organization
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
@@ -64,7 +62,6 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
-            "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
 
@@ -119,6 +116,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         return password
 
+    def validate_is_staff(self, value: bool) -> bool:
+        if not self.context["request"].user.is_staff:
+            raise PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
     def update(self, instance: models.Model, validated_data: Any) -> Any:
 
         # Update current_organization and current_team
@@ -160,26 +162,14 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class UserStaffSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = [
-            "uuid",
-            "first_name",
-            "email",
-            "is_staff",
-        ]
-        extra_kwargs = {
-            "uuid": {"read_only": True},
-            "first_name": {"read_only": True},
-            "email": {"read_only": True},
-        }
-
-
-class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
     permission_classes = [
         permissions.IsAuthenticated,
+    ]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = [
+        "is_staff",
     ]
     queryset = User.objects.none()
     lookup_field = "uuid"
@@ -188,27 +178,19 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return self.request.user
-        raise serializers.ValidationError(
-            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
-        )
 
+        if not self.request.user.is_staff:
+            raise serializers.ValidationError(
+                "Currently this endpoint only supports retrieving `@me` instance or updates by staff users.",
+                code="invalid_parameter",
+            )
 
-class UserStaffViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet
-):
-    serializer_class = UserStaffSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        permissions.IsAdminUser,
-    ]
-    queryset = User.objects.none()
-    lookup_field = "uuid"
+        return super().get_object()
 
     def get_queryset(self):
-        if self.action == "partial_update":
-            # Because you can make anyone a staff user
+        if self.request.user.is_staff:
             return User.objects.all()
-        return User.objects.filter(is_staff=True)
+        return User.objects.filter(id=self.request.user.id)
 
 
 @authenticate_secondarily

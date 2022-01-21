@@ -561,27 +561,28 @@ class TestStaffUserAPI(APIBaseTest):
 
     def test_can_list_staff_users(self):
 
-        response = self.client.get("/api/staff_users/")
+        response = self.client.get("/api/users/?is_staff=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["count"], 1)
         self.assertEqual(response_data["results"][0]["is_staff"], True)
         self.assertEqual(response_data["results"][0]["email"], self.CONFIG_EMAIL)
 
-    def test_only_staff_can_list_staff_users(self):
+    def test_only_staff_can_list_other_users(self):
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get("/api/staff_users")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        response = self.client.get("/api/users")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["uuid"], str(self.user.uuid))
 
     def test_update_staff_user(self):
         user = self._create_user("newuser@posthog.com", password="12345678")
         self.assertEqual(user.is_staff, False)
 
         # User becomes staff
-        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": True})
+        response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["is_staff"], True)
@@ -589,22 +590,30 @@ class TestStaffUserAPI(APIBaseTest):
         self.assertEqual(user.is_staff, True)
 
         # User is no longer staff
-        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": False})
+        response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": False})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["is_staff"], False)
         user.refresh_from_db()
         self.assertEqual(user.is_staff, False)
 
-    def test_only_staff_user_can_update_staff(self):
+    def test_only_staff_user_can_update_staff_prop(self):
         user = self._create_user("newuser@posthog.com", password="12345678")
 
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": True})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": True})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_parameter",
+                "detail": "Currently this endpoint only supports retrieving `@me` instance or updates by staff users.",
+                "attr": None,
+            },
+        )
 
         user.refresh_from_db()
         self.assertEqual(user.is_staff, False)

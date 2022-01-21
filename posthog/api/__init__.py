@@ -84,7 +84,6 @@ projects_router.register(
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
-router.register(r"staff_users", user.UserStaffViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
