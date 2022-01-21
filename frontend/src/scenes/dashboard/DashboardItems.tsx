@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
-import { isMobile } from 'lib/utils'
 import { InsightModel, DashboardMode, DashboardType } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
@@ -48,7 +47,6 @@ export function DashboardItems(): JSX.Element {
     const className = clsx({
         'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
-        wobbly: dashboardMode === DashboardMode.Edit && isMobile(),
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
