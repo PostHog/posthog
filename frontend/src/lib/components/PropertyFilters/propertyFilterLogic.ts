@@ -4,7 +4,6 @@ import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { objectsEqual } from 'lib/utils'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key],
@@ -67,9 +66,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 actions.newFilter()
             }
 
-            if (!objectsEqual(values.filters, cleanedFilters)) {
-                props.onChange?.(cleanedFilters)
-            }
+            props.onChange(cleanedFilters)
         },
     }),
 
