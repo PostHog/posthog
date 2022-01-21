@@ -116,15 +116,6 @@ export const propertyDefinitionsModel = kea<
             (transformedPropertyDefinitions): PropertySelectOption[] =>
                 transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
         ],
-        describeProperty: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
-                (propertyName: string) => {
-                    // TODO this has to be an API lookup
-                    const match = propertyDefinitions.find((pd) => pd.name === propertyName)
-                    return match?.property_type ? match.property_type : null
-                },
-        ],
         formatForDisplay: [
             (s) => [s.propertyDefinitions],
             (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {

@@ -67,19 +67,6 @@ describe('the property definitions model', () => {
         })
     })
 
-    it('does not describe a property that has no server provided type', () => {
-        expect(logic.values.describeProperty('no property type')).toBeNull()
-    })
-
-    it('does describe a property that has a server provided type but no format', () => {
-        expect(logic.values.describeProperty('a string')).toEqual('String')
-    })
-
-    it('does describe a property that has a server provided type and format', () => {
-        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
-        expect(logic.values.describeProperty('$time')).toEqual('DateTime')
-    })
-
     it('can format a property with no formatting needs for display', () => {
         expect(logic.values.formatForDisplay('a string', '1641368752.908')).toEqual('1641368752.908')
     })

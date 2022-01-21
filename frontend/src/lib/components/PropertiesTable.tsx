@@ -7,8 +7,6 @@ import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
-import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 
@@ -43,8 +41,6 @@ function EditTextValueComponent({
 }
 
 function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
-    const { describeProperty } = useValues(propertyDefinitionsModel)
-
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
     const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
@@ -52,10 +48,6 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
 
-    let propertyType
-    if (rootKey) {
-        propertyType = describeProperty(rootKey)
-    }
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
@@ -121,7 +113,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {valueComponent}
                         </CopyToClipboardInline>
                     )}
-                    <div className="property-value-type">{propertyType || valueType}</div>
+                    <div className="property-value-type">{valueType}</div>
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />
