@@ -1,16 +1,17 @@
 from datetime import datetime
 from typing import Optional
 
+import structlog
 from constance import config
 from django.db import transaction
 
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
-from posthog.constants import AnalyticsDBMS
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+
+logger = structlog.get_logger(__name__)
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -34,6 +35,8 @@ def execute_op_postgres(sql: str, query_id: str):
 
 
 def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True):
+    logger.error(f"Async migration {migration_instance.name} error: {error}")
+
     update_async_migration(
         migration_instance=migration_instance, status=MigrationStatus.Errored, error=error, finished_at=datetime.now(),
     )
