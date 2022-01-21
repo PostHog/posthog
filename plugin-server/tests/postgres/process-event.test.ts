@@ -5,7 +5,7 @@ jest.setTimeout(600000) // 600 sec timeout.
 
 describe('process event (postgresql)', () => {
     describe('with old properties update', () => {
-        createProcessEventTests('postgresql', false, {}, (response) => {
+        createProcessEventTests('postgresql', false, { NEW_PERSON_PROPERTIES_UPDATE_ENABLED: false }, (response) => {
             test('element group', async () => {
                 const { hub } = response
                 const elements = [{ tag_name: 'button', text: 'Sign up!' }, { tag_name: 'div' }]
