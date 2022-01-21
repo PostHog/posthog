@@ -5,6 +5,9 @@
     &:not(.EditableField--multiline) {
         line-height: 2rem;
     }
+    i {
+        color: var(--text-muted);
+    }
     .EditableField--highlight {
         display: flex;
         flex-direction: row;

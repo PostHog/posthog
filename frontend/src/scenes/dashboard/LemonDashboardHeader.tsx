@@ -246,7 +246,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     value={dashboard.description || ''}
                                     placeholder="Description (optional)"
                                     onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                    className="text-muted mb"
+                                    className="mb"
                                     compactButtons
                                 />
                             )}

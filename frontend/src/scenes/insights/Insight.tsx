@@ -150,7 +150,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
-                                className="text-muted"
                                 data-attr="insight-description"
                                 compactButtons
                             />
