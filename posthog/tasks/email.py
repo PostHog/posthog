@@ -169,6 +169,7 @@ def send_canary_email(user_email: str) -> None:
     message.send()
 
 
+@app.task(max_retries=1)
 def send_async_migration_complete_email(migration_key: str, time: str) -> None:
 
     message = EmailMessage(
