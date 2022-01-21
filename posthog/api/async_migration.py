@@ -27,7 +27,6 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "celery_task_id",
             "started_at",
             "finished_at",
-            "last_error",
             "posthog_max_version",
             "posthog_min_version",
         ]
@@ -42,7 +41,6 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "celery_task_id",
             "started_at",
             "finished_at",
-            "last_error",
             "posthog_max_version",
             "posthog_min_version",
         ]
