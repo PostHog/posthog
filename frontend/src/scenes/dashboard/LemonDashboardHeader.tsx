@@ -15,9 +15,8 @@ import React, { useState } from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode } from '~/types'
+import { DashboardMode } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 
@@ -98,7 +97,6 @@ export function LemonDashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode } = useValues(dashboardLogic)
     const { setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
@@ -239,17 +237,16 @@ export function LemonDashboardHeader(): JSX.Element | null {
                     }
                     caption={
                         <>
-                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                                <EditableField
-                                    multiline
-                                    name="description"
-                                    value={dashboard.description || ''}
-                                    placeholder="Description (optional)"
-                                    onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                    className="mb"
-                                    compactButtons
-                                />
-                            )}
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={dashboard.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                className="mb"
+                                compactButtons
+                                paywall
+                            />
                             <ObjectTags
                                 tags={dashboard.tags}
                                 onTagSave={saveNewTag}

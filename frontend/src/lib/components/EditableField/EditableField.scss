@@ -12,9 +12,10 @@
         display: flex;
         flex-direction: row;
         align-items: center;
-        white-space: pre-wrap;
+        width: fit-content;
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
+        white-space: pre-wrap;
     }
     &--editing .EditableField--highlight {
         align-items: flex-end;

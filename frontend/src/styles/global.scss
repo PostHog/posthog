@@ -106,7 +106,7 @@ body strong {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.5rem 1rem;
     margin: 1.5rem 0 0.75rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;

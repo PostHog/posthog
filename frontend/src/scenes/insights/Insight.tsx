@@ -142,19 +142,16 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     </div>
                 }
                 caption={
-                    <>
-                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                            <EditableField
-                                multiline
-                                name="description"
-                                value={insight.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => setInsightMetadata({ description: value })}
-                                data-attr="insight-description"
-                                compactButtons
-                            />
-                        )}
-                    </>
+                    <EditableField
+                        multiline
+                        name="description"
+                        value={insight.description || ''}
+                        placeholder="Description (optional)"
+                        onSave={(value) => setInsightMetadata({ description: value })}
+                        data-attr="insight-description"
+                        compactButtons
+                        paywall
+                    />
                 }
             />
             {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
