@@ -64,14 +64,26 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
             INSERT INTO events (uuid, event, properties, timestamp, team_id)
             VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s)
             """,
-            {uuid4(), event, json.dumps(properties), timestamp, team_id},
+            {
+                "uuid": uuid4(),
+                "event": event,
+                "properties": json.dumps(properties),
+                "timestamp": timestamp,
+                "team_id": team_id,
+            },
         )
         sync_execute(
             """
             INSERT INTO events (uuid, event, properties, timestamp, team_id)
             VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s)
             """,
-            {uuid4(), event, json.dumps(properties), timestamp + timedelta(1), team_id},
+            {
+                "uuid": uuid4(),
+                "event": event,
+                "properties": json.dumps(properties),
+                "timestamp": timestamp + timedelta(1),
+                "team_id": team_id,
+            },
         )
         # And corresponding event definition
         EventDefinition.objects.create(name=event, team_id=team_id)
@@ -84,7 +96,7 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
 
         sync_execute(
             f"""
-            UPDATE posthog_propertydefinition 
-            SET created_at = NULL, last_seen_at = NULL
-        """
+                UPDATE posthog_propertydefinition 
+                SET created_at = NULL, last_seen_at = NULL
+            """
         )
