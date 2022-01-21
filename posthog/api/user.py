@@ -162,16 +162,20 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
     permission_classes = [
         permissions.IsAuthenticated,
     ]
-    queryset = User.objects.none()
     lookup_field = "uuid"
 
-    def get_object(self) -> Any:
-        lookup_value = self.kwargs[self.lookup_field]
-        if lookup_value == "@me":
+    def get_object(self):
+        if self.kwargs[self.lookup_field] == "@me":
             return self.request.user
-        raise serializers.ValidationError(
-            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
-        )
+        return super().get_object()
+
+    def get_queryset(self):
+        if self.request.user.is_anonymous:
+            return User.objects.none()
+        elif self.request.user.is_staff:
+            return User.objects.all()
+        else:
+            return User.objects.filter(id=self.request.user.id)
 
 
 @authenticate_secondarily
