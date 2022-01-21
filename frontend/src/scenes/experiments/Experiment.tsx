@@ -852,40 +852,25 @@ export function ExperimentPreview({
                                 <div className="card-secondary mb-05">
                                     {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
                                 </div>
-                                {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
-                                    <Col key={idx} className="mb-05">
-                                        <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">
-                                                {experimentInsightType === InsightType.FUNNELS
-                                                    ? (event.order || 0) + 1
-                                                    : idx + 1}
-                                            </div>
-                                            <b>
-                                                <EntityFilterInfo filter={event} />
-                                            </b>
-                                        </Row>
-                                        {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
-                                        ))}
-                                    </Col>
-                                ))}
-                                {experiment?.filters?.actions?.map((action: ActionFilterType, idx: number) => (
-                                    <Col key={idx} className="mb-05">
-                                        <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">
-                                                {experimentInsightType === InsightType.FUNNELS
-                                                    ? (action.order || 0) + 1
-                                                    : idx + 1}
-                                            </div>
-                                            <b>
-                                                <EntityFilterInfo filter={action} />
-                                            </b>
-                                        </Row>
-                                        {action.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
-                                        ))}
-                                    </Col>
-                                ))}
+                                {[...(experiment?.filters?.events || []), ...(experiment?.filters?.actions || [])]
+                                    .sort((a, b) => a.order - b.order)
+                                    .map((event: ActionFilterType, idx: number) => (
+                                        <Col key={idx} className="mb-05">
+                                            <Row style={{ marginBottom: 4 }}>
+                                                <div className="preview-conversion-goal-num">
+                                                    {experimentInsightType === InsightType.FUNNELS
+                                                        ? (event.order || 0) + 1
+                                                        : idx + 1}
+                                                </div>
+                                                <b>
+                                                    <EntityFilterInfo filter={event} />
+                                                </b>
+                                            </Row>
+                                            {event.properties?.map((prop: PropertyFilter) => (
+                                                <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                            ))}
+                                        </Col>
+                                    ))}
                             </Col>
                         </Row>
                     )}

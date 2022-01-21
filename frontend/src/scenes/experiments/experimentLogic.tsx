@@ -303,13 +303,9 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.loadExperiment()
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new') {
+            if (values.experimentId === 'new' || values.editingExistingExperiment) {
                 actions.createNewExperimentInsight()
             } else {
-                if (values.editingExistingExperiment) {
-                    actions.createNewExperimentInsight()
-                    return
-                }
                 actions.createNewExperimentInsight(values.experimentData?.filters)
             }
         },
