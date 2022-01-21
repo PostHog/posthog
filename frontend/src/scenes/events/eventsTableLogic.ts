@@ -273,7 +273,6 @@ export const eventsTableLogic = kea<
                 !objectsEqual(properties[0], oneYearAgo)
             ) {
                 properties.unshift(oneYearAgo)
-                console.log(properties, 'added one year ago')
             }
 
             actions.setProperties(properties)
