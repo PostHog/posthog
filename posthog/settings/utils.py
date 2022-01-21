@@ -3,11 +3,14 @@ from typing import Any, Callable, List, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.utils import print_warning, str_to_bool
-
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
     value = os.getenv(key)
+
+    # Special handling for ints, treat empty string "" as `null`
+    if type_cast == int and value == "":
+        value = None
+
     if value is None:
         if optional:
             return None
