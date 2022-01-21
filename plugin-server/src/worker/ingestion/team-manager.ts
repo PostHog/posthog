@@ -110,8 +110,10 @@ export class TeamManager {
 
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
+            this.eventDefinitionsCache.get(team.id)?.add(event)
             if (this.experimentalLastSeenAtEnabled) {
                 status.info('Inserting new event definition with last_seen_at')
+                this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
 VALUES ($1, $2, NULL, NULL, $3, $4, $5) ON CONFLICT
@@ -119,7 +121,6 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
                     [new UUIDT().toString(), event, team.id, now, now],
                     'insertEventDefinition'
                 )
-                this.eventLastSeenCache.set(cacheKey, cacheTime)
             } else {
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
@@ -128,17 +129,16 @@ VALUES ($1, $2, NULL, NULL, $3, $4) ON CONFLICT DO NOTHING`,
                     'insertEventDefinition'
                 )
             }
-            this.eventDefinitionsCache.get(team.id)?.add(event)
         } else {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
                 if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
+                    this.eventLastSeenCache.set(cacheKey, cacheTime)
                     await this.db.postgresQuery(
                         `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
                         [now, team.id, event],
                         'updateEventLastSeenAt'
                     )
-                    this.eventLastSeenCache.set(cacheKey, cacheTime)
                 }
             }
         }
@@ -167,6 +167,7 @@ VALUES ($1, $2, NULL, NULL, $3, $4) ON CONFLICT DO NOTHING`,
     }
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
+        let numPropDefinitionsInsertedWithLastSeenAt = 0
         for (const [key, value] of Object.entries(properties)) {
             const cacheKey = JSON.stringify([team.id, key])
             const now = DateTime.now()
@@ -176,9 +177,11 @@ VALUES ($1, $2, NULL, NULL, $3, $4) ON CONFLICT DO NOTHING`,
             const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
 
             if (this.propertyDefinitionsCache.shouldCreate(team.id, key)) {
+                this.propertyDefinitionsCache.set(team.id, key, propertyType)
                 // TODO: #7422 Temporary conditional to test experimental feature
                 if (this.experimentalLastSeenAtEnabled) {
-                    status.info('Inserting new event property definition with last_seen_at')
+                    numPropDefinitionsInsertedWithLastSeenAt += 1
+                    this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
                     await this.db.postgresQuery(
                         `
 INSERT INTO posthog_propertydefinition
@@ -191,7 +194,6 @@ DO UPDATE SET property_type = CASE WHEN posthog_propertydefinition.property_type
                         [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat, now, now],
                         'insertPropertyDefinition'
                     )
-                    this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
                 } else {
                     await this.db.postgresQuery(
                         `
@@ -204,21 +206,23 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                         'insertPropertyDefinition'
                     )
                 }
-                this.propertyDefinitionsCache.set(team.id, key, propertyType)
             } else {
                 // TODO: #7422 Temporary conditional to test experimental feature
                 if (this.experimentalLastSeenAtEnabled) {
                     if ((this.propertyDefinitionsLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
+                        this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
                         await this.db.postgresQuery(
                             `UPDATE posthog_propertydefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
                             [now, team.id, key],
                             'updatePropertyLastSeenAt'
                         )
-                        this.propertyDefinitionsLastSeenCache.set(cacheKey, cacheTime)
                     }
                 }
             }
         }
+        status.info(
+            `Inserted ${numPropDefinitionsInsertedWithLastSeenAt} new event property definition(s) with last_seen_at`
+        )
     }
 
     private async setTeamIngestedEvent(team: Team, properties: Properties) {
