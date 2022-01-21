@@ -117,7 +117,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
                     const newRolloutPercentages = percentageDistribution(
-                        state?.parameters?.feature_flag_variants.length - 1
+                        (state?.parameters?.feature_flag_variants || []).length - 1
                     )
                     const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
