@@ -23,7 +23,7 @@ describe('process event (clickhouse)', () => {
 
     describe('with old update properties', () => {
         const serverConf = { ...extraServerConfig, ...{ NEW_PERSON_PROPERTIES_UPDATE_ENABLED: false } }
-        createProcessEventTests('clickhouse', false, extraServerConfig)
+        createProcessEventTests('clickhouse', false, serverConf)
     })
 
     describe('with new update properties', () => {
