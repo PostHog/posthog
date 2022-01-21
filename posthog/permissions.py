@@ -2,7 +2,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db.models import Model
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -220,10 +220,15 @@ class TeamMemberStrictManagementPermission(BasePermission):
         return requesting_level >= minimum_level
 
 
+class IsStaffUser(IsAdminUser):
+    message = "You are not a staff user, contact your instance admin."
+
+
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.
-    `premium_feature` must be defined as a view attribute
+    `premium_feature` must be defined as a view attribute.
+    Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -231,10 +236,10 @@ class PremiumFeaturePermission(BasePermission):
             view, "premium_feature"
         ), "this permission class requires the `premium_feature` attribute to be set in the view."
 
-        if not request.user or not request.user.organization:
+        if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if not view.premium_feature in request.user.organization.available_features:
+        if not view.premium_feature in request.user.organization.available_features:  # type: ignore
             raise EnterpriseFeatureException()
 
         return True
