@@ -5,7 +5,7 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
@@ -58,10 +58,19 @@ class Test0002EventsSampleBy(BaseTest):
         execute_query(EVENTS_TABLE_MV_SQL)
 
         execute_query(
-            f"INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid) VALUES ('event1', '{str(uuid4())}') ('event2', '{str(uuid4())}') ('event3', '{str(uuid4())}') ('event4', '{str(uuid4())}') ('event5', '{str(uuid4())}')"
+            f"""
+            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp) 
+            VALUES 
+                ('event1', '{str(uuid4())}', now()) 
+                ('event2', '{str(uuid4())}', now()) 
+                ('event3', '{str(uuid4())}', now()) 
+                ('event4', '{str(uuid4())}', now()) 
+                ('event5', '{str(uuid4())}', '2019-01-01')
+            """
         )
 
         definition = ALL_ASYNC_MIGRATIONS[MIGRATION_NAME]
+
         AsyncMigration.objects.get_or_create(
             name=MIGRATION_NAME,
             description=definition.description,
@@ -99,5 +108,6 @@ class Test0002EventsSampleBy(BaseTest):
         self.assertEqual(backup_events_count_res[0][0], 5)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.last_error, "")
         self.assertEqual(sm.current_operation_index, 9)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)
