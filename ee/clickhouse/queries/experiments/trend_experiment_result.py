@@ -182,10 +182,7 @@ class ClickhouseTrendExperimentResult:
 
     @staticmethod
     def are_results_significant(control_variant: Variant, test_variants: List[Variant]) -> bool:
-        p_value = calculate_p_value(control_variant, test_variants)
-
-        if p_value > P_VALUE_SIGNIFICANCE_LEVEL:
-            return False
+        # TODO: Experiment with Expected Loss calculations for trend experiments
 
         for variant in test_variants:
             # We need a feature flag distribution threshold because distribution of people
@@ -196,12 +193,14 @@ class ClickhouseTrendExperimentResult:
         if control_variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
             return False
 
-        return True
+        p_value = calculate_p_value(control_variant, test_variants)
+
+        return p_value < P_VALUE_SIGNIFICANCE_LEVEL
 
 
 def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: List[Variant]) -> float:
     random_sampler = default_rng()
-    simulations_count = 1_000_000
+    simulations_count = 100_000
 
     variant_samples = []
     for variant in variants:

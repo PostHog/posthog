@@ -54,6 +54,6 @@ describe('process event (postgresql)', () => {
         })
     })
     describe('with new properties update', () => {
-        createProcessEventTests('postgresql', true, { NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '2, 25,,7' })
+        createProcessEventTests('postgresql', true, { NEW_PERSON_PROPERTIES_UPDATE_ENABLED: true })
     })
 })
