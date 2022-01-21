@@ -467,6 +467,35 @@ describe('eventsTableLogic', () => {
 
                 expect(api.get).toHaveBeenCalled()
             })
+
+            it('polling success pauses polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([])
+                }).toMatchValues({
+                    pollingIsActive: false,
+                })
+
+                expect(api.get).toHaveBeenCalled()
+            })
+
+            it('viewing the new events restarts polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([])
+                    logic.actions.prependNewEvents()
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+
+                expect(api.get).toHaveBeenCalled()
+            })
         })
 
         describe('the listeners', () => {
