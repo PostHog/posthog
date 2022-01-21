@@ -1,8 +1,8 @@
 import json
-import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+import structlog
 from celery import group
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -33,7 +33,7 @@ from posthog.utils import generate_cache_key
 
 PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 from ee.clickhouse.queries.funnels import (
     ClickhouseFunnel,

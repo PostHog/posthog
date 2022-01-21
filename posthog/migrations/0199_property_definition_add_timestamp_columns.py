@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0197_plugin_is_stateless"),
+        ("posthog", "0198_async_migration_error"),
     ]
 
     operations = [

@@ -47,6 +47,17 @@ module.exports = {
         'no-shadow': 'error',
         '@typescript-eslint/no-non-null-assertion': 'error',
         curly: 'error',
+        'no-restricted-imports': [
+            'error',
+            {
+                paths: [
+                    {
+                        name: 'dayjs',
+                        message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {

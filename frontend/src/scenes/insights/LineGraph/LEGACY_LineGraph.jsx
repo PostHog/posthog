@@ -5,7 +5,7 @@ import { getContext, useActions, useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { areObjectValuesEmpty, compactNumber, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, capitalizeFirstLetter, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -257,7 +257,7 @@ export function LEGACY_LineGraph({
                         return null
                     }
 
-                    const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                    const label = entityData.label || tooltipItem.label || ''
                     const action = entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
 
                     let value = tooltipItem.yLabel.toLocaleString()
@@ -296,6 +296,9 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value === ''
                                     ? 'None'
                                     : entityData.breakdown_value
+                            }
+                            compareValue={
+                                entityData.compare_label ? capitalizeFirstLetter(entityData.compare_label) : undefined
                             }
                             seriesStatus={entityData.status}
                             pillMidEllipsis={entityData?.filter?.breakdown === '$current_url'}

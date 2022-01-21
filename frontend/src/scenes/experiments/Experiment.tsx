@@ -56,8 +56,7 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
-        areCountResultsSignificant,
-        areConversionResultsSignificant,
+        areResultsSignificant,
         experimentId,
         conversionRateForVariant,
     } = useValues(experimentLogic)
@@ -114,8 +113,9 @@ export function Experiment(): JSX.Element {
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / experimentData?.parameters?.recommended_sample_size || 1) * 100
-            : (dayjs().diff(experimentData?.start_date, 'day') / experimentData?.parameters?.recommended_running_time ||
-                  1) * 100
+            : (dayjs().diff(experimentData?.start_date, 'day') /
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -506,22 +506,32 @@ export function Experiment(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {showWarning &&
-                            experimentResults &&
-                            ((experimentInsightType === InsightType.TRENDS && areCountResultsSignificant) ||
-                                (experimentInsightType === InsightType.FUNNELS && areConversionResultsSignificant)) && (
-                                <Row align="middle" className="significant-results">
-                                    <Col span={19} style={{ color: '#497342' }}>
-                                        Experiment results are significant. You can end your experiment now or let it
-                                        run until completion.
-                                    </Col>
-                                    <Col span={5}>
-                                        <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
-                                            Dismiss
-                                        </Button>
-                                    </Col>
-                                </Row>
-                            )}
+                        {showWarning && experimentResults && areResultsSignificant && (
+                            <Row align="middle" className="significant-results">
+                                <Col span={19} style={{ color: '#497342' }}>
+                                    Your results are <b>statistically significant</b>. You can end this experiment now
+                                    or let it run to completion.
+                                </Col>
+                                <Col span={5}>
+                                    <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                        Dismiss
+                                    </Button>
+                                </Col>
+                            </Row>
+                        )}
+                        {showWarning && experimentResults && !areResultsSignificant && (
+                            <Row align="middle" className="not-significant-results">
+                                <Col span={19} style={{ color: '#f96132' }}>
+                                    Your results are <b>not statistically significant</b>. We don't recommend ending
+                                    this experiment yet.
+                                </Col>
+                                <Col span={5}>
+                                    <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
+                                        Dismiss
+                                    </Button>
+                                </Col>
+                            </Row>
+                        )}
                     </Row>
                     <Row>
                         <Collapse className="full-width" defaultActiveKey="experiment-details">
@@ -531,7 +541,7 @@ export function Experiment(): JSX.Element {
                                     trendCount={trendCount}
                                     exposure={experimentData?.parameters.recommended_running_time}
                                     sampleSize={experimentData?.parameters.recommended_sample_size}
-                                    runningTime={experimentData?.parameters.recommended_running_time}
+                                    runningTime={runningTime}
                                     conversionRate={conversionRate}
                                 />
                                 {experimentResults && (
@@ -585,16 +595,17 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                                 {experimentInsightType === InsightType.TRENDS ? (
                                                     <Row>
-                                                        <b style={{ paddingRight: 4 }}>Count:</b>{' '}
-                                                        {countDataForVariant(variant)}{' '}
-                                                        {'action' in experimentResults.insight[0] && (
-                                                            <Row style={{ paddingLeft: 4 }}>
-                                                                <EntityFilterInfo
-                                                                    filter={experimentResults.insight[0].action}
-                                                                />
-                                                                s
+                                                        <b style={{ paddingRight: 4 }}>
+                                                            <Row>
+                                                                {'action' in experimentResults.insight[0] && (
+                                                                    <EntityFilterInfo
+                                                                        filter={experimentResults.insight[0].action}
+                                                                    />
+                                                                )}
+                                                                <span style={{ paddingLeft: 4 }}>count:</span>
                                                             </Row>
-                                                        )}
+                                                        </b>{' '}
+                                                        {countDataForVariant(variant)}{' '}
                                                     </Row>
                                                 ) : (
                                                     <Row>
@@ -841,19 +852,25 @@ export function ExperimentPreview({
                                 <div className="card-secondary mb-05">
                                     {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
                                 </div>
-                                {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
-                                    <Col key={idx} className="mb-05">
-                                        <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">{idx + 1}</div>
-                                            <b>
-                                                <EntityFilterInfo filter={event} />
-                                            </b>
-                                        </Row>
-                                        {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
-                                        ))}
-                                    </Col>
-                                ))}
+                                {[...(experiment?.filters?.events || []), ...(experiment?.filters?.actions || [])]
+                                    .sort((a, b) => a.order - b.order)
+                                    .map((event: ActionFilterType, idx: number) => (
+                                        <Col key={idx} className="mb-05">
+                                            <Row style={{ marginBottom: 4 }}>
+                                                <div className="preview-conversion-goal-num">
+                                                    {experimentInsightType === InsightType.FUNNELS
+                                                        ? (event.order || 0) + 1
+                                                        : idx + 1}
+                                                </div>
+                                                <b>
+                                                    <EntityFilterInfo filter={event} />
+                                                </b>
+                                            </Row>
+                                            {event.properties?.map((prop: PropertyFilter) => (
+                                                <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                            ))}
+                                        </Col>
+                                    ))}
                             </Col>
                         </Row>
                     )}

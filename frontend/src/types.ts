@@ -37,6 +37,7 @@ export enum AvailableFeature {
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
+    EXPERIMENTATION = 'experimentation',
 }
 
 export enum Realm {
@@ -1381,6 +1382,7 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    significant: boolean
     noData?: boolean
 }
 

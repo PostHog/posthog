@@ -30,53 +30,56 @@ class ServiceVersionRequirement:
 
     def get_service_version(self) -> Version:
         if self.service == "postgresql":
-            return self.get_postgres_version()
+            return get_postgres_version()
 
         if self.service == "clickhouse":
-            return self.get_clickhouse_version()
+            return get_clickhouse_version()
 
         if self.service == "redis":
-            return self.get_redis_version()
+            return get_redis_version()
 
-    def get_postgres_version(self) -> Version:
-        from django.db import connection
 
-        with connection.cursor() as cursor:
-            cursor.execute("SHOW server_version")
+def get_postgres_version() -> Version:
+    from django.db import connection
 
-            rows = cursor.fetchone()
-            version = rows[0]
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW server_version")
 
-        return self.version_string_to_semver(version)
+        rows = cursor.fetchone()
+        version = rows[0]
 
-    def get_clickhouse_version(self) -> Version:
-        from ee.clickhouse.client import default_client
+    return version_string_to_semver(version)
 
-        client = default_client()
-        rows = client.execute("SELECT version()")
-        version = rows[0][0]
 
-        return self.version_string_to_semver(version)
+def get_clickhouse_version() -> Version:
+    from ee.clickhouse.client import default_client
 
-    def get_redis_version(self) -> Version:
-        client = redis.get_client()
-        version = client.execute_command("INFO")["redis_version"]
-        return self.version_string_to_semver(version)
+    client = default_client()
+    rows = client.execute("SELECT version()")
+    version = rows[0][0]
 
-    @staticmethod
-    def version_string_to_semver(version: str) -> Version:
-        minor = 0
-        patch = 0
+    return version_string_to_semver(version)
 
-        # remove e.g. `-alpha`, Postgres metadata (`11.13 (Ubuntu 11.13-2.heroku1+1)`), etc
-        version_parts = version.split("(")[0].split("-")[0].split(".")
 
-        major = int(version_parts[0])
+def get_redis_version() -> Version:
+    client = redis.get_client()
+    version = client.execute_command("INFO")["redis_version"]
+    return version_string_to_semver(version)
 
-        if len(version_parts) > 1:
-            minor = int(version_parts[1])
 
-        if len(version_parts) > 2:
-            patch = int(version_parts[2])
+def version_string_to_semver(version: str) -> Version:
+    minor = 0
+    patch = 0
 
-        return Version(major=major, minor=minor, patch=patch)
+    # remove e.g. `-alpha`, Postgres metadata (`11.13 (Ubuntu 11.13-2.heroku1+1)`), etc
+    version_parts = version.split("(")[0].split("-")[0].split(".")
+
+    major = int(version_parts[0])
+
+    if len(version_parts) > 1:
+        minor = int(version_parts[1])
+
+    if len(version_parts) > 2:
+        patch = int(version_parts[2])
+
+    return Version(major=major, minor=minor, patch=patch)
