@@ -560,6 +560,22 @@ code.code {
     }
 }
 
+.LemonLinkButton {
+    // TODO: This should become a component at some point
+    padding: 1.3rem 1rem !important;
+    font-weight: $medium !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+
+    &.ant-btn {
+        padding-top: 1.3rem !important;
+    }
+    &:not(.ant-btn-primary) {
+        color: $primary;
+    }
+}
+
 // Graph series glyph
 
 .graph-series-glyph {

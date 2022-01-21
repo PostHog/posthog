@@ -1,6 +1,5 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
@@ -9,20 +8,16 @@ import { announcementLogicType } from './announcementLogicType'
 export enum AnnouncementType {
     Demo = 'Demo',
     CloudFlag = 'CloudFlag',
-    GroupAnalytics = 'GroupAnalytics',
+    NewFeature = 'NewFeature',
 }
+
+// Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
+const ShowNewFeatureAnnouncement = false
 
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
     connect: {
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            groupsAccessLogic,
-            ['showGroupsAnnouncementBanner'],
-            preflightLogic,
-            ['preflight'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
     actions: {
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -67,14 +62,14 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.showGroupsAnnouncementBanner, s.preflight],
-            (cloudAnnouncement, showGroupsAnnouncementBanner, preflight): AnnouncementType | null => {
+            (s) => [s.cloudAnnouncement, s.preflight],
+            (cloudAnnouncement, preflight): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
-                } else if (showGroupsAnnouncementBanner) {
-                    return AnnouncementType.GroupAnalytics
+                } else if (ShowNewFeatureAnnouncement) {
+                    return AnnouncementType.NewFeature
                 }
                 return null
             },
