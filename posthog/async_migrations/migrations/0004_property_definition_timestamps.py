@@ -29,6 +29,8 @@ We populate event property definitions team by team to avoid running out of memo
 class Migration(AsyncMigrationDefinition):
     description = "Determine created_at and last_seen_at properties for event property definitions."
 
+    posthog_min_version = "1.30.0"
+
     depends_on = "0003_fill_person_distinct_id2"
 
     @cached_property
