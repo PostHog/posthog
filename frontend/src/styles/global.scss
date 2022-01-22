@@ -15,6 +15,7 @@ NOTE: $medium is a SCSS var; not a keyword
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
+    --primary-hover: #{$primary_hover};
     --primary-active: #{$primary_active};
     --primary-bg-hover: #{$primary_bg_hover};
     --primary-bg-active: #{$primary_bg_active};
