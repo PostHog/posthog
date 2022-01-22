@@ -1,6 +1,9 @@
 import json
 from functools import cached_property
 
+import pytz
+from dateutil.parser import isoparse
+
 from ee.clickhouse.client import sync_execute
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
@@ -24,7 +27,6 @@ We populate event property definitions team by team to avoid running out of memo
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = "Determine created_at and last_seen_at properties for event property definitions."
 
     depends_on = "0003_fill_person_distinct_id2"
@@ -53,8 +55,13 @@ class Migration(AsyncMigrationDefinition):
             )
 
             if first_event:
+                # clickhouse specific formatting
                 created_at = first_event[0][0]
+                created_at = isoparse(created_at) if isinstance(created_at, str) else created_at.astimezone(pytz.utc)
                 last_seen_at = last_event[0][0]
+                last_seen_at = (
+                    isoparse(last_seen_at) if isinstance(last_seen_at, str) else last_seen_at.astimezone(pytz.utc)
+                )
                 property_keys = list(json.loads(first_event[0][1]).keys())
 
                 for prop in property_keys:
@@ -68,7 +75,13 @@ class Migration(AsyncMigrationDefinition):
 
         property_defs_sql = ",".join(
             [
-                f"({prop}, {timestamps['created_at']}, {timestamps['last_seen_at']})"
+                f"""
+                (
+                    '{prop}', 
+                    to_timestamp('{timestamps['created_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.US'), 
+                    to_timestamp('{timestamps['last_seen_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.US')
+                )
+                """
                 for [prop, timestamps] in property_defs.items()
             ]
         )
@@ -82,17 +95,17 @@ class Migration(AsyncMigrationDefinition):
                 FROM (VALUES
                     {property_defs_sql}
                 ) AS c(name, created_at, last_seen_at)
-                WHERE c.name = pd.name
+                WHERE c.name = pd.name AND pd.team_id = {team_id}
             """,
             resumable=True,
             timeout_seconds=120,  # Fine tune and remove if not needed.
             rollback=f"""
-                ALTER TABLE posthog_propertydefinition 
-                DROP COLUMN IF EXISTS created_at,
-                DROP COLUMN IF EXISTS last_seen_at
+                UPDATE posthog_propertydefinition 
+                SET created_at = NULL, last_seen_at = NULL
+                WHERE team_id = {team_id}
             """,
         )
 
     @cached_property
     def _team_ids(self):
-        return list(EventDefinition.objects.order_by().values_list("team_id").distinct())
+        return list(EventDefinition.objects.order_by().values_list("team_id", flat=True).distinct())
