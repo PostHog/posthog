@@ -19,6 +19,11 @@
     .InsightMeta {
         border-bottom: 1px solid var(--border);
     }
+    .ant-alert {
+        margin: 1rem;
+        width: 100%;
+        overflow: auto;
+    }
 }
 
 .InsightViz {

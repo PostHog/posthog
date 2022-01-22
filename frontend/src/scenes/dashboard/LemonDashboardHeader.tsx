@@ -226,7 +226,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     onClick={() => addGraph()}
                                     data-attr="dashboard-add-graph-header"
                                 >
-                                    Add insight
+                                    New insight
                                 </LemonButton>
                             </>
                         )
