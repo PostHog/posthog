@@ -80,8 +80,8 @@ class Migration(AsyncMigrationDefinition):
                 f"""
                 (
                     '{prop}', 
-                    to_timestamp('{timestamps['created_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.US'), 
-                    to_timestamp('{timestamps['last_seen_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.US')
+                    to_timestamp('{timestamps['created_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.USZ'), 
+                    to_timestamp('{timestamps['last_seen_at'].strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.USZ')
                 )
                 """
                 for [prop, timestamps] in property_defs.items()
