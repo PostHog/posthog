@@ -377,9 +377,11 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             }
 
             let postgresQuery: jest.SpyInstance
+            let now: DateTime
             beforeEach(() => {
                 postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
+                now = DateTime.now()
             })
 
             it('adds no type for objects', async () => {
@@ -395,16 +397,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'anObjectProperty',
-                            false,
-                            teamId,
-                            null,
-                            null,
-                            '2015-04-04T04:04:04.000Z',
-                            '2015-04-04T04:04:04.000Z',
-                        ],
+                        params: [expect.any(String), 'anObjectProperty', false, teamId, null, null, now, now],
                     },
                     postgresQuery
                 )
@@ -421,16 +414,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'some_number',
-                            true,
-                            teamId,
-                            'Numeric',
-                            null,
-                            '2015-04-04T04:04:04.000Z',
-                            '2015-04-04T04:04:04.000Z',
-                        ],
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null, now, now],
                     },
                     postgresQuery
                 )
@@ -447,16 +431,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'some_string',
-                            false,
-                            teamId,
-                            'String',
-                            null,
-                            '2015-04-04T04:04:04.000Z',
-                            '2015-04-04T04:04:04.000Z',
-                        ],
+                        params: [expect.any(String), 'some_string', false, teamId, 'String', null, now, now],
                     },
                     postgresQuery
                 )
@@ -549,8 +524,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 testcase.expectedPropertyType,
                                 testcase.expectedPropertyTypeFormat,
-                                '2015-04-04T04:04:04.000Z',
-                                '2015-04-04T04:04:04.000Z',
+                                now,
+                                now,
                             ],
                         },
                         postgresQuery
@@ -699,8 +674,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 PropertyType.DateTime,
                                 testcase.patternDescription,
-                                '2015-04-04T04:04:04.000Z',
-                                '2015-04-04T04:04:04.000Z',
+                                now,
+                                now,
                             ],
                         },
                         postgresQuery
