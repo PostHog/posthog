@@ -23,11 +23,6 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         self.migration = get_async_migration_definition(MIGRATION_NAME)
         self.timestamp = 0
 
-        organization1, _, _ = User.objects.bootstrap("X", "someone@x.com", "qwerty", "SomeoneX")
-        self.team1 = Team.objects.create(organization=organization1)
-        organization2, _, _ = User.objects.bootstrap("Y", "someone@y.com", "qwerty", "SomeoneY")
-        self.team2 = Team.objects.create(organization=organization2)
-
         # Make sure migration 0199_property_definition_timestamps has already been run
         with connection.cursor() as cursor:
             cursor.execute(
@@ -51,8 +46,12 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         last_seen_at_1 = created_at_1 + timedelta(1)
         created_at_2 = timezone.now().astimezone(pytz.UTC) + timedelta(100)
         last_seen_at_2 = created_at_2 + timedelta(1)
-        self.create_event_and_definitions(event="poghost", timestamp=created_at_1, team_id=self.team1.id)
-        self.create_event_and_definitions(event="poghost", timestamp=created_at_2, team_id=self.team2.id)
+        self.create_event_and_definitions(
+            event="test_property_definition_timestamp_event", timestamp=created_at_1, team_id=self.team1.id
+        )
+        self.create_event_and_definitions(
+            event="test_property_definition_timestamp_event", timestamp=created_at_2, team_id=self.team2.id
+        )
 
         setup_async_migrations()
         migration_successful = start_async_migration(MIGRATION_NAME)
@@ -65,15 +64,15 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         assert migration.exists() is True
 
         # Property without definition shouldn't get inserted
-        property_nodef_1 = PropertyDefinition.objects.filter(name="prop_without_definition", team_id=self.team1.id)
-        property_nodef_2 = PropertyDefinition.objects.filter(name="prop_without_definition", team_id=self.team2.id)
+        property_nodef_1 = PropertyDefinition.objects.filter(name="prop_without_definition", team_id=1)
+        property_nodef_2 = PropertyDefinition.objects.filter(name="prop_without_definition", team_id=2)
 
         assert property_nodef_1.exists() is False
         assert property_nodef_2.exists() is False
 
         # Property with definition gets updated with correct created_at and last_seen_at
-        property_def_1 = PropertyDefinition.objects.get(name="prop_with_definition", team_id=self.team1.id)
-        property_def_2 = PropertyDefinition.objects.get(name="prop_with_definition", team_id=self.team2.id)
+        property_def_1 = PropertyDefinition.objects.get(name="prop_with_definition", team_id=1)
+        property_def_2 = PropertyDefinition.objects.get(name="prop_with_definition", team_id=2)
 
         assert property_def_1.created_at == created_at_1
         assert property_def_1.last_seen_at == last_seen_at_1
@@ -123,8 +122,7 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
 
         PropertyDefinition.objects.all().delete()
         EventDefinition.objects.all().delete()
-        sync_execute("ALTER TABLE events DELETE WHERE 1=1")
-        Team.objects.all().delete()
+        sync_execute("ALTER TABLE events DELETE WHERE event = 'test_property_definition_timestamp_event'")
 
         with connection.cursor() as cursor:
             cursor.execute(
