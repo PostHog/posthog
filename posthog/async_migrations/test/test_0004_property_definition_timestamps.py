@@ -47,10 +47,10 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         created_at_2 = timezone.now().astimezone(pytz.UTC) + timedelta(100)
         last_seen_at_2 = created_at_2 + timedelta(1)
         self.create_event_and_definitions(
-            event="test_property_definition_timestamp_event", timestamp=created_at_1, team_id=self.team1.id
+            event="test_property_definition_timestamp_event", timestamp=created_at_1, team_id=1
         )
         self.create_event_and_definitions(
-            event="test_property_definition_timestamp_event", timestamp=created_at_2, team_id=self.team2.id
+            event="test_property_definition_timestamp_event", timestamp=created_at_2, team_id=2
         )
 
         setup_async_migrations()
