@@ -26,8 +26,6 @@ describe('Dashboards Premium Features', () => {
         cy.focused().type(newTag)
         cy.get('[data-attr=new-tag-option]').click()
         cy.get('.ant-tag').should('contain', newTag)
-
-        cy.wait(300)
         cy.get('[data-attr=button-add-tag]').click()
         cy.focused().type(newTag)
         cy.get('[data-attr=new-tag-option]').click()
