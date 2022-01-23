@@ -24,8 +24,8 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
 
-        cls.org = Organization.objects.create(name="New Organization")
-        cls.team2 = Team.objects.create(name="New Project", organization=cls.org)
+        org = Organization.objects.create(name="New Organization")
+        cls.team2 = Team.objects.create(name="New Project", organization=org)
 
     def setUp(self):
         self.created_at_1 = timezone.now().astimezone(pytz.UTC)
