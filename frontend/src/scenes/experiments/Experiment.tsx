@@ -312,9 +312,9 @@ export function Experiment(): JSX.Element {
                                                         endpoint="person"
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
-                                                            (experimentInsightType === InsightType.FUNNELS
+                                                            experimentInsightType === InsightType.FUNNELS
                                                                 ? funnelsFilters.properties
-                                                                : trendsFilters.properties) || []
+                                                                : trendsFilters.properties
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({
