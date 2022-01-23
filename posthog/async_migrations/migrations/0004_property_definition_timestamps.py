@@ -33,50 +33,12 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0003_fill_person_distinct_id2"
 
-    depends_on_posthog_migration = "0199_property_definition_timestamps"
+    # This async migration will not run until 0199 has been run and columns already exist.
+    external_dependencies = [("posthog", "0199_property_definition_timestamps")]
 
     @cached_property
     def operations(self):
-        return [self.setup_columns()] + [self.migrate_team_operation(team_id) for team_id in self._team_ids]
-
-    def setup_columns(self):
-        """
-        Manually runs the sql that Django auto-generates (via `sqlmigrate` command) for
-        `posthog/migrations/0199_property_definition_timestamps`. Creates new columns and also tricks Django into
-        thinking that the migration is already run by adding the corresponding row into the `django_migrations` table.
-
-        This is necessary in order to avoid having an in-between state where `created_at` and `last_seen_at` columns
-        exist but don't mean anything. The actual 0199 migration has been edited to run the `sqlmigrate` generated
-        query with an extra `IF [NOT] EXISTS` clause so that Django doesn't error out if it chooses to add the column
-        after this migration already creates it, essentially making it a noop. This means that 0199 can be run before,
-        during, or after the async migration without consequence, which overcomes the timing problem.
-        """
-
-        return AsyncMigrationOperation.simple_op(
-            database=AnalyticsDBMS.POSTGRES,
-            resumable=True,
-            sql=f"""
-                        COMMIT;
-                        BEGIN;
-                        ALTER TABLE "posthog_propertydefinition" 
-                        ADD COLUMN IF NOT EXISTS "created_at" timestamp with time zone NULL,
-                        ADD COLUMN IF NOT EXISTS "last_seen_at" timestamp with time zone NULL;
-                        
-                        INSERT INTO "django_migrations" (app, name, applied)
-                        VALUES ('posthog', '{self.depends_on_posthog_migration}', NOW())
-                        ON CONFLICT DO NOTHING
-                    """,
-            rollback=f"""
-                        COMMIT;
-                        BEGIN;
-                        ALTER TABLE "posthog_propertydefinition" 
-                        DROP COLUMN IF EXISTS "created_at",
-                        DROP COLUMN IF EXISTS "last_seen_at";
-                        
-                        DELETE FROM "django_migrations"
-                        WHERE app = 'posthog' AND name = '${self.depends_on_posthog_migration}'
-                    """,
-        )
+        return [self.migrate_team_operation(team_id) for team_id in self._team_ids]
 
     def migrate_team_operation(self, team_id: int):
 

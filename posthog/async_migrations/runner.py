@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import List, Optional, Tuple
 
+from django.db.migrations.recorder import MigrationRecorder
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.setup import (
     POSTHOG_VERSION,
     get_async_migration_definition,
     get_async_migration_dependency,
+    get_async_migration_external_dependencies,
 )
 from posthog.async_migrations.utils import (
     complete_migration,
@@ -211,12 +213,26 @@ def run_next_migration(candidate: str):
 
 
 def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
-    dependency = get_async_migration_dependency(migration_name)
+    async_dependency = get_async_migration_dependency(migration_name)
+    external_dependencies = get_async_migration_external_dependencies(migration_name)
 
     dependency_ok: bool = (
-        not dependency or AsyncMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
+        not async_dependency
+        or AsyncMigration.objects.get(name=async_dependency).status == MigrationStatus.CompletedSuccessfully
+    ) and (
+        not external_dependencies
+        or all(
+            [
+                MigrationRecorder.Migration.objects.filter(app=ex_dep[0], name=ex_dep[1]).exists()
+                for ex_dep in external_dependencies
+            ]
+        )
     )
-    error = f"Could not trigger migration because it depends on {dependency}" if not dependency_ok else ""
+    error = (
+        f"Could not trigger migration because it depends on {async_dependency} and {', '.join([f'{ex_dep[0]}.{ex_dep[1]}' for ex_dep in external_dependencies])}"
+        if not dependency_ok
+        else ""
+    )
     return dependency_ok, error
 
 

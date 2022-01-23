@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 import pytz
+from django.db import connection
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -26,6 +27,22 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         self.team1 = Team.objects.create(organization=organization1)
         organization2, _, _ = User.objects.bootstrap("Y", "someone@y.com", "qwerty", "SomeoneY")
         self.team2 = Team.objects.create(organization=organization2)
+
+        # Make sure migration 0199_property_definition_timestamps has already been run
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                        COMMIT;
+                        BEGIN;
+                        ALTER TABLE "posthog_propertydefinition"
+                        ADD COLUMN IF NOT EXISTS "created_at" timestamp with time zone NULL,
+                        ADD COLUMN IF NOT EXISTS "last_seen_at" timestamp with time zone NULL;
+
+                        INSERT INTO "django_migrations" (app, name, applied)
+                        VALUES ('posthog', '0199_property_definition_timestamps', NOW())
+                        ON CONFLICT DO NOTHING
+                    """
+            )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_migration(self):
@@ -108,3 +125,17 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         EventDefinition.objects.all().delete()
         sync_execute("ALTER TABLE events DELETE WHERE 1=1")
         Team.objects.all().delete()
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                        COMMIT;
+                        BEGIN;
+                        ALTER TABLE "posthog_propertydefinition" 
+                        DROP COLUMN IF EXISTS "created_at",
+                        DROP COLUMN IF EXISTS "last_seen_at";
+                        
+                        DELETE FROM "django_migrations"
+                        WHERE app = 'posthog' AND name = '0199_property_definition_timestamps'
+                    """
+            )

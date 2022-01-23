@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from constance import config
 from django.core.exceptions import ImproperlyConfigured
@@ -13,6 +13,8 @@ from posthog.version import VERSION
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
 
 ASYNC_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
+
+ASYNC_MIGRATION_TO_EXTERNAL_DEPENDENCIES: Dict[str, List[Tuple[str, str]]] = {}
 
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
 DEPENDENCY_TO_ASYNC_MIGRATION: Dict[Optional[str], str] = {}
@@ -63,6 +65,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
             first_migration = migration_name
 
         ASYNC_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
+        ASYNC_MIGRATION_TO_EXTERNAL_DEPENDENCIES[migration_name] = migration.external_dependencies
 
         if (
             (not ignore_posthog_version)
@@ -107,3 +110,10 @@ def get_async_migration_dependency(migration_name: str) -> Optional[str]:
         return None
 
     return ASYNC_MIGRATION_TO_DEPENDENCY[migration_name]
+
+
+def get_async_migration_external_dependencies(migration_name: str) -> List[Tuple[str, str]]:
+    if TEST:
+        return None
+
+    return ASYNC_MIGRATION_TO_EXTERNAL_DEPENDENCIES[migration_name]
