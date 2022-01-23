@@ -355,10 +355,12 @@ describe('TeamManager()', () => {
         describe('auto-detection of property types', () => {
             const insertPropertyDefinitionQuery = `
 INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, last_seen_at, created_at)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, $8)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`
+DO UPDATE SET property_type = CASE WHEN posthog_propertydefinition.property_type IS NULL THEN $5 ELSE posthog_propertydefinition.property_type END,
+    property_type_format = CASE WHEN posthog_propertydefinition.property_type IS NULL THEN $6 ELSE posthog_propertydefinition.property_type_format END,
+    last_seen_at = CASE WHEN TRUE THEN $7 ELSE posthog_propertydefinition.last_seen_at END`
             const teamId = 2
 
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
