@@ -25,6 +25,7 @@ from posthog.models.async_migration import (
     get_all_running_async_migrations,
 )
 from posthog.models.utils import UUIDT
+from posthog.settings import TEST
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
@@ -201,6 +202,8 @@ def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
 
 
 def run_next_migration(candidate: str):
+    if TEST:
+        return
     migration_instance = AsyncMigration.objects.get(name=candidate)
     migration_in_range = is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version

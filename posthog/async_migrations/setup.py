@@ -114,6 +114,6 @@ def get_async_migration_dependency(migration_name: str) -> Optional[str]:
 
 def get_async_migration_external_dependencies(migration_name: str) -> List[Tuple[str, str]]:
     if TEST:
-        return None
+        return []
 
     return ASYNC_MIGRATION_TO_EXTERNAL_DEPENDENCIES[migration_name]
