@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 import pytz
+from django.db.migrations.recorder import MigrationRecorder
 from django.utils import timezone
 from freezegun.api import freeze_time
 
@@ -39,6 +40,12 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
         setup_async_migrations()
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertTrue(migration_successful)
+
+        # Check if migration is spoofed in `django_migrations`
+        migration = MigrationRecorder.Migration.objects.filter(
+            app="posthog", name="0199_property_definition_timestamps"
+        )
+        assert migration.exists() is True
 
         # Property without definition shouldn't get inserted
         property_nodef_1 = PropertyDefinition.objects.filter(name="prop_without_definition", team_id=self.team1.id)

@@ -47,7 +47,7 @@ class Migration(AsyncMigrationDefinition):
 
         This is necessary in order to avoid having an in-between state where `created_at` and `last_seen_at` columns
         exist but don't mean anything. The actual 0199 migration has been edited to run the `sqlmigrate` generated
-        comment with an extra `IF [NOT] EXISTS` clause so that Django doesn't error out if it chooses to add the column
+        query with an extra `IF [NOT] EXISTS` clause so that Django doesn't error out if it chooses to add the column
         after this migration already creates it, essentially making it a noop. This means that 0199 can be run before,
         during, or after the async migration without consequence, which overcomes the timing problem.
         """
