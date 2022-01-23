@@ -28,8 +28,6 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_migration(self):
-        from ee.clickhouse.client import sync_execute
-
         # Setup
         created_at_1 = timezone.now().astimezone(pytz.UTC)
         last_seen_at_1 = created_at_1 + timedelta(1)
