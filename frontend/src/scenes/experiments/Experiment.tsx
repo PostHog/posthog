@@ -490,7 +490,16 @@ export function Experiment(): JSX.Element {
                                 </Row>
                             </Card>
                             <Row>
-                                Choose any secondary metrics to track:
+                                <Col>
+                                    <div>
+                                        <b>Secondary metrics</b>
+                                        <span className="text-muted ml-05">(optional)</span>
+                                    </div>
+                                    <div className="text-muted">
+                                        Use secondary metrics to monitor metrics related to your experiment goal. You
+                                        can add up to three secondary metrics.{' '}
+                                    </div>
+                                </Col>
                                 <SecondaryMetrics
                                     onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
                                     initialMetrics={parsedSecondaryMetrics}

@@ -100,22 +100,26 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             </Card>
                         </Row>
                     ))}
-                    <Row>
-                        <Button
-                            type="primary"
-                            icon={<PlusOutlined />}
-                            onClick={() => createNewMetric(InsightType.TRENDS)}
-                        >
-                            Add Trend Metric
-                        </Button>
-                        <Button
-                            type="primary"
-                            icon={<PlusOutlined />}
-                            onClick={() => createNewMetric(InsightType.FUNNELS)}
-                        >
-                            Add Funnel Metric
-                        </Button>
-                    </Row>
+                    <Col>
+                        <div className="mb-05">
+                            <Button
+                                style={{ color: 'var(--primary)', minWidth: 240 }}
+                                icon={<PlusOutlined />}
+                                onClick={() => createNewMetric(InsightType.TRENDS)}
+                            >
+                                Add trend metric
+                            </Button>
+                        </div>
+                        <div>
+                            <Button
+                                style={{ color: 'var(--primary)', minWidth: 240 }}
+                                icon={<PlusOutlined />}
+                                onClick={() => createNewMetric(InsightType.FUNNELS)}
+                            >
+                                Add conversion metric
+                            </Button>
+                        </div>
+                    </Col>
                 </Col>
                 <Col span={14}>
                     <BindLogic logic={insightLogic} props={insightProps}>
