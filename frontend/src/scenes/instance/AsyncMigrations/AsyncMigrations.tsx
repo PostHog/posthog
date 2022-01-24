@@ -1,4 +1,4 @@
-import './index.scss'
+import './AsyncMigrations.scss'
 
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
