@@ -85,6 +85,7 @@ export function Experiment(): JSX.Element {
         updateExperimentGroup,
         removeExperimentGroup,
         setExperimentInsightType,
+        archiveExperiment,
     } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -517,6 +518,13 @@ export function Experiment(): JSX.Element {
                                     Stop experiment
                                 </Button>
                             )}
+                            {experimentData?.end_date &&
+                                dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
+                                !experimentData.archived && (
+                                    <Button className="archive-experiment" onClick={() => archiveExperiment()}>
+                                        <b>Archive experiment</b>
+                                    </Button>
+                                )}
                         </Row>
                     </Row>
                     <Row>

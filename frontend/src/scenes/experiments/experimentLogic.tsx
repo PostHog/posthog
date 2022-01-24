@@ -37,7 +37,7 @@ export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
-        actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
+        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
@@ -59,6 +59,7 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -188,7 +189,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
-                        actions.updateExperiment(response)
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -290,25 +291,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.loadExperimentResults()
             }
         },
-        launchExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+        launchExperiment: () => {
+            actions.updateExperiment({ start_date: dayjs().format('YYYY-MM-DD') })
         },
         endExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            actions.updateExperiment({ end_date: dayjs().format('YYYY-MM-DD') })
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ archived: true })
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {
@@ -318,7 +308,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -330,6 +320,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         return response as Experiment
                     }
                     return null
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    return response
                 },
             },
         ],
