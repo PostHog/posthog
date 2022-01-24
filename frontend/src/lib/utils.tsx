@@ -1191,19 +1191,25 @@ export function toString(input?: any | null): string {
     return input?.toString() || ''
 }
 
+export function skipNaNs(input: any[]): number[] {
+    return input.filter((value) => !isNaN(value))
+}
+
+/**
+ * Returns the average of an array
+ * @param input e.g. [100,50, 75]
+ */
 export function average(input: number[]): number {
-    /**
-     * Returns the average of an array
-     * @param input e.g. [100,50, 75]
-     */
+    input = skipNaNs(input)
     return Math.round((input.reduce((acc, val) => acc + val, 0) / input.length) * 10) / 10
 }
 
+/**
+ * Returns the median of an array
+ * @param input e.g. [3,7,10]
+ */
 export function median(input: number[]): number {
-    /**
-     * Returns the median of an array
-     * @param input e.g. [3,7,10]
-     */
+    input = skipNaNs(input)
     const sorted = [...input].sort((a, b) => a - b)
     const half = Math.floor(sorted.length / 2)
 
