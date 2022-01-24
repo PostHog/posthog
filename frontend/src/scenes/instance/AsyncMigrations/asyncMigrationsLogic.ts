@@ -68,8 +68,22 @@ export const asyncMigrationsLogic = kea<
 
     reducers: {
         activeTab: [AsyncMigrationsTab.Management, { setActiveTab: (_, { tab }) => tab }],
+        asyncMigrationErrorsLoading: [
+            {} as Record<number, boolean>,
+            {
+                loadAsyncMigrationErrors: (state, migrationId) => {
+                    return { ...state, [migrationId]: true }
+                },
+                loadAsyncMigrationErrorsSuccess: (state, { payload }) => {
+                    return { ...state, [payload]: false }
+                },
+                loadAsyncMigrationErrorsFailure: (state, { payload }) => {
+                    return { ...state, [payload]: false }
+                },
+            },
+        ],
     },
-    loaders: () => ({
+    loaders: ({ values }) => ({
         asyncMigrations: [
             [] as AsyncMigration[],
             {
@@ -94,11 +108,12 @@ export const asyncMigrationsLogic = kea<
             },
         ],
         asyncMigrationErrors: [
-            [] as AsyncMigrationError[],
+            {} as Record<number, AsyncMigrationError[]>,
             {
-                loadAsyncMigrationErrors: async (migrationId): Promise<AsyncMigrationError[]> => {
+                loadAsyncMigrationErrors: async (migrationId): Promise<Record<number, AsyncMigrationError[]>> => {
                     console.log(`trying to fetch the errors for ${migrationId}`)
-                    return (await api.get(`api/async_migrations/${migrationId}/errors`)).results
+                    const errorsForMigration = (await api.get(`api/async_migrations/${migrationId}/errors`)).results
+                    return { ...values.asyncMigrationErrors, [migrationId]: errorsForMigration }
                 },
             },
         ],

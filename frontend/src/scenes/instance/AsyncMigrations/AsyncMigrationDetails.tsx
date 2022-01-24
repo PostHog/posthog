@@ -35,7 +35,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
         <div className="async-migrations-details-scene">
             <div className="mb float-right">
                 <Button
-                    icon={asyncMigrationErrorsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
+                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <RedoOutlined />}
                     onClick={() =>
                         asyncMigration === undefined
                             ? console.log(`shouldnt be undefined ${asyncMigration}`)
@@ -45,7 +45,11 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
                     Refresh errors
                 </Button>
             </div>
-            <LemonTable columns={columns} dataSource={asyncMigrationErrors} loading={asyncMigrationErrorsLoading} />
+            <LemonTable
+                columns={columns}
+                dataSource={asyncMigrationErrors[asyncMigration.id]}
+                loading={asyncMigrationErrorsLoading[asyncMigration.id]}
+            />
         </div>
     )
 }
