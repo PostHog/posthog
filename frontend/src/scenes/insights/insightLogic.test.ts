@@ -412,7 +412,7 @@ describe('insightLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    searchParams: partial({ insight: 'TRENDS' }),
+                    hashParams: { filters: partial({ insight: 'TRENDS' }) },
                 })
 
             router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
@@ -420,7 +420,19 @@ describe('insightLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit(Insight43) }),
-                    searchParams: partial({ insight: 'FUNNELS' }),
+                    hashParams: { filters: partial({ insight: 'FUNNELS' }) },
+                })
+        })
+
+        it('redirects when opening with legacy filter in searchParams', async () => {
+            // open url with ?insight=FUNNELS
+            router.actions.push(combineUrl(urls.insightEdit(Insight42), { insight: 'RETENTION' }).url)
+            await expectLogic(router)
+                .delay(1)
+                .toMatchValues({
+                    location: partial({ pathname: urls.insightEdit(Insight42) }),
+                    searchParams: {},
+                    hashParams: { filters: partial({ insight: InsightType.RETENTION }) },
                 })
         })
 
@@ -488,7 +500,7 @@ describe('insightLogic', () => {
                     logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
+                .toMatchValues(router, { hashParams: { filters: partial({ interval: 'hour' }) } })
 
             // no change in filters, doesn't change the URL
             logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
@@ -497,13 +509,13 @@ describe('insightLogic', () => {
                     logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
+                .toMatchValues(router, { hashParams: { filters: partial({ interval: 'hour' }) } })
 
             logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'month' })
             await expectLogic(router)
                 .toDispatchActions(['replace', 'locationChanged'])
                 .toMatchValues({
-                    searchParams: partial({ insight: InsightType.TRENDS, interval: 'month' }),
+                    hashParams: { filters: partial({ insight: InsightType.TRENDS, interval: 'month' }) },
                 })
         })
 
