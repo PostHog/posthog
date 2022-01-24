@@ -3,7 +3,6 @@
 
 name: Docker FOSS release image
 
-# TODO: Don't sync until ee code relocation is done
 on:
     push:
         tags:
@@ -13,6 +12,7 @@ jobs:
     build-push:
         name: Build & push Docker release image
         runs-on: ubuntu-20.04
+        # TODO: Don't sync until ee code relocation is done
         if: ${{false}}
         steps:
             - name: Checkout default branch
