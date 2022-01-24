@@ -49,7 +49,7 @@ export interface AsyncMigration {
     finished_at: string
     posthog_min_version: string
     posthog_max_version: string
-    error_cnt: number
+    error_count: number
 }
 
 export const asyncMigrationsLogic = kea<

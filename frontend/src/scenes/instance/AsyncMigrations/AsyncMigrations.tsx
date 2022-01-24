@@ -214,8 +214,8 @@ export function AsyncMigrations(): JSX.Element {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
             return asyncMigration && <AsyncMigrationDetails asyncMigration={asyncMigration} />
         },
-        rowExpandable: (asyncMigration: AsyncMigration) => asyncMigration.error_cnt > 0,
-        onRowExpanded: function getErrors(asyncMigration: AsyncMigration) {
+        rowExpandable: (asyncMigration: AsyncMigration) => asyncMigration.error_count > 0,
+        onRowExpand: function getErrors(asyncMigration: AsyncMigration) {
             loadAsyncMigrationErrors(asyncMigration.id)
         },
     }

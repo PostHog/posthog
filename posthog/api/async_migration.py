@@ -26,10 +26,10 @@ class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
 
 
 class AsyncMigrationSerializer(serializers.ModelSerializer):
-    error_cnt = serializers.SerializerMethodField()
+    error_count = serializers.SerializerMethodField()
 
-    def get_error_cnt(self, async_migration: AsyncMigration):
-        return len(AsyncMigrationError.objects.filter(async_migration=async_migration))
+    def get_error_count(self, async_migration: AsyncMigration):
+        return AsyncMigrationError.objects.filter(async_migration=async_migration).count()
 
     class Meta:
         model = AsyncMigration
@@ -46,7 +46,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "finished_at",
             "posthog_max_version",
             "posthog_min_version",
-            "error_cnt",
+            "error_count",
         ]
         read_only_fields = [
             "id",
@@ -61,7 +61,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "finished_at",
             "posthog_max_version",
             "posthog_min_version",
-            "error_cnt",
+            "error_count",
         ]
 
 
