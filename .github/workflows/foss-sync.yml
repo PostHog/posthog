@@ -1,16 +1,16 @@
 name: Sync PostHog FOSS
 
 # TODO: Don't sync until the ee code relocation is done
-# on:
-#     push:
-#         branches:
-#             - master
-#             - main
+on:
+    push:
+        branches:
+            - master
+            - main
 
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
-        if: github.repository == 'PostHog/posthog'
+        if: ${{ false }} # github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
         steps:
             - name: Sync repositories 1 to 1 - master branch
