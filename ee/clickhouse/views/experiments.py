@@ -116,7 +116,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         has_start_date = "start_date" in validated_data
         feature_flag = instance.feature_flag
 
-        expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
+        expected_keys = set(
+            ["name", "description", "start_date", "end_date", "filters", "parameters", "archived", "secondary_metrics"]
+        )
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
 
