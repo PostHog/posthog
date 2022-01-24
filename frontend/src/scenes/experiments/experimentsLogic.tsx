@@ -21,7 +21,9 @@ export const experimentsLogic = kea<experimentsLogicType>({
                     if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                         return []
                     }
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`
+                    )
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
