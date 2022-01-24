@@ -237,10 +237,10 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        query = f"""AND arrayFirst(x -> isNotNull(x), [
+        query = f"""AND coalesce(
             parseDateTimeBestEffortOrNull({property_expr}),
             parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-        ]) > %({prop_value_param_key})s"""
+        ) > %({prop_value_param_key})s"""
 
         return (
             query,
@@ -253,10 +253,10 @@ def prop_filter_json_extract(
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"""AND arrayFirst(x -> isNotNull(x), [
+        query = f"""AND coalesce(
             parseDateTimeBestEffortOrNull({property_expr}),
             parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-        ]) < %({prop_value_param_key})s"""
+        ) < %({prop_value_param_key})s"""
 
         return (
             query,
