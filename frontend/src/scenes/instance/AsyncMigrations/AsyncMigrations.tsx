@@ -22,6 +22,7 @@ import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -46,36 +47,38 @@ export function AsyncMigrations(): JSX.Element {
 
     const columns: LemonTableColumns<AsyncMigration> = [
         {
-            title: 'id',
-            dataIndex: 'id',
-        },
-        {
-            title: 'Migration name',
-            dataIndex: 'name',
-        },
-        {
-            title: 'Description',
+            title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const description = asyncMigration.description
+                const length = 40
+                const more = asyncMigration.description.length > length
+                const moreButton = (
+                    <a
+                        onClick={() => {
+                            Modal.info({
+                                title: `'${asyncMigration.name}' description`,
+                                content: <pre>{asyncMigration.description}</pre>,
+                                icon: <InfoCircleOutlined />,
+                                okText: 'Close',
+                                width: '80%',
+                            })
+                        }}
+                    >
+                        {` more`}
+                    </a>
+                )
                 return (
-                    <small>
-                        <span>{description.slice(0, 40)}</span>
-                        {description.length > 40 ? (
-                            <a
-                                onClick={() => {
-                                    Modal.info({
-                                        title: `'${asyncMigration.name}' description`,
-                                        content: <pre>{description}</pre>,
-                                        icon: <InfoCircleOutlined />,
-                                        okText: 'Close',
-                                        width: '80%',
-                                    })
-                                }}
-                            >
-                                {` [...]`}
-                            </a>
-                        ) : null}
-                    </small>
+                    <>
+                        {stringWithWBR(asyncMigration.name)}
+                        <span className="row-description">
+                            {asyncMigration.description.slice(0, length)}
+                            {more ? (
+                                <>
+                                    {`... `}
+                                    {moreButton}
+                                </>
+                            ) : null}
+                        </span>
+                    </>
                 )
             },
         },
