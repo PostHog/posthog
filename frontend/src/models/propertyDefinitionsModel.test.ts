@@ -2,7 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { PropertyDefinition } from '~/types'
+import { PropertyDefinition, PropertyType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -23,8 +23,7 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'String',
-            property_type_format: undefined,
+            property_type: PropertyType.String,
         },
         {
             id: 'an id',
@@ -32,8 +31,7 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'DateTime',
-            property_type_format: 'unix_timestamp',
+            property_type: PropertyType.DateTime,
         },
         {
             id: 'an id',
@@ -41,8 +39,7 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'DateTime',
-            property_type_format: 'YYYY-MM-DD hh:mm:ss',
+            property_type: PropertyType.DateTime,
         },
     ]
 
@@ -78,8 +75,8 @@ describe('the property definitions model', () => {
     })
 
     it('does describe a property that has a server provided type and format', () => {
-        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime (YYYY-MM-DD hh:mm:ss)')
-        expect(logic.values.describeProperty('$time')).toEqual('DateTime (unix_timestamp)')
+        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
+        expect(logic.values.describeProperty('$time')).toEqual('DateTime')
     })
 
     it('can format a property with no formatting needs for display', () => {

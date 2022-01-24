@@ -120,11 +120,7 @@ export const propertyDefinitionsModel = kea<
             (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
                 (propertyName: string) => {
                     const match = propertyDefinitions.find((pd) => pd.name === propertyName)
-                    if (match?.property_type) {
-                        const formatDescription = match?.property_type_format ? ` (${match.property_type_format})` : ''
-                        return `${match.property_type}${formatDescription}`
-                    }
-                    return null
+                    return match?.property_type ?? null
                 },
         ],
         formatForDisplay: [
