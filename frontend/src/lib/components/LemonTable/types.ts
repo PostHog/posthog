@@ -68,5 +68,5 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      */
     rowExpandable?: (record: T) => boolean | number
     /** Called when row is expanded */
-    onRowExpand?: (record: T) => null
+    onRowExpand?: (record: T) => void
 }
