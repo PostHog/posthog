@@ -861,6 +861,9 @@ body {
     .ant-dropdown-menu {
         border-radius: var(--radius);
     }
+    .ant-modal-content {
+        box-shadow: var(--shadow-elevation);
+    }
 }
 
 .loading-overlay {
