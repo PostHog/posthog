@@ -68,7 +68,7 @@ export const asyncMigrationsLogic = kea<
 
     reducers: {
         activeTab: [AsyncMigrationsTab.Management, { setActiveTab: (_, { tab }) => tab }],
-        asyncMigrationErrorsLoading: [
+        asyncMigrationIndividualErrorsLoading: [
             {} as Record<number, boolean>,
             {
                 loadAsyncMigrationErrors: (state, migrationId) => {
@@ -79,7 +79,7 @@ export const asyncMigrationsLogic = kea<
                 },
                 loadAsyncMigrationErrorsFailure: (state, payload) => {
                     console.log(payload)
-                    //return { ...state, [payload]: false }
+                    return { ...state }
                 },
             },
         ],

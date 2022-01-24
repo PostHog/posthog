@@ -8,7 +8,7 @@ import { RedoOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: AsyncMigration }): JSX.Element {
-    const { asyncMigrationErrorsLoading, asyncMigrationErrors } = useValues(asyncMigrationsLogic)
+    const { asyncMigrationIndividualErrorsLoading, asyncMigrationErrors } = useValues(asyncMigrationsLogic)
     const { loadAsyncMigrationErrors } = useActions(asyncMigrationsLogic)
 
     const columns: LemonTableColumns<AsyncMigrationError> = [
@@ -28,7 +28,13 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
         <div className="async-migrations-details-scene">
             <div className="mb float-right">
                 <Button
-                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <RedoOutlined />}
+                    icon={
+                        asyncMigrationIndividualErrorsLoading[asyncMigration.id] ? (
+                            <Spinner size="sm" />
+                        ) : (
+                            <RedoOutlined />
+                        )
+                    }
                     onClick={() =>
                         asyncMigration === undefined
                             ? console.log(`shouldnt be undefined ${asyncMigration}`)
@@ -41,7 +47,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
             <LemonTable
                 columns={columns}
                 dataSource={asyncMigrationErrors[asyncMigration.id]}
-                loading={asyncMigrationErrorsLoading[asyncMigration.id]}
+                loading={asyncMigrationIndividualErrorsLoading[asyncMigration.id]}
             />
         </div>
     )
