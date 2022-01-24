@@ -520,7 +520,7 @@ export function Experiment(): JSX.Element {
                             )}
                             {experimentData?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
-                                !experimentData.parameters.archived && (
+                                !experimentData.archived && (
                                     <Button className="archive-experiment" onClick={() => archiveExperiment()}>
                                         <b>Archive experiment</b>
                                     </Button>

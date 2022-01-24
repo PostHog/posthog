@@ -298,7 +298,7 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.updateExperiment({ end_date: dayjs() })
         },
         archiveExperiment: async () => {
-            actions.updateExperiment({ parameters: { ...values.experimentData?.parameters, archived: true } })
+            actions.updateExperiment({ archived: true })
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {

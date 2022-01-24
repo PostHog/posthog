@@ -25,6 +25,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "end_date": None,
                 "feature_flag_key": "a-b-tests",
                 "archived": True,
+                "parameters": None,
                 "filters": {
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
                     "properties": [

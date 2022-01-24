@@ -1383,6 +1383,7 @@ export interface Experiment {
     }
     start_date?: string
     end_date?: string
+    archived?: boolean
     secondary_metrics: FilterType[]
     created_at: string
     created_by: UserBasicType | null
