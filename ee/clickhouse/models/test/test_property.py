@@ -609,6 +609,21 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             properties={"relative_dates": f"{datetime(2021, 4, 2):%d/%m/%Y %H:%M:%S}"},
         ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # seven digit unix timestamp in seconds - 7840800
+            # Clickhouse cannot parse this
+            properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # nine digit unix timestamp in seconds - 323460000
+            properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
+        ),
     ]
 
 
@@ -621,12 +636,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 20),
+        range(1, 22),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 20),
+        range(2, 22),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -634,13 +649,29 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 20),
+        range(2, 22),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"), [5, 6]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"), [5, 6]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"), [5]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"), [6]),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"),
+        [5, 6, 21],
+        id="matching before a unix timestamp only querying by date",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"),
+        [5, 6],
+        id="matching after a unix timestamp only querying by date",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"),
+        [5, 21],
+        id="matching before a unix timestamp querying by date and time",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"),
+        [6],
+        id="matching after a unix timestamp querying by date and time",
+    ),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
     pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
@@ -748,6 +779,7 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
     )
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
+    assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
 
 
