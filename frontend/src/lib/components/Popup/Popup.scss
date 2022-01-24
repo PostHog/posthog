@@ -16,4 +16,18 @@
     h5 {
         margin: 0.25rem 0.5rem;
     }
+    p:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.PopupHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    width: 100%;
+    h3 {
+        font-size: 1rem;
+        font-weight: 600;
+    }
 }
