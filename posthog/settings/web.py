@@ -59,6 +59,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CSVNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 
 if STATSD_HOST is not None:
