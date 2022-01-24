@@ -292,10 +292,10 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: () => {
-            actions.updateExperiment({ start_date: dayjs().format('YYYY-MM-DD') })
+            actions.updateExperiment({ start_date: dayjs().format('YYYY-MM-DDTHH:mm') })
         },
         endExperiment: async () => {
-            actions.updateExperiment({ end_date: dayjs().format('YYYY-MM-DD') })
+            actions.updateExperiment({ end_date: dayjs().format('YYYY-MM-DDTHH:mm') })
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
