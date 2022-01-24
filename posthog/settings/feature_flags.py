@@ -13,7 +13,6 @@ default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "new-paths-ui-edge-weights",
     "5730-funnel-horizontal-ui",
-    "938-breakdown-by-multiple-properties",
     "insight-legends",
 ]
 
