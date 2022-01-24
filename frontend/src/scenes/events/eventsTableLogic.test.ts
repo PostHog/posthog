@@ -467,6 +467,46 @@ describe('eventsTableLogic', () => {
 
                 expect(api.get).toHaveBeenCalled()
             })
+
+            it('polling success pauses polling for events when there are events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([makeEvent()])
+                }).toMatchValues({
+                    pollingIsActive: false,
+                })
+            })
+
+            it('polling restarts when toggling automatic load', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.toggleAutomaticLoad(true)
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
+
+            it('polling success does not pause polling for events when there are not events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([])
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
+
+            it('viewing the new events restarts polling for events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([makeEvent()])
+                    logic.actions.prependNewEvents()
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
         })
 
         describe('the listeners', () => {

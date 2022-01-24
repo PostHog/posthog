@@ -6,6 +6,11 @@ from typing import List, Optional, Tuple, Type
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    FF_DISTRIBUTION_THRESHOLD,
+    MIN_PROBABILITY_FOR_SIGNIFICANCE,
+)
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -21,9 +26,7 @@ class Variant:
     failure_count: int
 
 
-CONTROL_VARIANT_KEY = "control"
 EXPECTED_LOSS_SIGNIFICANCE_LEVEL = 0.01
-FF_DISTRIBUTION_THRESHOLD = 100
 
 
 class ClickhouseFunnelExperimentResult:
@@ -79,7 +82,7 @@ class ClickhouseFunnelExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significant = self.are_results_significant(control_variant, test_variants)
+        significant = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": funnel_results,
@@ -134,7 +137,9 @@ class ClickhouseFunnelExperimentResult:
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
-    def are_results_significant(control_variant: Variant, test_variants: List[Variant]) -> bool:
+    def are_results_significant(
+        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+    ) -> bool:
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
@@ -144,6 +149,9 @@ class ClickhouseFunnelExperimentResult:
                 return False
 
         if control_sample_size < FF_DISTRIBUTION_THRESHOLD:
+            return False
+
+        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
             return False
 
         best_test_variant = max(

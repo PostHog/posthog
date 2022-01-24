@@ -17,7 +17,6 @@ class AsyncMigrationType:
     celery_task_id: str
     started_at: str
     finished_at: datetime
-    last_error: str
     posthog_min_version: str
     posthog_max_version: str
 

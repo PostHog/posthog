@@ -5,8 +5,10 @@ import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
 import { AppContext } from '../types'
 import { MOCK_DEFAULT_TEAM } from '../lib/api.mock'
+import { dayjs } from 'lib/dayjs'
 
 export function initKeaTests(): void {
+    dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
         current_team: MOCK_DEFAULT_TEAM,
         ...window.POSTHOG_APP_CONTEXT,

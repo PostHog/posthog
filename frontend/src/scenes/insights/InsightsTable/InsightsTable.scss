@@ -1,5 +1,13 @@
 @import '~/vars';
 
+.insights-table.LemonTable--embedded {
+    border-top: 1px solid var(--border);
+}
+.dashboard .insights-table {
+    flex-grow: 1;
+    border-top: none;
+}
+
 .series-name-wrapper-col {
     display: flex;
     align-items: center;

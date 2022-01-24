@@ -65,11 +65,7 @@ function InsightMeta({
                 <div className="InsightMeta__top">
                     <h5>
                         {filters.insight || InsightType.TRENDS} •{' '}
-                        {dateFilterToText(
-                            filters.date_from,
-                            filters.date_to,
-                            '?' /* TODO: Implement actual default based on insight type instead of ? */
-                        )}
+                        {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                     </h5>
                     <div className="InsightMeta__controls">
                         <More

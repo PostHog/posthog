@@ -11,6 +11,13 @@ class MigrationStatus:
     Starting = 5  # only relevant for the UI
 
 
+class AsyncMigrationError(models.Model):
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    description: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    async_migration: models.ForeignKey = models.ForeignKey("AsyncMigration", on_delete=models.CASCADE)
+
+
 class AsyncMigration(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["name"], name="unique name",)]
@@ -34,7 +41,6 @@ class AsyncMigration(models.Model):
     # Can finish with status 'CompletedSuccessfully', 'Errored', or 'RolledBack'
     finished_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
-    last_error: models.TextField = models.TextField(null=True, blank=True)
     posthog_min_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
     posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
 

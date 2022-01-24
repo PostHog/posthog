@@ -1,3 +1,4 @@
+import pytest
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -16,6 +17,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @pytest.mark.skip_on_multitenancy
     def test_cannot_list_experiments_without_proper_license(self):
         self.organization.available_features = []
         self.organization.save()
@@ -172,6 +174,48 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(created_ff.key, ff_key)
         self.assertFalse(created_ff.active)
+
+    def test_draft_experiment_doesnt_have_FF_active_even_after_updates(self):
+        # Draft experiment
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+
+        id = response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "filters": {},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)  # didn't change to enabled while still draft
+
+        # Now launch experiment
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}", {"start_date": "2021-12-01T10:23",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertTrue(created_ff.active)
 
     def test_launching_draft_experiment_activates_FF(self):
         # Draft experiment

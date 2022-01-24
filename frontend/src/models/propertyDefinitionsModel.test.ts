@@ -1,4 +1,4 @@
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
@@ -57,10 +57,10 @@ describe('the property definitions model', () => {
         return defaultAPIMocks(url)
     })
 
-    initKeaTestLogic({
-        logic: propertyDefinitionsModel,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        logic = propertyDefinitionsModel()
+        logic.mount()
     })
 
     it('can load property definitions', () => {

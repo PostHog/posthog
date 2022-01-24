@@ -39,7 +39,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "end_date",
             "feature_flag_key",
             "parameters",
+            "secondary_metrics",
             "filters",
+            "archived",
             "created_by",
             "created_at",
             "updated_at",
@@ -111,10 +113,12 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        has_start_date = "start_date" in validated_data
+        has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
-        expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
+        expected_keys = set(
+            ["name", "description", "start_date", "end_date", "filters", "parameters", "archived", "secondary_metrics"]
+        )
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
 
@@ -204,7 +208,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
-        if not experiment.parameters.get("secondary_metrics"):
+        if not experiment.secondary_metrics:
             raise ValidationError("Experiment has no secondary metrics")
 
         metric_id = request.query_params.get("id")
@@ -217,10 +221,10 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         except ValueError:
             raise ValidationError("Secondary metric id must be an integer")
 
-        if parsed_id > len(experiment.parameters.get("secondary_metrics")):
+        if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.parameters["secondary_metrics"][parsed_id])
+        filter = Filter(experiment.secondary_metrics[parsed_id])
 
         result = ClickhouseSecondaryExperimentResult(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,

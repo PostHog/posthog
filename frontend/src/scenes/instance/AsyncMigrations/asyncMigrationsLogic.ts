@@ -41,7 +41,6 @@ export interface AsyncMigration {
     celery_task_id: string
     started_at: string
     finished_at: string
-    last_error: string
     posthog_min_version: string
     posthog_max_version: string
 }
