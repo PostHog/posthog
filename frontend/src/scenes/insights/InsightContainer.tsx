@@ -105,7 +105,8 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             activeView === InsightType.FUNNELS &&
-            filters?.display === FUNNEL_VIZ
+            filters?.display === FUNNEL_VIZ &&
+            !disableTable
         ) {
             return <People />
         }
