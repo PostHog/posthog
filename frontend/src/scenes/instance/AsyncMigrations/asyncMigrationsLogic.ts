@@ -111,7 +111,6 @@ export const asyncMigrationsLogic = kea<
             {} as Record<number, AsyncMigrationError[]>,
             {
                 loadAsyncMigrationErrors: async (migrationId): Promise<Record<number, AsyncMigrationError[]>> => {
-                    console.log(`trying to fetch the errors for ${migrationId}`)
                     const errorsForMigration = (await api.get(`api/async_migrations/${migrationId}/errors`)).results
                     return { ...values.asyncMigrationErrors, [migrationId]: errorsForMigration }
                 },

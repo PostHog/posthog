@@ -67,5 +67,6 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      * A negative value (like -1) means that the row isn't expandable and that also the expand button cell is skipped.
      */
     rowExpandable?: (record: T) => boolean | number
-    // todo onExpand
+    /** Called when row is expanded */
+    onRowExpanded?: (record: T) => null
 }

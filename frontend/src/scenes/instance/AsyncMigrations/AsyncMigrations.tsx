@@ -44,6 +44,7 @@ export function AsyncMigrations(): JSX.Element {
         forceStopMigration,
         forceStopMigrationWithoutRollback,
         loadAsyncMigrations,
+        loadAsyncMigrationErrors,
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
 
@@ -202,6 +203,15 @@ export function AsyncMigrations(): JSX.Element {
             },
         },
     ]
+    const rowExpansion = {
+        expandedRowRender: function renderExpand(row) {
+            return row && <AsyncMigrationDetails asyncMigration={row} />
+        },
+        rowExpandable: ({ error_cnt }) => error_cnt > 0,
+        onRowExpanded: function getErrors(asyncMigration) {
+            loadAsyncMigrationErrors(asyncMigration.id)
+        },
+    }
     return (
         <div className="async-migrations-scene">
             {user?.is_staff ? (
@@ -243,12 +253,7 @@ export function AsyncMigrations(): JSX.Element {
                                 loading={asyncMigrationsLoading}
                                 columns={columns}
                                 dataSource={asyncMigrations}
-                                expandable={{
-                                    expandedRowRender: function renderExpand(row) {
-                                        return row && <AsyncMigrationDetails asyncMigration={row} />
-                                    },
-                                    rowExpandable: ({ error_cnt }) => error_cnt > 0,
-                                }}
+                                expandable={rowExpansion}
                             />
                         </>
                     ) : activeTab === AsyncMigrationsTab.Settings ? (
