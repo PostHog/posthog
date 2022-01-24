@@ -53,7 +53,7 @@ export function DashboardInsightsTable({
 }): JSX.Element {
     return (
         <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
+            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -263,13 +263,13 @@ export function InsightsTable({
         <LemonTable
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
-            style={embedded ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={resultsLoading}
             emptyState="No insight results yet…"
             data-attr="insights-table-graph"
+            className="insights-table"
         />
     )
 }

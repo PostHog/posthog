@@ -22,6 +22,7 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    AvailableFeature,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -29,16 +30,17 @@ import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
         actions: [
             experimentsLogic,
-            ['loadExperiments'],
+            ['updateExperiment', 'addToExperiments'],
             eventUsageLogic,
             [
                 'reportNewExperimentButtonClicked',
@@ -84,6 +86,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (experimentData.filters) {
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
+                    }
+
+                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
+                    if (experimentData.parameters) {
+                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
+                        return { ...vals, ...experimentData, parameters: newParameters }
                     }
                     return { ...vals, ...experimentData }
                 },
@@ -192,6 +200,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
+                        actions.updateExperiment(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -221,6 +230,8 @@ export const experimentLogic = kea<experimentLogicType>({
 
             if (response?.id) {
                 const experimentId = response.id
+                router.actions.push(urls.experiment(experimentId))
+                actions.addToExperiments(response)
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
@@ -268,7 +279,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
 
             const createdInsight: InsightModel = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
+                `api/projects/${values.currentTeamId}/insights`,
                 newInsight
             )
             actions.setExperimentInsightId(createdInsight.short_id)
@@ -313,12 +324,13 @@ export const experimentLogic = kea<experimentLogicType>({
                     end_date: endDate,
                 }
             )
-            actions.reportExperimentCompleted(values.experimentData, endDate)
+            const duration = endDate.diff(values.experimentData?.start_date, 'second')
+            actions.reportExperimentCompleted(values.experimentData, endDate, duration)
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new') {
+            if (values.experimentId === 'new' || values.editingExistingExperiment) {
                 actions.createNewExperimentInsight()
             } else {
                 actions.createNewExperimentInsight(values.experimentData?.filters)
@@ -413,110 +425,18 @@ export const experimentLogic = kea<experimentLogicType>({
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
-        mdeGivenSampleSizeAndConversionRate: [
-            () => [],
-            () =>
-                (sampleSize: number, conversionRate: number): number => {
-                    return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / sampleSize)
-                },
-        ],
-        mdeGivenCountData: [
-            () => [],
-            () =>
-                (controlCountData: number): number => {
-                    // ref http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    // 4*sqrt(lambda*)
-
-                    // background rates:
-                    // roughly matches significance for https://www.evanmiller.org/ab-testing/poisson-means.html
-                    return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
-                },
-        ],
-        bestConversionVariant: [
-            (s) => [s.variants, s.conversionRateForVariant],
-            (variants, conversionRateForVariant): { variant: MultivariateFlagVariant; value: number } => {
-                const bestVariant = variants.reduce(
-                    (best, variant) => {
-                        const value = parseFloat(conversionRateForVariant(variant.key))
-                        if (value > best.value) {
-                            return { variant, value }
-                        }
-                        return best
-                    },
-                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
-                )
-                return bestVariant
-            },
-        ],
-        bestCountVariant: [
-            (s) => [s.variants, s.countDataForVariant],
-            (variants, countDataForVariant): { variant: MultivariateFlagVariant; value: number } => {
-                const bestVariant = variants.reduce(
-                    (best, variant) => {
-                        const value = parseInt(countDataForVariant(variant.key))
-                        if (value && value > best.value) {
-                            return { variant, value }
-                        }
-                        return best
-                    },
-                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
-                )
-                return bestVariant
-            },
-        ],
-        areCountResultsSignificant: [
-            (s) => [s.mdeGivenCountData, s.bestCountVariant, s.countDataForVariant],
-            (mdeGivenCountData, bestCountVariant, countDataForVariant): boolean => {
-                const targetCountData = bestCountVariant.value
-                const controlCountData = parseInt(countDataForVariant('control'))
-
-                // minimum detectable effect for variant determines significance
-                return Math.abs(targetCountData - controlCountData) > mdeGivenCountData(controlCountData)
-            },
-        ],
-        areConversionResultsSignificant: [
-            (s) => [
-                s.mdeGivenSampleSizeAndConversionRate,
-                s.bestConversionVariant,
-                s.conversionRateForVariant,
-                s.experimentResults,
-            ],
-            (
-                mdeGivenSampleSizeAndConversionRate,
-                bestConversionVariant,
-                conversionRateForVariant,
-                experimentResults
-            ): boolean => {
-                if (!experimentResults) {
-                    return false
-                }
-
-                const controlResults = (experimentResults?.insight as FunnelStep[][]).find(
-                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === 'control'
-                )
-                if (!controlResults) {
-                    return false
-                }
-                const sampleSizeForControl = controlResults[0].count
-                if (!sampleSizeForControl) {
-                    return false
-                }
-                const targetConversionRate = bestConversionVariant.value
-                const controlConversionRate = parseFloat(conversionRateForVariant('control'))
-                // minimum detectable effect for variant determines significance
-                return (
-                    Math.abs(targetConversionRate - controlConversionRate) >
-                    mdeGivenSampleSizeAndConversionRate(sampleSizeForControl, controlConversionRate)
-                )
+        areResultsSignificant: [
+            (s) => [s.experimentResults],
+            (experimentResults): boolean => {
+                return experimentResults?.significant || false
             },
         ],
         recommendedExposureForCountData: [
-            () => [],
-            () =>
+            (s) => [s.minimumDetectableChange],
+            (mde) =>
                 (baseCountData: number): number => {
-                    // assume a 5% mde, target count data is 5% of base count data
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    const minCountData = baseCountData * 0.05
+                    const minCountData = (baseCountData * mde) / 100
                     const lambda1 = baseCountData
                     const lambda2 = minCountData + baseCountData
 
@@ -588,6 +508,10 @@ export const experimentLogic = kea<experimentLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             actions.emptyExperimentResults()
+            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                router.actions.push('/experiments')
+                return
+            }
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment

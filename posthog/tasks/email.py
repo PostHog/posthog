@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Optional
 
 import structlog
@@ -23,6 +24,13 @@ def send_weekly_email_reports() -> None:
 
     for team in Team.objects.order_by("pk"):
         _send_weekly_email_report_for_team.delay(team_id=team.pk)
+
+
+def send_message_to_all_staff_users(message: EmailMessage) -> None:
+    for user in User.objects.filter(is_staff=True):
+        message.add_recipient(email=user.email, name=user.first_name)
+
+    message.send()
 
 
 @app.task(ignore_result=True, max_retries=1)
@@ -145,3 +153,31 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         for user in members_to_email:
             message.add_recipient(email=user.email, name=user.first_name)
         message.send()
+
+
+@app.task(max_retries=1)
+def send_async_migration_complete_email(migration_key: str, time: str) -> None:
+
+    message = EmailMessage(
+        campaign_key=f"async_migration_complete_{migration_key}",
+        subject=f"Async migration {migration_key} completed",
+        template_name="async_migration_status",
+        template_context={
+            "migration_status_update": f"Async migration {migration_key} completed successfully at {time}."
+        },
+    )
+
+    send_message_to_all_staff_users(message)
+
+
+@app.task(max_retries=1)
+def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
+
+    message = EmailMessage(
+        campaign_key=f"async_migration_error_{migration_key}",
+        subject=f"Async migration {migration_key} errored",
+        template_name="async_migration_error",
+        template_context={"migration_key": migration_key, "time": time, "error": error},
+    )
+
+    send_message_to_all_staff_users(message)

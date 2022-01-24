@@ -5,6 +5,7 @@ import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Modifier, Placement } from '@popperjs/core'
 import clsx from 'clsx'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export interface PopupProps {
     visible?: boolean
@@ -82,9 +83,13 @@ export function Popup({
         []
     )
 
-    const { styles, attributes } = usePopper(referenceElement, popperElement, {
+    const { styles, attributes, update } = usePopper(referenceElement, popperElement, {
         placement: placement,
         modifiers,
+    })
+    useResizeObserver({
+        ref: popperElement,
+        onResize: () => update?.(), // When the element is resized, schedule a popper update to reposition
     })
 
     const clonedChildren =

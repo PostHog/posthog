@@ -8,7 +8,7 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
     /** URL to link to. */
     to?: string
     /** DEPRECATED: Use `LemonButtonWithPopup` instead. */

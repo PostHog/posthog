@@ -1,18 +1,19 @@
 @import '~/vars';
 
 .LemonRow {
-    transition: background-color 200ms ease, color 200ms ease, opacity 200ms ease;
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
     flex-direction: column;
     align-items: start;
     justify-content: center;
-    min-height: 2.5rem;
-    padding: 0.25rem 0.5rem;
+    height: 2.5rem;
+    padding: 0.25rem 1rem;
     background: none;
     border-radius: var(--radius);
     border: none;
     font-size: 0.875rem;
     text-align: left;
+    line-height: 1.5;
     &.LemonRow--status-highlighted {
         background: rgba($primary, 0.1);
         color: var(--text-default);
@@ -23,7 +24,6 @@
     }
 
     &.LemonRow--status-danger {
-        font-weight: 600;
         color: var(--danger);
         .LemonRow__icon {
             color: var(--danger);
@@ -59,6 +59,8 @@
 
 .LemonRow--full-width {
     width: 100%;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
     .LemonRow__main-area {
         justify-content: start;
     }
@@ -75,14 +77,14 @@
 
 .LemonRow--symbolic {
     display: block;
-    min-height: 1.5rem;
+    height: 1.5rem;
     padding: 0;
 }
 
 .LemonRow--compact {
-    min-height: 2rem;
+    height: 2rem;
     &.LemonRow--symbolic {
-        min-height: 1.25rem;
+        height: 1.25rem;
         padding: 0;
     }
     .LemonRow__icon {
@@ -118,5 +120,14 @@
     margin: 0.5rem 0;
     &--large {
         margin: 1rem 0;
+    }
+    &--vertical {
+        width: 1px;
+        height: auto;
+        margin: 0.5rem;
+        align-self: stretch;
+        &--large {
+            margin: 0.5rem 1rem;
+        }
     }
 }

@@ -355,7 +355,11 @@ export const eventUsageLogic = kea<
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: dayjs.Dayjs) => ({ experiment, launchDate }),
-        reportExperimentCompleted: (experiment: Experiment, endDate: dayjs.Dayjs) => ({ experiment, endDate }),
+        reportExperimentCompleted: (experiment: Experiment, endDate: dayjs.Dayjs, duration: number) => ({
+            experiment,
+            endDate,
+            duration,
+        }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -810,13 +814,14 @@ export const eventUsageLogic = kea<
                 launch_date: launchDate.toISOString(),
             })
         },
-        reportExperimentCompleted: ({ experiment, endDate }) => {
+        reportExperimentCompleted: ({ experiment, endDate, duration }) => {
             posthog.capture('experiment completed', {
                 name: experiment.name,
                 id: experiment.id,
                 filters: experiment.filters,
                 parameters: experiment.parameters,
                 end_date: endDate.toISOString(),
+                duration,
             })
         },
     }),
