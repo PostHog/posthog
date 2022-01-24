@@ -1,4 +1,4 @@
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'

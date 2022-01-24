@@ -41,7 +41,6 @@ export interface AsyncMigration {
     celery_task_id: string
     started_at: string
     finished_at: string
-    last_error: string
     posthog_min_version: string
     posthog_max_version: string
 }
@@ -105,7 +104,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
         },
         updateSetting: async ({ settingKey, newValue }) => {
             try {
-                await api.create(`/api/instance_settings/${settingKey}`, {
+                await api.update(`/api/instance_settings/${settingKey}`, {
                     value: newValue,
                 })
                 successToast('Setting updated successfully!', `Instance setting ${settingKey} has been updated.`)

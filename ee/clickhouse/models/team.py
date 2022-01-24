@@ -1,10 +1,11 @@
-import logging
 from typing import List
+
+import structlog
 
 from ee.clickhouse.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_FROM = [

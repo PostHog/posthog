@@ -1,6 +1,4 @@
-import { BuiltLogic } from 'kea'
-import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -42,7 +40,7 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 })
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
+    let logic: ReturnType<typeof eventsTableLogic.build>
 
     mockAPI(async () => {
         // delay the API response so the default value test can complete before it
@@ -468,6 +466,46 @@ describe('eventsTableLogic', () => {
                 })
 
                 expect(api.get).toHaveBeenCalled()
+            })
+
+            it('polling success pauses polling for events when there are events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([makeEvent()])
+                }).toMatchValues({
+                    pollingIsActive: false,
+                })
+            })
+
+            it('polling restarts when toggling automatic load', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.toggleAutomaticLoad(true)
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
+
+            it('polling success does not pause polling for events when there are not events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([])
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+            })
+
+            it('viewing the new events restarts polling for events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEventsSuccess([makeEvent()])
+                    logic.actions.prependNewEvents()
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
             })
         })
 
