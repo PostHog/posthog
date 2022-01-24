@@ -10,7 +10,7 @@
 
         &.scrollable-right::after {
             z-index: 99;
-            @extend .mixin-gradient-overlay-right;
+            @extend %mixin-gradient-overlay-right;
             right: 0;
             width: 150px;
         }

@@ -26,7 +26,7 @@ describe('process event (clickhouse)', () => {
     })
 
     describe('with new update properties', () => {
-        const serverConf = { ...extraServerConfig, ...{ NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '2, 25,,7' } }
+        const serverConf = { ...extraServerConfig, ...{ NEW_PERSON_PROPERTIES_UPDATE_ENABLED: true } }
         createProcessEventTests('clickhouse', true, serverConf)
     })
 })

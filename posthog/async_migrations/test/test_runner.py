@@ -12,7 +12,7 @@ from posthog.async_migrations.runner import (
 )
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.async_migrations.utils import update_async_migration
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
@@ -42,7 +42,8 @@ class TestRunner(BaseTest):
         self.assertEqual(sm.description, self.TEST_MIGRATION_DESCRIPTION)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.last_error, "")
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)
         self.assertTrue(UUIDT.is_valid_uuid(sm.current_query_id))
         self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.posthog_min_version, "1.0.0")

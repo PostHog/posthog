@@ -797,6 +797,7 @@ export const insightLogic = kea<insightLogicType>({
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
+                            actions.reportInsightViewed(insight, insight.filters || {})
                             loadedFromAnotherLogic = true
                         }
                     }
@@ -829,6 +830,7 @@ export const insightLogic = kea<insightLogicType>({
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
+                            actions.reportInsightViewed(insight, insight.filters || {})
                             return
                         }
                     }

@@ -48,6 +48,5 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
                 }
             },
         ],
-        showGroupsAnnouncementBanner: [(s) => [s.groupsAccessStatus], (status) => status !== GroupsAccessStatus.Hidden],
     },
 })

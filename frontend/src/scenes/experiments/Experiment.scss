@@ -90,6 +90,16 @@
     .experiment-preview {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
+
+        .mde-slider {
+            .ant-slider-handle {
+                border: none;
+            }
+
+            .ant-slider-rail {
+                background-color: #e5ebff;
+            }
+        }
     }
 
     .feature-flag-variant {
@@ -179,16 +189,16 @@
         text-align: center;
         margin-bottom: $default_spacing;
     }
+}
 
-    .preview-conversion-goal-num {
-        height: 24px;
-        width: 24px;
-        text-align: center;
-        background-color: $bg_side;
-        color: $primary_alt;
-        font-weight: 700;
-        margin-right: $default_spacing / 2;
-    }
+.preview-conversion-goal-num {
+    height: 24px;
+    width: 24px;
+    text-align: center;
+    background-color: $bg_side;
+    color: $primary_alt;
+    font-weight: 700;
+    margin-right: $default_spacing / 2;
 }
 
 .experiment-preview-row {

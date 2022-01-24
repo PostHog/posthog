@@ -2,24 +2,26 @@ import { kea } from 'kea'
 import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, ExperimentsTabs } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
 import React from 'react'
 import { toParams } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']] },
+    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']] },
     actions: {},
     loaders: ({ values, actions }) => ({
         experiments: [
             [] as Experiment[],
             {
                 loadExperiments: async (filter?: string) => {
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`
-                    )
+                    if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                        return []
+                    }
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`)
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
@@ -32,6 +34,12 @@ export const experimentsLogic = kea<experimentsLogicType>({
                         </div>
                     )
                     return values.experiments.filter((experiment) => experiment.id !== id)
+                },
+                addToExperiments: (experiment: Experiment) => {
+                    return [...values.experiments, experiment]
+                },
+                updateExperiment: (experiment: Experiment) => {
+                    return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
                 },
             },
         ],

@@ -16,6 +16,7 @@ import { More } from '../LemonButton/More'
 import { LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
 import { ObjectTags } from '../ObjectTags'
+import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import './InsightCard.scss'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -25,8 +26,9 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     loading: boolean
     /** Whether loading the insight resulted in an error. */
     apiError: boolean
-    /** Whether the card should be highlighted. */
+    /** Whether the card should be highlighted with a blue border. */
     highlighted: boolean
+    showResizeHandles: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor: (newColor: InsightModel['color']) => void
@@ -63,11 +65,7 @@ function InsightMeta({
                 <div className="InsightMeta__top">
                     <h5>
                         {filters.insight || InsightType.TRENDS} •{' '}
-                        {dateFilterToText(
-                            filters.date_from,
-                            filters.date_to,
-                            '?' /* TODO: Implement actual default based on insight type instead of ? */
-                        )}
+                        {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                     </h5>
                     <div className="InsightMeta__controls">
                         <More
@@ -190,6 +188,7 @@ function InsightCardInternal(
         loading,
         apiError,
         highlighted,
+        showResizeHandles,
         updateColor,
         removeFromDashboard,
         refresh,
@@ -230,6 +229,13 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} loading={loading} apiError={apiError} />
             </BindLogic>
+            {showResizeHandles && (
+                <>
+                    <ResizeHandle1D orientation="vertical" />
+                    <ResizeHandle1D orientation="horizontal" />
+                    <ResizeHandle2D />
+                </>
+            )}
             {children /* Extras, such as resize handles */}
         </div>
     )
