@@ -146,10 +146,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return query
 
     def get_steps_reached_conditions(self) -> Tuple[str, str, str]:
-        # How many steps must have been done to count for the denominator of a funnel trends data point
-        from_step = self._filter.funnel_from_step or 0
-        # How many steps must have been done to count for the numerator of a funnel trends data point
-        to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
+        # The funnel trend shows data from the first step to the funnel's last step.
+        from_step = 0
+        to_step = len(self._filter.entities) - 1
 
         # Those who converted OR dropped off
         reached_from_step_count_condition = f"steps_completed >= {from_step+1}"
