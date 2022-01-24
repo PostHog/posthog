@@ -51,8 +51,13 @@ describe('toParams', () => {
         expect(actual).toEqual('include=%5B%22a%22%2C%22b%22%5D')
     })
 
-    it('can explode arrays to individual parameters', () => {
-        const actual = toParams({ include: ['a', 'b'] }, true)
+    it('can explode named parameter arrays to individual parameters', () => {
+        const actual = toParams({ include: ['a', 'b'], exclude: ['c', 'd'] }, ['include'])
+        expect(actual).toEqual('include=a&include=b&exclude=%5B%22c%22%2C%22d%22%5D')
+    })
+
+    it('can filter undefined when exploding named parameter arrays to individual parameters', () => {
+        const actual = toParams({ include: ['a', 'b', undefined, null] }, ['include'])
         expect(actual).toEqual('include=a&include=b')
     })
 })

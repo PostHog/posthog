@@ -27,7 +27,7 @@ const selectNewTimestampPropertyFilter = () => {
 
 const selectOperator = (operator, openPopUp) => {
     if (openPopUp) {
-        cy.get('[data-attr="property-filter-1"] .property-filter .property-filter-button-label').click()
+        cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
     }
 
     cy.get('.taxonomic-operator').click()
@@ -115,7 +115,7 @@ describe('Events', () => {
         cy.get('.taxonomic-value-select').click()
         cy.get('.filter-date-picker').type(oneDayAgo)
         cy.get('.ant-picker-ok').click()
-        cy.get('[data-attr="property-filter-1"]').should('include.text', 'Time < ')
+        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
 
         cy.wait('@getEvents').then(() => {
             cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')

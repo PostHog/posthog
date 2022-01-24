@@ -30,8 +30,6 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -59,7 +57,7 @@ export function EventsTable({
     // Disables all interactivity and polling for filters
     disableActions,
     // How many months of data to fetch?
-    fetchMonths,
+    fetchMonths = 12,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -93,8 +91,6 @@ export function EventsTable({
         setPollingActive,
         setProperties,
     } = useActions(logic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -361,13 +357,14 @@ export function EventsTable({
                                     setEventFilter(value || '')
                                 }}
                             />
+
                             <PropertyFilters
                                 propertyFilters={properties}
                                 onChange={setProperties}
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
-                                pinnedFilters={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] ? ['$time'] : []}
+                                pinnedFilters={[`Event received > ${fetchMonths} months ago`]}
                             />
                         </div>
 

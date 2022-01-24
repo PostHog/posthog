@@ -1,15 +1,13 @@
 import { BreakPointFunction, kea } from 'kea'
-import { errorToast, objectsEqual, successToast, toParams } from 'lib/utils'
+import { errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface QueryLimit {
     before?: string
@@ -73,7 +71,7 @@ export const eventsTableLogic = kea<
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({
@@ -261,20 +259,6 @@ export const eventsTableLogic = kea<
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const properties = searchParams.properties || values.properties || {}
 
-            const oneYearAgo = {
-                key: '$time',
-                operator: PropertyOperator.IsDateAfter,
-                type: 'event',
-                value: '-365d',
-            }
-
-            if (
-                values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] &&
-                !objectsEqual(properties[0], oneYearAgo)
-            ) {
-                properties.unshift(oneYearAgo)
-            }
-
             actions.setProperties(properties)
 
             if (searchParams.eventFilter) {
@@ -321,17 +305,17 @@ export const eventsTableLogic = kea<
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                     ...(queryLimits || {}),
+                    // we can send multiple after params, we should always filter for after props.fetchMonths ago
+                    // _and_ when we have events for more recent events
+                    // the N months ago is shown to the user
+                    after: [values.events[0]?.timestamp, now().subtract(values.months, 'months').toISOString()],
                 }
 
-                if (!values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                    params['after'] =
-                        values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
-                }
+                const urlParams = toParams(params, ['after'])
 
                 let apiResponse = null
-
                 try {
-                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
+                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error as ApiError)
                     return
@@ -386,15 +370,13 @@ export const eventsTableLogic = kea<
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
+                // we can send multiple after params, we should always filter for after props.fetchMonths ago
+                // _and_ when we have events for more recent events
+                // the N months ago is shown to the user
+                after: [values.events[0]?.timestamp, now().subtract(values.months, 'months').toISOString()],
             }
 
-            if (values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                params.after = values.events[0]?.timestamp
-            } else {
-                params['after'] = values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
-            }
-
-            const urlParams = toParams(params)
+            const urlParams = toParams(params, ['after'])
 
             let apiResponse = null
             try {
