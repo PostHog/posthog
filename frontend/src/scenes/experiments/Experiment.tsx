@@ -815,14 +815,16 @@ export function ExperimentPreview({
                         </Col>
                     </Row>
                     <Row>
-                        <Col className="mr">
-                            <div className="card-secondary mt">Start date</div>
-                            {experiment?.start_date ? (
-                                <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                            ) : (
-                                <span className="description">Not started yet</span>
-                            )}
-                        </Col>
+                        {experimentId !== 'new' && (
+                            <Col className="mr">
+                                <div className="card-secondary mt">Start date</div>
+                                {experiment?.start_date ? (
+                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                ) : (
+                                    <span className="description">Not started yet</span>
+                                )}
+                            </Col>
+                        )}
                         {experiment?.end_date && (
                             <Col className="ml">
                                 <div className="card-secondary mt">Completed date</div>
