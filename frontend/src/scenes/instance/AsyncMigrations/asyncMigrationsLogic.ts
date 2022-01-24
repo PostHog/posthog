@@ -64,27 +64,40 @@ export const asyncMigrationsLogic = kea<
         forceStopMigrationWithoutRollback: (migrationId: number) => ({ migrationId }),
         setActiveTab: (tab: AsyncMigrationsTab) => ({ tab }),
         updateSetting: (settingKey: string, newValue: string) => ({ settingKey, newValue }),
+        loadAsyncMigrationErrors: (migrationId: number) => ({ migrationId }),
+        loadAsyncMigrationErrorsSuccess: (migrationId: number, errors: AsyncMigrationError[]) => ({
+            migrationId,
+            errors,
+        }),
+        loadAsyncMigrationErrorsFailure: (migrationId: number, error: any) => ({ migrationId, error }),
     },
 
     reducers: {
         activeTab: [AsyncMigrationsTab.Management, { setActiveTab: (_, { tab }) => tab }],
-        asyncMigrationIndividualErrorsLoading: [
+        asyncMigrationErrors: [
+            {} as Record<number, AsyncMigrationError[]>,
+            {
+                loadAsyncMigrationErrorsSuccess: (state, { migrationId, errors }) => {
+                    return { ...state, [migrationId]: errors }
+                },
+            },
+        ],
+        asyncMigrationErrorsLoading: [
             {} as Record<number, boolean>,
             {
-                loadAsyncMigrationErrors: (state, migrationId) => {
+                loadAsyncMigrationErrors: (state, { migrationId }) => {
                     return { ...state, [migrationId]: true }
                 },
-                loadAsyncMigrationErrorsSuccess: (state, payload) => {
-                    return { ...state, [payload.payload]: false }
+                loadAsyncMigrationErrorsSuccess: (state, { migrationId }) => {
+                    return { ...state, [migrationId]: false }
                 },
-                loadAsyncMigrationErrorsFailure: (state, payload) => {
-                    console.log(payload)
-                    return { ...state }
+                loadAsyncMigrationErrorsFailure: (state, { migrationId }) => {
+                    return { ...state, [migrationId]: false }
                 },
             },
         ],
     },
-    loaders: ({ values }) => ({
+    loaders: ({}) => ({
         asyncMigrations: [
             [] as AsyncMigration[],
             {
@@ -105,15 +118,6 @@ export const asyncMigrationsLogic = kea<
                     }
                     const settings: InstanceSetting[] = (await api.get('api/instance_settings')).results
                     return settings.filter((setting) => setting.key.includes('ASYNC_MIGRATIONS'))
-                },
-            },
-        ],
-        asyncMigrationErrors: [
-            {} as Record<number, AsyncMigrationError[]>,
-            {
-                loadAsyncMigrationErrors: async (migrationId): Promise<Record<number, AsyncMigrationError[]>> => {
-                    const errorsForMigration = (await api.get(`api/async_migrations/${migrationId}/errors`)).results
-                    return { ...values.asyncMigrationErrors, [migrationId]: errorsForMigration }
                 },
             },
         ],
@@ -174,6 +178,14 @@ export const asyncMigrationsLogic = kea<
                 actions.loadAsyncMigrationSettings()
             } catch {
                 errorToast('Failed to trigger migration.', 'Please try again or contact support.')
+            }
+        },
+        loadAsyncMigrationErrors: async ({ migrationId }) => {
+            try {
+                const errorsForMigration = (await api.get(`api/async_migrations/${migrationId}/errors`)).results
+                actions.loadAsyncMigrationErrorsSuccess(migrationId, errorsForMigration)
+            } catch (error) {
+                actions.loadAsyncMigrationErrorsFailure(migrationId, error)
             }
         },
     }),
