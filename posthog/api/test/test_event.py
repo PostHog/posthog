@@ -351,6 +351,38 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["results"][0]["id"], event2.pk)
             self.assertEqual(response["results"][1]["id"], event3.pk)
 
+        def test_multiple_before_and_after_params(self):
+            user = self._create_user("tim")
+            self.client.force_login(user)
+            person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
+
+            with freeze_time("2020-01-10"):
+                event1 = event_factory(team=self.team, event="sign up", distinct_id="2")
+            with freeze_time("2020-01-8"):
+                event2 = event_factory(team=self.team, event="sign up", distinct_id="2")
+            with freeze_time("2020-01-7"):
+                event3 = event_factory(team=self.team, event="random other event", distinct_id="2")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?after=2020-01-06T00:00:00.000Z&after=2020-01-07T00:00:00.000Z"
+            ).json()
+            self.assertEqual(len(response["results"]), 2)
+            self.assertEqual(response["results"][0]["id"], event1.pk)
+            self.assertEqual(response["results"][1]["id"], event2.pk)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?after=2020-01-06T00:00:00.000Z&after=2020-01-07T00:00:00.000Z&before=2020-01-08T00:00:00.000Z"
+            ).json()
+            self.assertEqual(len(response["results"]), 0)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?after=2020-01-06T00:00:00.000Z&before=2020-01-10T00:00:00.000Z&before=2020-01-08T00:00:00.000Z"
+            ).json()
+            self.assertEqual(len(response["results"]), 1)
+            self.assertEqual(response["results"][0]["id"], event3.pk)
+
         def test_pagination(self):
             with freeze_time("2021-10-10T12:03:03.829294Z"):
                 person_factory(team=self.team, distinct_ids=["1"])
