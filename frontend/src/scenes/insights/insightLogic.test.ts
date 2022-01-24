@@ -412,7 +412,7 @@ describe('insightLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    hashParams: { filters: partial({ insight: 'TRENDS' }) },
+                    hashParams: {},
                 })
 
             router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))

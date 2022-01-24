@@ -776,7 +776,7 @@ export const insightLogic = kea<insightLogicType>({
                 const filters =
                     (typeof hashParams?.filters === 'object' ? hashParams?.filters : null) ??
                     // Legacy: we used to store the filter as searchParams = { insight: 'TRENDS', ...otherFilters }
-                    ('insight' in searchParams ? cleanFilters(searchParams) : {})
+                    ('insight' in searchParams ? cleanFilters(searchParams) : null)
 
                 if (params.shortId === 'new') {
                     actions.createAndRedirectToNewInsight(filters)
@@ -807,14 +807,16 @@ export const insightLogic = kea<insightLogicType>({
                     actions.loadInsight(insightId)
                 }
 
-                const cleanSearchParams = cleanFilters(filters, values.filters, values.featureFlags)
-                const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
+                if (filters !== null) {
+                    const cleanSearchParams = cleanFilters(filters, values.filters, values.featureFlags)
+                    const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
 
-                if (
-                    (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) ||
-                    insightModeFromUrl !== values.insightMode
-                ) {
-                    actions.setFilters(cleanSearchParams, insightModeFromUrl)
+                    if (
+                        (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) ||
+                        insightModeFromUrl !== values.insightMode
+                    ) {
+                        actions.setFilters(cleanSearchParams, insightModeFromUrl)
+                    }
                 }
             }
         },
