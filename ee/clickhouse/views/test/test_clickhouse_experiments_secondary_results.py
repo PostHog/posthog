@@ -2,15 +2,13 @@ from datetime import datetime
 
 from rest_framework import status
 
-from ee.api.test.base import LicensedTestMixin
+from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest
 
 
-class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_basic_secondary_metric_results(self):
         journeys_for(

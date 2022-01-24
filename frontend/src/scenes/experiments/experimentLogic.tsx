@@ -22,19 +22,21 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    AvailableFeature,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
         actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
     },
     actions: {
@@ -72,6 +74,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (experimentData.filters) {
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
+                    }
+
+                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
+                    if (experimentData.parameters) {
+                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
+                        return { ...vals, ...experimentData, parameters: newParameters }
                     }
                     return { ...vals, ...experimentData }
                 },
@@ -481,6 +489,10 @@ export const experimentLogic = kea<experimentLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             actions.emptyExperimentResults()
+            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                router.actions.push('/experiments')
+                return
+            }
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment

@@ -13,12 +13,15 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import Clickhouse
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import INSIGHT_TRENDS
+from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    PremiumFeaturePermission,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -158,7 +161,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        PremiumFeaturePermission,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    premium_feature = AvailableFeature.EXPERIMENTATION
 
     def get_queryset(self):
         return super().get_queryset()

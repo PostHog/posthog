@@ -7,7 +7,7 @@ export interface LemonSwitchProps {
     onChange: (newChecked: boolean) => void
     checked: boolean
     loading?: boolean
-    label?: string
+    label?: string | JSX.Element
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
     style?: React.CSSProperties
@@ -52,13 +52,8 @@ export function LemonSwitch({
     )
 
     return label ? (
-        <div style={{ display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
-            <label
-                style={{
-                    marginRight: '0.375rem',
-                }}
-                htmlFor={id}
-            >
+        <div className="LemonSwitch__wrapper">
+            <label className="LemonSwitch__label" htmlFor={id}>
                 {label}
             </label>
             {button}
