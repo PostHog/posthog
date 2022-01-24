@@ -54,3 +54,4 @@ statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
 numpy==1.21.4
+drf-spectacular==0.21.1

@@ -1,15 +1,12 @@
 import json
 import urllib
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union
 
-from django.db.models import Prefetch, QuerySet
-from django.db.models.query_utils import Q
-from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
@@ -17,7 +14,6 @@ from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
@@ -27,15 +23,14 @@ from ee.clickhouse.sql.events import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
+from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
+from posthog.models import Element, ElementGroup, Event, Filter, Person
 from posthog.models.action import Action
-from posthog.models.event import EventManager
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.base import properties_to_Q
-from posthog.utils import convert_property_value, flatten, relative_date_parse
+from posthog.utils import convert_property_value, flatten
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -125,6 +120,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         order_by_param = request.GET.get("orderBy")
         return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
 
+    @extend_schema(parameters=[PropertiesSerializer(required=False)],)
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
 

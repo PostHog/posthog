@@ -35,6 +35,7 @@ from posthog.constants import (
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
     FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_TYPES,
     FUNNEL_WINDOW_INTERVAL_UNIT,
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -116,7 +117,7 @@ class FunnelWindowMixin(BaseParamMixin):
             dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
         return dict_part
 
-    def funnel_window_interval_unit_ch(self) -> Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]:
+    def funnel_window_interval_unit_ch(self) -> FUNNEL_WINDOW_INTERVAL_TYPES:
         if self.funnel_window_interval_unit is None:
             return "DAY"
 

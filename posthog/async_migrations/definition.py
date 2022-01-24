@@ -17,14 +17,17 @@ class AsyncMigrationType:
     celery_task_id: str
     started_at: str
     finished_at: datetime
-    last_error: str
     posthog_min_version: str
     posthog_max_version: str
 
 
 class AsyncMigrationOperation:
     def __init__(
-        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None, resumable=False,
+        self,
+        fn: Callable[[str], None],
+        rollback_fn: Callable[[str], None] = lambda _: None,
+        resumable=False,
+        sql: Optional[str] = None,
     ):
         self.fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
@@ -36,6 +39,9 @@ class AsyncMigrationOperation:
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
+
+        # If the operation specifies raw SQL, add this as a property for easier debugging
+        self.sql = sql
 
     @classmethod
     def simple_op(
@@ -50,6 +56,7 @@ class AsyncMigrationOperation:
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             resumable=resumable,
+            sql=sql,
         )
 
     @classmethod

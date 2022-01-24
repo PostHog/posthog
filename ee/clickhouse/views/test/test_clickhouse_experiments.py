@@ -1,16 +1,30 @@
-from datetime import datetime
-
+import pytest
 from rest_framework import status
 
-from ee.api.test.base import LicensedTestMixin
+from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.models import License
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest
 
 
-class TestExperimentCRUD(APIBaseTest):
+class TestExperimentCRUD(APILicensedTest):
+
+    # List experiments
+    def test_can_list_experiments(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_cannot_list_experiments_without_proper_license(self):
+        self.organization.available_features = []
+        self.organization.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.json(), self.license_required_response())
+
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -160,6 +174,48 @@ class TestExperimentCRUD(APIBaseTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(created_ff.key, ff_key)
         self.assertFalse(created_ff.active)
+
+    def test_draft_experiment_doesnt_have_FF_active_even_after_updates(self):
+        # Draft experiment
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+
+        id = response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "filters": {},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)  # didn't change to enabled while still draft
+
+        # Now launch experiment
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}", {"start_date": "2021-12-01T10:23",},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertTrue(created_ff.active)
 
     def test_launching_draft_experiment_activates_FF(self):
         # Draft experiment
@@ -393,7 +449,7 @@ class TestExperimentCRUD(APIBaseTest):
             Experiment.objects.get(pk=id)
 
 
-class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
         journeys_for(
@@ -590,7 +646,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
         self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=2)
 
 
-class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
         journeys_for(

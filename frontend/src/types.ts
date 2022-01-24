@@ -37,6 +37,7 @@ export enum AvailableFeature {
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
+    EXPERIMENTATION = 'experimentation',
 }
 
 export enum Realm {
@@ -1368,9 +1369,15 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
-    parameters: Record<string, any>
+    parameters: {
+        minimum_detectable_effect?: number
+        recommended_running_time?: number
+        recommended_sample_size?: number
+        feature_flag_variants?: MultivariateFlagVariant[]
+    }
     start_date?: string
     end_date?: string
+    secondary_metrics: FilterType[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1379,6 +1386,7 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    significant: boolean
     noData?: boolean
 }
 
