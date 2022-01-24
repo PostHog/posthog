@@ -119,10 +119,10 @@ export const propertyDefinitionsModel = kea<
             (s) => [s.propertyDefinitions],
             (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
                 (propertyName: string) => {
+                    // if the model hasn't already cached this definition, will fall back to original display type
                     const match = propertyDefinitions.find((pd) => pd.name === propertyName)
                     if (match?.property_type) {
-                        const formatDescription = match?.property_type_format ? ` (${match.property_type_format})` : ''
-                        return `${match.property_type}${formatDescription}`
+                        return `${match.property_type}`
                     }
                     return null
                 },
@@ -152,10 +152,10 @@ export const propertyDefinitionsModel = kea<
                             // depending on if they're in seconds or milliseconds
                             if (propertyValue?.match(unixTimestampSeconds)) {
                                 const numericalTimestamp = Number.parseFloat(propertyValue)
-                                return dayjs.unix(numericalTimestamp).format('YYYY-MM-DD hh:mm:ss')
+                                return dayjs.unix(numericalTimestamp).tz('UTC').format('YYYY-MM-DD hh:mm:ss')
                             } else if (propertyValue?.match(unixTimestampMilliseconds)) {
                                 const numericalTimestamp = Number.parseInt(propertyValue)
-                                return dayjs(numericalTimestamp).format('YYYY-MM-DD hh:mm:ss')
+                                return dayjs(numericalTimestamp).tz('UTC').format('YYYY-MM-DD hh:mm:ss')
                             }
                         }
 
