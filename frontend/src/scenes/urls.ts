@@ -6,6 +6,7 @@ export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
+    sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',

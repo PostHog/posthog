@@ -16,6 +16,7 @@ class AvailableFeature(str, Enum):
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
+    EXPERIMENTATION = "experimentation"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

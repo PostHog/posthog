@@ -1,21 +1,25 @@
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
-import { BuiltLogic } from 'kea'
-import { taxonomicPropertyFilterLogicType } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogicType'
 import { expectLogic } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 
 jest.mock('lib/api')
 
 describe('the taxonomic property filter', () => {
-    let logic: BuiltLogic<taxonomicPropertyFilterLogicType>
+    let logic: ReturnType<typeof taxonomicPropertyFilterLogic.build>
 
     mockAPI(defaultAPIMocks)
 
-    initKeaTestLogic({
-        logic: taxonomicPropertyFilterLogic,
-        props: {
+    beforeEach(() => {
+        initKeaTests()
+        logic = taxonomicPropertyFilterLogic({
+            propertyFilterLogic: propertyFilterLogic({
+                pageKey: 'tests',
+                propertyFilters: [],
+                onChange: () => {},
+            }),
             taxonomicGroupTypes: [
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
@@ -24,8 +28,8 @@ describe('the taxonomic property filter', () => {
             ],
             filterIndex: 1,
             pageKey: 'test',
-        },
-        onLogic: (l) => (logic = l),
+        })
+        logic.mount()
     })
 
     it('starts with dropdown closed', async () => {

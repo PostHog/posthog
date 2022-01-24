@@ -8,7 +8,7 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
     /** URL to link to. */
     to?: string
     /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
@@ -86,7 +86,11 @@ export function LemonButtonWithPopup({
     const [popupVisible, setPopupVisible] = useState(false)
 
     if (buttonProps.children && !buttonProps.sideIcon) {
-        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? (
+            <IconChevronRight style={{ position: 'relative', left: '0.5rem' }} />
+        ) : (
+            <IconArrowDropDown />
+        )
     }
 
     return (

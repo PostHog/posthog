@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
-import { Dayjs } from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -29,8 +29,8 @@ export interface SavedInsightFilters {
     search: string
     insightType: string
     createdBy: number | 'All users'
-    dateFrom: string | Dayjs | undefined | 'all'
-    dateTo: string | Dayjs | undefined
+    dateFrom: string | dayjs.Dayjs | undefined | 'all'
+    dateTo: string | dayjs.Dayjs | undefined
     page: number
 }
 

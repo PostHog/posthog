@@ -1,14 +1,15 @@
 import json
-import logging
 import os
 from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
+import structlog
 from django.conf import settings
 from django.db import connection
 from psycopg2 import sql
 
+from posthog import version_requirement
 from posthog.models import Event, GroupTypeMapping, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -17,13 +18,14 @@ from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
+        "clickhouse_version": str(version_requirement.get_clickhouse_version()),
         "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},

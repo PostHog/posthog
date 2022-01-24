@@ -234,21 +234,6 @@ $funnel_canvas_background: #fff;
         }
     }
 
-    .insight-metadata-description {
-        .field {
-            color: $text_muted_alt;
-            font-style: italic;
-        }
-    }
-
-    .insight-metadata-name {
-        .field {
-            font-size: 28px;
-            font-weight: 600;
-            line-height: 40px;
-        }
-    }
-
     .insight-metadata-tags {
         .ant-tag {
             margin-top: 0 !important;

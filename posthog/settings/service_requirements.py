@@ -5,7 +5,7 @@ from posthog.settings.utils import get_from_env, print_warning, str_to_bool
 from posthog.version_requirement import ServiceVersionRequirement
 
 SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
-    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
+    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC or DEBUG, type_cast=str_to_bool
 )
 
 if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
