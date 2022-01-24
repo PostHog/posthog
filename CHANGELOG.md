@@ -1,5 +1,8 @@
 # Changelog
 
+### 1.32.0 - Thursday 27 January 2022
+- Release details coming soon.
+
 ### 1.31.1 - Friday 17 December 2021
 - Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
 
