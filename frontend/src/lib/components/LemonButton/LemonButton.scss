@@ -3,7 +3,7 @@
     font-weight: 600;
     cursor: pointer;
     &:not(:disabled):hover,
-    &.LemonButton--held {
+    &.LemonButton--active {
         background: var(--primary-bg-hover);
     }
     &:not(:disabled):active {
@@ -21,7 +21,7 @@
 .LemonButton--secondary {
     border: 1px solid var(--border);
     &:not(:disabled):hover,
-    &.LemonButton--held,
+    &.LemonButton--active,
     &:not(:disabled):active {
         background: inherit;
         border-color: currentColor;
@@ -38,7 +38,7 @@
     background: var(--primary);
     color: #fff;
     &:not(:disabled):hover,
-    &.LemonButton--held {
+    &.LemonButton--active {
         background: var(--primary-hover);
     }
     &:not(:disabled):active {

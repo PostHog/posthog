@@ -10,7 +10,7 @@ export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
-    held?: boolean
+    active?: boolean
     /** URL to link to. */
     to?: string
     /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
@@ -23,7 +23,7 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', held, className, popup, to, ...buttonProps }: LemonButtonProps,
+    { children, type = 'default', active, className, popup, to, ...buttonProps }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
@@ -31,7 +31,7 @@ function LemonButtonInternal(
         className: clsx(
             'LemonButton',
             type !== 'default' && `LemonButton--${type}`,
-            held && 'LemonButton--held',
+            active && 'LemonButton--active',
             className
         ),
         type: 'button',
@@ -126,7 +126,7 @@ export function LemonButtonWithPopup({
                         e.stopPropagation()
                     }
                 }}
-                held={popupProps.visible}
+                active={popupProps.visible}
                 {...buttonProps}
             />
         </Popup>
