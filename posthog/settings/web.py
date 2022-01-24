@@ -207,9 +207,6 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    # 'SWAGGER_UI_DIST': 'SIDECAR',  # shorthand to use the sidecar instead
-    # 'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
-    # 'REDOC_DIST': 'SIDECAR',
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": ["posthog.api.documentation.custom_postprocessing_hook"],

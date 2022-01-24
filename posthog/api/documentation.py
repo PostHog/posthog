@@ -49,47 +49,6 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
 
 
 def custom_postprocessing_hook(result, generator, request, public):
-    # your modifications to the schema in parameter result
-    #     {
-    #         'openapi': '3.0.3',
-    #         'info': {'title': '', 'version': '0.0.0'},
-    #         'paths': {
-    #             '/api/organizations/{parent_lookup_organization_id}/invites/': {'get': {'operationId': 'organizations_invites_list',
-    #          'parameters': [{'description': 'Number of results to return per page.',
-    #                          'in': 'query',
-    #                          'name': 'limit',
-    #                          'required': False,
-    #                          'schema': {'type': 'integer'}},
-    #                         {'description': 'The initial index from which to '
-    #                                         'return the results.',
-    #                          'in': 'query',
-    #                          'name': 'offset',
-    #                          'required': False,
-    #                          'schema': {'type': 'integer'}},
-    #                         {'in': 'path',
-    #                          'name': 'parent_lookup_organization_id',
-    #                          'required': True,
-    #                          'schema': {'type': 'string'}}],
-    #          'responses': {'200': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/PaginatedOrganizationInviteList'}}},
-    #                                'description': ''}},
-    #          'security': [{'basicAuth': []}, {'cookieAuth': []}],
-    #          'tags': ['organizations']},
-    #  'post': {'operationId': 'organizations_invites_create',
-    #           'parameters': [{'in': 'path',
-    #                           'name': 'parent_lookup_organization_id',
-    #                           'required': True,
-    #                           'schema': {'type': 'string'}}],
-    #           'requestBody': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/OrganizationInvite'}},
-    #                                       'application/x-www-form-urlencoded': {'schema': {'$ref': '#/components/schemas/OrganizationInvite'}},
-    #                                       'multipart/form-data': {'schema': {'$ref': '#/components/schemas/OrganizationInvite'}}},
-    #                           'required': True},
-    #           'responses': {'201': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/OrganizationInvite'}}},
-    #                                 'description': ''}},
-    #           'security': [{'basicAuth': []}, {'cookieAuth': []}],
-    #           'tags': ['organizations']}}
-    #         }
-    #     }
-
     all_tags = []
     paths: Dict[str, Dict] = {}
     for path, methods in result["paths"].items():
