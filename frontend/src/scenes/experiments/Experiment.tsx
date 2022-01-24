@@ -1,5 +1,19 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Tag, Tooltip } from 'antd'
+import {
+    Button,
+    Card,
+    Col,
+    Collapse,
+    Form,
+    Input,
+    InputNumber,
+    Progress,
+    Row,
+    Select,
+    Slider,
+    Tag,
+    Tooltip,
+} from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -71,6 +85,7 @@ export function Experiment(): JSX.Element {
         updateExperimentGroup,
         removeExperimentGroup,
         setExperimentInsightType,
+        archiveExperiment,
     } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -112,10 +127,10 @@ export function Experiment(): JSX.Element {
         )
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
-            ? ((funnelResultsPersonsTotal || 0) / experimentData?.parameters?.recommended_sample_size || 1) * 100
+            ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                  (experimentData?.parameters?.recommended_running_time || 1)) *
-              100
+                (experimentData?.parameters?.recommended_running_time || 1)) *
+            100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -509,6 +524,13 @@ export function Experiment(): JSX.Element {
                                     Stop experiment
                                 </Button>
                             )}
+                            {experimentData?.end_date &&
+                                dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
+                                !experimentData.archived && (
+                                    <Button className="archive-experiment" onClick={() => archiveExperiment()}>
+                                        <b>Archive experiment</b>
+                                    </Button>
+                                )}
                         </Row>
                     </Row>
                     <Row>
@@ -723,10 +745,10 @@ export function CodeLanguageSelect(): JSX.Element {
 interface ExperimentPreviewProps {
     experiment: Partial<any> | null
     trendCount: number
-    exposure: number
+    exposure?: number
     conversionRate: number
     runningTime: number
-    sampleSize: number
+    sampleSize?: number
 }
 
 export function ExperimentPreview({
@@ -737,26 +759,102 @@ export function ExperimentPreview({
     runningTime,
     sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId, editingExistingExperiment, minimumDetectableChange } =
+        useValues(experimentLogic)
+    const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
+    const sliderMaxValue =
+        experimentInsightType === InsightType.FUNNELS ? (100 - conversionRate < 50 ? 100 - conversionRate : 50) : 50
 
     return (
         <Row>
-            <Col span={experimentId === 'new' ? 24 : 12}>
+            <Col span={experimentId === 'new' || editingExistingExperiment ? 24 : 12}>
                 <Row className="experiment-preview-row">
-                    <Col>
-                        <div className="card-secondary mb-05">Preview</div>
-                    </Col>
+                    {experimentId !== 'new' ? (
+                        <Col>
+                            <div className="card-secondary mb-05">Preview</div>
+                        </Col>
+                    ) : (
+                        <div>
+                            <div>
+                                <b>Experiment preview</b>
+                            </div>
+                            <div className="text-muted">
+                                Here are the baseline metrics for your experiment. Adjust your minimum detectible
+                                threshold to adjust for the smallest conversion value you’ll accept, and the
+                                experiment duration.{' '}
+                            </div>
+                        </div>
+                    )}
                 </Row>
+                {(experimentId === 'new' || editingExistingExperiment) && (
+                    <Row className="mb">
+                        <Col span={24}>
+                            <div>
+                                <b>Minimum acceptable improvement</b>
+                                <Tooltip
+                                    title={
+                                        'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
+                                    }
+                                >
+                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                </Tooltip>
+                            </div>
+                            <Row className="mde-slider">
+                                <Col span={8}>
+                                    <Slider
+                                        defaultValue={5}
+                                        value={minimumDetectableChange}
+                                        min={1}
+                                        max={sliderMaxValue}
+                                        trackStyle={{ background: 'var(--primary)' }}
+                                        handleStyle={{ background: 'var(--primary)' }}
+                                        onChange={(value) => {
+                                            setNewExperimentData({
+                                                parameters: { minimum_detectable_effect: value },
+                                            })
+                                        }}
+                                        tipFormatter={(value) => `${value}%`}
+                                    />
+                                </Col>
+                                <InputNumber
+                                    min={1}
+                                    max={sliderMaxValue}
+                                    defaultValue={5}
+                                    formatter={(value) => `${value}%`}
+                                    style={{ margin: '0 16px' }}
+                                    value={minimumDetectableChange}
+                                    onChange={(value) => {
+                                        setNewExperimentData({
+                                            parameters: { minimum_detectable_effect: value },
+                                        })
+                                    }}
+                                />
+                            </Row>
+                        </Col>
+                    </Row>
+                )}
                 <Row className="experiment-preview-row">
                     {experimentInsightType === InsightType.TRENDS ? (
                         <>
                             {!experiment?.start_date && (
-                                <Col span={12}>
-                                    <div className="card-secondary">Baseline Count</div>
-                                    <div className="l4">{trendCount}</div>
-                                </Col>
+                                <>
+                                    <Col span={6}>
+                                        <div className="card-secondary">Baseline Count</div>
+                                        <div className="l4">{trendCount}</div>
+                                    </Col>
+                                    <Col span={6}>
+                                        <div className="card-secondary">Minimum Acceptable Count</div>
+                                        <div className="l4">
+                                            {trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100))}
+                                        </div>
+                                    </Col>
+                                </>
                             )}
+                            <Col span={12}>
+                                <div className="card-secondary">Baseline Count</div>
+                                <div className="l4">{trendCount}</div>
+                            </Col>
                             <Col span={12}>
                                 <div className="card-secondary">Recommended running time</div>
                                 <div>
@@ -862,52 +960,54 @@ export function ExperimentPreview({
                     </Row>
                 )}
             </Col>
-            {experimentId !== 'new' && (
-                <Col span={12} className="pl">
-                    <div className="card-secondary mb">Feature flag usage and implementation</div>
-                    <Row justify="space-between" className="mb-05">
-                        <div>
-                            <span className="mr-05">Variant group</span>
-                            <Select
-                                onChange={setCurrentVariant}
-                                defaultValue={'control'}
-                                suffixIcon={<CaretDownOutlined />}
-                            >
-                                {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Select.Option key={idx} value={variant.key}>
-                                            {variant.key}
-                                        </Select.Option>
-                                    )
-                                )}
-                            </Select>
-                        </div>
-                        <div>
-                            <CodeLanguageSelect />
-                        </div>
-                    </Row>
-                    <b>Implement your experiment in code</b>
-                    <CodeSnippet language={Language.JavaScript} wrap>
-                        {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
+            {
+                experimentId !== 'new' && (
+                    <Col span={12} className="pl">
+                        <div className="card-secondary mb">Feature flag usage and implementation</div>
+                        <Row justify="space-between" className="mb-05">
+                            <div>
+                                <span className="mr-05">Variant group</span>
+                                <Select
+                                    onChange={setCurrentVariant}
+                                    defaultValue={'control'}
+                                    suffixIcon={<CaretDownOutlined />}
+                                >
+                                    {experiment?.parameters?.feature_flag_variants?.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <Select.Option key={idx} value={variant.key}>
+                                                {variant.key}
+                                            </Select.Option>
+                                        )
+                                    )}
+                                </Select>
+                            </div>
+                            <div>
+                                <CodeLanguageSelect />
+                            </div>
+                        </Row>
+                        <b>Implement your experiment in code</b>
+                        <CodeSnippet language={Language.JavaScript} wrap>
+                            {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
-                    </CodeSnippet>
-                    <b>Test that it works</b>
-                    <CodeSnippet language={Language.JavaScript}>
-                        {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
-                    </CodeSnippet>
-                    <a
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        href="https://posthog.com/docs/user-guides/feature-flags"
-                    >
-                        <Row align="middle">
-                            Experiment implementation guide
-                            <IconOpenInNew className="ml-05" />
-                        </Row>
-                    </a>
-                </Col>
-            )}
-        </Row>
+                        </CodeSnippet>
+                        <b>Test that it works</b>
+                        <CodeSnippet language={Language.JavaScript}>
+                            {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
+                        </CodeSnippet>
+                        <a
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            href="https://posthog.com/docs/user-guides/feature-flags"
+                        >
+                            <Row align="middle">
+                                Experiment implementation guide
+                                <IconOpenInNew className="ml-05" />
+                            </Row>
+                        </a>
+                    </Col>
+                )
+            }
+        </Row >
     )
 }

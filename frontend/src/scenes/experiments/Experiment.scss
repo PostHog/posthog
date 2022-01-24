@@ -91,6 +91,16 @@
     .experiment-preview {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
+
+        .mde-slider {
+            .ant-slider-handle {
+                border: none;
+            }
+
+            .ant-slider-rail {
+                background-color: #e5ebff;
+            }
+        }
     }
 
     .variants {
@@ -125,6 +135,10 @@
     .stop-experiment {
         background-color: $danger;
         color: white;
+    }
+
+    .archive-experiment {
+        color: $danger;
     }
 
     .description {

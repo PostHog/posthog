@@ -5,7 +5,7 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
@@ -108,5 +108,6 @@ class Test0002EventsSampleBy(BaseTest):
         self.assertEqual(backup_events_count_res[0][0], 5)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.last_error, "")
         self.assertEqual(sm.current_operation_index, 9)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)

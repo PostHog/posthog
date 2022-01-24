@@ -83,9 +83,11 @@ export const LemonRow = React.forwardRef(LemonRowInternal)
 export interface LemonSpacerProps {
     /** Twice the default amount of margin. */
     large?: boolean
+    /** Whether the spacer should be vertical instead of horizontal. */
+    vertical?: boolean
 }
 
 /** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false }: LemonSpacerProps): JSX.Element {
-    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large')} />
+export function LemonSpacer({ large = false, vertical = false }: LemonSpacerProps): JSX.Element {
+    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')} />
 }

@@ -30,11 +30,11 @@ export function PathItemFilters({
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
-    const { filters } = useValues(propertyFilterLogic(logicProps))
+    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
     useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+        if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
             setFilters([...propertyFilters, {}])
         }
     }, [propertyFilters])
@@ -42,8 +42,8 @@ export function PathItemFilters({
     return (
         <div className="mb" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filters?.length &&
-                    filters.map((filter, index) => {
+                {filtersWithNew?.length &&
+                    filtersWithNew.map((filter, index) => {
                         return (
                             <div key={index} style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
                                 <PathItemSelector
@@ -66,7 +66,7 @@ export function PathItemFilters({
                                     ) : (
                                         <Row align="middle">
                                             <FilterButton>{filter.value as string}</FilterButton>
-                                            {!!Object.keys(filters[index]).length && (
+                                            {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
                                                         remove(index)

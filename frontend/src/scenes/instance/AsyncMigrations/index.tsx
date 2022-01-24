@@ -124,32 +124,6 @@ export function AsyncMigrations(): JSX.Element {
             },
         },
         {
-            title: 'Error',
-            render: function RenderError(asyncMigration: AsyncMigration): JSX.Element {
-                const error = asyncMigration.last_error || ''
-                return (
-                    <small>
-                        <span>{error.slice(0, 40)}</span>
-                        {error.length > 40 ? (
-                            <a
-                                onClick={() => {
-                                    Modal.info({
-                                        title: `Error on migration '${asyncMigration.name}'`,
-                                        content: <pre>{error}</pre>,
-                                        icon: <InfoCircleOutlined />,
-                                        okText: 'Close',
-                                        width: '80%',
-                                    })
-                                }}
-                            >
-                                {` [...]`}
-                            </a>
-                        ) : null}
-                    </small>
-                )
-            },
-        },
-        {
             title: 'Last operation index',
             dataIndex: 'current_operation_index',
         },
