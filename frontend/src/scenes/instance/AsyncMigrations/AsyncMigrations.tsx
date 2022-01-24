@@ -23,6 +23,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -97,7 +98,11 @@ export function AsyncMigrations(): JSX.Element {
             title: 'Status',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const status = asyncMigration.status
-                return <div>{migrationStatusNumberToMessage[status]}</div>
+                let type = 'default'
+                if (status === AsyncMigrationStatus.Errored) {type = 'danger'}
+                if (status === AsyncMigrationStatus.CompletedSuccessfully) {type = 'success'}
+                if (status === AsyncMigrationStatus.Running) {type = 'warning'}
+                return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
             },
         },
         {

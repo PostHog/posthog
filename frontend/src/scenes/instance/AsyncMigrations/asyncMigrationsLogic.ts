@@ -25,8 +25,8 @@ export enum AsyncMigrationsTab {
 export const migrationStatusNumberToMessage = {
     0: 'Not started',
     1: 'Running',
-    2: 'Completed successfully',
-    3: 'Errored',
+    2: 'Complete',
+    3: 'Error',
     4: 'Rolled back',
     5: 'Starting',
 }
