@@ -40,6 +40,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
     --radius: #{$radius};
+    --shadow-elevation: #{$shadow_elevation};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};

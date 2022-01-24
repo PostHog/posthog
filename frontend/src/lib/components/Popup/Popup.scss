@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .Popup {
-    perspective: 1000px;
+    perspective: 100rem;
     z-index: $z_popup;
     h5 {
         margin: 0.25rem 0.5rem;
@@ -14,7 +14,7 @@
 .Popup__box {
     transition: opacity 100ms ease, transform 100ms ease;
     transform-origin: top;
-    box-shadow: $shadow_popup;
+    box-shadow: var(--shadow-elevation);
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);
@@ -28,7 +28,7 @@
     .Popup--enter &,
     .Popup--exit.Popup--exit-active & {
         opacity: 0;
-        transform: rotateX(-12deg);
+        transform: rotateX(-15deg);
     }
     .Popup--enter.Popup--enter-active &,
     .Popup--exit & {
