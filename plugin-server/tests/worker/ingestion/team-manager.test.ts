@@ -177,6 +177,12 @@ describe('TeamManager()', () => {
                     property: 'number',
                     team_id: 2,
                 },
+                {
+                    id: expect.any(Number),
+                    event: 'new-event',
+                    property: 'property_with_last_seen_at',
+                    team_id: 2,
+                },
             ])
 
             expect(await hub.db.fetchPropertyDefinitions()).toEqual([
@@ -258,8 +264,8 @@ describe('TeamManager()', () => {
             expect(postgresQuery).not.toHaveBeenCalled()
             expect(teamManager.eventLastSeenCache.length).toEqual(1)
             expect(teamManager.propertyDefinitionsLastSeenCache.length).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150404)
-            expect(teamManager.propertyDefinitionsLastSeenCache.get('[2,"another_test_prop"]')).toEqual(20150404)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
+            expect(teamManager.propertyDefinitionsLastSeenCache.get('[2,"another_test_prop"]')).toEqual(20150405)
         })
 
         // TODO: #7422 temporary test
