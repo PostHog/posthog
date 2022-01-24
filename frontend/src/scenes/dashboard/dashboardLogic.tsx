@@ -189,6 +189,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                           } as DashboardType)
                         : null
                 },
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
+                    return state && dashboard && state.id === dashboard.id ? dashboard : state
+                },
                 [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
                     state,
                     { shortId, refreshing, last_refresh }
@@ -651,7 +654,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
 
-                if (!cache.draggingToastId) {
+                if (!cache.draggingToastId && !values.featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN]) {
                     cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
                 }
             } else {

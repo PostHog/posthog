@@ -16,11 +16,13 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
-from posthog.email import is_email_available
-from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+    get_all_running_async_migrations,
+)
 from posthog.models.utils import UUIDT
-from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
-from posthog.redis import get_client
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
@@ -69,14 +71,14 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
         process_error(migration_instance, error)
         return False
 
-    ok, error = run_migration_precheck(migration_instance)
+    ok, error = is_migration_dependency_fulfilled(migration_instance.name)
     if not ok:
         process_error(migration_instance, error)
         return False
 
-    ok, error = is_migration_dependency_fulfilled(migration_instance.name)
+    ok, error = run_migration_precheck(migration_instance)
     if not ok:
-        process_error(migration_instance, error)
+        process_error(migration_instance, f"Migration precheck failed with error:{error}")
         return False
 
     mark_async_migration_as_running(migration_instance)
@@ -131,8 +133,8 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         )
 
     except Exception as e:
-        error = str(e)
-        process_error(migration_instance, error)
+        error = f"Exception was thrown while running operation {migration_instance.current_operation_index} : {str(e)}"
+        process_error(migration_instance, error, alert=True)
 
     if error:
         return (False, False)
@@ -163,47 +165,25 @@ def update_migration_progress(migration_instance: AsyncMigration):
         pass
 
 
-def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool = False):
+def attempt_migration_rollback(migration_instance: AsyncMigration):
     """
     Cycle through the operations in reverse order starting from the last completed op and run
     the specified rollback statements.
     """
     migration_instance.refresh_from_db()
-
-    try:
-        ops = get_async_migration_definition(migration_instance.name).operations
-        # if the migration was completed the index is set 1 after, normally we should try rollback for current op
-        current_index = min(migration_instance.current_operation_index, len(ops) - 1)
-        for op_index in range(current_index, -1, -1):
+    ops = get_async_migration_definition(migration_instance.name).operations
+    # if the migration was completed the index is set 1 after, normally we should try rollback for current op
+    current_index = min(migration_instance.current_operation_index, len(ops) - 1)
+    for op_index in range(current_index, -1, -1):
+        try:
             op = ops[op_index]
             execute_op(op, str(UUIDT()), rollback=True)
-    except Exception as e:
-        error = str(e)
+        except Exception as e:
+            error = f"At operation {op_index} rollback failed with error:{str(e)}"
 
-        # forced rollbacks are when the migration completed successfully but the user
-        # still requested a rollback, in which case we set the error to whatever happened
-        # while rolling back. under normal circumstances, the error is reserved to
-        # things that happened during the migration itself
-        if force:
-            last_error = f"Force rollback failed with error: {error}"
-            update_async_migration(
-                migration_instance=migration_instance, status=MigrationStatus.Errored, last_error=last_error,
-            )
+            process_error(migration_instance=migration_instance, error=error, rollback=False, alert=True)
 
-        if is_email_available():
-            from posthog.tasks.email import send_async_migration_errored_email
-
-            send_async_migration_errored_email.delay(
-                migration_key=migration_instance.name, time=datetime.now().isoformat(), error=last_error
-            )
-
-            send_alert_to_plugins(
-                key="async_migration_errored",
-                description=f"Migration {migration_instance.name} failed with error {error}",
-                level=AlertLevel.P2,
-            )
-
-        return
+            return
 
     update_async_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
 
@@ -230,19 +210,19 @@ def run_next_migration(candidate: str):
         trigger_migration(migration_instance)
 
 
-def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, Optional[str]]:
+def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
     dependency = get_async_migration_dependency(migration_name)
 
     dependency_ok: bool = (
         not dependency or AsyncMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
     )
-    error = f"Could not trigger migration because it depends on {dependency}" if not dependency_ok else None
+    error = f"Could not trigger migration because it depends on {dependency}" if not dependency_ok else ""
     return dependency_ok, error
 
 
 def check_service_version_requirements(
     service_version_requirements: List[ServiceVersionRequirement],
-) -> Tuple[bool, Optional[str]]:
+) -> Tuple[bool, str]:
     for service_version_requirement in service_version_requirements:
         in_range, version = service_version_requirement.is_service_in_accepted_version()
         if not in_range:
@@ -251,4 +231,4 @@ def check_service_version_requirements(
                 f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
             )
 
-    return True, None
+    return True, ""

@@ -1,16 +1,28 @@
-from datetime import datetime
-
 from rest_framework import status
 
-from ee.api.test.base import LicensedTestMixin
+from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.models import License
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest
 
 
-class TestExperimentCRUD(APIBaseTest):
+class TestExperimentCRUD(APILicensedTest):
+
+    # List experiments
+    def test_can_list_experiments(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cannot_list_experiments_without_proper_license(self):
+        self.organization.available_features = []
+        self.organization.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.json(), self.license_required_response())
+
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -393,7 +405,7 @@ class TestExperimentCRUD(APIBaseTest):
             Experiment.objects.get(pk=id)
 
 
-class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
         journeys_for(
@@ -590,7 +602,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
         self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=2)
 
 
-class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
         journeys_for(
