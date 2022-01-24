@@ -1,7 +1,8 @@
 @import '~/vars';
 
 .Popup {
-    perspective: 100rem;
+    perspective: 80rem;
+    perspective-origin: top;
     z-index: $z_popup;
     h5 {
         margin: 0.25rem 0.5rem;
@@ -28,7 +29,7 @@
     .Popup--enter &,
     .Popup--exit.Popup--exit-active & {
         opacity: 0;
-        transform: rotateX(-15deg);
+        transform: rotateX(-12deg);
     }
     .Popup--enter.Popup--enter-active &,
     .Popup--exit & {
