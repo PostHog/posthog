@@ -191,9 +191,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
             variant_control, [variant_test_1, variant_test_2]
         )
         self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.277, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.282, places=2)
-        self.assertAlmostEqual(probabilities[2], 0.440, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.277, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.282, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.440, places=1)
 
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2]
