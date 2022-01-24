@@ -1,5 +1,3 @@
-import './AsyncMigrations.scss'
-
 import React, { useState } from 'react'
 import { Button, Col, Divider, Input, Row } from 'antd'
 import { useActions } from 'kea'
