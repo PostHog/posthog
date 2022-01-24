@@ -1,3 +1,4 @@
+import pytest
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -16,6 +17,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @pytest.mark.skip_on_multitenancy
     def test_cannot_list_experiments_without_proper_license(self):
         self.organization.available_features = []
         self.organization.save()
