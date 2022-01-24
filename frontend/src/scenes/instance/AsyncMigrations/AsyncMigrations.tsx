@@ -22,7 +22,6 @@ import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
@@ -50,35 +49,27 @@ export function AsyncMigrations(): JSX.Element {
         {
             title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const length = 40
-                const more = asyncMigration.description.length > length
-                const moreButton = (
-                    <a
-                        onClick={() => {
-                            Modal.info({
-                                title: `'${asyncMigration.name}' description`,
-                                content: <pre>{asyncMigration.description}</pre>,
-                                icon: <InfoCircleOutlined />,
-                                okText: 'Close',
-                                width: '80%',
-                            })
-                        }}
-                    >
-                        {` more`}
-                    </a>
-                )
                 return (
                     <>
-                        {stringWithWBR(asyncMigration.name)}
-                        <span className="row-description">
-                            {asyncMigration.description.slice(0, length)}
-                            {more ? (
-                                <>
-                                    {`... `}
-                                    {moreButton}
-                                </>
-                            ) : null}
-                        </span>
+                        {asyncMigration.name}
+                        <div className="float-right">
+                            <LemonButton
+                                onClick={() => {
+                                    Modal.info({
+                                        title: `'${asyncMigration.name}' description`,
+                                        content: <pre>{asyncMigration.description}</pre>,
+                                        icon: <InfoCircleOutlined />,
+                                        okText: 'Close',
+                                        width: '80%',
+                                    })
+                                }}
+                                compact
+                            >
+                                {`more`}
+                            </LemonButton>
+                        </div>
+                        <br />
+                        <span className="row-description-long">{asyncMigration.description}</span>
                     </>
                 )
             },
@@ -99,9 +90,15 @@ export function AsyncMigrations(): JSX.Element {
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const status = asyncMigration.status
                 let type = 'default'
-                if (status === AsyncMigrationStatus.Errored) {type = 'danger'}
-                if (status === AsyncMigrationStatus.CompletedSuccessfully) {type = 'success'}
-                if (status === AsyncMigrationStatus.Running) {type = 'warning'}
+                if (status === AsyncMigrationStatus.Errored) {
+                    type = 'danger'
+                }
+                if (status === AsyncMigrationStatus.CompletedSuccessfully) {
+                    type = 'success'
+                }
+                if (status === AsyncMigrationStatus.Running) {
+                    type = 'warning'
+                }
                 return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
             },
         },

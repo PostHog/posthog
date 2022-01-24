@@ -47,6 +47,14 @@
         max-width: 30rem;
         font-size: 0.75rem;
     }
+    .row-description-long {
+        display: inline-block;
+        max-width: 30rem;
+        font-size: 0.75rem;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
 }
 
 .LemonTable__content > table {
