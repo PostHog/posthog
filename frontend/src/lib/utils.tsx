@@ -81,7 +81,7 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     )
 }
 
-export function toParams(obj: Record<string, any>, explodeArrays: string[] = []): string {
+export function toParams(obj: Record<string, any>, explodeArrays: boolean | string[] = false): string {
     if (!obj) {
         return ''
     }
@@ -104,7 +104,7 @@ export function toParams(obj: Record<string, any>, explodeArrays: string[] = [])
              *  or they are "exploded" so each item in the array is sent separately
              *    a=[1, 2] => a=1&a=2
              **/
-            if (explodeArrays.includes(key) && Array.isArray(val)) {
+            if ((Array.isArray(explodeArrays) ? explodeArrays.includes(key) : explodeArrays) && Array.isArray(val)) {
                 val.filter((item) => item != undefined).forEach((v) => acc.push([key, v]))
             } else {
                 acc.push([key, val])
