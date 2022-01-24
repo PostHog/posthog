@@ -111,7 +111,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        has_start_date = "start_date" in validated_data
+        has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
         expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])

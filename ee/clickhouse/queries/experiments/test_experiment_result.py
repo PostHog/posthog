@@ -140,7 +140,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
         self.assertAlmostEqual(calculate_expected_loss(variant_test, [variant_control]), 0.0016, places=3)
 
-        significant = ClickhouseFunnelExperimentResult.are_results_significant(variant_control, [variant_test])
+        significant = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, [variant_test], [probability]
+        )
         self.assertTrue(significant)
 
     def test_simulation_result_is_close_to_closed_form_solution(self):
@@ -176,7 +178,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
 
         significant = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2]
+            variant_control, [variant_test_1, variant_test_2], probabilities
         )
         self.assertTrue(significant)
 
@@ -203,7 +205,23 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
 
         significant = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2]
+            variant_control, [variant_test_1, variant_test_2], probabilities
+        )
+        self.assertFalse(significant)
+
+    def test_absolute_loss_less_than_one_percent_but_not_significant(self):
+        variant_test_1 = Variant("A", 286, 2014)
+        variant_control = Variant("B", 267, 2031)
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, [variant_test_1])
+        self.assertAlmostEqual(sum(probabilities), 1)
+        self.assertAlmostEqual(probabilities[0], 0.197, places=2)
+        self.assertAlmostEqual(probabilities[1], 0.802, places=2)
+
+        self.assertAlmostEqual(calculate_expected_loss(variant_test_1, [variant_control]), 0.0010, places=3)
+
+        significant = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, [variant_test_1], probabilities
         )
         self.assertFalse(significant)
 
@@ -233,7 +251,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
 
         significant = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
+            variant_control, [variant_test_1, variant_test_2, variant_test_3], probabilities
         )
         self.assertTrue(significant)
 
@@ -262,7 +280,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
 
         significant = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
+            variant_control, [variant_test_1, variant_test_2, variant_test_3], probabilities
         )
         self.assertFalse(significant)
 
@@ -390,7 +408,7 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         p_value = calculate_p_value(variant_a, [variant_b, variant_c])
         self.assertAlmostEqual(p_value, 0.001, places=3)
 
-        significant = ClickhouseTrendExperimentResult.are_results_significant(variant_a, [variant_b, variant_c])
+        significant = ClickhouseTrendExperimentResult.are_results_significant(variant_a, [variant_b, variant_c], [1])
         self.assertTrue(significant)
 
     def test_results_with_different_exposures(self):
@@ -414,5 +432,8 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         p_value = calculate_p_value(variant_a, [variant_b, variant_c])
         self.assertAlmostEqual(p_value, 0, places=3)
 
-        significant = ClickhouseTrendExperimentResult.are_results_significant(variant_a, [variant_b, variant_c])
-        self.assertTrue(significant)
+        significant = ClickhouseTrendExperimentResult.are_results_significant(
+            variant_a, [variant_b, variant_c], probabilities
+        )
+        # False because max probability is less than 0.9
+        self.assertFalse(significant)
