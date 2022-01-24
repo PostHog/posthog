@@ -12,13 +12,7 @@ import {
     AsyncMigrationsTab,
     AsyncMigrationStatus,
 } from './asyncMigrationsLogic'
-import {
-    PlayCircleOutlined,
-    StopOutlined,
-    RedoOutlined,
-    CheckCircleOutlined,
-    InfoCircleOutlined,
-} from '@ant-design/icons'
+import { PlayCircleOutlined, RedoOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
@@ -26,6 +20,8 @@ import { SettingUpdateField } from './SettingUpdateField'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -56,10 +52,6 @@ export function AsyncMigrations(): JSX.Element {
         {
             title: 'Migration name',
             dataIndex: 'name',
-        },
-        {
-            title: 'Error cnt',
-            dataIndex: 'error_cnt',
         },
         {
             title: 'Description',
@@ -140,63 +132,78 @@ export function AsyncMigrations(): JSX.Element {
                 return (
                     <div>
                         {status === AsyncMigrationStatus.NotStarted ? (
-                            <Tooltip title="Run migration">
-                                <PlayCircleOutlined
-                                    className="migration-btn success"
+                            <Tooltip title="Start">
+                                <LemonButton
+                                    type="stealth"
+                                    icon={<PlayCircleOutlined />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
+                                    fullWidth
                                 />
                             </Tooltip>
                         ) : status === AsyncMigrationStatus.Running ? (
-                            <div>
-                                <Tooltip title="Force stop migration">
-                                    <StopOutlined
-                                        className="migration-btn danger"
-                                        onClick={() => forceStopMigration(asyncMigration.id)}
-                                    />
-                                </Tooltip>
-                                <Tooltip title="Force stop migration without rollback">
-                                    <StopOutlined
-                                        className="migration-btn danger"
-                                        onClick={() => forceStopMigrationWithoutRollback(asyncMigration.id)}
-                                    />
-                                </Tooltip>
-                            </div>
+                            <More
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => forceStopMigration(asyncMigration.id)}
+                                            fullWidth
+                                        >
+                                            Stop and rollback
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration.id)}
+                                            fullWidth
+                                        >
+                                            Stop
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
                         ) : status === AsyncMigrationStatus.CompletedSuccessfully ? (
-                            <Tooltip title="Migration Completed">
-                                <CheckCircleOutlined className="success" />
-                            </Tooltip>
+                            <></>
                         ) : status === AsyncMigrationStatus.Errored ? (
-                            <div>
-                                <Tooltip title="Resume migration">
-                                    <PlayCircleOutlined
-                                        className="migration-btn success"
-                                        onClick={() => resumeMigration(asyncMigration.id)}
-                                    />
-                                </Tooltip>
-                                <Tooltip title="Restart migration without rollback">
-                                    <RedoOutlined
-                                        className="migration-btn warning"
-                                        onClick={() => triggerMigration(asyncMigration.id)}
-                                    />
-                                </Tooltip>
-                                <Tooltip title="Rollback migration">
-                                    <RedoOutlined
-                                        className="migration-btn warning"
-                                        onClick={() => rollbackMigration(asyncMigration.id)}
-                                    />
-                                </Tooltip>
-                            </div>
+                            <More
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => resumeMigration(asyncMigration.id)}
+                                            fullWidth
+                                        >
+                                            Resume
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => triggerMigration(asyncMigration.id)}
+                                            fullWidth
+                                        >
+                                            Restart without rollback
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => rollbackMigration(asyncMigration.id)}
+                                            fullWidth
+                                        >
+                                            Rollback
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
                         ) : status === AsyncMigrationStatus.RolledBack ? (
-                            <Tooltip title="Restart migration">
-                                <RedoOutlined
-                                    className="migration-btn warning"
+                            <Tooltip title="Restart">
+                                <LemonButton
+                                    type="stealth"
+                                    icon={<RedoOutlined />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
+                                    fullWidth
                                 />
                             </Tooltip>
                         ) : status === AsyncMigrationStatus.Starting ? (
                             <Spinner size="sm" />
                         ) : (
-                            <Spinner size="sm" />
+                            <></>
                         )}
                     </div>
                 )
