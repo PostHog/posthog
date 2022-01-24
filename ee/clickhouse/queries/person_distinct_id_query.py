@@ -15,6 +15,8 @@ def get_team_distinct_ids_query(team_id: int) -> str:
 
     using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
 
+    print(f"Using new table?: {using_new_table}. TEST: {TEST}. BENCHMARK: {BENCHMARK}")
+
     if using_new_table:
         return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE, {"team_id": team_id})
     else:

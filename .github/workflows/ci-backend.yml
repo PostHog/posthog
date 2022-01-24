@@ -223,6 +223,8 @@ jobs:
 
             - name: Run ee/ tests
               if: ${{ matrix.ee }}
+              env:
+                  TEST: 1
               run: |
                   pytest ee -m "not saml_only" \
                       --splits ${{ matrix.concurrency }} \
