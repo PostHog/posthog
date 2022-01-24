@@ -240,7 +240,7 @@ export function InsightsTable({
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
+                    return ((item.count || item.aggregated_value) ?? 'Unknown').toLocaleString()
                 }
                 return (
                     <>
