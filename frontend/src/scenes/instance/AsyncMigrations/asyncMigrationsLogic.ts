@@ -182,7 +182,7 @@ export const asyncMigrationsLogic = kea<
         },
         loadAsyncMigrationErrors: async ({ migrationId }) => {
             try {
-                const errorsForMigration = (await api.get(`api/async_migrations/${migrationId}/errors`)).results
+                const errorsForMigration = await api.get(`api/async_migrations/${migrationId}/errors`)
                 actions.loadAsyncMigrationErrorsSuccess(migrationId, errorsForMigration)
             } catch (error) {
                 actions.loadAsyncMigrationErrorsFailure(migrationId, error)

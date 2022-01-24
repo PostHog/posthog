@@ -155,14 +155,12 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         rollback_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
-    @action(methods=["GET"], detail=True)  # what does this detail = True/False do?
+    @action(methods=["GET"], detail=True)
     def errors(self, request, **kwargs):
         migration_instance = self.get_object()
         return response.Response(
-            {
-                "results": [
-                    AsyncMigrationErrorsSerializer(e).data
-                    for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
-                ]
-            }
+            [
+                AsyncMigrationErrorsSerializer(e).data
+                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
+            ]
         )

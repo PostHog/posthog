@@ -1,5 +1,3 @@
-import './AsyncMigrations.scss'
-
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,7 +20,7 @@ import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -89,16 +87,16 @@ export function AsyncMigrations(): JSX.Element {
             title: 'Status',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const status = asyncMigration.status
-                let type = 'default'
-                if (status === AsyncMigrationStatus.Errored) {
-                    type = 'danger'
-                }
-                if (status === AsyncMigrationStatus.CompletedSuccessfully) {
-                    type = 'success'
-                }
-                if (status === AsyncMigrationStatus.Running) {
-                    type = 'warning'
-                }
+                const type: LemonTagPropsType =
+                    status === AsyncMigrationStatus.Running
+                        ? 'success'
+                        : status === AsyncMigrationStatus.Errored
+                        ? 'danger'
+                        : status === AsyncMigrationStatus.Starting
+                        ? 'warning'
+                        : status === AsyncMigrationStatus.RolledBack
+                        ? 'warning'
+                        : 'default'
                 return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
             },
         },
