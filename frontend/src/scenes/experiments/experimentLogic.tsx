@@ -37,7 +37,7 @@ export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
-        actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
+        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
@@ -189,7 +189,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
-                        actions.updateExperiment(response)
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -292,10 +292,10 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: () => {
-            actions.updateExperiment({ start_date: dayjs() })
+            actions.updateExperiment({ start_date: dayjs().format('YYYY-MM-DD') })
         },
         endExperiment: async () => {
-            actions.updateExperiment({ end_date: dayjs() })
+            actions.updateExperiment({ end_date: dayjs().format('YYYY-MM-DD') })
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -321,7 +321,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return null
                 },
-                updateExperiment: async (update) => {
+                updateExperiment: async (update: Partial<Experiment>) => {
                     const response: Experiment = await api.update(
                         `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         update

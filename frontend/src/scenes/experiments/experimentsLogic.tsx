@@ -40,7 +40,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 addToExperiments: (experiment: Experiment) => {
                     return [...values.experiments, experiment]
                 },
-                updateExperiment: (experiment: Experiment) => {
+                updateExperiments: (experiment: Experiment) => {
                     return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
                 },
             },
