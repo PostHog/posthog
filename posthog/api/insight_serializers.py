@@ -55,7 +55,7 @@ class ResultsMixin(serializers.Serializer):
 
 
 class TrendResultSerializer(serializers.Serializer):
-    data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")  #  type: ignore
+    data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")  # type: ignore
     days = serializers.ListField(
         child=serializers.DateField(), help_text="The dates corresponding to the data field above."
     )
