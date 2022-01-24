@@ -74,11 +74,12 @@ export const asyncMigrationsLogic = kea<
                 loadAsyncMigrationErrors: (state, migrationId) => {
                     return { ...state, [migrationId]: true }
                 },
-                loadAsyncMigrationErrorsSuccess: (state, { payload }) => {
-                    return { ...state, [payload]: false }
+                loadAsyncMigrationErrorsSuccess: (state, payload) => {
+                    return { ...state, [payload.payload]: false }
                 },
-                loadAsyncMigrationErrorsFailure: (state, { payload }) => {
-                    return { ...state, [payload]: false }
+                loadAsyncMigrationErrorsFailure: (state, payload) => {
+                    console.log(payload)
+                    //return { ...state, [payload]: false }
                 },
             },
         ],

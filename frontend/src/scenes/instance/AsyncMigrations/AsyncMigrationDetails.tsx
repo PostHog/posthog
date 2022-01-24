@@ -13,10 +13,6 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
 
     const columns: LemonTableColumns<AsyncMigrationError> = [
         {
-            title: 'id',
-            dataIndex: 'id',
-        },
-        {
             title: 'Created At',
             render: function Render(_, asyncMigrationError: AsyncMigrationError): JSX.Element {
                 const createdAt = asyncMigrationError.created_at
@@ -28,9 +24,6 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
             dataIndex: 'description',
         },
     ]
-    // Problem: the state is global and pressing the button below changes errors for all open pannels probably because
-    // the value asyncMigrationErrors is global and gets changed
-    // couldn't figure out how to load this on the opening of the details
     return (
         <div className="async-migrations-details-scene">
             <div className="mb float-right">

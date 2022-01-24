@@ -204,11 +204,11 @@ export function AsyncMigrations(): JSX.Element {
         },
     ]
     const rowExpansion = {
-        expandedRowRender: function renderExpand(row) {
-            return row && <AsyncMigrationDetails asyncMigration={row} />
+        expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
+            return asyncMigration && <AsyncMigrationDetails asyncMigration={asyncMigration} />
         },
-        rowExpandable: ({ error_cnt }) => error_cnt > 0,
-        onRowExpanded: function getErrors(asyncMigration) {
+        rowExpandable: (asyncMigration: AsyncMigration) => asyncMigration.error_cnt > 0,
+        onRowExpanded: function getErrors(asyncMigration: AsyncMigration) {
             loadAsyncMigrationErrors(asyncMigration.id)
         },
     }

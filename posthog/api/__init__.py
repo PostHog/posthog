@@ -96,8 +96,6 @@ router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "p
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
-# Probably don't need
-# router.register(r"async_migration_errors", async_migration.AsyncMigrationErrorsViewset, "async_migrations_errors")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 
 

@@ -9,13 +9,13 @@ from posthog.async_migrations.utils import (
     rollback_migration,
     trigger_migration,
 )
-from posthog.permissions import IsStaffUser
 from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
     MigrationStatus,
     get_all_running_async_migrations,
 )
+from posthog.permissions import IsStaffUser
 
 
 class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
@@ -23,13 +23,6 @@ class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
         model = AsyncMigrationError
         fields = ["id", "description", "created_at"]
         read_only_fields = ["id", "description", "created_at"]
-
-
-# Probably don't need this (given the new get function)
-# class AsyncMigrationErrorsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
-#    queryset = AsyncMigrationError.objects.all()
-#    permission_classes = [StaffUser]
-#    serializer_class = AsyncMigrationErrorsSerializer
 
 
 class AsyncMigrationSerializer(serializers.ModelSerializer):
