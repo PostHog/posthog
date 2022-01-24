@@ -5,7 +5,7 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS, GET_TEAM_PERS
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.settings import BENCHMARK, TEST
 
-using_new_table = TEST or BENCHMARK
+using_new_table = False
 
 
 def get_team_distinct_ids_query(team_id: int) -> str:
@@ -13,7 +13,7 @@ def get_team_distinct_ids_query(team_id: int) -> str:
 
     global using_new_table
 
-    using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
+    using_new_table = TEST or BENCHMARK or _fetch_person_distinct_id2_ready()
 
     print(f"Using new table?: {using_new_table}. TEST: {TEST}. BENCHMARK: {BENCHMARK}")
 
