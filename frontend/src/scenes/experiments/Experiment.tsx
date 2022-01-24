@@ -129,8 +129,8 @@ export function Experiment(): JSX.Element {
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                (experimentData?.parameters?.recommended_running_time || 1)) *
-            100
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -781,8 +781,8 @@ export function ExperimentPreview({
                             </div>
                             <div className="text-muted">
                                 Here are the baseline metrics for your experiment. Adjust your minimum detectible
-                                threshold to adjust for the smallest conversion value you’ll accept, and the
-                                experiment duration.{' '}
+                                threshold to adjust for the smallest conversion value you’ll accept, and the experiment
+                                duration.{' '}
                             </div>
                         </div>
                     )}
@@ -960,54 +960,52 @@ export function ExperimentPreview({
                     </Row>
                 )}
             </Col>
-            {
-                experimentId !== 'new' && (
-                    <Col span={12} className="pl">
-                        <div className="card-secondary mb">Feature flag usage and implementation</div>
-                        <Row justify="space-between" className="mb-05">
-                            <div>
-                                <span className="mr-05">Variant group</span>
-                                <Select
-                                    onChange={setCurrentVariant}
-                                    defaultValue={'control'}
-                                    suffixIcon={<CaretDownOutlined />}
-                                >
-                                    {experiment?.parameters?.feature_flag_variants?.map(
-                                        (variant: MultivariateFlagVariant, idx: number) => (
-                                            <Select.Option key={idx} value={variant.key}>
-                                                {variant.key}
-                                            </Select.Option>
-                                        )
-                                    )}
-                                </Select>
-                            </div>
-                            <div>
-                                <CodeLanguageSelect />
-                            </div>
-                        </Row>
-                        <b>Implement your experiment in code</b>
-                        <CodeSnippet language={Language.JavaScript} wrap>
-                            {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
+            {experimentId !== 'new' && (
+                <Col span={12} className="pl">
+                    <div className="card-secondary mb">Feature flag usage and implementation</div>
+                    <Row justify="space-between" className="mb-05">
+                        <div>
+                            <span className="mr-05">Variant group</span>
+                            <Select
+                                onChange={setCurrentVariant}
+                                defaultValue={'control'}
+                                suffixIcon={<CaretDownOutlined />}
+                            >
+                                {experiment?.parameters?.feature_flag_variants?.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <Select.Option key={idx} value={variant.key}>
+                                            {variant.key}
+                                        </Select.Option>
+                                    )
+                                )}
+                            </Select>
+                        </div>
+                        <div>
+                            <CodeLanguageSelect />
+                        </div>
+                    </Row>
+                    <b>Implement your experiment in code</b>
+                    <CodeSnippet language={Language.JavaScript} wrap>
+                        {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
-                        </CodeSnippet>
-                        <b>Test that it works</b>
-                        <CodeSnippet language={Language.JavaScript}>
-                            {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
-                        </CodeSnippet>
-                        <a
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            href="https://posthog.com/docs/user-guides/feature-flags"
-                        >
-                            <Row align="middle">
-                                Experiment implementation guide
-                                <IconOpenInNew className="ml-05" />
-                            </Row>
-                        </a>
-                    </Col>
-                )
-            }
-        </Row >
+                    </CodeSnippet>
+                    <b>Test that it works</b>
+                    <CodeSnippet language={Language.JavaScript}>
+                        {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
+                    </CodeSnippet>
+                    <a
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        href="https://posthog.com/docs/user-guides/feature-flags"
+                    >
+                        <Row align="middle">
+                            Experiment implementation guide
+                            <IconOpenInNew className="ml-05" />
+                        </Row>
+                    </a>
+                </Col>
+            )}
+        </Row>
     )
 }
