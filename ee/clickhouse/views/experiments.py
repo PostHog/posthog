@@ -176,9 +176,9 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if "user" in filters:
             return super().get_queryset().filter(created_by=self.request.user)
         if "archived" in filters:
-            return super().get_queryset().filter(parameters__contains={"archived": True})
+            return super().get_queryset().filter(archived=True)
         if "all" in filters:
-            return super().get_queryset().exclude(parameters__contains={"archived": True})
+            return super().get_queryset().exclude(archived=True)
 
         return super().get_queryset()
 
