@@ -33,8 +33,8 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0003_fill_person_distinct_id2"
 
-    # This async migration will not run until 0199 has been run and columns already exist.
-    external_dependencies = [("posthog", "0199_property_definition_timestamps")]
+    # This async migration will not run until 0200 has been run and columns already exist.
+    external_dependencies = [("posthog", "0200_property_definition_timestamps")]
 
     @cached_property
     def operations(self):

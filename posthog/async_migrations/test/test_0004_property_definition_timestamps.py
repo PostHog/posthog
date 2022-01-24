@@ -49,7 +49,7 @@ class Test0004PropertyDefinitionTimestamps(BaseTest):
 
         # Check if migration is spoofed in `django_migrations`
         migration = MigrationRecorder.Migration.objects.filter(
-            app="posthog", name="0199_property_definition_timestamps"
+            app="posthog", name="0200_property_definition_timestamps"
         )
         assert migration.exists() is True
 

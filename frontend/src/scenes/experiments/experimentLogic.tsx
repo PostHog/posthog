@@ -75,6 +75,12 @@ export const experimentLogic = kea<experimentLogicType>({
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
                     }
+
+                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
+                    if (experimentData.parameters) {
+                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
+                        return { ...vals, ...experimentData, parameters: newParameters }
+                    }
                     return { ...vals, ...experimentData }
                 },
                 updateExperimentGroup: (state, { variant, idx }) => {
@@ -119,7 +125,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
                     const newRolloutPercentages = percentageDistribution(
-                        state?.parameters?.feature_flag_variants.length - 1
+                        (state?.parameters?.feature_flag_variants || []).length - 1
                     )
                     const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,

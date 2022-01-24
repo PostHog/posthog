@@ -93,7 +93,7 @@ class AsyncMigrationDefinition:
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
-    # external dependencies e.g. [("posthog", "0199_property_definition_timestamps")]
+    # external dependencies e.g. [("posthog", "0200_property_definition_timestamps")]
     external_dependencies: List[Tuple[str, str]] = []
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
