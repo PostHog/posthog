@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
+from numpy import require
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -19,6 +20,7 @@ from ee.clickhouse.sql.events import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
+from posthog.api.documentation import OpenApiParameter, PropertiesSerializer, extend_schema
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
@@ -80,6 +82,7 @@ class ClickhouseEventsViewSet(EventViewSet):
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
+    @extend_schema(parameters=[PropertiesSerializer(required=False)],)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -114,7 +117,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
-            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
+            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400,)
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
