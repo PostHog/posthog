@@ -1,5 +1,16 @@
 @import '~/vars';
 
+.profile-package {
+    display: inline-flex;
+    align-items: baseline;
+    margin-left: 0.25rem;
+}
+
+.profile-name {
+    margin-left: 0.25rem;
+    font-weight: 500;
+}
+
 .profile-picture {
     flex-shrink: 0;
     border-radius: 50%;
