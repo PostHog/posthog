@@ -163,7 +163,7 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
         for (const [key, value] of Object.entries(properties)) {
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
                 const isNumerical = typeof value === 'number'
-                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
+                const propertyType = detectPropertyDefinitionTypes(value, key)
 
                 await this.db.postgresQuery(
                     `
@@ -172,7 +172,7 @@ INSERT INTO posthog_propertydefinition
 VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
 DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
-                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
+                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, null],
                     'insertPropertyDefinition'
                 )
                 this.propertyDefinitionsCache.set(team.id, key, propertyType)
