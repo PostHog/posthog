@@ -1,7 +1,7 @@
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Modal, Progress, Space, Tabs } from 'antd'
+import { Progress, Modal, Space, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import {
     AsyncMigration,
@@ -10,7 +10,7 @@ import {
     AsyncMigrationsTab,
     AsyncMigrationStatus,
 } from './asyncMigrationsLogic'
-import { PlayCircleOutlined, RedoOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +21,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
+import { IconPlay, IconReplay } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -138,7 +139,7 @@ export function AsyncMigrations(): JSX.Element {
                             <Tooltip title="Start">
                                 <LemonButton
                                     type="stealth"
-                                    icon={<PlayCircleOutlined />}
+                                    icon={<IconPlay />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
                                     fullWidth
                                 />
@@ -198,16 +199,14 @@ export function AsyncMigrations(): JSX.Element {
                             <Tooltip title="Restart">
                                 <LemonButton
                                     type="stealth"
-                                    icon={<RedoOutlined />}
+                                    icon={<IconReplay />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
                                     fullWidth
                                 />
                             </Tooltip>
                         ) : status === AsyncMigrationStatus.Starting ? (
                             <Spinner size="sm" />
-                        ) : (
-                            <></>
-                        )}
+                        ) : null}
                     </div>
                 )
             },
@@ -250,12 +249,14 @@ export function AsyncMigrations(): JSX.Element {
                     {activeTab === AsyncMigrationsTab.Management ? (
                         <>
                             <div className="mb float-right">
-                                <Button
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
+                                <LemonButton
+                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconReplay />}
                                     onClick={loadAsyncMigrations}
+                                    type="secondary"
+                                    compact
                                 >
                                     Refresh
-                                </Button>
+                                </LemonButton>
                             </div>
                             <Space />
                             <LemonTable
