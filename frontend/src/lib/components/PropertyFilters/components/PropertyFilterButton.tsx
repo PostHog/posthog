@@ -53,7 +53,7 @@ export function FilterButton({ greyBadges, onClick, onClose, setRef, children }:
                 {children}
                 {onClose && (
                     <CloseButton
-                        className="ml-1"
+                        className={clsx('ml-1', !greyBadges && 'white-button')}
                         onClick={(e: MouseEvent) => {
                             e.stopPropagation()
                             onClose()
