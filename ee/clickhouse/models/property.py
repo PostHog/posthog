@@ -341,6 +341,12 @@ def get_single_or_multi_property_string_expr(
     return f"{expression} AS {query_alias}"
 
 
+EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE: Dict[str, List[str]] = {
+    "DateTime": ["timestamp", "created_at"],
+    "String": ["distinct_id"],
+}
+
+
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
@@ -364,6 +370,11 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
+
+    for reserved_words in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE.values():
+        if property_name in reserved_words:
+            return property_name, False
+
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias != None else ""

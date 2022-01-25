@@ -592,13 +592,13 @@ def test_events(db, team) -> List[UUID]:
             properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
         ),
         _create_event(
-            event="$pageview",
+            event="some_custom_event",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
         ),
         _create_event(
-            event="$pageview",
+            event="some_custom_event",
             team=team,
             distinct_id="whatever",
             properties={"relative_dates": f"{datetime(2021, 3, 31):%d/%m/%Y %H:%M:%S}"},
@@ -806,4 +806,30 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     )
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
+    assert uuids == expected
+
+
+TEST_RESERVED_WORDS = [
+    pytest.param(Property(key="event", value="some_custom_event"), [17, 18]),
+    pytest.param(Property(key="timestamp", value="2021-04-01 18:00:00", operator="is_date_after"), [0]),
+]
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_RESERVED_WORDS)
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_for_reserved_words(test_events, property, expected_event_indexes, team):
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
+    uuids = list(
+        sorted(
+            [
+                uuid
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
