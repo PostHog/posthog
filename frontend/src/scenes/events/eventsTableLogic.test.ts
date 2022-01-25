@@ -4,14 +4,14 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
-import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
+import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
-import api from 'lib/api'
 jest.mock('lib/dayjs', () => {
     const dayjs = jest.requireActual('lib/dayjs')
     return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
@@ -34,10 +34,22 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
-    operator: null,
+    operator: PropertyOperator.Exact,
     type: 't',
     value: 'v',
 })
+
+const firstEvent = makeEvent('1', 'the first timestamp')
+const secondEvent = makeEvent('1', 'the second timestamp')
+
+const baseEventsUrl = `api/projects/${MOCK_TEAM_ID}/events/`
+const beforeLastEventsTimestamp = '&before=the%20second%20timestamp'
+const afterTheFirstEvent = '&after=the%20first%20timestamp'
+const afterOneYearAgo = '&after=2020-05-05T00%3A00%3A00.000Z'
+const orderByTimestamp = '&orderBy=%5B%22-timestamp%22%5D'
+const propertiesWithFilterValue =
+    '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D'
+const emptyProperties = '?properties=%5B%5D'
 
 describe('eventsTableLogic', () => {
     let logic: ReturnType<typeof eventsTableLogic.build>
@@ -236,6 +248,121 @@ describe('eventsTableLogic', () => {
                 })
             })
 
+            /**
+             * It is relatively high coupling between implementation and test to assert directly on the API
+             * But, the interaction between the state of the logic and the choices of API parameters that these mock
+             * expectations should protect against accidental regression
+             */
+            describe('API calls are limited to a time window by the after param to improve ClickHouse performance', () => {
+                it('fetch events sets after to one year ago when there are no events', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEvents()
+                    })
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+
+                it('fetch events sets after to one year ago when there are already events', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEventsSuccess({
+                            events: [firstEvent, secondEvent],
+                            hasNext: false,
+                            isNext: false,
+                        })
+                        logic.actions.fetchEvents()
+                    })
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+
+                it('triggers fetch events on set properties', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.setProperties([])
+                    }).toDispatchActions(['fetchEvents'])
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+
+                it('triggers fetch events on set event filter', async () => {
+                    const eventName = randomString()
+                    await expectLogic(logic, () => {
+                        logic.actions.setEventFilter(eventName)
+                    }).toDispatchActions(['fetchEvents'])
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + `&event=${eventName}` + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+
+                it('adds one year ago as the after parameter when there are no event results', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.pollEvents()
+                    })
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+
+                it('adds the timestamp of the most recent event as the after parameter when there are results', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEventsSuccess({
+                            events: [firstEvent, secondEvent],
+                            hasNext: false,
+                            isNext: false,
+                        })
+                    }).toMatchValues({ events: [firstEvent, secondEvent] })
+
+                    logic.actions.pollEvents()
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + orderByTimestamp + afterTheFirstEvent
+                    )
+                })
+
+                it('can build the export URL when there are no properties or filters', async () => {
+                    await expectLogic(logic, () => {}).toMatchValues({
+                        exportUrl:
+                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                            emptyProperties +
+                            orderByTimestamp +
+                            afterOneYearAgo,
+                    })
+                })
+
+                it('can build the export URL when there are properties or filters', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.setProperties([makePropertyFilter('fixed value')])
+                    }).toMatchValues({
+                        exportUrl:
+                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                            propertiesWithFilterValue +
+                            orderByTimestamp +
+                            afterOneYearAgo,
+                    })
+                })
+
+                it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEventsSuccess({
+                            events: [firstEvent, secondEvent],
+                            hasNext: false,
+                            isNext: false,
+                        })
+                        logic.actions.fetchNextEvents()
+                    }).toDispatchActions([logic.actionCreators.fetchEvents({ before: secondEvent.timestamp })])
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
+                    )
+                })
+            })
+
             it('fetch events clears the has next flag', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.fetchEventsSuccess({ events: [], hasNext: true, isNext: false })
@@ -397,20 +524,6 @@ describe('eventsTableLogic', () => {
                     eventsFormatted: [{ event: today }, { date_break: 'September 22, 2021' }, { event: yesterday }],
                 })
             })
-
-            it('can build the export URL when there are no properties or filters', async () => {
-                await expectLogic(logic, () => {}).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
-                })
-            })
-
-            it('can build the export URL when there are properties or filters', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setProperties([makePropertyFilter('fixed value')])
-                }).toMatchValues({
-                    exportUrl: `/api/projects/997/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
-                })
-            })
         })
 
         it('writes properties to the URL', async () => {
@@ -510,35 +623,10 @@ describe('eventsTableLogic', () => {
         })
 
         describe('the listeners', () => {
-            it('triggers fetch events on set properties', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setProperties([])
-                }).toDispatchActions(['fetchEvents'])
-            })
-
-            it('triggers fetch events on set event filter', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setEventFilter(randomString())
-                }).toDispatchActions(['fetchEvents'])
-            })
-
             it('triggers fetch events with no arguments on fetchNextEvents when there are no existing events', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.fetchNextEvents()
                 }).toDispatchActions([logic.actionCreators.fetchEvents()])
-            })
-
-            it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
-                const event = makeEvent('1', randomString())
-
-                await expectLogic(logic, () => {
-                    logic.actions.fetchEventsSuccess({
-                        events: [event],
-                        hasNext: false,
-                        isNext: false,
-                    })
-                    logic.actions.fetchNextEvents()
-                }).toDispatchActions([logic.actionCreators.fetchEvents({ before: event.timestamp })])
             })
 
             it('calls prepend new when autoload is toggled and there are new events', async () => {

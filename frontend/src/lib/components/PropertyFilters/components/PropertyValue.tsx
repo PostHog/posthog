@@ -236,7 +236,7 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
-                        inputReadOnly={true}
+                        inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
                         format="YYYY-MM-DD HH:mm:ss"
