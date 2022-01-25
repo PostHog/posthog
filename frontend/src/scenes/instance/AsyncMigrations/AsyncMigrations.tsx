@@ -1,7 +1,7 @@
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Progress, Modal, Space, Tabs } from 'antd'
+import { Progress, Space, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import {
     AsyncMigration,
@@ -10,7 +10,6 @@ import {
     AsyncMigrationsTab,
     AsyncMigrationStatus,
 } from './asyncMigrationsLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
@@ -50,25 +49,8 @@ export function AsyncMigrations(): JSX.Element {
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 return (
                     <>
-                        {asyncMigration.name}
-                        <div className="float-right">
-                            <LemonButton
-                                onClick={() => {
-                                    Modal.info({
-                                        title: `'${asyncMigration.name}' description`,
-                                        content: <pre>{asyncMigration.description}</pre>,
-                                        icon: <InfoCircleOutlined />,
-                                        okText: 'Close',
-                                        width: '80%',
-                                    })
-                                }}
-                                compact
-                            >
-                                {`more`}
-                            </LemonButton>
-                        </div>
-                        <br />
-                        <span className="row-description-long">{asyncMigration.description}</span>
+                        <div className="row-name">{asyncMigration.name}</div>
+                        <div className="row-description">{asyncMigration.description}</div>
                     </>
                 )
             },
