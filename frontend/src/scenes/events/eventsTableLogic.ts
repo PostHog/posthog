@@ -214,24 +214,22 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.afterParam,
+                selectors.oneYearAgo,
             ],
-            (teamId, eventFilter, orderBy, properties, after) =>
+            (teamId, eventFilter, orderBy, properties, oneYearAgo) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after,
+                    after: oneYearAgo,
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
-        afterParam: [
-            () => [selectors.events, selectors.months],
-            (events, months) =>
-                events?.length > 0 && events[0].timestamp
-                    ? events[0].timestamp
-                    : now().subtract(months, 'months').toISOString(),
+        oneYearAgo: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        pollAfter: [
+            () => [selectors.events, selectors.oneYearAgo],
+            (events, oneYearAgo) => (events?.length > 0 && events[0].timestamp ? events[0].timestamp : oneYearAgo),
         ],
     }),
 
@@ -313,7 +311,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.afterParam,
+                    after: values.oneYearAgo,
                 }
 
                 let apiResponse = null
@@ -374,7 +372,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-                after: values.afterParam,
+                after: values.pollAfter,
             }
 
             const urlParams = toParams(params)
