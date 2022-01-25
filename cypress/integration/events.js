@@ -57,7 +57,7 @@ describe('Events', () => {
         cy.get('[data-attr=events-table]').should('exist')
     })
 
-    it('has before and after for a DateTime property', () => {
+    it('Use before and after with a DateTime property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
@@ -69,8 +69,8 @@ describe('Events', () => {
 
         cy.get('.operator-value-option').contains('< before').click()
         cy.get('.taxonomic-value-select').click()
-        cy.get('.ant-picker-cell-in-view').first().click()
-        cy.get('.ant-picker-ok').click()
+        cy.get('.ant-picker-cell-in-view .ant-picker-cell-inner').contains('10').click()
+        cy.get('.ant-picker-ok button').click()
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
 
         cy.get('[data-attr="property-filter-0"] .property-filter').click()
@@ -79,7 +79,7 @@ describe('Events', () => {
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time > ')
     })
 
-    it('has less than and greater than for a numeric property', () => {
+    it('Use less than and greater than with a numeric property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
