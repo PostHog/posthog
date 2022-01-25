@@ -28,7 +28,7 @@ interface PropertyFiltersProps {
      * Pinned filters are not included in property filtering
      * The component setting them is responsible for ensuring the pinned filter is applied
      **/
-    pinnedFilters?: string[]
+    pinnedFilters?: (string | JSX.Element)[]
 }
 
 export function PropertyFilters({
@@ -57,9 +57,9 @@ export function PropertyFilters({
 
     return (
         <div className="property-filters" style={style}>
-            {pinnedFilters?.map((pinnedFilter) => {
+            {pinnedFilters?.map((pinnedFilter, index) => {
                 return (
-                    <FilterButton key={pinnedFilter} onClick={() => {}} greyBadges={true} pinned={true}>
+                    <FilterButton key={index} onClick={() => {}} greyBadges={true} pinned={true}>
                         {pinnedFilter}
                     </FilterButton>
                 )

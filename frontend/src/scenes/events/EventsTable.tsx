@@ -360,7 +360,19 @@ export function EventsTable({
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
-                                pinnedFilters={[`Event received > ${fetchMonths} months ago`]}
+                                pinnedFilters={[
+                                    <Tooltip
+                                        key={'0'}
+                                        title={
+                                            <div>
+                                                To keep performance snappy we limit the amount of data loaded for the
+                                                Events table. This limit isn't applied to other insights
+                                            </div>
+                                        }
+                                    >
+                                        {`Event received > ${fetchMonths} months ago`}
+                                    </Tooltip>,
+                                ]}
                                 greyBadges={true}
                             />
                         </div>
