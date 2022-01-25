@@ -94,12 +94,17 @@ export const FilterRow = React.memo(function FilterRow({
                                     {isValidPropertyFilter(item) ? (
                                         <PropertyFilterButton
                                             onClick={() => setOpen(!open)}
+                                            onClose={() => onRemove(index)}
                                             item={item}
                                             setRef={setRef}
                                             greyBadges={greyBadges}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
-                                        <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
+                                        <FilterButton
+                                            onClick={() => setOpen(!open)}
+                                            onClose={() => onRemove(index)}
+                                            setRef={setRef}
+                                        >
                                             {`${item['alias']}::${item['regex']}`}
                                         </FilterButton>
                                     ) : (
@@ -120,13 +125,6 @@ export const FilterRow = React.memo(function FilterRow({
                             )
                         }}
                     </Popup>
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            className="ml-1"
-                            onClick={() => onRemove(index)}
-                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                        />
-                    )}
                 </>
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
