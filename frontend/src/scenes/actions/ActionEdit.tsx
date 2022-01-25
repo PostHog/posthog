@@ -74,13 +74,23 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         required
                         placeholder="e.g. user account created, purchase completed, movie watched"
                         value={action.name}
-                        style={{ maxWidth: 500, display: 'block' }}
+                        style={{ maxWidth: 500, display: 'block', marginBottom: 8 }}
                         onChange={(e) => {
                             setAction({ ...action, name: e.target.value })
                             setEdited(e.target.value ? true : false)
                         }}
                         data-attr="edit-action-input"
                         id="actionName"
+                    />
+                    <label htmlFor="description">Description</label>
+                    <Input.TextArea
+                        style={{ minHeight: 108, maxWidth: 500, display: 'block', marginBottom: 8 }}
+                        placeholder="Add description"
+                        value={action.description || ''}
+                        onChange={(e) => {
+                            setAction({ ...action, description: e.target.value })
+                            setEdited(e.target.value ? true : false)
+                        }}
                     />
                     {id && (
                         <div>
