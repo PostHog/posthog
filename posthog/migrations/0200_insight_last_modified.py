@@ -18,6 +18,11 @@ class Migration(migrations.Migration):
             name="last_modified_at",
             field=models.DateTimeField(default=django.utils.timezone.now),
         ),
+        migrations.RunSQL(
+            """
+            UPDATE posthog_dashboarditem SET last_modified_at = updated_at;
+        """
+        ),
         migrations.AddField(
             model_name="insight",
             name="last_modified_by",
