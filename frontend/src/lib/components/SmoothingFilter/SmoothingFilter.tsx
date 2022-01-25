@@ -32,7 +32,7 @@ export function SmoothingFilter(): JSX.Element | null {
     return options.length ? (
         <Select
             key={interval}
-            bordered={false}
+            bordered
             value={smoothing_intervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
