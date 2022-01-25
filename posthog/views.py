@@ -12,6 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
+from ee.kafka_client.client import KafkaProducer
 from posthog.email import is_email_available
 from posthog.models import Organization, User
 from posthog.utils import (
@@ -25,7 +26,6 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from ee.kafka_client.client import KafkaProducer
 from posthog.version import VERSION
 
 ROBOTS_TXT_CONTENT = (

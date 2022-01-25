@@ -1,6 +1,7 @@
-from django.http import HttpResponse
-import pytest
 from unittest.mock import patch
+
+import pytest
+from django.http import HttpResponse
 
 from ee.kafka_client.client import TestKafkaProducer
 
