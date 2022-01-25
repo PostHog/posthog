@@ -64,8 +64,8 @@ def health(request):
     Returns a dict of checks to boolean status, returning 503 status if any of
     them is non-True
     """
-    migrations_uptodate = health_migrations(request)
-    kafka_connected = health_kafka(request)
+    migrations_uptodate = health_migrations()
+    kafka_connected = health_kafka()
 
     if migrations_uptodate == False:
         # NOTE: before adding kafka to this health check, we were just checking
@@ -79,7 +79,7 @@ def health(request):
     return JsonResponse({"migrations_uptodate": migrations_uptodate, "kafka_connected": kafka_connected}, status=status)
 
 
-def health_kafka(request) -> bool:
+def health_kafka() -> bool:
     """
     Check that we can reach Kafka,
 
@@ -91,7 +91,7 @@ def health_kafka(request) -> bool:
     return KafkaProducer().bootstrap_connected()
 
 
-def health_migrations(request) -> bool:
+def health_migrations() -> bool:
     """
     Check that all migrations that the running version of the code knows about
     have been applied.
