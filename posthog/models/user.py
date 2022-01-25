@@ -134,24 +134,31 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def teams(self):
         """
-        All teams the user has access to, taking into account project based permissioning
+        All teams the user has access to on any organization, taking into account project based permissioning
         """
-        if (
-            AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
-            or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
-        ):
-            # If project access control is NOT applicable, simply prefer open projects just in case
-            return self.organization.teams.order_by("access_control", "id")
-        else:
-            # If project access control IS applicable, make sure the user is assigned a project they have access to
+        teams = Team.objects.filter(organization__members=self)
+        if Organization.objects.filter(
+            members=self, available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING]
+        ).exists():
             from ee.models import ExplicitTeamMembership
 
             available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                parent_membership__user=self
+                Q(parent_membership__user=self)
             ).values_list("team_id", flat=True)
-            return self.organization.teams.filter(
-                Q(access_control=False) | Q(pk__in=available_private_project_ids)
-            ).order_by("access_control", "id")
+            organizations_where_user_is_admin = OrganizationMembership.objects.filter(
+                user=self, level__gte=OrganizationMembership.Level.ADMIN
+            ).values_list("organization_id", flat=True)
+            # If project access control IS applicable, make sure
+            # - project doesn't have access control OR
+            # - the user has explicit access OR
+            # - the user is Admin or owner
+            teams = teams.filter(
+                Q(access_control=False)
+                | Q(pk__in=available_private_project_ids)
+                | Q(organization__pk__in=organizations_where_user_is_admin)
+            )
+
+        return teams.order_by("access_control", "id")
 
     @property
     def organization(self) -> Optional[Organization]:
