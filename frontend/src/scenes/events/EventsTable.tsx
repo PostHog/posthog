@@ -361,6 +361,7 @@ export function EventsTable({
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
                                 pinnedFilters={[`Event received > ${fetchMonths} months ago`]}
+                                greyBadges={true}
                             />
                         </div>
 
