@@ -28,6 +28,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             data={
                 "name": "user signed up",
                 "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "description": "Test description",
             },
             HTTP_ORIGIN="http://testserver",
         )
@@ -36,6 +37,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("last_calculated_at", response.json())
         action = Action.objects.get()
         self.assertEqual(action.name, "user signed up")
+        self.assertEqual(action.description, "Test description")
         self.assertEqual(action.team, self.team)
         self.assertEqual(action.steps.get().selector, "div > button")
         self.assertEqual(response.json()["steps"][0]["text"], "sign up")
@@ -117,6 +119,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
                     },
                     {"href": "/a-new-link"},
                 ],
+                "description": "updated description",
                 "created_by": {
                     "id": 1,
                     "distinct_id": "BLKJzxHq4z2d8P1icfpg5wo4eIHaSrMtnotkwdtD8Ok",
@@ -131,6 +134,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["created_by"], None)
         self.assertEqual(response.json()["steps"][0]["id"], str(action_id))
         self.assertEqual(response.json()["steps"][1]["href"], "/a-new-link")
+        self.assertEqual(response.json()["description"], "updated description")
 
         action.refresh_from_db()
         action.calculate_events()
