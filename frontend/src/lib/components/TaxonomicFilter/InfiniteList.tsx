@@ -403,9 +403,9 @@ export function InfiniteList(): JSX.Element {
                 ? ReactDOM.createPortal(
                       <Provider store={getContext().store}>
                           <div
-                              className="popper-tooltip click-outside-block Popup"
+                              className="popper-tooltip click-outside-block Popup Popup__box"
                               ref={setPopperElement}
-                              style={styles.popper}
+                              style={{ ...styles.popper, transition: 'none' }}
                               {...attributes.popper}
                           >
                               {selectedItem && group

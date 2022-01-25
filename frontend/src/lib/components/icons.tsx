@@ -885,6 +885,39 @@ export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Ele
     )
 }
 
+/** Material Design Refresh icon. */
+export function IconRefresh(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m17.65 6.35c-1.45-1.45-3.44-2.35-5.65-2.35-4.41999 0-7.98999 3.58-7.98999 8s3.57 8 7.98999 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.30999 0-5.99999-2.69-5.99999-6s2.69-6 5.99999-6c1.66 0 3.14.69 4.22 1.78l-3.22 3.22h7v-7z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconPlay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="m10 8.64 5.27 3.36-5.27 3.36zm-2-3.64v14l11-7z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconReplay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m12 5v-4l-5 5 5 5v-4c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+                fill="currentColor"
+            />{' '}
+        </svg>
+    )
+}
+
 /** Material Design Keyboard icon. */
 export function IconKeyboard(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (

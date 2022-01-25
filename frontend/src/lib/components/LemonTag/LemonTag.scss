@@ -10,6 +10,7 @@
     display: inline;
     color: $text_default;
     line-height: 1rem;
+    white-space: nowrap;
 
     &.warning {
         background-color: $warning;

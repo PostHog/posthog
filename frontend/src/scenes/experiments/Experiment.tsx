@@ -234,9 +234,9 @@ export function Experiment(): JSX.Element {
                                                         (variant: MultivariateFlagVariant, idx: number) => (
                                                             <Form
                                                                 key={`${variant}-${idx}`}
-                                                                initialValues={
-                                                                    newExperimentData.parameters?.feature_flag_variants
-                                                                }
+                                                                initialValues={{
+                                                                    key: variant.key,
+                                                                }}
                                                                 onValuesChange={(changedValues) => {
                                                                     updateExperimentGroup(changedValues, idx)
                                                                 }}
@@ -259,7 +259,6 @@ export function Experiment(): JSX.Element {
                                                                     >
                                                                         <Input
                                                                             disabled={idx === 0}
-                                                                            defaultValue={variant.key}
                                                                             data-attr="feature-flag-variant-key"
                                                                             data-key-index={idx.toString()}
                                                                             className="ph-ignore-input"
@@ -852,10 +851,6 @@ export function ExperimentPreview({
                                 </>
                             )}
                             <Col span={12}>
-                                <div className="card-secondary">Baseline Count</div>
-                                <div className="l4">{trendCount}</div>
-                            </Col>
-                            <Col span={12}>
                                 <div className="card-secondary">Recommended running time</div>
                                 <div>
                                     <span className="l4">~{exposure}</span> days
@@ -865,19 +860,27 @@ export function ExperimentPreview({
                     ) : (
                         <>
                             {!experiment?.start_date && (
-                                <Col span={8}>
-                                    <div className="card-secondary">Baseline Conversion Rate</div>
-                                    <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                </Col>
+                                <>
+                                    <Col span={12}>
+                                        <div className="card-secondary">Baseline Conversion Rate</div>
+                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                    </Col>
+                                    <Col span={12}>
+                                        <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
+                                        <div className="l4">
+                                            {(conversionRate + minimumDetectableChange).toFixed(1)}%
+                                        </div>
+                                    </Col>
+                                </>
                             )}
-                            <Col span={8}>
+                            <Col span={12}>
                                 <div className="card-secondary">Recommended Sample Size</div>
                                 <div className="pb">
                                     <span className="l4">~{sampleSize}</span> persons
                                 </div>
                             </Col>
                             {!experiment?.start_date && (
-                                <Col span={8}>
+                                <Col span={12}>
                                     <div className="card-secondary">Recommended running time</div>
                                     <div>
                                         <span className="l4">~{runningTime}</span> days

@@ -201,6 +201,8 @@
 }
 
 .react-grid-item.react-grid-placeholder {
+    transition: 200ms ease;
+    max-width: 100%;
     position: relative;
     border: 1px solid var(--primary);
     outline: 1px solid var(--primary);
