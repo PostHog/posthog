@@ -624,6 +624,9 @@ def test_events(db, team) -> List[UUID]:
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
+        _create_event(
+            event="has set timestamp not `now`", team=team, distinct_id="whatever", timestamp=datetime(2000, 4, 1)
+        ),
     ]
 
 
@@ -810,8 +813,16 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
 
 
 TEST_RESERVED_WORDS = [
-    pytest.param(Property(key="event", value="some_custom_event"), [17, 18]),
-    pytest.param(Property(key="timestamp", value="2021-04-01 18:00:00", operator="is_date_after"), [0]),
+    pytest.param(
+        Property(key="timestamp", value="2000-04-02 18:00:00", operator="is_date_after"),
+        range(0, 22),
+        id="most events have time of execution set as timestamp, they are all matched by this filter",
+    ),
+    pytest.param(
+        Property(key="timestamp", value="2000-04-02 18:00:00", operator="is_date_before"),
+        [22],
+        id="most events have time of execution set as timestamp, they are all not matched by this filter",
+    ),
 ]
 
 
