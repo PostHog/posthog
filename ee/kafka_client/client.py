@@ -26,6 +26,13 @@ class TestKafkaProducer:
     def flush(self):
         return
 
+    def bootstrap_connected(self):
+        """
+        In tests, we always return True. If you want to return False, or raise,
+        to test failure cases, mock this method
+        """
+        return True
+
 
 class TestKafkaConsumer:
     def __init__(self, topic="test", max=0, **kwargs):
@@ -71,6 +78,14 @@ class _KafkaProducer:
         if key is not None:
             key = key.encode("utf-8")
         self.producer.send(topic, value=b)
+
+    def bootstrap_connected(self):
+        """
+        Proxy through to the underlying `KafkaProducer.bootstrap_connected`.
+        Used for e.g. health check to validate that we are able to connect to
+        Kafka brokers.
+        """
+        return self.producer.bootstrap_connected()
 
     def close(self):
         self.producer.flush()

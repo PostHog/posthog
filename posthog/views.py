@@ -25,6 +25,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+from ee.kafka_client.client import KafkaProducer
 from posthog.version import VERSION
 
 ROBOTS_TXT_CONTENT = (
@@ -58,15 +59,48 @@ def login_required(view):
 
 
 def health(request):
-    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    status = 503 if plan else 200
-    if status == 503:
+    """
+    Validate that everything this process need to operate correctly is in place.
+    Returns a dict of checks to boolean status, returning 503 status if any of
+    them is non-True
+    """
+    migrations_uptodate = health_migrations(request)
+    kafka_connected = health_kafka(request)
+
+    if migrations_uptodate == False:
+        # NOTE: before adding kafka to this health check, we were just checking
+        # migrations, sending the below sentry error, and returning 503. I've
+        # left this sentry error here but it can probably be removed, and issues
+        # with migration alerting managed elsewhere.
         err = Exception("Migrations are not up to date. If this continues migrations have failed")
         sentry_sdk.capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
-    if status == 200:
-        return HttpResponse("ok", status=status, content_type="text/plain")
+
+    status = 200 if migrations_uptodate and kafka_connected else 500
+    return JsonResponse({"migrations_uptodate": migrations_uptodate, "kafka_connected": kafka_connected}, status=status)
+
+
+def health_kafka(request) -> bool:
+    """
+    Check that we can reach Kafka,
+
+    Returns `True` if connected, `False` otherwise.
+
+    NOTE: we are only checking the Producer here, as currently this process
+    does not Consume from Kafka.
+    """
+    return KafkaProducer().bootstrap_connected()
+
+
+def health_migrations(request) -> bool:
+    """
+    Check that all migrations that the running version of the code knows about
+    have been applied.
+
+    Returns `True` if so, `False` otherwise
+    """
+    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    return False if plan else True
 
 
 def stats(request):
