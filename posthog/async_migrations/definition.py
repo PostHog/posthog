@@ -40,9 +40,6 @@ class AsyncMigrationOperation:
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
 
-        # If the operation specifies raw SQL, add this as a property for easier debugging
-        self.sql = sql
-
     @classmethod
     def simple_op(
         cls,
@@ -56,7 +53,6 @@ class AsyncMigrationOperation:
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             resumable=resumable,
-            sql=sql,
         )
 
     @classmethod
