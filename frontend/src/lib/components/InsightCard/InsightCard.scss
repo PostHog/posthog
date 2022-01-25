@@ -7,6 +7,7 @@
     flex-direction: column;
     align-items: stretch;
     height: 30rem;
+    min-width: 0;
     max-width: 100%;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -111,7 +112,7 @@
     overflow: auto;
 }
 
-.InsightMeta__modification {
+.LastModified {
     display: flex;
     align-items: center;
     margin-top: 0.125rem;

@@ -16,10 +16,9 @@ import { More } from '../LemonButton/More'
 import { LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
 import { ObjectTags } from '../ObjectTags'
-import { ProfilePicture } from '../ProfilePicture'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
+import { LastModified } from './LastModified'
 import './InsightCard.scss'
-import { TZLabel } from '../TimezoneAware'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
@@ -165,17 +164,7 @@ function InsightMeta({
                 </Link>
                 <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                 {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
-                <div className="InsightMeta__modification">
-                    <div>
-                        Last modified <TZLabel time={insight.last_modified_at} /> by
-                    </div>
-                    <ProfilePicture
-                        name={insight.last_modified_by?.first_name}
-                        email={insight.last_modified_by?.email}
-                        showName
-                        size="md"
-                    />
-                </div>
+                <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
             </div>
         </div>
     )
