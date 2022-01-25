@@ -47,9 +47,7 @@ class Insight(models.Model):
     is_sample: models.BooleanField = models.BooleanField(default=False)
     # Unique ID per team for easy sharing and short links
     short_id: models.CharField = models.CharField(
-        max_length=12,
-        blank=True,
-        default=generate_short_id,
+        max_length=12, blank=True, default=generate_short_id,
     )
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)

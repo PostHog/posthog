@@ -50,17 +50,12 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                saved=True,
-                team=self.team,
-                created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
             )
 
             # create without saved
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=self.team,
-                created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
             )
 
             # create without user
@@ -81,17 +76,12 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                favorited=True,
-                team=self.team,
-                created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(), favorited=True, team=self.team, created_by=self.user,
             )
 
             # create without favorited
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=self.team,
-                created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
             )
 
             # create without user
@@ -109,17 +99,13 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=self.team,
-                short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
             )
 
             # Red herring: Should be ignored because it's not on the current team (even though the user has access)
             new_team = Team.objects.create(organization=self.organization)
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=new_team,
-                short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
             )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=12345678")
@@ -241,14 +227,10 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=self.team,
-                short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
             )
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
-                team=self.team,
-                saved=True,
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
             )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
@@ -315,11 +297,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(objects[0].short_id), 8)
 
         def test_update_insight(self):
-            insight = Insight.objects.create(
-                team=self.team,
-                name="special insight",
-                created_by=self.user,
-            )
+            insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight.id}",
                 {
@@ -535,19 +513,13 @@ def insight_test_factory(event_factory, person_factory):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):
                     event_factory(
-                        team=self.team,
-                        event="$pageview",
-                        distinct_id="1",
-                        properties={"$some_property": f"value{i}"},
+                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
                     )
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/insights/trend/",
-                    data={
-                        "events": json.dumps([{"id": "$pageview"}]),
-                        "compare": "true",
-                    },
+                    data={"events": json.dumps([{"id": "$pageview"}]), "compare": "true",},
                 )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -560,10 +532,7 @@ def insight_test_factory(event_factory, person_factory):
                 for i in range(25):
 
                     event_factory(
-                        team=self.team,
-                        event="$pageview",
-                        distinct_id="1",
-                        properties={"$some_property": f"value{i}"},
+                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
                     )
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -609,15 +578,10 @@ def insight_test_factory(event_factory, person_factory):
 
             get_response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/path",
-                data={
-                    "properties": json.dumps([{"key": "test", "value": "val"}]),
-                },
+                data={"properties": json.dumps([{"key": "test", "value": "val"}]),},
             ).json()
             post_response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/path",
-                {
-                    "properties": [{"key": "test", "value": "val"}],
-                },
+                f"/api/projects/{self.team.id}/insights/path", {"properties": [{"key": "test", "value": "val"}],},
             ).json()
             self.assertEqual(len(get_response["result"]), 1)
             self.assertEqual(len(post_response["result"]), 1)
@@ -660,21 +624,13 @@ def insight_test_factory(event_factory, person_factory):
         def test_insight_retention_basic(self):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
             event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=11),
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=11),
             )
 
             event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=10),
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=10),
             )
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/retention/",
-            ).json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/",).json()
 
             self.assertEqual(len(response["result"]), 11)
 
@@ -690,17 +646,11 @@ def insight_test_factory(event_factory, person_factory):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
 
             event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=6),
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=6),
             )
 
             event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="person1",
-                timestamp=timezone.now() - timedelta(days=5),
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=5),
             )
 
             events_filter = json.dumps([{"id": "$pageview"}])
