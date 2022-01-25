@@ -2,8 +2,7 @@
 set -e
 
 # Seed a secret
-POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
-export POSTHOG_SECRET
+export POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
 
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
@@ -41,7 +40,7 @@ sudo apt update
 echo "Installing PostHog 🦔 from Github"
 sudo apt install -y git
 rm -rf posthog
-git clone https://github.com/PostHog/posthog.git 
+git clone https://github.com/PostHog/posthog.git
 
 # rewrite caddyfile
 rm -f Caddyfile
@@ -88,9 +87,11 @@ curl -L --header "Content-Type: application/json" -d '{
     "event": "magic_curl_install"
 }' https://app.posthog.com/batch/
 
-# start up the stack 
+# start up the stack
 rm -f docker-compose.hobby.yml
-curl -o docker-compose.hobby.yml https://raw.githubusercontent.com/posthog/posthog/HEAD/docker-compose.hobby.yml
+curl -o docker-compose.hobby.yml.tmpl https://raw.githubusercontent.com/posthog/posthog/HEAD/docker-compose.hobby.yml
+envsubst "$POSTHOG_SECRET $DOMAIN $SENTRY_DSN" < docker-compose.hobby.yml.tmpl > docker-compose.hobby.yml
+rm docker-compose.hobby.yml.tmpl
 sudo -E docker-compose -f docker-compose.hobby.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
