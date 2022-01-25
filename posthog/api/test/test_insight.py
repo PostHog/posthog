@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.case import skip
 from unittest.mock import patch
 
@@ -50,12 +50,17 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
             )
 
             # create without saved
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                created_by=self.user,
             )
 
             # create without user
@@ -76,12 +81,17 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), favorited=True, team=self.team, created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(),
+                favorited=True,
+                team=self.team,
+                created_by=self.user,
             )
 
             # create without favorited
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                created_by=self.user,
             )
 
             # create without user
@@ -99,13 +109,17 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                short_id="12345678",
             )
 
             # Red herring: Should be ignored because it's not on the current team (even though the user has access)
             new_team = Team.objects.create(organization=self.organization)
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(),
+                team=new_team,
+                short_id="12345678",
             )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=12345678")
@@ -114,6 +128,108 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
             self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+
+        def test_created_updated_and_last_modified(self):
+            alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
+            self_user_basic_serialized = {
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "first_name": self.user.first_name,
+                "email": self.user.email,
+            }
+            alt_user_basic_serialized = {
+                "id": alt_user.id,
+                "uuid": str(alt_user.uuid),
+                "distinct_id": alt_user.distinct_id,
+                "first_name": alt_user.first_name,
+                "email": alt_user.email,
+            }
+
+            # Newly created insight should have created_at being the current time, and same last_modified_at
+            # Fields created_by and last_modified_by should be set to the current user
+            with freeze_time("2021-08-23T12:00:00Z"):
+                response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
+                self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-08-23T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_1.json(),
+                )
+
+            insight_id = response_1.json()["id"]
+
+            # Updating fields that don't change the substance of the insight should affect updated_at
+            # BUT NOT last_modified_at or last_modified_by
+            with freeze_time("2021-09-20T12:00:00Z"):
+                response_2 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"color": "blue", "favorited": True}
+                )
+                self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-09-20T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_2.json(),
+                )
+
+            # Updating fields that DO change the substance of the insight should affect updated_at
+            # AND last_modified_at plus last_modified_by
+            with freeze_time("2021-10-21T12:00:00Z"):
+                response_3 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters": {"events": []}}
+                )
+                self.assertEqual(response_3.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-10-21T12:00:00Z",
+                        "last_modified_at": "2021-10-21T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_3.json(),
+                )
+            with freeze_time("2021-12-23T12:00:00Z"):
+                response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
+                self.assertEqual(response_4.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-12-23T12:00:00Z",
+                        "last_modified_at": "2021-12-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_4.json(),
+                )
+
+            # Field last_modified_by is updated when another user makes a material change
+            self.client.force_login(alt_user)
+            with freeze_time("2022-01-01T12:00:00Z"):
+                response_5 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"description": "Lorem ipsum."}
+                )
+                self.assertEqual(response_5.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2022-01-01T12:00:00Z",
+                        "last_modified_at": "2022-01-01T12:00:00Z",
+                        "last_modified_by": alt_user_basic_serialized,
+                    },
+                    response_5.json(),
+                )
 
         def test_basic_results(self):
             """
@@ -125,10 +241,14 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                short_id="12345678",
             )
             Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
+                filters=Filter(data=filter_dict).to_dict(),
+                team=self.team,
+                saved=True,
             )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
@@ -195,7 +315,11 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(objects[0].short_id), 8)
 
         def test_update_insight(self):
-            insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
+            insight = Insight.objects.create(
+                team=self.team,
+                name="special insight",
+                created_by=self.user,
+            )
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight.id}",
                 {
@@ -411,13 +535,19 @@ def insight_test_factory(event_factory, person_factory):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):
                     event_factory(
-                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
+                        team=self.team,
+                        event="$pageview",
+                        distinct_id="1",
+                        properties={"$some_property": f"value{i}"},
                     )
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/insights/trend/",
-                    data={"events": json.dumps([{"id": "$pageview"}]), "compare": "true",},
+                    data={
+                        "events": json.dumps([{"id": "$pageview"}]),
+                        "compare": "true",
+                    },
                 )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -430,7 +560,10 @@ def insight_test_factory(event_factory, person_factory):
                 for i in range(25):
 
                     event_factory(
-                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
+                        team=self.team,
+                        event="$pageview",
+                        distinct_id="1",
+                        properties={"$some_property": f"value{i}"},
                     )
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -476,10 +609,15 @@ def insight_test_factory(event_factory, person_factory):
 
             get_response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/path",
-                data={"properties": json.dumps([{"key": "test", "value": "val"}]),},
+                data={
+                    "properties": json.dumps([{"key": "test", "value": "val"}]),
+                },
             ).json()
             post_response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/path", {"properties": [{"key": "test", "value": "val"}],}
+                f"/api/projects/{self.team.id}/insights/path",
+                {
+                    "properties": [{"key": "test", "value": "val"}],
+                },
             ).json()
             self.assertEqual(len(get_response["result"]), 1)
             self.assertEqual(len(post_response["result"]), 1)
@@ -522,13 +660,21 @@ def insight_test_factory(event_factory, person_factory):
         def test_insight_retention_basic(self):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
             event_factory(
-                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=11),
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp=timezone.now() - timedelta(days=11),
             )
 
             event_factory(
-                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=10),
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp=timezone.now() - timedelta(days=10),
             )
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/",).json()
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/retention/",
+            ).json()
 
             self.assertEqual(len(response["result"]), 11)
 
@@ -544,11 +690,17 @@ def insight_test_factory(event_factory, person_factory):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
 
             event_factory(
-                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=6),
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp=timezone.now() - timedelta(days=6),
             )
 
             event_factory(
-                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=5),
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp=timezone.now() - timedelta(days=5),
             )
 
             events_filter = json.dumps([{"id": "$pageview"}])

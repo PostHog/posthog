@@ -69,7 +69,7 @@ class Insight(models.Model):
     funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
-    MATERIAL_INSIGHT_FIELDS = {"name", "description", "tags", "filters"}
+    MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
 
     class Meta:
         db_table = "posthog_dashboarditem"
