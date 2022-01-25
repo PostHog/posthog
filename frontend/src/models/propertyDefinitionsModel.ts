@@ -119,6 +119,7 @@ export const propertyDefinitionsModel = kea<
             (s) => [s.propertyDefinitions],
             (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
                 (propertyName: string) => {
+                    // if the model hasn't already cached this definition, will fall back to original display type
                     const match = propertyDefinitions.find((pd) => pd.name === propertyName)
                     return match?.property_type ?? null
                 },
