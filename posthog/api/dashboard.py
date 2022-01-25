@@ -1,6 +1,6 @@
 import json
 import secrets
-from typing import Any, Dict, Sequence, Type, Union
+from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.http import Http404, HttpRequest
@@ -21,6 +21,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import ObjectExistsInOtherProject
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -191,10 +192,12 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         try:
             dashboard = get_object_or_404(queryset, pk=pk)
         except Http404 as e:
-            alternative_team = Dashboard.objects.filter(deleted=False, team__in=request.user.teams)
+            user = cast(User, request.user)
+            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams)
             if alternative_team.exists():
                 raise ObjectExistsInOtherProject(
-                    alternative_team_id=alternative_team.first().team_id, feature="Dashboard"
+                    alternative_team_id=alternative_team.first().team_id,  # type: ignore
+                    feature="Dashboard",
                 )
             raise e
 
