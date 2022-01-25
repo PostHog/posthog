@@ -81,7 +81,7 @@ describe('Events', () => {
         cy.get('[data-attr=events-table]').should('exist')
     })
 
-    it('has less than and greater than for a numeric property', () => {
+    it('use less than and greater than with a numeric property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
@@ -96,7 +96,7 @@ describe('Events', () => {
         cy.get('.property-filters .pinned-filter').should('have.text', 'Event received > 12 months ago')
     })
 
-    it('has before and after for a DateTime property', () => {
+    it('use before and after with a DateTime property', () => {
         cy.wait('@featureFlagsLoaded').then(() => {
             selectNewTimestampPropertyFilter()
 

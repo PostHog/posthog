@@ -268,9 +268,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({

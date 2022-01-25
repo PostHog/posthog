@@ -6,6 +6,7 @@ import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Modifier, Placement } from '@popperjs/core'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { CSSTransition } from 'react-transition-group'
 
 export interface PopupProps {
     visible?: boolean
@@ -106,20 +107,22 @@ export function Popup({
     return (
         <>
             {clonedChildren}
-            {visible
-                ? ReactDOM.createPortal(
-                      <div
-                          className={clsx('Popup', actionable && 'Popup--actionable', className)}
-                          ref={setPopperElement}
-                          style={styles.popper}
-                          onClick={onClickInside}
-                          {...attributes.popper}
-                      >
-                          <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
-                      </div>,
-                      document.querySelector('body') as HTMLElement
-                  )
-                : null}
+            {ReactDOM.createPortal(
+                <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
+                    <div
+                        className={clsx('Popup', actionable && 'Popup--actionable', className)}
+                        ref={setPopperElement}
+                        style={styles.popper}
+                        onClick={onClickInside}
+                        {...attributes.popper}
+                    >
+                        <div className="Popup__box">
+                            <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
+                        </div>
+                    </div>
+                </CSSTransition>,
+                document.querySelector('body') as HTMLElement
+            )}
         </>
     )
 }

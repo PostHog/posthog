@@ -1,10 +1,9 @@
-@import '~/vars';
-
 .LemonButton {
     color: var(--primary);
     font-weight: 600;
     cursor: pointer;
-    &:not(:disabled):hover {
+    &:not(:disabled):hover,
+    &.LemonButton--active {
         background: var(--primary-bg-hover);
     }
     &:not(:disabled):active {
@@ -22,6 +21,7 @@
 .LemonButton--secondary {
     border: 1px solid var(--border);
     &:not(:disabled):hover,
+    &.LemonButton--active,
     &:not(:disabled):active {
         background: inherit;
         border-color: currentColor;
@@ -35,10 +35,11 @@
 }
 
 .LemonButton--primary {
-    background: $primary;
+    background: var(--primary);
     color: #fff;
-    &:not(:disabled):hover {
-        background: $primary_hover;
+    &:not(:disabled):hover,
+    &.LemonButton--active {
+        background: var(--primary-hover);
     }
     &:not(:disabled):active {
         background: var(--primary-active);
