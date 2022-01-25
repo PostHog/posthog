@@ -19,6 +19,7 @@
     }
     &--editing .EditableField--highlight {
         align-items: flex-end;
+        width: auto;
         max-width: calc(100% + 0.5rem);
         outline: 1px solid var(--border);
         border-radius: var(--radius);

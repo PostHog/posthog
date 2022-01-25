@@ -175,7 +175,7 @@ function InsightViz({ insight, loading }: Pick<InsightCardProps, 'insight' | 'lo
     return (
         <div className="InsightViz">
             {loading && <Loading />}
-            <Alert.ErrorBoundary message="Insight visualization errored">
+            <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
                 <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
             </Alert.ErrorBoundary>
         </div>
