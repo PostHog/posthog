@@ -24,6 +24,7 @@ import { IconPlay, IconReplay } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
+    logic: asyncMigrationsLogic,
 }
 
 const { TabPane } = Tabs
