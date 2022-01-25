@@ -9,11 +9,28 @@ from posthog.async_migrations.utils import (
     rollback_migration,
     trigger_migration,
 )
-from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+    get_all_running_async_migrations,
+)
 from posthog.permissions import IsStaffUser
 
 
+class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AsyncMigrationError
+        fields = ["id", "description", "created_at"]
+        read_only_fields = ["id", "description", "created_at"]
+
+
 class AsyncMigrationSerializer(serializers.ModelSerializer):
+    error_count = serializers.SerializerMethodField()
+
+    def get_error_count(self, async_migration: AsyncMigration):
+        return AsyncMigrationError.objects.filter(async_migration=async_migration).count()
+
     class Meta:
         model = AsyncMigration
         fields = [
@@ -29,6 +46,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "finished_at",
             "posthog_max_version",
             "posthog_min_version",
+            "error_count",
         ]
         read_only_fields = [
             "id",
@@ -43,6 +61,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "finished_at",
             "posthog_max_version",
             "posthog_min_version",
+            "error_count",
         ]
 
 
@@ -136,3 +155,13 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         rollback_migration(migration_instance)
         return response.Response({"success": True}, status=200)
+
+    @action(methods=["GET"], detail=True)
+    def errors(self, request, **kwargs):
+        migration_instance = self.get_object()
+        return response.Response(
+            [
+                AsyncMigrationErrorsSerializer(e).data
+                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
+            ]
+        )
