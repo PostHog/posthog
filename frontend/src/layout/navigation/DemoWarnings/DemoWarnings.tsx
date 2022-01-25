@@ -1,13 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Alert } from 'antd'
-import { StarOutlined, SettingOutlined } from '@ant-design/icons'
+import { Alert, Button } from 'antd'
+import { StarOutlined, SettingOutlined, UserAddOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import './DemoWarnings.scss'
 import { navigationLogic } from '../navigationLogic'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
@@ -29,6 +30,7 @@ export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { demoWarning } = useValues(navigationLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     const WARNINGS: WarningsInterface = {
         welcome: {
@@ -114,15 +116,12 @@ export function DemoWarnings(): JSX.Element | null {
             message: 'Invite your teammates',
             description: <>Invite them now.</>,
             action: (
-                <LinkButton
-                    to="/ingestion"
-                    data-attr="demo-warning-cta"
-                    data-message="real_project_with_no_events-ingestion"
-                >
-                    <SettingOutlined />
-                    Invite
-                </LinkButton>
+                <Button data-attr="invite-warning-cta" type="primary" onClick={showInviteModal}>
+                    <UserAddOutlined />
+                    Invite team members
+                </Button>
             ),
+            type: 'info',
         },
     }
 
