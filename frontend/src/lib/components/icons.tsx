@@ -950,3 +950,58 @@ export function IconHeatmap(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         </svg>
     )
 }
+
+export function UnverifiedEventStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function VerifiedEventStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M2 6H4V20H18V22H4C2.9 22 2 21.1 2 20V6ZM8 2H20C21.1 2 22 2.9 22 4V16C22 17.1 21.1 18 20 18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2ZM8 16H20V4H8V16ZM16.5857 13.9998H11.3584V6.72705H16.5999V8.31796H13.3328V9.56796H16.33V11.1589H13.3328V12.4089H16.5857V13.9998Z"
+                fill="currentColor"
+            />
+            <rect x="16" y="16" width="12" height="12" rx="2" fill="transparent" />
+            <path
+                d="M20.7289 23.0449L19.0628 21.3716L18 22.4417L20.7289 25.1777L26 19.8923L24.9372 18.8223L20.7289 23.0449Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function ActionStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M2 6H4V20H18V22H4C2.9 22 2 21.1 2 20V6ZM8 2H20C21.1 2 22 2.9 22 4V16C22 17.1 21.1 18 20 18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2ZM8 16H20V4H8V16ZM12.6851 12.3414L12.1453 13.9998H10.4976L13.0082 6.72705H14.9897L17.4968 13.9998H15.8491L15.3093 12.3414H12.6851ZM13.9706 8.38898L13.0757 11.1411H14.9223L14.0274 8.38898H13.9706Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function CohortIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="12" viewBox="0 0 24 12" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M4 7C5.1 7 6 6.1 6 5C6 3.9 5.1 3 4 3C2.9 3 2 3.9 2 5C2 6.1 2.9 7 4 7ZM5.13 8.1C4.76 8.04 4.39 8 4 8C3.01 8 2.07 8.21 1.22 8.58C0.48 8.9 0 9.62 0 10.43V12H4.5V10.39C4.5 9.56 4.73 8.78 5.13 8.1ZM20 7C21.1 7 22 6.1 22 5C22 3.9 21.1 3 20 3C18.9 3 18 3.9 18 5C18 6.1 18.9 7 20 7ZM24 10.43C24 9.62 23.52 8.9 22.78 8.58C21.93 8.21 20.99 8 20 8C19.61 8 19.24 8.04 18.87 8.1C19.27 8.78 19.5 9.56 19.5 10.39V12H24V10.43ZM16.24 7.65C15.07 7.13 13.63 6.75 12 6.75C10.37 6.75 8.93 7.14 7.76 7.65C6.68 8.13 6 9.21 6 10.39V12H18V10.39C18 9.21 17.32 8.13 16.24 7.65ZM8.07 10C8.16 9.77 8.2 9.61 8.98 9.31C9.95 8.93 10.97 8.75 12 8.75C13.03 8.75 14.05 8.93 15.02 9.31C15.79 9.61 15.83 9.77 15.93 10H8.07ZM12 2C12.55 2 13 2.45 13 3C13 3.55 12.55 4 12 4C11.45 4 11 3.55 11 3C11 2.45 11.45 2 12 2ZM12 0C10.34 0 9 1.34 9 3C9 4.66 10.34 6 12 6C13.66 6 15 4.66 15 3C15 1.34 13.66 0 12 0Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}

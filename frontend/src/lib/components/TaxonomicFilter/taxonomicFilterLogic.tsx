@@ -1,3 +1,4 @@
+import React from 'react'
 import { kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
@@ -21,6 +22,8 @@ import { capitalizeFirstLetter, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ActionStack, CohortIcon, UnverifiedEventStack, VerifiedEventStack } from 'lib/components/icons'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -108,6 +111,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+                    getPopupHeader: (eventDefinition: EventDefinition): string =>
+                        `${
+                            eventDefinition.verified || !!keyMapping.event[eventDefinition.name]
+                                ? 'Verified'
+                                : 'Unverified'
+                        } Event`,
+                    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
+                        return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
+                            <VerifiedEventStack style={{ fill: 'var(--primary-alt)' }} />
+                        ) : (
+                            <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
+                        )
+                    },
                 },
                 {
                     name: 'Actions',
@@ -117,6 +133,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'actions',
                     getName: (action: ActionType): string => action.name,
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
+                    getPopupHeader: (): string => 'Action',
+                    getIcon: function _getIcon(): JSX.Element {
+                        return <ActionStack style={{ fill: 'var(--primary-alt)' }} />
+                    },
                 },
                 {
                     name: 'Autocapture elements',
@@ -127,6 +147,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     })) as SimpleOption[],
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                    getPopupHeader: (): string => 'Autocapture Element',
                 },
                 {
                     name: 'Event properties',
@@ -138,6 +159,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     ).url,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
+                    getPopupHeader: (): string => 'Property',
                 },
                 {
                     name: 'Person properties',
@@ -147,6 +169,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'personProperties',
                     getName: (personProperty: PersonProperty): string => personProperty.name,
                     getValue: (personProperty: PersonProperty): TaxonomicFilterValue => personProperty.name,
+                    getPopupHeader: (): string => 'Property',
                 },
                 {
                     name: 'Cohorts',
@@ -156,6 +179,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'cohorts',
                     getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
+                    getPopupHeader: (cohort: CohortType): string => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
+                    getIcon: function _getIcon(): JSX.Element {
+                        return <CohortIcon style={{ fill: 'var(--text_muted_alt)' }} />
+                    },
                 },
                 {
                     name: 'Cohorts',
@@ -165,6 +192,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'cohortsWithAllUsers',
                     getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
+                    getPopupHeader: (): string => `All Users`,
+                    getIcon: function _getIcon(): JSX.Element {
+                        return <CohortIcon style={{ fill: 'var(--text_muted_alt)' }} />
+                    },
                 },
                 {
                     name: 'Pageview URLs',
@@ -174,6 +205,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     searchAlias: 'value',
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                    getPopupHeader: (): string => `Pageview URL`,
                 },
                 {
                     name: 'Screens',
@@ -183,6 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     searchAlias: 'value',
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                    getPopupHeader: (): string => `Screen`,
                 },
                 {
                     name: 'Custom Events',
@@ -192,6 +225,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'customEvents',
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+                    getPopupHeader: (eventDefinition: EventDefinition): string =>
+                        `${
+                            eventDefinition.verified || !!keyMapping.event[eventDefinition.name]
+                                ? 'Verified'
+                                : 'Unverified'
+                        } Custom Event`,
+                    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
+                        return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
+                            <VerifiedEventStack style={{ fill: 'var(--primary-alt)' }} />
+                        ) : (
+                            <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
+                        )
+                    },
                 },
                 {
                     name: 'Wildcards',
@@ -200,6 +246,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     // Populated via optionsFromProp
                     getName: (option: SimpleOption): string => option.name,
                     getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
+                    getPopupHeader: (): string => `Wildcard`,
                 },
                 ...groupAnalyticsTaxonomicGroups,
             ],
@@ -229,6 +276,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         })}`,
                     getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
                     getValue: (group) => group.name,
+                    getPopupHeader: (): string => `Property`,
                     groupTypeIndex: type.group_type_index,
                 })),
         ],

@@ -226,6 +226,7 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
+    description?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1331,6 +1332,9 @@ export interface EventDefinition {
     last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export interface PropertyDefinition {

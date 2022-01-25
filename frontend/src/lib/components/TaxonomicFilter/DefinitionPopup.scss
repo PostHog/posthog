@@ -1,0 +1,85 @@
+.definition-popup {
+    width: 316px;
+    padding: 0.5rem;
+
+    .definition-popup-header {
+        display: flex;
+        flex-direction: column;
+
+        .definition-popup-header-row {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            margin-bottom: 4px;
+
+            .definition-popup-header-row-title {
+                font-size: 11px;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+        }
+
+        .definition-popup-title {
+            display: flex;
+            align-items: center;
+            font-weight: 600;
+            font-size: 20px;
+            line-height: 24px;
+            margin-bottom: 4px;
+
+            svg {
+                margin-right: 8px;
+            }
+
+            // Override property key inside popup
+            .property-key-info {
+                display: flex;
+                white-space: unset;
+                align-items: center;
+                font-size: 20px;
+                line-height: 24px;
+
+                .property-key-info-logo {
+                    width: 26px;
+                    height: 24px;
+                    margin-right: 8px;
+                }
+            }
+        }
+    }
+
+    .definition-popup-description {
+        font-weight: 400;
+        margin-bottom: 4px;
+
+        &.empty {
+            font-style: italic;
+            color: var(--text-muted);
+        }
+    }
+
+    .definition-popup-examples {
+        margin-bottom: 4px;
+        font-style: italic;
+    }
+
+    &.edit {
+    }
+
+    &.view {
+        .definition-popup-divider {
+            height: 1px;
+        }
+
+        .definition-popup-grid-section {
+            .section-title {
+                text-transform: capitalize;
+                color: var(--text-muted);
+            }
+
+            .definition-popup-section-content {
+            }
+        }
+    }
+}
