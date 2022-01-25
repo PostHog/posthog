@@ -248,6 +248,11 @@ describe('eventsTableLogic', () => {
                 })
             })
 
+            /**
+             * It is relatively high coupling between implementation and test to assert directly on the API
+             * But, the interaction between the state of the logic and the choices of API parameters that these mock
+             * expectations should protect against accidental regression
+             */
             describe('API calls are limited to a time window by the after param to improve ClickHouse performance', () => {
                 it('fetch events sets after to one year ago when there are no events', async () => {
                     await expectLogic(logic, () => {
