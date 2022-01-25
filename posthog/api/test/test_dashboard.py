@@ -490,3 +490,22 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
         self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
+
+    def test_retrieve_dashboard_different_project_with_access(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
+        )
+        team2 = Team.objects.create(organization=self.organization)
+
+        response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "object_exists_in_other_project",
+                "type": "validation_error",
+                "extra": {"project_id": self.team.pk},
+                "detail": "Dashboard exists in a different project.",
+            },
+        )

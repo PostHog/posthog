@@ -159,9 +159,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             # Return early for non-actions (e.g. OPTIONS)
             if self.action == "create":
                 organization = getattr(self.request.user, "organization", None)
-                if not organization:
-                    raise exceptions.ValidationError("You need to belong to an organization.")
-                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+                # if not organization:
+                #     raise exceptions.ValidationError("You need to belong to an organization.")
+                # # To be used later by OrganizationAdminWritePermissions and TeamSerializer
                 self.organization = organization
                 base_permissions.append(OrganizationAdminWritePermissions())
             elif self.action != "list":
