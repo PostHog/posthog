@@ -20,6 +20,7 @@
 
 .LemonButton--secondary {
     border: 1px solid var(--border);
+    background: #fff;
     &:not(:disabled):hover,
     &.LemonButton--active,
     &:not(:disabled):active {
