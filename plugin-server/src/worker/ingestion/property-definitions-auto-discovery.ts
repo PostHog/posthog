@@ -1,9 +1,4 @@
-import {
-    DateTimePropertyTypeFormat,
-    PropertyType,
-    PropertyTypeFormat,
-    UnixTimestampPropertyTypeFormat,
-} from '../../types'
+import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeFormat } from '../../types'
 
 export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
     UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
@@ -22,12 +17,8 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
-export function detectPropertyDefinitionTypes(
-    value: unknown,
-    key: string
-): { propertyType: PropertyType | null; propertyTypeFormat: PropertyTypeFormat | null } {
+export function detectPropertyDefinitionTypes(value: unknown, key: string): PropertyType | null {
     let propertyType: PropertyType | null = null
-    let propertyTypeFormat: PropertyTypeFormat | null = null
 
     /**
      * Auto detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
@@ -64,14 +55,12 @@ export function detectPropertyDefinitionTypes(
      * 1641478347
      */
     const detectUnixTimestamps = () => {
-        Object.entries(unixTimestampPropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
+        Object.values(unixTimestampPropertyTypeFormatPatterns).find((pattern) => {
             if (
                 (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
                 String(value).match(pattern)
             ) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    UnixTimestampPropertyTypeFormat[dateTimeFormat as keyof typeof UnixTimestampPropertyTypeFormat]
                 return true
             }
         })
@@ -86,11 +75,9 @@ export function detectPropertyDefinitionTypes(
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
-        Object.entries(dateTimePropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
+        Object.values(dateTimePropertyTypeFormatPatterns).find((pattern) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    DateTimePropertyTypeFormat[dateTimeFormat as keyof typeof DateTimePropertyTypeFormat]
                 return true
             }
         })
@@ -98,5 +85,5 @@ export function detectPropertyDefinitionTypes(
         detectUnixTimestamps()
     }
 
-    return { propertyType, propertyTypeFormat }
+    return propertyType
 }

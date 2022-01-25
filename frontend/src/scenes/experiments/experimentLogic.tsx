@@ -40,10 +40,10 @@ export const experimentLogic = kea<experimentLogicType>({
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
         actions: [
             experimentsLogic,
-            ['updateExperiment', 'addToExperiments'],
+            ['updateExperiments', 'addToExperiments'],
             eventUsageLogic,
             [
-                'reportNewExperimentButtonClicked',
+                'reportExperimentArchived',
                 'reportExperimentLaunched',
                 'reportExperimentCompleted',
                 'reportExperimentViewed',
@@ -71,6 +71,7 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -137,7 +138,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
                     const newRolloutPercentages = percentageDistribution(
-                        state?.parameters?.feature_flag_variants.length - 1
+                        (state?.parameters?.feature_flag_variants || []).length - 1
                     )
                     const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
@@ -200,7 +201,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
-                        actions.updateExperiment(response)
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -306,28 +307,18 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         launchExperiment: async () => {
             const startDate = dayjs()
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: startDate,
-                }
-            )
+            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
             actions.reportExperimentLaunched(values.experimentData, startDate)
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: endDate,
-                }
-            )
+            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
             const duration = endDate.diff(values.experimentData?.start_date, 'second')
             actions.reportExperimentCompleted(values.experimentData, endDate, duration)
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ archived: true })
+            actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {
@@ -337,7 +328,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -349,6 +340,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         return response as Experiment
                     }
                     return null
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    return response
                 },
             },
         ],
@@ -519,7 +518,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
-                    actions.reportNewExperimentButtonClicked()
                 }
 
                 actions.setEditExperiment(false)

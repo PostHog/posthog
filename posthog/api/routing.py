@@ -1,11 +1,13 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -34,6 +36,14 @@ class StructuredViewSetMixin(_GenericViewSet):
     filter_rewrite_rules: Dict[str, str] = {}
 
     _parents_query_dict: Optional[Dict[str, Any]]
+
+    include_in_docs = True
+
+    authentication_classes = [
+        PersonalAPIKeyAuthentication,
+        authentication.SessionAuthentication,
+        authentication.BasicAuthentication,
+    ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
