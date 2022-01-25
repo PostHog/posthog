@@ -102,10 +102,6 @@ describe('Events', () => {
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
 
-    it('always has a pinned filter for limiting events to within the last 12 months', () => {
-        cy.get('.property-filters .pinned-filter').should('have.text', 'Event received > 12 months ago')
-    })
-
     it('use before and after with a DateTime property', () => {
         cy.wait('@featureFlagsLoaded').then(() => {
             selectNewTimestampPropertyFilter()

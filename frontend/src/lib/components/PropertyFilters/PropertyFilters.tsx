@@ -8,7 +8,6 @@ import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { FilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -24,11 +23,6 @@ interface PropertyFiltersProps {
     showNestedArrow?: boolean
     greyBadges?: boolean
     eventNames?: string[]
-    /**
-     * Pinned filters are not included in property filtering
-     * The component setting them is responsible for ensuring the pinned filter is applied
-     **/
-    pinnedFilters?: (string | JSX.Element)[]
 }
 
 export function PropertyFilters({
@@ -44,7 +38,6 @@ export function PropertyFilters({
     showNestedArrow = false,
     greyBadges = false,
     eventNames = [],
-    pinnedFilters = [],
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -57,13 +50,6 @@ export function PropertyFilters({
 
     return (
         <div className="property-filters" style={style}>
-            {pinnedFilters?.map((pinnedFilter, index) => {
-                return (
-                    <FilterButton key={index} onClick={() => {}} greyBadges={true} pinned={true}>
-                        {pinnedFilter}
-                    </FilterButton>
-                )
-            })}
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filtersWithNew.map((item, index) => {
                     return (
