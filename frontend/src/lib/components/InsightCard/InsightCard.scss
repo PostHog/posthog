@@ -112,8 +112,12 @@
 }
 
 .InsightMeta__modification {
-    margin-top: 0.25rem;
+    display: flex;
+    align-items: center;
+    margin-top: 0.125rem;
     font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow-x: auto;
 }
 
 .handle {

@@ -166,7 +166,9 @@ function InsightMeta({
                 <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                 {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                 <div className="InsightMeta__modification">
-                    Last modified <TZLabel time={insight.last_modified_at} /> by
+                    <div>
+                        Last modified <TZLabel time={insight.last_modified_at} /> by
+                    </div>
                     <ProfilePicture
                         name={insight.last_modified_by?.first_name}
                         email={insight.last_modified_by?.email}
