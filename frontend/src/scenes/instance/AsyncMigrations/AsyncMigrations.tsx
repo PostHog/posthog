@@ -20,7 +20,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
-import { IconPlay, IconReplay } from 'lib/components/icons'
+import { IconPlay, IconRefresh, IconReplay } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -233,7 +233,7 @@ export function AsyncMigrations(): JSX.Element {
                         <>
                             <div className="mb float-right">
                                 <LemonButton
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconReplay />}
+                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
                                     onClick={loadAsyncMigrations}
                                     type="secondary"
                                     compact

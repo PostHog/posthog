@@ -2,10 +2,10 @@ import React from 'react'
 import { AsyncMigration, AsyncMigrationError, asyncMigrationsLogic } from './asyncMigrationsLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useActions, useValues } from 'kea'
-import { Button } from 'antd'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { RedoOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconRefresh } from 'lib/components/icons'
 
 export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: AsyncMigration }): JSX.Element {
     const { asyncMigrationErrorsLoading, asyncMigrationErrors } = useValues(asyncMigrationsLogic)
@@ -13,32 +13,33 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
 
     const columns: LemonTableColumns<AsyncMigrationError> = [
         {
-            title: 'Created At',
-            render: function Render(_, asyncMigrationError: AsyncMigrationError): JSX.Element {
-                const createdAt = asyncMigrationError.created_at
-                return <div>{humanFriendlyDetailedTime(createdAt)}</div>
-            },
+            title: 'Error',
+            dataIndex: 'description',
         },
         {
-            title: 'Description',
-            dataIndex: 'description',
+            title: 'Timestamp',
+            render: function Render(_, asyncMigrationError: AsyncMigrationError): JSX.Element {
+                return <div>{humanFriendlyDetailedTime(asyncMigrationError.created_at)}</div>
+            },
         },
     ]
     return (
-        <div className="async-migrations-details-scene">
-            <div className="mb float-right">
-                <Button
-                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <RedoOutlined />}
-                    onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
-                >
-                    Refresh errors
-                </Button>
-            </div>
+        <>
             <LemonTable
                 columns={columns}
                 dataSource={asyncMigrationErrors[asyncMigration.id]}
                 loading={asyncMigrationErrorsLoading[asyncMigration.id]}
+                embedded
             />
-        </div>
+            <LemonButton
+                icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
+                onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
+                type="secondary"
+                compact
+                style={{ position: 'absolute', top: '0.5rem', right: '1.5rem' }}
+            >
+                Refresh errors
+            </LemonButton>
+        </>
     )
 }
