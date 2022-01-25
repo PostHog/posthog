@@ -34,7 +34,7 @@ describe('Events', () => {
                     '6619-query-events-by-date': true,
                 })
             )
-        )
+        ).as('featureFlagsLoaded')
 
         cy.visit('/events')
     })
