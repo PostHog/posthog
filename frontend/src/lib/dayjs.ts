@@ -6,6 +6,7 @@ import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
 import timezone from 'dayjs/plugin/timezone'
 import utc from 'dayjs/plugin/utc'
+import duration from 'dayjs/plugin/duration'
 
 // necessary for any localized date formatting to work
 dayjs.extend(LocalizedFormat)
@@ -14,6 +15,7 @@ dayjs.extend(isSameOrAfter)
 dayjs.extend(isSameOrBefore)
 dayjs.extend(utc)
 dayjs.extend(timezone)
+dayjs.extend(duration)
 
 const now = (): Dayjs => dayjs()
 

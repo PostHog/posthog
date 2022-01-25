@@ -5,7 +5,10 @@ import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/Taxon
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { KeyMapping } from '~/types'
+import { KeyMapping, UserBasicType } from '~/types'
+import { Owner } from 'scenes/events/Owner'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils'
 
 interface HeaderProps {
     title: React.ReactNode
@@ -69,9 +72,6 @@ function DescriptionEmpty(): JSX.Element {
     )
 }
 
-DefinitionPopup.Description = Description
-DefinitionPopup.DescriptionEmpty = DescriptionEmpty
-
 export function getSingularType(type: TaxonomicFilterGroupType): string {
     switch (type) {
         case TaxonomicFilterGroupType.Actions:
@@ -122,6 +122,57 @@ function Example({ value }: { value: string }): JSX.Element {
     )
 }
 
+function TimeMeta({
+    createdAt,
+    createdBy,
+    updatedAt,
+    updatedBy,
+}: {
+    createdAt?: string
+    createdBy?: UserBasicType
+    updatedAt?: string
+    updatedBy?: UserBasicType
+}): JSX.Element {
+    // If updatedAt doesn't exist, fallback on showing creator
+    if (updatedAt) {
+        const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(updatedAt))).asSeconds()
+        return (
+            <div className="definition-popup-timemeta">
+                Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                {updatedBy && (
+                    <>
+                        <span className="definition-popup-timemeta-spacer">by</span>{' '}
+                        <Owner user={updatedBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
+                    </>
+                )}
+            </div>
+        )
+    }
+    if (createdAt) {
+        const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(createdAt))).asSeconds()
+        return (
+            <div className="definition-popup-timemeta">
+                Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                {updatedBy && (
+                    <>
+                        <span className="definition-popup-timemeta-spacer">by</span>{' '}
+                        <Owner user={createdBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
+                    </>
+                )}
+            </div>
+        )
+    }
+    return <></>
+}
+
+function HorizontalLine(): JSX.Element {
+    return <div className="definition-popup-divider" />
+}
+
+DefinitionPopup.Description = Description
+DefinitionPopup.DescriptionEmpty = DescriptionEmpty
 DefinitionPopup.Example = Example
+DefinitionPopup.TimeMeta = TimeMeta
+DefinitionPopup.HorizontalLine = HorizontalLine
 
 export { DefinitionPopup }

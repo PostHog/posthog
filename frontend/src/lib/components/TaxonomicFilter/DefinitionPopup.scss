@@ -64,14 +64,33 @@
         font-style: italic;
     }
 
+    .ant-tag {
+        margin-top: 0 !important;
+    }
+
+    .definition-popup-timemeta {
+        display: flex;
+        margin-top: 4px;
+        margin-bottom: 4px;
+
+        span.definition-popup-timemeta-spacer {
+            margin-right: 4px;
+            margin-left: 4px;
+        }
+    }
+
+    .definition-popup-divider {
+        width: 100%;
+        height: 1px;
+        background-color: #dcdee0;
+        margin-top: 16px;
+        margin-bottom: 16px;
+    }
+
     &.edit {
     }
 
     &.view {
-        .definition-popup-divider {
-            height: 1px;
-        }
-
         .definition-popup-grid-section {
             .section-title {
                 text-transform: capitalize;

@@ -38,6 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Provider } from 'react-redux'
 import { DefinitionPopup } from 'lib/components/TaxonomicFilter/DefinitionPopup'
 import { definitionPopupLogic } from 'lib/components/TaxonomicFilter/definitionPopupLogic'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 enum ListTooltip {
     None = 0,
@@ -156,8 +157,6 @@ const renderItemPopup = (
         return
     }
 
-    console.log('ITEM POPUP', item, listGroupType, group, hasTaxonomyFeatures)
-
     const icon = group.getIcon?.(item)
 
     return (
@@ -179,6 +178,16 @@ const renderItemPopup = (
                         <DefinitionPopup.DescriptionEmpty />
                     ))}
                 <DefinitionPopup.Example value={value.toString()} />
+                {hasTaxonomyFeatures && 'tags' in item && !!item.tags?.length && (
+                    <ObjectTags tags={item.tags} style={{ marginBottom: 4 }} />
+                )}
+                <DefinitionPopup.TimeMeta
+                    createdAt={('created_at' in item && item.created_at) || undefined}
+                    createdBy={('created_by' in item && item.created_by) || undefined}
+                    updatedAt={('updated_at' in item && item.updated_at) || undefined}
+                    updatedBy={('updated_by' in item && item.updated_by) || undefined}
+                />
+                <DefinitionPopup.HorizontalLine />
             </DefinitionPopup>
         </BindLogic>
     )
@@ -414,7 +423,9 @@ export function InfiniteList(): JSX.Element {
                                             selectedItem,
                                             listGroupType,
                                             group,
-                                            !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                                            !!user?.organization?.available_features?.includes(
+                                                AvailableFeature.INGESTION_TAXONOMY
+                                            )
                                         )
                                       : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
                                   : null}

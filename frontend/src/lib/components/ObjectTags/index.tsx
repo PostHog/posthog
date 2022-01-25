@@ -53,6 +53,8 @@ export function ObjectTags({
     const [newTag, setNewTag] = useState('')
     const [deletedTags, setDeletedTags] = useState<string[]>([]) // we use this state var to remove items immediately from UI while API requests are processed
 
+    console.log('TAGS', tags)
+
     const handleDelete = (tag: string, currentTags?: string[], propertyId?: string): void => {
         setDeletedTags([...deletedTags, tag])
         onTagDelete && onTagDelete(tag, currentTags, propertyId)
