@@ -314,7 +314,7 @@ export const experimentLogic = kea<experimentLogicType>({
             const endDate = dayjs()
             actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
             const duration = endDate.diff(values.experimentData?.start_date, 'second')
-            actions.reportExperimentCompleted(values.experimentData, endDate, duration)
+            actions.reportExperimentCompleted(values.experimentData, endDate, duration, values.areResultsSignificant)
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
