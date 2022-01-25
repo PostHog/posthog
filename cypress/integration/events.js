@@ -108,38 +108,40 @@ describe('Events', () => {
 
     /**
      * Test fails because property filters act on properties.$time but not all events have that property
+     *
+     * Needs https://github.com/PostHog/posthog/issues/8250 before can query on timestamp
      */
-    // it('can filter after a date and can filter before it', () => {
-    //     cy.intercept(/api\/projects\/\d+\/events\/.*/).as('getEvents')
-    //
-    //     selectNewTimestampPropertyFilter()
-    //
-    //     const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
-    //     selectOperator('< before', undefined)
-    //     cy.get('.taxonomic-value-select').click()
-    //     cy.get('.filter-date-picker').type(oneDayAgo)
-    //     cy.get('.ant-picker-ok').click()
-    //     cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
-    //
-    //     cy.wait('@getEvents').then(() => {
-    //         cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
-    //         cy.get('tr.event-row').should((rows) => {
-    //             // test data setup is slightly random so...
-    //             expect(rows.length).to.be.greaterThan(50)
-    //             expect(rows.length).to.be.lessThan(110)
-    //         })
-    //
-    //         changeSecondPropertyFilterToDateAfter()
-    //
-    //         cy.wait('@getEvents').then(() => {
-    //             // as the seeded events are random(-ish) we can't assert on how long ago they will be
-    //             cy.get('tr.event-row:first-child').should('not.contain.text', 'a day ago')
-    //             cy.get('tr.event-row').should((rows) => {
-    //                 // test data setup is slightly random so...
-    //                 expect(rows.length).to.be.greaterThan(5)
-    //                 expect(rows.length).to.be.lessThan(10)
-    //             })
-    //         })
-    //     })
-    // })
+    it.skip('can filter after a date and can filter before it', () => {
+        cy.intercept(/api\/projects\/\d+\/events\/.*/).as('getEvents')
+
+        selectNewTimestampPropertyFilter()
+
+        const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+        selectOperator('< before', undefined)
+        cy.get('.taxonomic-value-select').click()
+        cy.get('.filter-date-picker').type(oneDayAgo)
+        cy.get('.ant-picker-ok').click()
+        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
+
+        cy.wait('@getEvents').then(() => {
+            cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
+            cy.get('tr.event-row').should((rows) => {
+                // test data setup is slightly random so...
+                expect(rows.length).to.be.greaterThan(50)
+                expect(rows.length).to.be.lessThan(110)
+            })
+
+            changeSecondPropertyFilterToDateAfter()
+
+            cy.wait('@getEvents').then(() => {
+                // as the seeded events are random(-ish) we can't assert on how long ago they will be
+                cy.get('tr.event-row:first-child').should('not.contain.text', 'a day ago')
+                cy.get('tr.event-row').should((rows) => {
+                    // test data setup is slightly random so...
+                    expect(rows.length).to.be.greaterThan(5)
+                    expect(rows.length).to.be.lessThan(10)
+                })
+            })
+        })
+    })
 })
