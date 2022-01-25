@@ -467,3 +467,25 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_set_current_project_no_access(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+        team2 = Team.objects.create(organization=self.organization)
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+        self.client.force_login(new_user)
+        response = self.client.patch("/api/users/@me/", {"set_current_team": self.team.pk})
+        self.maxDiff = None
+        response_data = response.json()
+
+        self.assertEqual("does_not_exist", response_data["code"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
