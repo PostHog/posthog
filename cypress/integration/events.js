@@ -81,6 +81,16 @@ describe('Events', () => {
         cy.get('[data-attr=events-table]').should('exist')
     })
 
+    it('use before and after with a DateTime property', () => {
+        cy.wait('@featureFlagsLoaded').then(() => {
+            selectNewTimestampPropertyFilter()
+
+            cy.get('.taxonomic-operator').click()
+            cy.get('.operator-value-option').should('contain.text', '> after')
+            cy.get('.operator-value-option').should('contain.text', '< before')
+        })
+    })
+
     it('use less than and greater than with a numeric property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
