@@ -39,8 +39,12 @@ sudo apt update
 # clone posthog
 echo "Installing PostHog 🦔 from Github"
 sudo apt install -y git
-rm -rf posthog
-git clone https://github.com/PostHog/posthog.git
+# try to clone - if folder is already there pull latest for that branch
+git clone https://github.com/PostHog/posthog.git &> /dev/null || true
+cd posthog
+git pull
+cd ..
+
 
 # rewrite caddyfile
 rm -f Caddyfile
