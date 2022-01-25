@@ -329,7 +329,8 @@ def insight_test_factory(event_factory, person_factory):
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
-        def test_insight_trends_basic(self):
+        @patch("posthog.api.insight.capture_exception")
+        def test_insight_trends_basic(self, patch_capture_exception):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
                 event_factory(team=self.team, event="$pageview", distinct_id="2")
@@ -341,6 +342,7 @@ def insight_test_factory(event_factory, person_factory):
 
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+            self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.calls)
 
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(

@@ -250,7 +250,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = TrendSerializer(data={**request.data, **request.GET})
+        serializer = TrendSerializer(request=request)
         try:
             serializer.is_valid(raise_exception=True)
         except Exception as e:
@@ -300,7 +300,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = FunnelSerializer(data={**request.data, **request.GET})
+        serializer = FunnelSerializer(request=request)
         try:
             serializer.is_valid(raise_exception=True)
         except Exception as e:
