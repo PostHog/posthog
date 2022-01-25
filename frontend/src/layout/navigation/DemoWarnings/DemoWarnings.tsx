@@ -1,13 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Alert } from 'antd'
-import { StarOutlined, SettingOutlined } from '@ant-design/icons'
+import { Alert, Button } from 'antd'
+import { StarOutlined, SettingOutlined, UserAddOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import './DemoWarnings.scss'
 import { navigationLogic } from '../navigationLogic'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 interface WarningInterface {
     message: JSX.Element | string
@@ -22,12 +23,14 @@ interface WarningsInterface {
     incomplete_setup_on_real_project: WarningInterface
     demo_project: WarningInterface
     real_project_with_no_events: WarningInterface
+    invite_teammates: WarningInterface
 }
 
 export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { demoWarning } = useValues(navigationLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     const WARNINGS: WarningsInterface = {
         welcome: {
@@ -108,6 +111,17 @@ export function DemoWarnings(): JSX.Element | null {
                     <SettingOutlined /> Go to wizard
                 </LinkButton>
             ),
+        },
+        invite_teammates: {
+            message: 'Invite your team',
+            description: <>Get more out of PostHog by inviting your team for free.</>,
+            action: (
+                <Button data-attr="invite-warning-cta" type="primary" onClick={showInviteModal}>
+                    <UserAddOutlined />
+                    Invite team members
+                </Button>
+            ),
+            type: 'info',
         },
     }
 
