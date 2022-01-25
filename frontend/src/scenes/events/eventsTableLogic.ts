@@ -214,22 +214,23 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.oneYearAgo,
+                selectors.miniumumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, oneYearAgo) =>
+            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after: oneYearAgo,
+                    after: miniumumQueryDate,
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
-        oneYearAgo: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         pollAfter: [
-            () => [selectors.events, selectors.oneYearAgo],
-            (events, oneYearAgo) => (events?.length > 0 && events[0].timestamp ? events[0].timestamp : oneYearAgo),
+            () => [selectors.events, selectors.miniumumQueryDate],
+            (events, miniumumQueryDate) =>
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : miniumumQueryDate,
         ],
     }),
 
@@ -310,7 +311,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.oneYearAgo,
+                    after: values.miniumumQueryDate,
                 }
 
                 let apiResponse = null
