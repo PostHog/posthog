@@ -796,7 +796,6 @@ export const eventUsageLogic = kea<
             posthog.capture('experiment archived', {
                 name: experiment.name,
                 id: experiment.id,
-                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
             })
