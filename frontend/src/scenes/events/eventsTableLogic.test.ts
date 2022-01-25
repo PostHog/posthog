@@ -346,6 +346,21 @@ describe('eventsTableLogic', () => {
                             afterOneYearAgo,
                     })
                 })
+
+                it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEventsSuccess({
+                            events: [firstEvent, secondEvent],
+                            hasNext: false,
+                            isNext: false,
+                        })
+                        logic.actions.fetchNextEvents()
+                    }).toDispatchActions([logic.actionCreators.fetchEvents({ before: secondEvent.timestamp })])
+
+                    expect(api.get).toHaveBeenLastCalledWith(
+                        baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
+                    )
+                })
             })
 
             it('fetch events clears the has next flag', async () => {
@@ -612,21 +627,6 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.fetchNextEvents()
                 }).toDispatchActions([logic.actionCreators.fetchEvents()])
-            })
-
-            it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.fetchEventsSuccess({
-                        events: [firstEvent, secondEvent],
-                        hasNext: false,
-                        isNext: false,
-                    })
-                    logic.actions.fetchNextEvents()
-                }).toDispatchActions([logic.actionCreators.fetchEvents({ before: secondEvent.timestamp })])
-
-                expect(api.get).toHaveBeenLastCalledWith(
-                    baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
-                )
             })
 
             it('calls prepend new when autoload is toggled and there are new events', async () => {
