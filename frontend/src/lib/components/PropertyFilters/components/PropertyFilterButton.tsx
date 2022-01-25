@@ -7,7 +7,6 @@ import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PushpinOutlined } from '@ant-design/icons'
 
 export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
@@ -32,29 +31,23 @@ interface FilterRowProps {
     onClick?: () => void
     setRef?: (ref: HTMLElement) => void
     children: string | JSX.Element
-    pinned?: boolean
 }
 
-export function FilterButton({ greyBadges, onClick, setRef, children, pinned }: FilterRowProps): JSX.Element {
+export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRowProps): JSX.Element {
     return (
         <Button
             type="primary"
             shape="round"
             style={{ overflow: 'hidden' }}
-            onClick={pinned ? () => {} : onClick}
+            onClick={onClick}
             ref={setRef}
-            className={clsx(
-                'property-filter',
-                (greyBadges || pinned) && 'property-filter-grey',
-                pinned && 'pinned-filter'
-            )}
+            className={clsx('property-filter', greyBadges && 'property-filter-grey')}
         >
             <span
                 className="ph-no-capture property-filter-button-label"
                 style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
                 {children}
-                {pinned && <PushpinOutlined style={{ marginLeft: '.5em' }} />}
             </span>
         </Button>
     )
