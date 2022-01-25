@@ -107,7 +107,7 @@ djangorestframework==3.12.2
     #   drf-exceptions-hog
     #   drf-extensions
     #   drf-spectacular
-drf-exceptions-hog==0.1.0
+drf-exceptions-hog==0.2.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
