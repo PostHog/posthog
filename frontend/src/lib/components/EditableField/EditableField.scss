@@ -1,37 +1,51 @@
 @import '~/vars';
 
-.editable-field {
-    transition: none !important;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    width: 100%;
-    min-height: 40px;
-
-    &.edit-mode {
-        max-width: 640px;
+.EditableField {
+    max-width: 100%;
+    &:not(.EditableField--multiline) {
+        line-height: 2rem;
     }
-
-    .btn-cancel {
-        color: $primary;
+    i {
+        color: var(--text-muted);
     }
-
-    .edit-container {
-        transition: none !important;
-        padding: 8px;
-        margin-bottom: 8px;
-        textarea {
-            padding: 0 !important;
-            border: none;
-            outline: none;
-            transition: none !important;
-            font-size: 16px;
-
-            &:focus {
-                border: none;
-                outline: none;
-                box-shadow: none;
-            }
+    .EditableField--highlight {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        width: fit-content;
+        padding: 0.25rem; // Some padding to give the focus outline more breathing space
+        margin: -0.25rem;
+        white-space: pre-wrap;
+    }
+    &--editing .EditableField--highlight {
+        align-items: flex-end;
+        width: auto;
+        max-width: calc(100% + 0.5rem);
+        outline: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+    .EditableField__autosize {
+        align-self: center;
+        min-width: 0;
+    }
+    input,
+    textarea {
+        max-width: 100%;
+        border: none;
+        background: transparent;
+        font: inherit;
+        color: var(--text-default);
+        outline: none;
+        padding: 0;
+    }
+    textarea {
+        align-self: flex-start;
+        width: 100%;
+    }
+    button {
+        &:first-of-type {
+            margin-left: 0.75rem;
         }
+        margin-left: 0.5rem;
     }
 }

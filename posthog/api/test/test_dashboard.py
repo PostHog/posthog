@@ -349,19 +349,19 @@ class TestDashboard(APIBaseTest):
 
         # valid - use_template empty and use_dashboard is not set
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "",}
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "",},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_template is set
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP",}
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP",},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_dashboard is set
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id,}
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id,},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -373,7 +373,7 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - both use_template and use_dashboard are not set
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another",})
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another",},)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_dashboard_creation_mode(self):
@@ -475,9 +475,11 @@ class TestDashboard(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 400, response.content)
         self.assertDictEqual(
-            response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+            response.json(),
+            self.validation_error_response("Properties are unparsable!", "invalid_input"),
+            response.content,
         )
 
     def test_insights_with_no_insight_set(self):

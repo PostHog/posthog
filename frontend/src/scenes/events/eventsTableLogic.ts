@@ -112,6 +112,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             true,
             {
                 setPollingActive: (_, { pollingActive }) => pollingActive,
+                pollEventsSuccess: (state, { events }) => (events && events.length ? false : state),
+                prependNewEvents: () => true,
+                toggleAutomaticLoad: () => true,
             },
         ],
         properties: [
@@ -267,9 +270,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({

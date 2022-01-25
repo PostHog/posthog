@@ -208,6 +208,7 @@ class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericView
         permissions.IsAuthenticated,
         OrganizationMemberPermissions,
     ]
+    include_in_docs = False
 
     def create(self, request, *args, **kwargs):
         # Complete onboarding

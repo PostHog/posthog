@@ -65,11 +65,7 @@ function InsightMeta({
                 <div className="InsightMeta__top">
                     <h5>
                         {filters.insight || InsightType.TRENDS} •{' '}
-                        {dateFilterToText(
-                            filters.date_from,
-                            filters.date_to,
-                            '?' /* TODO: Implement actual default based on insight type instead of ? */
-                        )}
+                        {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                     </h5>
                     <div className="InsightMeta__controls">
                         <More
@@ -179,7 +175,7 @@ function InsightViz({ insight, loading }: Pick<InsightCardProps, 'insight' | 'lo
     return (
         <div className="InsightViz">
             {loading && <Loading />}
-            <Alert.ErrorBoundary message="Insight visualization errored">
+            <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
                 <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
             </Alert.ErrorBoundary>
         </div>

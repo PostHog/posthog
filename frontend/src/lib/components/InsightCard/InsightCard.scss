@@ -7,15 +7,22 @@
     flex-direction: column;
     align-items: stretch;
     height: 30rem;
+    max-width: 100%;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     z-index: 3;
     background: #fff;
     &--highlighted {
         border-color: var(--primary);
+        outline: 1px solid var(--primary);
     }
     .InsightMeta {
         border-bottom: 1px solid var(--border);
+    }
+    .ant-alert {
+        margin: 1rem;
+        width: 100%;
+        overflow: auto;
     }
 }
 
@@ -23,10 +30,8 @@
     position: relative;
     flex-grow: 1;
     display: flex;
-    align-items: center;
     justify-content: center;
     min-height: 0;
-    padding: 1rem;
     overflow: auto;
     .graph-container {
         padding: 1rem;

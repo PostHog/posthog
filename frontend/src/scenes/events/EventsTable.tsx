@@ -73,7 +73,6 @@ export function EventsTable({
         isLoading,
         hasNext,
         isLoadingNext,
-        newEvents,
         eventFilter,
         automaticLoadEnabled,
         exportUrl,
@@ -111,9 +110,7 @@ export function EventsTable({
                         center
                         fullWidth
                     >
-                        {newEvents.length === 1
-                            ? `There is 1 new event. Click here to load it`
-                            : `There are ${newEvents.length || ''} new events. Click here to load them`}
+                        There are new events. Click here to load them
                     </LemonButton>
                 ) : (
                     '???'

@@ -8,7 +8,9 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
+    /** Whether hover style should be applied, signaling that the button is held active in some way. */
+    active?: boolean
     /** URL to link to. */
     to?: string
     /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
@@ -21,12 +23,17 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', className, popup, to, ...buttonProps }: LemonButtonProps,
+    { children, type = 'default', active, className, popup, to, ...buttonProps }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
-        className: clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className),
+        className: clsx(
+            'LemonButton',
+            type !== 'default' && `LemonButton--${type}`,
+            active && 'LemonButton--active',
+            className
+        ),
         type: 'button',
         ...buttonProps,
     }
@@ -93,9 +100,12 @@ export function LemonButtonWithPopup({
         )
     }
 
+    if (!('visible' in popupProps)) {
+        popupProps.visible = popupVisible
+    }
+
     return (
         <Popup
-            visible={popupVisible}
             onClickOutside={(e) => {
                 setPopupVisible(false)
                 onClickOutside?.(e)
@@ -116,6 +126,7 @@ export function LemonButtonWithPopup({
                         e.stopPropagation()
                     }
                 }}
+                active={popupProps.visible}
                 {...buttonProps}
             />
         </Popup>

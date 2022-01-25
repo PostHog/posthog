@@ -2,25 +2,28 @@ import { kea } from 'kea'
 import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, Experiment } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
 import React from 'react'
+import { toParams } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']] },
     actions: {},
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experiments: [
             [] as Experiment[],
             {
-                loadExperiments: async () => {
+                loadExperiments: async (filter?: string) => {
                     if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                         return []
                     }
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`
+                    )
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
@@ -37,8 +40,23 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 addToExperiments: (experiment: Experiment) => {
                     return [...values.experiments, experiment]
                 },
-                updateExperiment: (experiment: Experiment) => {
+                updateExperiments: (experiment: Experiment) => {
                     return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
+                },
+            },
+        ],
+        tab: [
+            ExperimentsTabs.All as ExperimentsTabs,
+            {
+                setExperimentsFilters: async ({ tab }: { tab: ExperimentsTabs }) => {
+                    const tabFilter =
+                        tab === ExperimentsTabs.Yours ? toParams({ user: true }) : toParams({ archived: true })
+                    if (tab === ExperimentsTabs.All) {
+                        actions.loadExperiments(toParams({ all: true }))
+                    } else {
+                        actions.loadExperiments(tabFilter)
+                    }
+                    return tab
                 },
             },
         ],

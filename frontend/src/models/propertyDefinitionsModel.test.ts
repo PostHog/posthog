@@ -1,4 +1,4 @@
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
@@ -24,16 +24,6 @@ describe('the property definitions model', () => {
             volume_30_day: null,
             query_usage_30_day: null,
             property_type: 'String',
-            property_type_format: undefined,
-        },
-        {
-            id: 'an id',
-            name: '$time',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-            property_type: 'DateTime',
-            property_type_format: 'unix_timestamp',
         },
         {
             id: 'an id',
@@ -42,7 +32,6 @@ describe('the property definitions model', () => {
             volume_30_day: null,
             query_usage_30_day: null,
             property_type: 'DateTime',
-            property_type_format: 'YYYY-MM-DD hh:mm:ss',
         },
     ]
 
@@ -57,10 +46,10 @@ describe('the property definitions model', () => {
         return defaultAPIMocks(url)
     })
 
-    initKeaTestLogic({
-        logic: propertyDefinitionsModel,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        logic = propertyDefinitionsModel()
+        logic.mount()
     })
 
     it('can load property definitions', () => {
@@ -73,13 +62,13 @@ describe('the property definitions model', () => {
         expect(logic.values.describeProperty('no property type')).toBeNull()
     })
 
-    it('does describe a property that has a server provided type but no format', () => {
-        expect(logic.values.describeProperty('a string')).toEqual('String')
+    it('does not describe a property that has not yet been cached', () => {
+        expect(logic.values.describeProperty('not yet cached')).toBeNull()
     })
 
-    it('does describe a property that has a server provided type and format', () => {
-        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime (YYYY-MM-DD hh:mm:ss)')
-        expect(logic.values.describeProperty('$time')).toEqual('DateTime (unix_timestamp)')
+    it('does describe a property that has a server provided type', () => {
+        expect(logic.values.describeProperty('a string')).toEqual('String')
+        expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
     })
 
     it('can format a property with no formatting needs for display', () => {
@@ -95,32 +84,32 @@ describe('the property definitions model', () => {
     })
 
     it('can format a unix timestamp as seconds with fractional part for display', () => {
-        expect(logic.values.formatForDisplay('$time', '1641368752.908')).toEqual('2022-01-05 07:45:52')
+        expect(logic.values.formatForDisplay('$timestamp', '1641368752.908')).toEqual('2022-01-05 07:45:52')
     })
 
     it('can format a unix timestamp as milliseconds for display', () => {
-        expect(logic.values.formatForDisplay('$time', '1641368752908')).toEqual('2022-01-05 07:45:52')
+        expect(logic.values.formatForDisplay('$timestamp', '1641368752908')).toEqual('2022-01-05 07:45:52')
     })
 
     it('can format a unix timestamp as seconds for display', () => {
-        expect(logic.values.formatForDisplay('$time', '1641368752')).toEqual('2022-01-05 07:45:52')
+        expect(logic.values.formatForDisplay('$timestamp', '1641368752')).toEqual('2022-01-05 07:45:52')
     })
 
     it('can format a date string for display', () => {
-        expect(logic.values.formatForDisplay('$time', '2022-01-05')).toEqual('2022-01-05')
+        expect(logic.values.formatForDisplay('$timestamp', '2022-01-05')).toEqual('2022-01-05')
     })
 
     it('can format a datetime string for display', () => {
-        expect(logic.values.formatForDisplay('$time', '2022-01-05 07:45:52')).toEqual('2022-01-05 07:45:52')
+        expect(logic.values.formatForDisplay('$timestamp', '2022-01-05 07:45:52')).toEqual('2022-01-05 07:45:52')
     })
 
     it('can format a null value for display', () => {
-        expect(logic.values.formatForDisplay('$time', null)).toEqual(null)
-        expect(logic.values.formatForDisplay('$time', undefined)).toEqual(null)
+        expect(logic.values.formatForDisplay('$timestamp', null)).toEqual(null)
+        expect(logic.values.formatForDisplay('$timestamp', undefined)).toEqual(null)
     })
 
     it('can format an array of datetime string for display', () => {
-        expect(logic.values.formatForDisplay('$time', ['1641368752.908', 1641368752.908])).toEqual([
+        expect(logic.values.formatForDisplay('$timestamp', ['1641368752.908', 1641368752.908])).toEqual([
             '2022-01-05 07:45:52',
             '2022-01-05 07:45:52',
         ])

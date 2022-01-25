@@ -2,6 +2,7 @@
 
 .experiment-form {
     .metrics-selection {
+        width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
         margin-top: $default_spacing;
@@ -90,18 +91,29 @@
     .experiment-preview {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
+
+        .mde-slider {
+            .ant-slider-handle {
+                border: none;
+            }
+
+            .ant-slider-rail {
+                background-color: #e5ebff;
+            }
+        }
     }
 
-    .feature-flag-variant {
+    .variants {
         border: 1px solid $border;
         border-radius: 4px;
-        padding-left: 12px;
-        padding-top: $default_spacing / 2;
-        padding-bottom: $default_spacing / 2;
-        margin-top: 20px;
-
-        .ant-form-item-explain-error {
-            padding-top: $default_spacing / 2;
+        padding-left: $default_spacing;
+        margin-top: $default_spacing / 2;
+        margin-bottom: $default_spacing;
+        .feature-flag-variant {
+            margin-top: 20px;
+            .ant-form-item-explain-error {
+                padding-top: $default_spacing / 2;
+            }
         }
     }
 
@@ -123,6 +135,10 @@
     .stop-experiment {
         background-color: $danger;
         color: white;
+    }
+
+    .archive-experiment {
+        color: $danger;
     }
 
     .description {

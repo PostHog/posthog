@@ -186,7 +186,7 @@ export function SavedInsights(): JSX.Element {
                 return (
                     <>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <Link to={urls.insightView(insight.short_id, insight.filters)} className="row-name">
+                            <Link to={urls.insightView(insight.short_id)} className="row-name">
                                 {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                             </Link>
                             <div

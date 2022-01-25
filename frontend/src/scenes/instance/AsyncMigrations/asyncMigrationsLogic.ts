@@ -171,7 +171,7 @@ export const asyncMigrationsLogic = kea<
         },
         updateSetting: async ({ settingKey, newValue }) => {
             try {
-                await api.create(`/api/instance_settings/${settingKey}`, {
+                await api.update(`/api/instance_settings/${settingKey}`, {
                     value: newValue,
                 })
                 successToast('Setting updated successfully!', `Instance setting ${settingKey} has been updated.`)

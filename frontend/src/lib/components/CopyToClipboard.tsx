@@ -5,6 +5,7 @@ import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCopy } from './icons'
 import { LemonButton } from './LemonButton'
+import clsx from 'clsx'
 
 interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
@@ -24,6 +25,7 @@ interface InputProps {
     placeholder?: string
     description?: string
     isValueSensitive?: boolean
+    className?: string
 }
 
 export function CopyToClipboardInline({
@@ -81,11 +83,12 @@ export function CopyToClipboardInput({
     placeholder,
     description,
     isValueSensitive = false,
+    className,
     ...props
 }: InputProps): JSX.Element {
     return (
         <Input
-            className={isValueSensitive ? 'ph-no-capture' : ''}
+            className={clsx(isValueSensitive && 'ph-no-capture', className)}
             type="text"
             value={value}
             placeholder={placeholder || 'nothing to show here'}
