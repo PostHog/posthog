@@ -9,6 +9,10 @@
     overflow: hidden;
     flex-basis: 100%;
 
+    &.wrap-filters {
+        flex-basis: auto;
+    }
+
     .property-filter-button-spacing {
         color: #c4c4c4;
         font-size: 18px;
