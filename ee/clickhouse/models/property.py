@@ -233,12 +233,16 @@ def prop_filter_json_extract(
     elif operator == "is_date_after":
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
+
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        query = f"""AND coalesce(
-                parseDateTimeBestEffortOrNull({property_expr}),
-                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-            ) > %({prop_value_param_key})s"""
+        if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
+            query = f"""AND {prop.key} > %({prop_value_param_key})s"""
+        else:
+            query = f"""AND coalesce(
+                    parseDateTimeBestEffortOrNull({property_expr}),
+                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                ) > %({prop_value_param_key})s"""
 
         return (
             query,
@@ -251,10 +255,14 @@ def prop_filter_json_extract(
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"""AND coalesce(
-                parseDateTimeBestEffortOrNull({property_expr}),
-                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-            ) < %({prop_value_param_key})s"""
+
+        if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
+            query = f"""AND {prop.key} < %({prop_value_param_key})s"""
+        else:
+            query = f"""AND coalesce(
+                    parseDateTimeBestEffortOrNull({property_expr}),
+                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                ) < %({prop_value_param_key})s"""
 
         return (
             query,
