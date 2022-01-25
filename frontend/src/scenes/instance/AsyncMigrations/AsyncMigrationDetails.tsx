@@ -29,11 +29,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
             <div className="mb float-right">
                 <Button
                     icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <RedoOutlined />}
-                    onClick={() =>
-                        asyncMigration === undefined
-                            ? console.log(`shouldnt be undefined ${asyncMigration}`)
-                            : loadAsyncMigrationErrors(asyncMigration.id)
-                    }
+                    onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
                 >
                     Refresh errors
                 </Button>

@@ -223,7 +223,7 @@ export function AsyncMigrations(): JSX.Element {
         },
     }
     return (
-        <div className="async-migrations-scene">
+        <div>
             {user?.is_staff ? (
                 <>
                     <PageHeader

@@ -97,7 +97,7 @@ export const asyncMigrationsLogic = kea<
             },
         ],
     },
-    loaders: ({}) => ({
+    loaders: () => ({
         asyncMigrations: [
             [] as AsyncMigration[],
             {
