@@ -1191,8 +1191,9 @@ export function toString(input?: any | null): string {
     return input?.toString() || ''
 }
 
-export function skipNaNs(input: any[]): number[] {
-    return input.filter((value) => !isNaN(value))
+/** Coerce any NaN values in the input to 0. */
+export function coerceNaNs(input: any[]): number[] {
+    return input.map((value) => (isNaN(value) ? 0 : value))
 }
 
 /**
@@ -1200,7 +1201,7 @@ export function skipNaNs(input: any[]): number[] {
  * @param input e.g. [100,50, 75]
  */
 export function average(input: number[]): number {
-    input = skipNaNs(input)
+    input = coerceNaNs(input)
     return Math.round((input.reduce((acc, val) => acc + val, 0) / input.length) * 10) / 10
 }
 
@@ -1209,7 +1210,7 @@ export function average(input: number[]): number {
  * @param input e.g. [3,7,10]
  */
 export function median(input: number[]): number {
-    input = skipNaNs(input)
+    input = coerceNaNs(input)
     const sorted = [...input].sort((a, b) => a - b)
     const half = Math.floor(sorted.length / 2)
 
