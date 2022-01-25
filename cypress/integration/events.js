@@ -69,7 +69,7 @@ describe('Events', () => {
 
         cy.get('.operator-value-option').contains('< before').click()
         cy.get('.taxonomic-value-select').click()
-        cy.get('.ant-picker-cell-in-view .ant-picker-cell-inner').contains('10').click()
+        cy.get('.ant-picker-cell-in-view .ant-picker-cell-inner').contains('10').click({ force: true })
         cy.get('.ant-picker-ok button').click()
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
 
