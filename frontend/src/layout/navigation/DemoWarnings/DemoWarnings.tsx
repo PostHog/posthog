@@ -22,6 +22,7 @@ interface WarningsInterface {
     incomplete_setup_on_real_project: WarningInterface
     demo_project: WarningInterface
     real_project_with_no_events: WarningInterface
+    invite_teammates: WarningInterface
 }
 
 export function DemoWarnings(): JSX.Element | null {
@@ -106,6 +107,20 @@ export function DemoWarnings(): JSX.Element | null {
                     data-message="real_project_with_no_events-ingestion"
                 >
                     <SettingOutlined /> Go to wizard
+                </LinkButton>
+            ),
+        },
+        invite_teammates: {
+            message: 'Invite your teammates',
+            description: <>Invite them now.</>,
+            action: (
+                <LinkButton
+                    to="/ingestion"
+                    data-attr="demo-warning-cta"
+                    data-message="real_project_with_no_events-ingestion"
+                >
+                    <SettingOutlined />
+                    Invite
                 </LinkButton>
             ),
         },
