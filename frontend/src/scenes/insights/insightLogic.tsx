@@ -773,19 +773,19 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/insights/:shortId(/:mode)': (params, searchParams, hashParams) => {
             if (values.syncWithUrl) {
-                if (searchParams.insight === 'HISTORY') {
-                    // Legacy redirect because the insight history scene was toggled via the insight type.
-                    router.actions.replace(urls.savedInsights())
-                    return
-                }
+                const filters =
+                    (typeof hashParams?.filters === 'object' ? hashParams?.filters : null) ??
+                    // Legacy: we used to store the filter as searchParams = { insight: 'TRENDS', ...otherFilters }
+                    ('insight' in searchParams ? cleanFilters(searchParams) : null)
+
                 if (params.shortId === 'new') {
-                    actions.createAndRedirectToNewInsight(searchParams)
+                    actions.createAndRedirectToNewInsight(filters)
                     return
                 }
                 const insightId = params.shortId ? (String(params.shortId) as InsightShortId) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
-                    router.actions.replace(urls.insightNew(searchParams))
+                    router.actions.replace(urls.insightNew(filters))
                     return
                 }
 
@@ -807,14 +807,16 @@ export const insightLogic = kea<insightLogicType>({
                     actions.loadInsight(insightId)
                 }
 
-                const cleanSearchParams = cleanFilters(searchParams, values.filters, values.featureFlags)
-                const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
+                if (filters !== null) {
+                    const cleanSearchParams = cleanFilters(filters, values.filters, values.featureFlags)
+                    const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
 
-                if (
-                    (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) ||
-                    insightModeFromUrl !== values.insightMode
-                ) {
-                    actions.setFilters(cleanSearchParams, insightModeFromUrl)
+                    if (
+                        (!loadedFromAnotherLogic && !objectsEqual(cleanSearchParams, values.filters)) ||
+                        insightModeFromUrl !== values.insightMode
+                    ) {
+                        actions.setFilters(cleanSearchParams, insightModeFromUrl)
+                    }
                 }
             }
         },

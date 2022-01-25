@@ -7,6 +7,11 @@ from typing import List, Optional, Type
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    FF_DISTRIBUTION_THRESHOLD,
+    MIN_PROBABILITY_FOR_SIGNIFICANCE,
+)
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import ACTIONS, EVENTS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
@@ -14,11 +19,8 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 Probability = float
-CONTROL_VARIANT_KEY = "control"
+
 P_VALUE_SIGNIFICANCE_LEVEL = 0.05
-# controls minimum number of people to be exposed to a variant
-# before the results are deemed significant
-FF_DISTRIBUTION_THRESHOLD = 100
 
 
 @dataclasses.dataclass
@@ -108,7 +110,7 @@ class ClickhouseTrendExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significant = self.are_results_significant(control_variant, test_variants)
+        significant = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": insight_results,
@@ -181,7 +183,9 @@ class ClickhouseTrendExperimentResult:
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
-    def are_results_significant(control_variant: Variant, test_variants: List[Variant]) -> bool:
+    def are_results_significant(
+        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+    ) -> bool:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
         for variant in test_variants:
@@ -191,6 +195,9 @@ class ClickhouseTrendExperimentResult:
                 return False
 
         if control_variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
+            return False
+
+        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
             return False
 
         p_value = calculate_p_value(control_variant, test_variants)

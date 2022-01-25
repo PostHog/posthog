@@ -1,0 +1,164 @@
+from typing import get_args
+
+from numpy import require
+from rest_framework import serializers
+
+from posthog.api.documentation import FilterActionSerializer, FilterEventSerializer, PropertySerializer
+from posthog.constants import (
+    BREAKDOWN_TYPES,
+    DISPLAY_TYPES,
+    FUNNEL_WINDOW_INTERVAL_TYPES,
+    FunnelOrderType,
+    FunnelVizType,
+)
+
+
+class GenericInsightsSerializer(serializers.Serializer):
+    events = FilterEventSerializer(
+        required=False, many=True, help_text="Events to filter on. One of `events` or `actions` is required."
+    )
+    actions = FilterActionSerializer(
+        required=False, many=True, help_text="Actions to filter on. One of `events` or `actions` is required."
+    )
+    properties = PropertySerializer(many=True, required=False)
+    filter_test_accounts = serializers.BooleanField(
+        help_text='Whether to filter out internal and test accounts. See "project settings" in your PostHog account for the filters.',
+        default=False,
+    )
+    date_from = serializers.CharField(
+        required=False,
+        help_text="What date to filter the results from. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
+        default="-7d",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="What date to filter the results to. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
+        default="-7d",
+    )
+
+
+class BreakdownMixin(serializers.Serializer):
+    breakdown = serializers.CharField(
+        required=False,
+        help_text="A property to break down on. You can select the type of the property with breakdown_type.",
+    )
+    breakdown_type = serializers.ChoiceField(
+        choices=get_args(BREAKDOWN_TYPES), required=False, help_text="Type of property to break down on."
+    )
+
+
+class ResultsMixin(serializers.Serializer):
+    is_cached = serializers.BooleanField(
+        help_text="Whether the result is cached. To force a refresh, pass ?refresh=true"
+    )
+    last_refresh = serializers.DateTimeField(help_text="If the result is cached, when it was last refreshed.")
+
+
+class TrendResultSerializer(serializers.Serializer):
+    data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")  # type: ignore
+    days = serializers.ListField(
+        child=serializers.DateField(), help_text="The dates corresponding to the data field above."
+    )
+    labels = serializers.ListField(
+        child=serializers.CharField(), help_text="The dates corresponding to the data field above."
+    )
+    filter = GenericInsightsSerializer(help_text="The insight that's being returned.")
+    label = serializers.CharField(
+        help_text="A label describing this result. Will include\n- The event or action\n- Breakdown value\n- If `compare:true`, whether it's `current` or `previous`"
+    )  # type: ignore
+
+
+class TrendResultsSerializer(ResultsMixin):
+    result = TrendResultSerializer(many=True)
+
+
+class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
+    display = serializers.ChoiceField(
+        choices=get_args(DISPLAY_TYPES),
+        required=False,
+        default="ActionsLineGraphLinear",
+        help_text="How to display the data. Will change how the data is returned.",
+    )
+
+    formula = serializers.CharField(
+        required=False,
+        help_text="Combine the result of events or actions into a single number. For example `A + B` or `(A-B)/B`. The letters correspond to the order of the `events` or `actions` lists.",
+    )
+    compare = serializers.BooleanField(
+        help_text="For each returned result show the current period and the previous period. The result will contain `compare:true` and a `compare_label` with either `current` or `previous`.",
+        required=False,
+    )
+
+
+class FunnelExclusionSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
+    properties = PropertySerializer(many=True, required=False)
+    funnel_from_step = serializers.IntegerField(default=0, required=False)
+    funnel_to_step = serializers.IntegerField(default=1, required=False)
+
+
+class FunnelStepsResultSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of people in this step.")
+    action_id = serializers.CharField(
+        help_text="Corresponds to the `id` of the entities passed through to `events` or `actions`."
+    )
+    average_conversion_time = serializers.FloatField(
+        help_text="Average conversion time of person or groups between steps. `null` for the first step."
+    )
+    median_conversion_time = serializers.FloatField(
+        help_text="Median conversion time of person or groups between steps. `null` for the first step."
+    )
+    converted_people_url = serializers.CharField(
+        help_text="Path of a URL to get a list of people that converted after this step. In this format: `/api/person/funnel?...`"
+    )
+    dropped_people_url = serializers.CharField(
+        help_text="Path of a URL to get a list of people that dropped after this step. In this format: `/api/person/funnel?...`"
+    )
+    order = serializers.CharField(
+        help_text="Order of this step in the funnel. The API should return the steps in order anyway."
+    )
+    # Fields not added to this serializer for simplicity: custom_name, name, order, people, type
+
+
+class FunnelStepsResultsSerializer(ResultsMixin):
+    result = FunnelStepsResultSerializer(many=True)
+
+
+class FunnelSerializer(GenericInsightsSerializer, BreakdownMixin):
+    funnel_window_interval = serializers.IntegerField(
+        help_text="Funnel window size. Set in combination with funnel_window_interval, so defaults to 'days'.",
+        required=False,
+        default=14,
+    )
+    funnel_window_interval_type = serializers.ChoiceField(
+        choices=get_args(FUNNEL_WINDOW_INTERVAL_TYPES),
+        required=False,
+        help_text="The type of interval. Used in combination with `funnel_window_intervals`.",
+        default="days",
+    )
+    funnel_viz_type = serializers.ChoiceField(
+        choices=[el.value for el in FunnelVizType],
+        required=False,
+        help_text="The visualisation type.\n- `steps` Track instances progress between steps of the funnel\n- `trends` Track how this funnel's conversion rate is trending over time.\n- `time_to_convert` Track how long it takes for instances to convert",
+        default="steps",
+    )
+    funnel_order_type = serializers.ChoiceField(
+        choices=[el.value for el in FunnelOrderType],
+        required=False,
+        help_text="- `ordered` - Step B must happen after Step A, but any number events can happen between A and B.\n- `strict` - Step B must happen directly after Step A without any events in between.\n- `unordered` - Steps can be completed in any sequence.",
+        default="ordered",
+    )
+    exclusions = FunnelExclusionSerializer(
+        many=True,
+        required=False,
+        help_text="Exclude users/groups that completed the specified event between two specific steps. Note that these users/groups will be completely excluded from the entire funnel.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        help_text="Aggregate by users or by groups. `0` means user, `>0` means a group. See interface for the corresponding ID of the group.",
+        default=0,
+        required=False,
+    )
+    breakdown_limit = serializers.IntegerField(help_text="", required=False, default=10)
+    funnel_window_days = serializers.IntegerField(
+        help_text="(DEPRECATED) Funnel window size in days.", required=False, default=14
+    )

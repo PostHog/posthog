@@ -317,6 +317,12 @@ export enum SavedInsightsTabs {
     Favorites = 'favorites',
 }
 
+export enum ExperimentsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
@@ -1339,7 +1345,6 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
-    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
 }
 
 export interface PersonProperty {
@@ -1364,7 +1369,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | null
+    id: number
     name: string
     description?: string
     feature_flag_key: string
@@ -1377,6 +1382,7 @@ export interface Experiment {
     }
     start_date?: string
     end_date?: string
+    archived?: boolean
     secondary_metrics: FilterType[]
     created_at: string
     created_by: UserBasicType | null

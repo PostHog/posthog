@@ -113,7 +113,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        has_start_date = "start_date" in validated_data
+        has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
         expected_keys = set(
@@ -172,6 +172,14 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     premium_feature = AvailableFeature.EXPERIMENTATION
 
     def get_queryset(self):
+        filters = self.request.GET.dict()
+        if "user" in filters:
+            return super().get_queryset().filter(created_by=self.request.user)
+        if "archived" in filters:
+            return super().get_queryset().filter(archived=True)
+        if "all" in filters:
+            return super().get_queryset().exclude(archived=True)
+
         return super().get_queryset()
 
     # ******************************************
