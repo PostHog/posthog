@@ -94,7 +94,7 @@ curl -L --header "Content-Type: application/json" -d '{
 # start up the stack
 rm -f docker-compose.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
-envsubst "$POSTHOG_SECRET $DOMAIN $SENTRY_DSN" < docker-compose.yml.tmpl > docker-compose.yml
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 sudo -E docker-compose -f docker-compose.yml up -d
 
