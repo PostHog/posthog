@@ -19,7 +19,8 @@ if TEST or DEBUG:
     PG_USER = os.getenv("PGUSER", "posthog")
     PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
     PG_PORT = os.getenv("PGPORT", "5432")
-    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog")
+    PG_DATABASE = os.getenv("PGDATABASE", "posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 

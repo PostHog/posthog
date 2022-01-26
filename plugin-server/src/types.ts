@@ -100,6 +100,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
+    HEALTHCHECK_MAX_STALE_SECONDS: number
     CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
