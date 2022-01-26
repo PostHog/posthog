@@ -54,6 +54,14 @@ reverse_proxy http://web:8000
 }
 EOF
 
+# Write .env file
+envsubst > .env <<EOF
+POSTHOG_SECRET=$POSTHOG_SECRET
+SENTRY_DSN=$SENTRY_DSN
+DOMAIN=$DOMAIN
+EOF
+
+
 # write entrypoint
 rm -rf compose
 mkdir -p compose
