@@ -97,6 +97,7 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
+    // Snippet to dynamically load the css based on window.JS_URL
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
