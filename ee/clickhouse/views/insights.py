@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict
 
 from rest_framework.decorators import action
@@ -11,6 +12,7 @@ from posthog.models.filters import Filter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
+
     # ******************************************
     # /projects/:id/insights/funnel/correlation
     #

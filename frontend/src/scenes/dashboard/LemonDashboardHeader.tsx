@@ -40,7 +40,7 @@ function ShareButton(): JSX.Element {
                 <LemonSwitch
                     label={
                         <>
-                            Anyone with the link can <b>view</b>
+                            Anyone with the link <b>can view</b>
                         </>
                     }
                     checked={dashboard.is_shared}
@@ -61,14 +61,10 @@ function ShareButton(): JSX.Element {
                             className="mb"
                         />
                     )}
-                    To embed this dashboard on your own website, copy this snippet:
+                    To embed this dashboard on your website, copy this snippet:
                     <CodeSnippet language={Language.HTML}>
                         {`<iframe width="100%" height="100%" frameborder="0" src="${shareLink}?embedded" />`}
                     </CodeSnippet>
-                    <small>
-                        Modify attributes <code>width</code> and <code>height</code> to optimize the embed's size for
-                        your website.
-                    </small>
                 </>
             ) : null}
         </div>
@@ -80,7 +76,7 @@ function ShareButton(): JSX.Element {
         <LemonButtonWithPopup
             type="secondary"
             data-attr="dashboard-share-button"
-            onClick={() => setPopupVisible(true)}
+            onClick={() => setPopupVisible((state) => !state)}
             popup={{
                 overlay,
                 placement: 'bottom-end',
@@ -230,7 +226,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     onClick={() => addGraph()}
                                     data-attr="dashboard-add-graph-header"
                                 >
-                                    Add insight
+                                    New insight
                                 </LemonButton>
                             </>
                         )
@@ -243,7 +239,6 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                className="mb"
                                 compactButtons
                                 paywall
                             />
@@ -253,6 +248,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 onTagDelete={deleteTag}
                                 saving={dashboardLoading}
                                 tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                                className="insight-metadata-tags"
                             />
                         </>
                     }

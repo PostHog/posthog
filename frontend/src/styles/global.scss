@@ -15,6 +15,7 @@ NOTE: $medium is a SCSS var; not a keyword
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
+    --primary-hover: #{$primary_hover};
     --primary-active: #{$primary_active};
     --primary-bg-hover: #{$primary_bg_hover};
     --primary-bg-active: #{$primary_bg_active};
@@ -39,6 +40,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
     --radius: #{$radius};
+    --shadow-elevation: #{$shadow_elevation};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
@@ -107,7 +109,7 @@ body strong {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 1rem;
-    margin: 1.5rem 0 0.75rem;
+    margin: 1.25rem 0 0.5rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
     }
@@ -858,6 +860,9 @@ body {
     }
     .ant-dropdown-menu {
         border-radius: var(--radius);
+    }
+    .ant-modal-content {
+        box-shadow: var(--shadow-elevation);
     }
 }
 

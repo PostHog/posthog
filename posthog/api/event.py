@@ -95,7 +95,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # Return at most this number of events in CSV export
-    CSV_EXPORT_DEFAULT_LIMIT = 10_000
+    CSV_EXPORT_DEFAULT_LIMIT = 3_500
     CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
     def get_queryset(self):

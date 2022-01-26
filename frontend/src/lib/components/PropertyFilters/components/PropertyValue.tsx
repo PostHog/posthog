@@ -236,7 +236,7 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
-                        inputReadOnly={true}
+                        inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
                         format="YYYY-MM-DD HH:mm:ss"
@@ -244,7 +244,7 @@ export function PropertyValue({
                         showNow={false}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
                         onOk={(selectedDate) => {
-                            setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
+                            setValue(selectedDate.format('YYYY-MM-DD HH:mm:ss'))
                         }}
                         getPopupContainer={(trigger: Element | null) => {
                             const container = trigger?.parentElement?.parentElement?.parentElement

@@ -29,6 +29,7 @@ import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
@@ -37,7 +38,7 @@ export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
-        actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
+        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
@@ -59,6 +60,7 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -188,7 +190,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
-                        actions.updateExperiment(response)
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -202,6 +204,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
+                    response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
             } catch (error) {
                 errorToast(
@@ -280,9 +283,10 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
-                // loading a draft mode experiment
+                // loading a draft experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
@@ -291,24 +295,25 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const startDate = dayjs()
+            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const endDate = dayjs()
+            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            const duration = endDate.diff(values.experimentData?.start_date, 'second')
+            values.experimentData &&
+                eventUsageLogic.actions.reportExperimentCompleted(
+                    values.experimentData,
+                    endDate,
+                    duration,
+                    values.areResultsSignificant
+                )
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ archived: true })
+            values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {
@@ -318,7 +323,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -330,6 +335,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         return response as Experiment
                     }
                     return null
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    return response
                 },
             },
         ],

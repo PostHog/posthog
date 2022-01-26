@@ -4087,6 +4087,13 @@
   dependencies:
     "@types/react" "*"
 
+"@types/react-transition-group@^4.4.4":
+  version "4.4.4"
+  resolved "https://registry.yarnpkg.com/@types/react-transition-group/-/react-transition-group-4.4.4.tgz#acd4cceaa2be6b757db61ed7b432e103242d163e"
+  integrity sha512-7gAPz7anVK5xzbeQW9wFBDg7G++aPLAFY0QaSMOou9rJZpbuI58WAuJrgu+qR92l61grlnCUe7AFX8KGahAgug==
+  dependencies:
+    "@types/react" "*"
+
 "@types/react-virtualized@^9.21.14":
   version "9.21.14"
   resolved "https://registry.yarnpkg.com/@types/react-virtualized/-/react-virtualized-9.21.14.tgz#8d465aa54386a7bebc7b61f71afc588bb800b868"
@@ -10899,10 +10906,10 @@ kea-localstorage@^1.1.1:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
   integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
 
-kea-router@^1.0.6:
-  version "1.0.6"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.6.tgz#2e8fbbde5bdabe1a884d454ffa336070391f093d"
-  integrity sha512-oOzPAVQKKuM8M9b1friYfUJ2j4BlZ39f3CdjwPjX5w9v2Gff4V7hyZo5BxmTfv2YH9tLSwGymDV6fID5JHpDcw==
+kea-router@^1.0.7:
+  version "1.0.7"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.7.tgz#433b92f9640877f6f8d39b4cef47c3ad30f5623f"
+  integrity sha512-RMhYlgaA/0PywAOm6cgkTKCLlvsCfvOnbkKEyyLLRQ4f0WbS70QUmkeOKTyJ3KB2Yf6qc7fbYOlOZ6ZUJaTMsw==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -10933,10 +10940,10 @@ kea-window-values@^0.1.0:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
   integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
 
-kea@^2.5.7:
-  version "2.5.7"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.7.tgz#202113e89f069318f4d9c6051e2290f6dbf3d4c4"
-  integrity sha512-ROUmhOlPD0tLBgPhhGfxc+wn1lMUqCnmhcHwot1ApNvhpNmcf+zLAUKLplvIT8sTSHvRhLQXS/EcZe44ZyqHyw==
+kea@^2.5.8:
+  version "2.5.8"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.8.tgz#3c008aa09bd49d12dbae3758986b6e0c3423a8e3"
+  integrity sha512-VizwozA1XRb9+Oe7ul5ygqtJVyTYiT56F+qK8XUQnEipCQv6I9QGSC8luRhs/D48QGAB0jD6aBwNpAM2Hv1LbQ==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -14034,6 +14041,16 @@ react-transition-group@^4, react-transition-group@^4.4.1:
   version "4.4.1"
   resolved "https://registry.yarnpkg.com/react-transition-group/-/react-transition-group-4.4.1.tgz#63868f9325a38ea5ee9535d828327f85773345c9"
   integrity sha512-Djqr7OQ2aPUiYurhPalTrVy9ddmFCCzwhqQmtN+J3+3DzLO209Fdr70QrN8Z3DsglWql6iY1lDWAfpFiBtuKGw==
+  dependencies:
+    "@babel/runtime" "^7.5.5"
+    dom-helpers "^5.0.1"
+    loose-envify "^1.4.0"
+    prop-types "^15.6.2"
+
+react-transition-group@^4.4.2:
+  version "4.4.2"
+  resolved "https://registry.yarnpkg.com/react-transition-group/-/react-transition-group-4.4.2.tgz#8b59a56f09ced7b55cbd53c36768b922890d5470"
+  integrity sha512-/RNYfRAMlZwDSr6z4zNKV6xu53/e2BuaBbGhbyYIXTrmgu/bGHzmqOs7mJSJBHy9Ud+ApHx3QjrkKSp1pxvlFg==
   dependencies:
     "@babel/runtime" "^7.5.5"
     dom-helpers "^5.0.1"

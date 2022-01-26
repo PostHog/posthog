@@ -4,10 +4,8 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from ee.models import License
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.test.base import APIBaseTest
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -16,6 +14,46 @@ class TestExperimentCRUD(APILicensedTest):
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_getting_archived_experiments(self):
+        archived_experiment = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "a-b-tests",
+                "archived": True,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+        non_archived_experiment = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "a-b-tests2",
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments?archived=true",)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], archived_experiment.json()["id"])
 
     @pytest.mark.skip_on_multitenancy
     def test_cannot_list_experiments_without_proper_license(self):
