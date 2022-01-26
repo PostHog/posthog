@@ -21,7 +21,7 @@ import { LastModified } from './LastModified'
 import './InsightCard.scss'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from '../icons'
-import { CSSTransition } from 'react-transition-group'
+import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -256,7 +256,9 @@ function InsightMeta({
                         </div>
                     </div>
                     <LemonSpacer />
-                    <InsightDetails insight={insight} ref={detailsRef} />
+                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                        <InsightDetails insight={insight} ref={detailsRef} />
+                    </Transition>
                 </div>
             )}
         </CSSTransition>
