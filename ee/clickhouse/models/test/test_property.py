@@ -515,7 +515,7 @@ def test_breakdown_query_expression(
 @pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
+        _create_event(event="$pageview", team=team, distinct_id="some_guid", properties={"email": "test@posthog.com"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "mongo@example.com"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "some_val"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "50"},),
@@ -625,7 +625,7 @@ def test_events(db, team) -> List[UUID]:
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
         _create_event(
-            event="has set timestamp not `now`", team=team, distinct_id="whatever", timestamp=datetime(2000, 4, 1)
+            event="has set timestamp not `now`", team=team, distinct_id="some_guid", timestamp=datetime(2000, 4, 1)
         ),
     ]
 
@@ -639,12 +639,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 22),
+        range(1, 23),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 22),
+        range(2, 23),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -652,7 +652,7 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 22),
+        range(2, 23),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
@@ -822,6 +822,11 @@ TEST_RESERVED_WORDS = [
         Property(key="timestamp", value="2000-04-02 18:00:00", operator="is_date_before"),
         [22],
         id="most events have time of execution set as timestamp, they are all not matched by this filter",
+    ),
+    pytest.param(
+        Property(key="distinct_id", value="some_guid", operator="exact"),
+        [0, 22],
+        id="can select by the distinct id column",
     ),
 ]
 

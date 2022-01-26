@@ -231,46 +231,9 @@ def prop_filter_json_extract(
             params,
         )
     elif operator == "is_date_after":
-        # introducing duplication in these branches now rather than refactor too early
-        assert isinstance(prop.value, str)
-
-        prop_value_param_key = "v{}_{}".format(prepend, idx)
-
-        if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
-            query = f"""AND {prop.key} > %({prop_value_param_key})s"""
-        else:
-            query = f"""AND coalesce(
-                    parseDateTimeBestEffortOrNull({property_expr}),
-                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                ) > %({prop_value_param_key})s"""
-
-        return (
-            query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
-        )
+        return _choose_date_comparison_query(idx, prepend, prop, property_expr, ">")
     elif operator == "is_date_before":
-        # introducing duplication in these branches now rather than refactor too early
-        assert isinstance(prop.value, str)
-        prop_value_param_key = "v{}_{}".format(prepend, idx)
-
-        if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
-            query = f"""AND {prop.key} < %({prop_value_param_key})s"""
-        else:
-            query = f"""AND coalesce(
-                    parseDateTimeBestEffortOrNull({property_expr}),
-                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                ) < %({prop_value_param_key})s"""
-
-        return (
-            query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
-        )
+        return _choose_date_comparison_query(idx, prepend, prop, property_expr, "<")
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
@@ -301,6 +264,28 @@ def prop_filter_json_extract(
             clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
+
+
+def _choose_date_comparison_query(
+    idx: int, prepend: str, prop: Property, property_expr: str, operator: str
+) -> Tuple[str, Dict]:
+    assert isinstance(prop.value, str)
+
+    prop_value_param_key = "v{}_{}".format(prepend, idx)
+    if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
+        query = f"""AND {prop.key} {operator} %({prop_value_param_key})s"""
+    else:
+        query = f"""AND coalesce(
+                    parseDateTimeBestEffortOrNull({property_expr}),
+                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                ) {operator} %({prop_value_param_key})s"""
+    return (
+        query,
+        {
+            "k{}_{}".format(prepend, idx): prop.key,
+            prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
 
 
 def property_table(property: Property) -> TableWithProperties:
@@ -349,6 +334,15 @@ def get_single_or_multi_property_string_expr(
     return f"{expression} AS {query_alias}"
 
 
+"""
+These are "metadata" of events (columns in the events table in ClickHouse
+    that users should be able to query as if they were properties.
+
+They are separated by type to allow type-aware processing.
+
+For example: when using date queries ClickHouse's `parseDateTime...` functions are used. 
+These fail if given a DateTime value. So parsing can be skipped when an attribute is known to be a DateTime. 
+"""
 EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE: Dict[str, List[str]] = {
     "DateTime": ["timestamp", "created_at"],
     "String": ["distinct_id"],
@@ -368,6 +362,8 @@ def get_property_string_expr(
     :param table:
         the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
+        this is either a key expected to be found in a properties JSON blob, the name of a materialized column,
+        or a reserved name known to be a column on the events table
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
         If a flat value it should be escaped before being passed to this function
