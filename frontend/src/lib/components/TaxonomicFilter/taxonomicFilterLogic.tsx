@@ -119,7 +119,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         } Event`,
                     getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
                         return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
-                            <VerifiedEventStack style={{ fill: 'var(--primary-alt)' }} />
+                            <VerifiedEventStack style={{ fill: 'var(--success)' }} />
                         ) : (
                             <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
                         )
@@ -233,7 +233,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         } Custom Event`,
                     getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
                         return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
-                            <VerifiedEventStack style={{ fill: 'var(--primary-alt)' }} />
+                            <VerifiedEventStack style={{ fill: 'var(--success)' }} />
                         ) : (
                             <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
                         )

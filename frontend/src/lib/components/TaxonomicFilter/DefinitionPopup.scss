@@ -14,6 +14,7 @@
 
             .definition-popup-header-row-title {
                 font-size: 11px;
+                font-weight: 600;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
                 color: var(--text-muted);
@@ -91,13 +92,25 @@
     }
 
     &.view {
-        .definition-popup-grid-section {
-            .section-title {
-                text-transform: capitalize;
-                color: var(--text-muted);
-            }
+        .definition-popup-grid {
+            display: grid;
+            grid-gap: 8px;
 
-            .definition-popup-section-content {
+            .definition-popup-grid-card {
+                display: flex;
+                flex-direction: column;
+
+                .definition-popup-grid-card-title {
+                    font-size: 11px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    text-transform: uppercase;
+                    color: var(--text-muted);
+                    margin-bottom: 4px;
+                }
+
+                .definition-popup-grid-card-content {
+                }
             }
         }
     }

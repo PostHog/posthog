@@ -10,21 +10,13 @@ import {
     PropertyKeyInfo,
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
-import { getContext, useActions, useValues, BindLogic } from 'kea'
+import { getContext, useActions, useValues } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import {
-    ActionType,
-    AvailableFeature,
-    CohortType,
-    EventDefinition,
-    KeyMapping,
-    PersonProperty,
-    PropertyDefinition,
-} from '~/types'
+import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
@@ -36,9 +28,7 @@ import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { Provider } from 'react-redux'
-import { DefinitionPopup } from 'lib/components/TaxonomicFilter/DefinitionPopup'
-import { definitionPopupLogic } from 'lib/components/TaxonomicFilter/definitionPopupLogic'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { renderItemPopup } from 'lib/components/TaxonomicFilter/DefinitionPopup'
 
 enum ListTooltip {
     None = 0,
@@ -144,57 +134,6 @@ const renderItemContents = ({
     )
 }
 
-const renderItemPopup = (
-    item: EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty,
-    listGroupType: TaxonomicFilterGroupType,
-    group: TaxonomicFilterGroup,
-    hasTaxonomyFeatures: boolean
-): React.ReactNode => {
-    // Supports all types specified in selectedItemHasPopup
-    const value = group.getValue(item)
-
-    if (!value) {
-        return
-    }
-
-    const icon = group.getIcon?.(item)
-
-    return (
-        <BindLogic
-            logic={definitionPopupLogic}
-            props={{
-                type: listGroupType,
-            }}
-        >
-            <DefinitionPopup
-                title={<PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon={!!icon} />}
-                headerTitle={group.getPopupHeader(item)}
-                icon={icon}
-            >
-                {'description' in item &&
-                    (item.description ? (
-                        <DefinitionPopup.Description description={item.description} />
-                    ) : (
-                        <DefinitionPopup.DescriptionEmpty />
-                    ))}
-                <DefinitionPopup.Example value={value.toString()} />
-                {hasTaxonomyFeatures && 'tags' in item && !!item.tags?.length && (
-                    <ObjectTags tags={item.tags} style={{ marginBottom: 4 }} />
-                )}
-                <DefinitionPopup.TimeMeta
-                    createdAt={('created_at' in item && item.created_at) || undefined}
-                    createdBy={('created_by' in item && item.created_by) || undefined}
-                    updatedAt={('updated_at' in item && item.updated_at) || undefined}
-                    updatedBy={('updated_by' in item && item.updated_by) || undefined}
-                />
-                <DefinitionPopup.HorizontalLine />
-            </DefinitionPopup>
-        </BindLogic>
-    )
-
-    return item.name ?? ''
-}
-
 const renderItemPopupWithoutTaxonomy = (
     item: PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
@@ -274,6 +213,7 @@ const selectedItemHasPopup = (
                 TaxonomicFilterGroupType.Actions,
                 TaxonomicFilterGroupType.Elements,
                 TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.CustomEvents,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.Cohorts,
