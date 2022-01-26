@@ -1,4 +1,4 @@
-import { Button, Card, Col, Row } from 'antd'
+import { Button, Card, Col, Modal, Row } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
@@ -32,6 +32,9 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
 
     return (
         <>
+            <Modal visible={true}>
+                <div>hi!</div>
+            </Modal>
             <Row style={{ width: '100%' }}>
                 <Col span={10} style={{ paddingRight: 8 }}>
                     {metrics.map((metric, metricId) => (
