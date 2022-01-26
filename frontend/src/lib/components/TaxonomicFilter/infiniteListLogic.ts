@@ -12,8 +12,10 @@ import {
     ListStorage,
     LoaderOptions,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { reservedProperties } from '~/models/propertyDefinitionsModel'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -110,6 +112,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         response = apiCache[url]
                     } else {
                         response = await api.get(url)
+
+                        if (values.group?.type === TaxonomicFilterGroupType.EventProperties && offset === 0) {
+                            response = {
+                                ...response,
+                                count: response?.count ? response.count + 3 : 3,
+                                results: [...reservedProperties, ...response?.results],
+                            }
+                        }
+
                         apiCache[url] = response
                         apiCacheTimers[url] = window.setTimeout(() => {
                             delete apiCache[url]

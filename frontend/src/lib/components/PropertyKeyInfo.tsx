@@ -12,10 +12,11 @@ export interface KeyMappingInterface {
 
 export const keyMapping: KeyMappingInterface = {
     event: {
-        $timestamp: {
+        timestamp: {
             label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            description:
+                'Time the event happened. Added by PostHog when events are ingested. Can be overridden by including `timestamp` as a property when capturing an event.',
+            examples: [new Date().toISOString(), String(new Date().getTime()).substring(0, 11)],
         },
         $browser: {
             label: 'Browser',
@@ -387,6 +388,26 @@ export const keyMapping: KeyMappingInterface = {
                 'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
             hide: true,
         },
+        $timestamp: {
+            label: 'Timestamp',
+            description:
+                'Time the event happened. Provided by some SDKs and client libraries, but not always present. Unless you are sure you want to filter on this, you should filter on `timestamp`',
+            examples: [new Date().toISOString()],
+            hide: true,
+        },
+        $time: {
+            label: 'Time',
+            description:
+                'Time the event was sent. Provided by some SDKs and client libraries, but not always present. Unless you are sure you want to filter on this, you should filter on `timestamp`',
+            hide: true,
+        },
+        created_at: {
+            label: 'Created At',
+            description:
+                'Time the event was stored. Added by PostHog when events are ingested. Cannot be overridden when capturing events.',
+            examples: [new Date().toISOString()],
+            hide: true,
+        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
@@ -423,11 +444,6 @@ export const keyMapping: KeyMappingInterface = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            hide: true,
-        },
-        $time: {
-            label: 'Time',
-            description: 'Time as given by the client.',
             hide: true,
         },
         $device_id: {

@@ -1,11 +1,12 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
 import { AppContext } from '~/types'
+import { reservedProperties } from '~/models/propertyDefinitionsModel'
 
 jest.mock('lib/api')
 
@@ -24,11 +25,54 @@ describe('infiniteListLogic', () => {
                 count: results.length,
             }
         }
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
+            return {
+                results: [],
+                count: 0,
+            }
+        }
     })
 
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
+    })
+
+    describe('event property data source', () => {
+        beforeEach(() => {
+            logic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testList',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+            logic.mount()
+        })
+
+        it('adds reserved words when loading the first page of the event property definitions', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRemoteItems({ offset: 0, limit: 10 })
+            }).toDispatchActions([
+                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
+                    results: [...reservedProperties],
+                    searchQuery: '',
+                    queryChanged: false,
+                    count: 3,
+                }),
+            ])
+        })
+
+        it('does not add reserved words when loading any other page of the event property definitions', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRemoteItems({ offset: 1, limit: 10 })
+            }).toDispatchActions([
+                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
+                    results: [],
+                    searchQuery: '',
+                    queryChanged: false,
+                    count: 0,
+                }),
+            ])
+        })
     })
 
     describe('events with remote data source', () => {

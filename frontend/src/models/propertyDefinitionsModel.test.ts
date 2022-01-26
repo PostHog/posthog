@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, reservedProperties } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { PropertyDefinition, PropertyType } from '~/types'
@@ -62,7 +62,7 @@ describe('the property definitions model', () => {
 
     it('can load property definitions', () => {
         expectLogic(logic).toMatchValues({
-            propertyDefinitions,
+            propertyDefinitions: [...reservedProperties, ...propertyDefinitions],
         })
     })
 

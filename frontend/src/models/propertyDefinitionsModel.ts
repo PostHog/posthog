@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
+import { PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 
@@ -13,6 +13,39 @@ interface PropertyDefinitionStorage {
     next: null | string
     results: PropertyDefinition[]
 }
+
+export const reservedProperties: PropertyDefinition[] = [
+    {
+        id: 'created_at',
+        name: 'created_at',
+        description: '',
+        property_type: PropertyType.DateTime,
+        is_event_property: undefined,
+        query_usage_30_day: null,
+        volume_30_day: null,
+        is_numerical: false,
+    },
+    {
+        id: 'timestamp',
+        name: 'timestamp',
+        description: '',
+        property_type: PropertyType.DateTime,
+        is_event_property: undefined,
+        query_usage_30_day: null,
+        volume_30_day: null,
+        is_numerical: false,
+    },
+    {
+        id: 'distinct_id',
+        name: 'distinct_id',
+        description: '',
+        property_type: PropertyType.String,
+        is_event_property: undefined,
+        query_usage_30_day: null,
+        volume_30_day: null,
+        is_numerical: false,
+    },
+]
 
 const normaliseToArray = (
     valueToFormat: Exclude<PropertyFilterValue, null>
@@ -94,7 +127,8 @@ export const propertyDefinitionsModel = kea<
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
+            (propertyStorage): PropertyDefinition[] =>
+                [...reservedProperties, ...propertyStorage.results] || [...reservedProperties],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
