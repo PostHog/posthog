@@ -114,10 +114,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         response = await api.get(url)
 
                         if (values.group?.type === TaxonomicFilterGroupType.EventProperties && offset === 0) {
+                            // TODO this filtering should be moved to the backend and/or hidden behind the solution to https://github.com/PostHog/posthog/issues/8257
+                            let propertiesToAdd = [...reservedProperties]
+                            if (searchQuery.length > 0) {
+                                propertiesToAdd = propertiesToAdd.filter((p) => p.name.indexOf(searchQuery) >= 0)
+                            }
                             response = {
                                 ...response,
-                                count: response?.count ? response.count + 3 : 3,
-                                results: [...reservedProperties, ...response?.results],
+                                count: propertiesToAdd.length + (response?.count ?? 0),
+                                results: [...propertiesToAdd, ...response?.results],
                             }
                         }
 
