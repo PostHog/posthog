@@ -133,7 +133,32 @@ class User(AbstractUser, UUIDClassicModel):
 
     @property
     def teams(self):
-        return Team.objects.filter(organization__in=self.organizations.all())
+        """
+        All teams the user has access to on any organization, taking into account project based permissioning
+        """
+        teams = Team.objects.filter(organization__members=self)
+        if Organization.objects.filter(
+            members=self, available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING]
+        ).exists():
+            from ee.models import ExplicitTeamMembership
+
+            available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                Q(parent_membership__user=self)
+            ).values_list("team_id", flat=True)
+            organizations_where_user_is_admin = OrganizationMembership.objects.filter(
+                user=self, level__gte=OrganizationMembership.Level.ADMIN
+            ).values_list("organization_id", flat=True)
+            # If project access control IS applicable, make sure
+            # - project doesn't have access control OR
+            # - the user has explicit access OR
+            # - the user is Admin or owner
+            teams = teams.filter(
+                Q(access_control=False)
+                | Q(pk__in=available_private_project_ids)
+                | Q(organization__pk__in=organizations_where_user_is_admin)
+            )
+
+        return teams.order_by("access_control", "id")
 
     @property
     def organization(self) -> Optional[Organization]:
@@ -147,24 +172,7 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
-                or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
-            ):
-                # If project access control is NOT applicable, simply prefer open projects just in case
-                self.current_team = self.organization.teams.order_by("access_control", "id").first()
-            else:
-                # If project access control IS applicable, make sure the user is assigned a project they have access to
-                from ee.models import ExplicitTeamMembership
-
-                available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                    parent_membership__user=self
-                ).values_list("team_id", flat=True)
-                self.current_team = (
-                    self.organization.teams.filter(Q(access_control=False) | Q(pk__in=available_private_project_ids))
-                    .order_by("access_control", "id")
-                    .first()
-                )
+            self.current_team = self.teams.filter(organization=self.current_organization).first()
             self.save()
         return self.current_team
 
