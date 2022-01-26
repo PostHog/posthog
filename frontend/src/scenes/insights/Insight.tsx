@@ -55,7 +55,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
     const verticalLayout =
-        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] === 'control' // Whether to display the control tab on the side instead of on top
+        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] !== 'test' // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
