@@ -400,13 +400,30 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
+    property_string_expr, _ = get_property_string_expr("events", key, "%(key)s", "properties", True)
+
     if value:
         return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
+                property_string_expr=property_string_expr,
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+            ),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
+
+    if "FROM JSONExtractRaw" in property_string_expr:
+        existence_check = "AND JSONHas(properties, %(key)s)"
+    else:
+        existence_check = ""
+
     return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+        SELECT_PROP_VALUES_SQL.format(
+            property_string_expr=property_string_expr,
+            existence_check=existence_check,
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+        ),
         {"team_id": team.pk, "key": key},
     )
 
