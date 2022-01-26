@@ -15,9 +15,6 @@ const defaultPort = 8234
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 export const isDev = process.argv.includes('--dev')
 
-const useJsURL = Boolean(process.env.JS_URL) || isDev
-const jsURL = process.env.JS_URL || `http://${defaultHost}:${defaultPort}`
-
 export const sassPlugin = _sassPlugin({
     importer: [
         (importUrl) => {
@@ -58,6 +55,14 @@ export function copyIndexHtml(
     chunks = {},
     entrypoints = []
 ) {
+    // Takes an html file, `from`, and some artifacts from esbuild, and injects
+    // some javascript that will load these artifacts dynamically, based on an
+    // expected `window.JS_URL` javascript variable.
+    //
+    // `JS_URL` is expected to be injected into the html as part of Django html
+    // template rendering. We do not know what JS_URL should be at runtime, as,
+    // for instance, on PostHog Cloud, we want to use the official Posthog
+    // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
     const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(__dirname, 'dist'), e))
@@ -69,7 +74,7 @@ export function copyIndexHtml(
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
-                await import('${useJsURL ? jsURL : ''}/static/' + file)
+                await import(window.JS_URL + 'static/' + file)
             } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
@@ -92,17 +97,24 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    const cssLinkTag = cssFile ? `<link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${cssFile}'>` : ''
+    const cssLoader = `
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = window.JS_URL + "static/${cssFile}"
+        document.head.appendChild(link)
+    `
 
     fse.writeFileSync(
         path.resolve(__dirname, to),
         fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
+                    // Load styles first, such that we have them before code
+                    // loads and starts adding elements to html
+                    ${cssLoader}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
-                ${cssLinkTag}
             </head>`
         )
     )
