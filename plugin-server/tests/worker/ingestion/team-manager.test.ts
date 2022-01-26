@@ -363,7 +363,7 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                        params: [expect.any(String), 'anObjectProperty', false, teamId, null],
                     },
                     postgresQuery
                 )
@@ -380,7 +380,7 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null],
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric'],
                     },
                     postgresQuery
                 )
@@ -397,7 +397,7 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'some_string', false, teamId, 'String', null],
+                        params: [expect.any(String), 'some_string', false, teamId, 'String'],
                     },
                     postgresQuery
                 )
@@ -480,7 +480,6 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                                 typeof testcase.date === 'number',
                                 teamId,
                                 testcase.expectedPropertyType,
-                                null,
                             ],
                         },
                         postgresQuery
@@ -603,14 +602,7 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                         {
                             tag: 'insertPropertyDefinition',
                             query: insertPropertyDefinitionQuery,
-                            params: [
-                                expect.any(String),
-                                testcase.propertyKey,
-                                false,
-                                teamId,
-                                PropertyType.DateTime,
-                                null,
-                            ],
+                            params: [expect.any(String), testcase.propertyKey, false, teamId, PropertyType.DateTime],
                         },
                         postgresQuery
                     )
