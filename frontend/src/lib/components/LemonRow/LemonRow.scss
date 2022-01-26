@@ -61,6 +61,9 @@
     width: 100%;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+    .LemonRow__icon:not(:first-child):last-child {
+        margin-right: 0;
+    }
     .LemonRow__main-area {
         justify-content: start;
     }
@@ -83,6 +86,7 @@
 
 .LemonRow--compact {
     height: 2rem;
+    padding: 0.125rem 0.5rem;
     &.LemonRow--symbolic {
         height: 1.25rem;
         padding: 0;
@@ -101,6 +105,9 @@
     justify-content: center;
     font-size: 1.5rem;
     color: var(--muted-alt);
+    &:not(:first-child):last-child {
+        margin-right: -0.5rem;
+    }
 }
 
 .LemonRow__content {

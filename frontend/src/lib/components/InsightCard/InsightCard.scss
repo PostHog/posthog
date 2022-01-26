@@ -3,9 +3,6 @@
 .InsightCard {
     transition: border 200ms ease;
     position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
     height: 30rem;
     min-width: 0;
     max-width: 100%;
@@ -28,11 +25,13 @@
 }
 
 .InsightViz {
-    position: relative;
-    flex-grow: 1;
+    position: absolute;
+    bottom: 0;
+    left: 0;
     display: flex;
     justify-content: center;
     min-height: 0;
+    width: 100%;
     overflow: auto;
     .graph-container {
         padding: 1rem;
@@ -44,9 +43,15 @@
 }
 
 .InsightMeta {
+    position: absolute;
+    top: 0;
+    left: 0;
     display: flex;
+    flex-direction: column;
     padding: 1rem;
     width: 100%;
+    background: #fff;
+    z-index: 1; // Elevate above viz
     h5 {
         color: var(--text-muted);
         line-height: 1.5rem;
@@ -61,6 +66,11 @@
         font-weight: 600;
         margin-bottom: 0.125rem;
     }
+}
+
+.InsightMeta__primary {
+    display: flex;
+    width: 100%;
 }
 
 .InsightMeta__ribbon {
@@ -89,6 +99,7 @@
     align-items: flex-start;
     overflow: auto;
     width: 100%;
+    height: fit-content;
     > * {
         max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
     }
@@ -97,13 +108,17 @@
 .InsightMeta__top {
     align-self: stretch;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     height: 1.5rem;
 }
 
 .InsightMeta__controls {
     display: flex;
+    align-items: center;
+    button:not(:last-child) {
+        margin-right: 0.5rem;
+    }
 }
 
 .InsightMeta__description {
