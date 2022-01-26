@@ -362,6 +362,31 @@ export function IconSubtitlesOff(props: React.SVGProps<SVGSVGElement>): JSX.Elem
     )
 }
 
+/** Material Design Calculate icon. */
+export function IconCalculate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m19 3h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z" />
+                <path d="m11.25 7.7207h-5v1.5h5z" />
+                <path d="m18 15.75h-5v1.5h5z" />
+                <path d="m18 13.25h-5v1.5h5z" />
+                <path d="m8 18h1.5v-2h2v-1.5h-2v-2h-1.5v2h-2v1.5h2z" />
+                <path d="m14.09 10.95 1.41-1.41 1.41 1.41 1.06-1.06-1.41-1.42 1.41-1.41-1.06-1.06-1.41 1.41-1.41-1.41-1.06 1.06 1.41 1.41-1.41 1.42z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Subdirectory Arrow Right icon. */
+export function IconSubdirectoryArrowRight(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
 export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>

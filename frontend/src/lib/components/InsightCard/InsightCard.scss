@@ -52,7 +52,7 @@
     width: 100%;
     max-height: calc(100% - 2rem);
     background: #fff;
-    z-index: 1; // Elevate above viz
+    z-index: 5; // Elevate above viz
     overflow: hidden;
     h5 {
         color: var(--text-muted);
@@ -191,9 +191,16 @@
 }
 
 .InsightDetails {
+    font-size: 0.8125rem;
     h5 {
         margin-top: 0.5rem;
         margin-bottom: 0.25rem;
+    }
+    .property-filters {
+        margin: 0;
+    }
+    .LemonRow {
+        min-height: 2rem;
     }
 }
 
@@ -201,9 +208,89 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     background: var(--bg-side);
+    .LemonRow {
+        padding-left: 0;
+        padding-right: 0;
+    }
+}
+
+.InsightDetails__formula {
+    code {
+        font-weight: 600;
+        margin-left: 0.375rem;
+    }
+}
+
+.InsightDetails__series {
+    &:not(:first-child) {
+        margin-top: 0.5rem;
+    }
+    .LemonSpacer {
+        width: calc(100% - 1.5rem);
+        margin-left: 1.5rem;
+    }
 }
 
 .InsightDetails__footer {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
+    .profile-package {
+        vertical-align: middle;
+    }
+    .tz-label {
+        line-height: normal;
+        vertical-align: middle;
+    }
+    .taxonomic-breakdown-filter.tag-pill {
+        font-size: 0.8125rem;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: none;
+        vertical-align: unset;
+    }
+}
+
+.SeriesDisplay {
+    line-height: 1.5rem;
+}
+
+.SeriesDisplay__raw-name {
+    margin: 0 0.5rem;
+    padding: 0.25rem;
+    background: var(--primary-bg-hover);
+    border-radius: var(--radius);
+    color: var(--primary-alt);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1rem;
+    &.SeriesDisplay__raw-name--action::before,
+    &.SeriesDisplay__raw-name--event::before {
+        display: inline-block;
+        text-align: center;
+        width: 1rem;
+        border-radius: 0.25rem;
+        margin-right: 0.25rem;
+        background: var(--primary);
+        color: #fff;
+        line-height: 1rem;
+        font-weight: 700;
+    }
+    &.SeriesDisplay__raw-name--action::before {
+        content: 'A';
+    }
+    &.SeriesDisplay__raw-name--event::before {
+        content: 'E';
+    }
+}
+
+.SeriesDisplay__condition {
+    display: flex;
+}
+
+.SeriesDisplay__arrow {
+    margin-right: 0.25rem;
+    color: var(--border-dark);
+    font-size: 1.25rem;
+    vertical-align: middle;
 }

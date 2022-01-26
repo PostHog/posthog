@@ -54,6 +54,8 @@ interface InsightMetaProps
      * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
      */
     setPrimaryHeight?: (primaryHeight: number | undefined) => void
+    areDetailsShown?: boolean
+    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 function InsightMeta({
@@ -65,6 +67,8 @@ function InsightMeta({
     duplicate,
     moveToDashboard,
     setPrimaryHeight,
+    areDetailsShown,
+    setAreDetailsShown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboard } = insight
 
@@ -73,8 +77,6 @@ function InsightMeta({
 
     const { ref: primaryRef, height: primaryHeight } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
-
-    const [areDetailsShown, setAreDetailsShown] = useState(false)
 
     useEffect(() => {
         setPrimaryHeight?.(primaryHeight)
@@ -114,14 +116,16 @@ function InsightMeta({
                                     {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
                                 <div className="InsightMeta__controls">
-                                    <LemonButton
-                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                        onClick={() => setAreDetailsShown((state) => !state)}
-                                        type="tertiary"
-                                        compact
-                                    >
-                                        {!areDetailsShown ? 'Show' : 'Hide'} details
-                                    </LemonButton>
+                                    {setAreDetailsShown && (
+                                        <LemonButton
+                                            icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                                            onClick={() => setAreDetailsShown((state) => !state)}
+                                            type="tertiary"
+                                            compact
+                                        >
+                                            {!areDetailsShown ? 'Show' : 'Hide'} details
+                                        </LemonButton>
+                                    )}
                                     <More
                                         overlay={
                                             <>
@@ -232,18 +236,28 @@ function InsightMeta({
     )
 }
 
-function InsightViz({
-    insight,
-    loading,
-    style,
-}: Pick<InsightCardProps, 'insight' | 'loading' | 'apiError' | 'style'>): JSX.Element {
+interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiError' | 'style'> {
+    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+}
+
+function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizProps): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
     const displayedType = getDisplayedType(filters)
     const VizComponent = displayMap[displayedType].element
 
     return (
-        <div className="InsightViz" style={style}>
+        <div
+            className="InsightViz"
+            style={style}
+            onClick={
+                setAreDetailsShown
+                    ? () => {
+                          setAreDetailsShown?.(false)
+                      }
+                    : undefined
+            }
+        >
             {loading && <Loading />}
             <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
                 <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
@@ -281,6 +295,7 @@ function InsightCardInternal(
     }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
+    const [areDetailsShown, setAreDetailsShown] = useState(false)
 
     return (
         <div
@@ -299,6 +314,8 @@ function InsightCardInternal(
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
                     setPrimaryHeight={setMetaPrimaryHeight}
+                    areDetailsShown={areDetailsShown}
+                    setAreDetailsShown={setAreDetailsShown}
                 />
                 <InsightViz
                     insight={insight}
@@ -309,6 +326,7 @@ function InsightCardInternal(
                             ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                             : undefined
                     }
+                    setAreDetailsShown={setAreDetailsShown}
                 />
             </BindLogic>
             {showResizeHandles && (

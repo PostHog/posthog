@@ -5,7 +5,7 @@ import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 
-export type LocalFilter = EntityFilter & {
+export type LocalFilter = ActionFilter & {
     order: number
     properties?: AnyPropertyFilter[]
 }
@@ -18,7 +18,7 @@ export function toLocalFilters(filters: FilterType): LocalFilter[] {
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...(filter as EntityFilter), order }))
+        .map((filter, order) => ({ ...(filter as ActionFilter), order }))
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {
