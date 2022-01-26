@@ -11,6 +11,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
+import clsx from 'clsx'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -56,7 +57,12 @@ export const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="property-filter-row" data-attr={'property-filter-' + index} wrap={false}>
+        <Row
+            align="middle"
+            className={clsx('property-filter-row', !disablePopover && 'wrap-filters')}
+            data-attr={'property-filter-' + index}
+            wrap={false}
+        >
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
@@ -94,12 +100,17 @@ export const FilterRow = React.memo(function FilterRow({
                                     {isValidPropertyFilter(item) ? (
                                         <PropertyFilterButton
                                             onClick={() => setOpen(!open)}
+                                            onClose={() => onRemove(index)}
                                             item={item}
                                             setRef={setRef}
                                             greyBadges={greyBadges}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
-                                        <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
+                                        <FilterButton
+                                            onClick={() => setOpen(!open)}
+                                            onClose={() => onRemove(index)}
+                                            setRef={setRef}
+                                        >
                                             {`${item['alias']}::${item['regex']}`}
                                         </FilterButton>
                                     ) : (
@@ -120,13 +131,6 @@ export const FilterRow = React.memo(function FilterRow({
                             )
                         }}
                     </Popup>
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            className="ml-1"
-                            onClick={() => onRemove(index)}
-                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                        />
-                    )}
                 </>
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
