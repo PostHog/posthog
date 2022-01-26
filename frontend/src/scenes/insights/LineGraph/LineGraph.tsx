@@ -26,7 +26,7 @@ import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType, GraphPoint } from '~/types'
+import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType, IntervalType } from '~/types'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -223,8 +223,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (isHorizontal) {
-                // If series are nested (for ActionsHorizontalBar only), filter out the series by index
+            if (isHorizontal || type === GraphType.Pie) {
+                // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
                 const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
                 datasets = datasets.map((_data) => {
                     // Performs a filter transformation on properties that contain arrayed data

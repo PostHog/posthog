@@ -82,6 +82,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | CAPTURE_INTERNAL_METRICS      | whether to capture internal metrics for posthog in posthog                                                                                                                                                     | `false`                               |
 | PISCINA_USE_ATOMICS           | corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)                                                                                      | `true`                                |
 | PISCINA_ATOMICS_TIMEOUT       | (advanced) corresponds to the length of time (in ms) a piscina worker should block for when looking for tasks - instances with high volumes (100+ events/sec) might benefit from setting this to a lower value | `5000`                                |
+| HEALTHCHECK_MAX_STALE_SECONDS | 'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails'                                                                                                     |
 
 ## Releasing a new version
 
