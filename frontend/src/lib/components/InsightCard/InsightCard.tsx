@@ -23,6 +23,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from '../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
@@ -121,8 +122,14 @@ function InsightMeta({
                         <div className="InsightMeta__main">
                             <div className="InsightMeta__top">
                                 <h5>
-                                    {filters.insight || InsightType.TRENDS} •{' '}
-                                    {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
+                                    <span
+                                        title={
+                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].description
+                                        }
+                                    >
+                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].name}
+                                    </span>{' '}
+                                    • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
                                 <div className="InsightMeta__controls">
                                     {setAreDetailsShown && (

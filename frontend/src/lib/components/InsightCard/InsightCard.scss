@@ -261,6 +261,7 @@
 }
 
 .SeriesDisplay__raw-name {
+    display: inline-flex;
     margin: 0 0.5rem;
     padding: 0.25rem;
     background: var(--primary-bg-hover);

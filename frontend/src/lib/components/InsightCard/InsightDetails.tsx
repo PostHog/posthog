@@ -88,7 +88,9 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                 {filters.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                            Formula:<code>{filters.formula}</code>
+                            <span>
+                                Formula:<code>{filters.formula}</code>
+                            </span>
                         </LemonRow>
                         <LemonSpacer />
                     </>
