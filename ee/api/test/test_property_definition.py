@@ -15,13 +15,12 @@ from posthog.test.base import APIBaseTest
 class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_can_set_and_query_property_type_and_format(self):
         property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="a timestamp", property_type="DateTime", property_type_format="unix_timestamp"
+            team=self.team, name="a timestamp", property_type="DateTime",
         )
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         assert response.json()["property_type"] == "DateTime"
-        assert response.json()["property_type_format"] == "unix_timestamp"
 
         query_list_response = self.client.get(f"/api/projects/@current/property_definitions")
         matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "a timestamp"]
@@ -30,19 +29,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_errors_on_invalid_property_type(self):
         with pytest.raises(IntegrityError):
             EnterprisePropertyDefinition.objects.create(
-                team=self.team,
-                name="a timestamp",
-                property_type="not an allowed option",
-                property_type_format="unix_timestamp",
-            )
-
-    def test_errors_on_invalid_property_type_format(self):
-        with pytest.raises(IntegrityError):
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team,
-                name="a timestamp",
-                property_type="DateTime",
-                property_type_format="not an allowed option",
+                team=self.team, name="a timestamp", property_type="not an allowed option",
             )
 
     def test_retrieve_existing_property_definition(self):

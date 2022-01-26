@@ -179,7 +179,6 @@ describe('TeamManager()', () => {
                     is_numerical: false,
                     name: 'property_name',
                     property_type: 'String',
-                    property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
@@ -189,7 +188,6 @@ describe('TeamManager()', () => {
                     is_numerical: true,
                     name: 'number',
                     property_type: 'Numeric',
-                    property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
@@ -199,7 +197,6 @@ describe('TeamManager()', () => {
                     is_numerical: true,
                     name: 'numeric_prop',
                     property_type: 'Numeric',
-                    property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
@@ -327,10 +324,10 @@ describe('TeamManager()', () => {
         describe('auto-detection of property types', () => {
             const insertPropertyDefinitionQuery = `
 INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`
+DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS NULL`
             const teamId = 2
 
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
@@ -622,8 +619,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
             it('does identify type if the property was previously saved with no type', async () => {
                 await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
+                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null],
                     'testTag'
                 )
 
@@ -633,19 +630,19 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const results = await teamManager.db.postgresQuery(
                     `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    SELECT property_type from posthog_propertydefinition
                     where name=$1
                 `,
                     ['a_timestamp'],
                     'queryForProperty'
                 )
-                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: null })
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime' })
             })
 
             it('does not replace property type if the property was previously saved with a different type', async () => {
                 await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
+                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime],
                     'testTag'
                 )
 
@@ -655,7 +652,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
 
                 const results = await teamManager.db.postgresQuery(
                     `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    SELECT property_type from posthog_propertydefinition
                     where name=$1
                 `,
                     ['a_prop_with_type'],
@@ -663,7 +660,6 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 )
                 expect(results.rows[0]).toEqual({
                     property_type: PropertyType.DateTime,
-                    property_type_format: 'YYYY-MM-DD',
                 })
             })
 

@@ -38,8 +38,6 @@ class PropertyDefinition(UUIDModel):
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
-    property_type_format = models.CharField(max_length=50, choices=PropertyFormat.choices, blank=True, null=True)
-
     # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
@@ -51,13 +49,7 @@ class PropertyDefinition(UUIDModel):
             GinIndex(name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]),
         ]  # To speed up DB-based fuzzy searching
         constraints = [
-            models.CheckConstraint(
-                name="property_type_and_format_are_valid",
-                check=models.Q(
-                    (models.Q(property_type__in=PropertyType.values))
-                    & (models.Q(property_type_format__in=PropertyFormat.values))
-                ),
-            )
+            models.CheckConstraint(name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values))
         ]
 
     def __str__(self) -> str:
