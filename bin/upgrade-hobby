@@ -22,6 +22,8 @@ cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
+docker-compose pull
+
 sudo -E docker-compose up -d
 
 echo "PostHog upgraded successfully!"
