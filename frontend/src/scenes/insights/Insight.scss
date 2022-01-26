@@ -47,6 +47,10 @@ $funnel_canvas_background: #fff;
         }
     }
 
+    .LastModified {
+        margin-top: 0.5rem;
+    }
+
     hr {
         margin: 1rem 0;
     }
@@ -234,33 +238,19 @@ $funnel_canvas_background: #fff;
         }
     }
 
-    .insight-metadata-description {
-        .field {
-            color: $text_muted_alt;
-            font-style: italic;
-        }
-    }
-
-    .insight-metadata-name {
-        .field {
-            font-size: 28px;
-            font-weight: 600;
-            line-height: 40px;
-        }
-    }
-
-    .insight-metadata-tags {
-        .ant-tag {
-            margin-top: 0 !important;
-        }
-    }
-
     .insights-graph-header {
         margin-top: 0 !important;
         margin-bottom: 0 !important;
         padding-left: $default_spacing;
         padding-right: $default_spacing;
         min-height: 48px;
+    }
+}
+
+.insight-metadata-tags {
+    margin-top: 0.25rem;
+    .ant-tag {
+        margin-top: 0;
     }
 }
 

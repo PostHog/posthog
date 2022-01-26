@@ -3,17 +3,23 @@ import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import dayjs from 'dayjs'
-import { Tag } from 'antd'
+import { dayjs } from 'lib/dayjs'
+import { Tabs, Tag } from 'antd'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { userLogic } from 'scenes/userLogic'
+import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -21,7 +27,9 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { experiments, experimentsLoading } = useValues(experimentsLogic)
+    const { experiments, experimentsLoading, tab } = useValues(experimentsLogic)
+    const { setExperimentsFilters, deleteExperiment } = useActions(experimentsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -74,34 +82,93 @@ export function Experiments(): JSX.Element {
                 )
             },
         },
+        {
+            width: 0,
+            render: function Render(_, experiment: Experiment) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
+                                    View
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton
+                                    type="stealth"
+                                    style={{ color: 'var(--danger)' }}
+                                    onClick={() => deleteExperiment(experiment.id)}
+                                    data-attr={`experiment-${experiment.id}-dropdown-remove`}
+                                    fullWidth
+                                >
+                                    Delete experiment
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
         <div>
             <PageHeader
-                title="Experiments"
-                style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}
+                title={
+                    <div className="flex-center">
+                        Experimentation
+                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                            BETA
+                        </LemonTag>
+                    </div>
+                }
+                style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}
                 buttons={
-                    <LinkButton
-                        type="primary"
-                        data-attr="create-experiment"
-                        to={urls.experiment('new')}
-                        icon={<PlusOutlined />}
-                    >
-                        New Experiment
-                    </LinkButton>
+                    hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
+                        <LinkButton
+                            type="primary"
+                            data-attr="create-experiment"
+                            to={urls.experiment('new')}
+                            icon={<PlusOutlined />}
+                        >
+                            New Experiment
+                        </LinkButton>
+                    ) : undefined
                 }
             />
-            <LemonTable
-                dataSource={experiments}
-                columns={columns}
-                rowKey="id"
-                loading={experimentsLoading}
-                defaultSorting={{ columnKey: 'id', order: 1 }}
-                pagination={{ pageSize: 100 }}
-                nouns={['Experiment', 'Experiments']}
-                data-attr="experiment-table"
-            />
+            {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
+                <>
+                    <Tabs
+                        activeKey={tab}
+                        style={{ borderColor: '#D9D9D9' }}
+                        onChange={(t) => setExperimentsFilters({ tab: t as ExperimentsTabs })}
+                    >
+                        <Tabs.TabPane tab="All Experiments" key={ExperimentsTabs.All} />
+                        <Tabs.TabPane tab="Your Experiments" key={ExperimentsTabs.Yours} />
+                        <Tabs.TabPane tab="Archived Experiments" key={ExperimentsTabs.Archived} />
+                    </Tabs>
+                    <LemonTable
+                        dataSource={experiments}
+                        columns={columns}
+                        rowKey="id"
+                        loading={experimentsLoading}
+                        defaultSorting={{ columnKey: 'id', order: 1 }}
+                        pagination={{ pageSize: 100 }}
+                        nouns={['Experiment', 'Experiments']}
+                        data-attr="experiment-table"
+                    />
+                </>
+            ) : (
+                <PayGatePage
+                    featureKey="experimentation"
+                    header={
+                        <>
+                            Introducing <span className="highlight">Experimentation</span>!
+                        </>
+                    }
+                    caption="Improve your product by A/B testing new features to discover what works best for your users."
+                    docsLink="https://posthog.com/docs/user-guides/experimentation"
+                />
+            )}
         </div>
     )
 }

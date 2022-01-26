@@ -1,10 +1,16 @@
 import dataclasses
 from datetime import datetime
+from math import exp, sqrt
 from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    FF_DISTRIBUTION_THRESHOLD,
+    MIN_PROBABILITY_FOR_SIGNIFICANCE,
+)
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -20,7 +26,7 @@ class Variant:
     failure_count: int
 
 
-CONTROL_VARIANT_KEY = "control"
+EXPECTED_LOSS_SIGNIFICANCE_LEVEL = 0.01
 
 
 class ClickhouseFunnelExperimentResult:
@@ -76,13 +82,20 @@ class ClickhouseFunnelExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        return {"insight": funnel_results, "probability": mapping, "filters": self.funnel._filter.to_dict()}
+        significant = self.are_results_significant(control_variant, test_variants, probabilities)
+
+        return {
+            "insight": funnel_results,
+            "probability": mapping,
+            "significant": significant,
+            "filters": self.funnel._filter.to_dict(),
+        }
 
     def get_variants(self, funnel_results):
         control_variant = None
         test_variants = []
         for result in funnel_results:
-            total = sum([step["count"] for step in result])
+            total = result[0]["count"]
             success = result[-1]["count"]
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
@@ -123,12 +136,79 @@ class ClickhouseFunnelExperimentResult:
 
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
+    @staticmethod
+    def are_results_significant(
+        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+    ) -> bool:
+        control_sample_size = control_variant.success_count + control_variant.failure_count
 
-def simulate_winning_variant_for_conversion(target_variant: Variant, variants: List[Variant]) -> float:
+        for variant in test_variants:
+            # We need a feature flag distribution threshold because distribution of people
+            # can skew wildly when there are few people in the experiment
+            if variant.success_count + variant.failure_count < FF_DISTRIBUTION_THRESHOLD:
+                return False
+
+        if control_sample_size < FF_DISTRIBUTION_THRESHOLD:
+            return False
+
+        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
+            return False
+
+        best_test_variant = max(
+            test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
+        )
+
+        expected_loss = calculate_expected_loss(
+            best_test_variant,
+            [control_variant, *[variant for variant in test_variants if variant != best_test_variant]],
+        )
+
+        return expected_loss < EXPECTED_LOSS_SIGNIFICANCE_LEVEL
+
+
+def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:
+    """
+    Calculates expected loss in conversion rate for a given variant.
+    Loss calculation comes from VWO's SmartStats technical paper:
+    https://cdn2.hubspot.net/hubfs/310840/VWO_SmartStats_technical_whitepaper.pdf (pg 12)
+
+    > The loss function is the amount of uplift that one can expect to
+    be lost by choosing a given variant, given particular values of λA and λB
+
+    The unit of the return value is conversion rate values
+
+    """
     random_sampler = default_rng()
     prior_success = 1
     prior_failure = 1
-    simulations_count = 1_000_000
+    simulations_count = 100_000
+
+    variant_samples = []
+    for variant in variants:
+        # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
+        # and beta = prior_failure + variant_failure
+        samples = random_sampler.beta(
+            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
+        )
+        variant_samples.append(samples)
+
+    target_variant_samples = random_sampler.beta(
+        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+    )
+
+    loss = 0
+    variant_conversions = list(zip(*variant_samples))
+    for i in range(simulations_count):
+        loss += max(0, max(variant_conversions[i]) - target_variant_samples[i])
+
+    return loss / simulations_count
+
+
+def simulate_winning_variant_for_conversion(target_variant: Variant, variants: List[Variant]) -> Probability:
+    random_sampler = default_rng()
+    prior_success = 1
+    prior_failure = 1
+    simulations_count = 100_000
 
     variant_samples = []
     for variant in variants:

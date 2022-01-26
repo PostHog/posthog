@@ -23,8 +23,9 @@ import {
     FunnelCorrelation,
     ItemMode,
     AnyPropertyFilter,
+    Experiment,
 } from '~/types'
-import { Dayjs } from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
@@ -258,9 +259,9 @@ export const eventUsageLogic = kea<
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -350,6 +351,21 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
+        reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
+        reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
+        reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
+        reportExperimentLaunched: (experiment: Experiment, launchDate: dayjs.Dayjs) => ({ experiment, launchDate }),
+        reportExperimentCompleted: (
+            experiment: Experiment,
+            endDate: dayjs.Dayjs,
+            duration: number,
+            significant: boolean
+        ) => ({
+            experiment,
+            endDate,
+            duration,
+            significant,
+        }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -463,6 +479,9 @@ export const eventUsageLogic = kea<
             properties.mode = insightMode // View or edit
 
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.is_saved = insightModel.saved
+            properties.description_length = insightModel.description?.length ?? 0
+            properties.tags_count = insightModel.tags?.length ?? 0
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
@@ -772,6 +791,50 @@ export const eventUsageLogic = kea<
         },
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
+        },
+        reportExperimentArchived: ({ experiment }) => {
+            posthog.capture('experiment archived', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+            })
+        },
+        reportExperimentCreated: ({ experiment }) => {
+            posthog.capture('experiment created', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+            })
+        },
+        reportExperimentViewed: ({ experiment }) => {
+            posthog.capture('experiment viewed', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+            })
+        },
+        reportExperimentLaunched: ({ experiment, launchDate }) => {
+            posthog.capture('experiment launched', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                launch_date: launchDate.toISOString(),
+            })
+        },
+        reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
+            posthog.capture('experiment completed', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                end_date: endDate.toISOString(),
+                duration,
+                significant,
+            })
         },
     }),
 })

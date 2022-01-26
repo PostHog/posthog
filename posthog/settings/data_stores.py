@@ -19,7 +19,8 @@ if TEST or DEBUG:
     PG_USER = os.getenv("PGUSER", "posthog")
     PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
     PG_PORT = os.getenv("PGPORT", "5432")
-    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog")
+    PG_DATABASE = os.getenv("PGDATABASE", "posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -105,12 +106,7 @@ KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-_primary_db = os.getenv("PRIMARY_DB", "postgres")
-PRIMARY_DB: AnalyticsDBMS
-try:
-    PRIMARY_DB = AnalyticsDBMS(_primary_db)
-except ValueError:
-    PRIMARY_DB = AnalyticsDBMS.POSTGRES
+PRIMARY_DB = AnalyticsDBMS.CLICKHOUSE
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

@@ -138,7 +138,6 @@ const sampleContextData = {
         },
     },
     preflight: {
-        is_clickhouse_enabled: true,
         instance_preferences: { disable_paid_fs: false },
     },
     default_event_name: '$pageview',

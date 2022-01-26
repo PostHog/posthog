@@ -13,12 +13,15 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import Clickhouse
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import INSIGHT_TRENDS
+from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    PremiumFeaturePermission,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -36,7 +39,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "end_date",
             "feature_flag_key",
             "parameters",
+            "secondary_metrics",
             "filters",
+            "archived",
             "created_by",
             "created_at",
             "updated_at",
@@ -108,10 +113,12 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        has_start_date = "start_date" in validated_data
+        has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
-        expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
+        expected_keys = set(
+            ["name", "description", "start_date", "end_date", "filters", "parameters", "archived", "secondary_metrics"]
+        )
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
 
@@ -156,9 +163,23 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        PremiumFeaturePermission,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    premium_feature = AvailableFeature.EXPERIMENTATION
 
     def get_queryset(self):
+        filters = self.request.GET.dict()
+        if "user" in filters:
+            return super().get_queryset().filter(created_by=self.request.user)
+        if "archived" in filters:
+            return super().get_queryset().filter(archived=True)
+        if "all" in filters:
+            return super().get_queryset().exclude(archived=True)
+
         return super().get_queryset()
 
     # ******************************************
@@ -195,7 +216,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
-        if not experiment.parameters.get("secondary_metrics"):
+        if not experiment.secondary_metrics:
             raise ValidationError("Experiment has no secondary metrics")
 
         metric_id = request.query_params.get("id")
@@ -208,10 +229,10 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         except ValueError:
             raise ValidationError("Secondary metric id must be an integer")
 
-        if parsed_id > len(experiment.parameters.get("secondary_metrics")):
+        if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.parameters["secondary_metrics"][parsed_id])
+        filter = Filter(experiment.secondary_metrics[parsed_id])
 
         result = ClickhouseSecondaryExperimentResult(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,

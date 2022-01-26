@@ -32,13 +32,15 @@ function TableRowRaw<T extends Record<string, any>>({
             <tr data-row-key={rowKeyDetermined} {...onRow?.(record)} className={rowClassNameDetermined}>
                 {!!expandable && rowExpandable >= 0 && (
                     <td>
-                        {rowExpandable && (
+                        {!!rowExpandable && (
                             <LemonButton
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
-                                onClick={() => setIsRowExpanded((state) => !state)}
+                                onClick={() => {
+                                    setIsRowExpanded((state) => !state)
+                                    !isRowExpanded && expandable.onRowExpand?.(record)
+                                }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}
-                                compact
                             />
                         )}
                     </td>
@@ -63,7 +65,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 })}
             </tr>
 
-            {expandable && rowExpandable && isRowExpanded && (
+            {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className="LemonTable__expansion">
                     <td />
                     <td colSpan={columns.length}>{expandable.expandedRowRender(record, recordIndex)}</td>

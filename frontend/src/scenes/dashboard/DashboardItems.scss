@@ -201,8 +201,11 @@
 }
 
 .react-grid-item.react-grid-placeholder {
+    transition: 200ms ease;
+    max-width: 100%;
     position: relative;
-    border: 1px solid var(--border-dark);
+    border: 1px solid var(--primary);
+    outline: 1px solid var(--primary);
     border-radius: var(--radius);
     z-index: 2;
     user-select: none;
@@ -213,10 +216,10 @@
 .react-grid-item {
     & > .react-resizable-handle {
         position: absolute;
-        width: 40px;
-        height: 40px;
-        bottom: -10px;
-        right: -10px;
+        width: 2rem;
+        height: 2rem;
+        bottom: -0.5rem;
+        right: -0.5rem;
         cursor: se-resize;
         z-index: 10;
     }
@@ -225,123 +228,21 @@
     }
     & > .react-resizable-handle.react-resizable-handle-e {
         top: 0;
-        bottom: 30px;
-        width: 25px;
+        bottom: 2rem;
         height: auto;
         cursor: ew-resize;
     }
     & > .react-resizable-handle.react-resizable-handle-s {
         left: 0;
-        right: 30px;
-        height: 25px;
+        right: 2rem;
         width: auto;
         cursor: ns-resize;
     }
 }
-.react-grid-layout.layout.dashboard-edit-mode.wobbly .react-grid-item {
-    & > .react-resizable-handle {
-        width: 40px;
-        height: 40px;
-    }
-    & > .react-resizable-handle.react-resizable-handle-e {
-        top: 0;
-        bottom: 30px;
-        height: auto;
-    }
-    & > .react-resizable-handle.react-resizable-handle-s {
-        left: 0;
-        right: 30px;
-        width: auto;
-    }
-}
+
 .react-grid-layout.layout.dashboard-edit-mode .dashboard-item {
     table {
         cursor: auto;
-    }
-}
-.react-grid-layout.layout.dashboard-edit-mode.wobbly {
-    margin-bottom: 200px;
-    will-change: transform;
-
-    .dashboard-item {
-        cursor: move;
-        will-change: transform;
-        .dashboard-item-header,
-        .dashboard-item-content {
-            pointer-events: none;
-        }
-    }
-
-    .dashboard-item:nth-child(7n) {
-        animation-delay: -0.75s;
-        animation-duration: 0.25s;
-    }
-
-    .dashboard-item:nth-child(7n + 1) {
-        animation-delay: -0.5s;
-        animation-duration: 0.3s;
-    }
-
-    .dashboard-item:nth-child(7n + 2) {
-        animation-delay: -0.05s;
-        animation-duration: 0.27s;
-    }
-
-    .dashboard-item:nth-child(7n + 3) {
-        animation-delay: -0.2s;
-        animation-duration: 0.33s;
-    }
-
-    .dashboard-item:nth-child(7n + 4) {
-        animation-delay: -0.31s;
-        animation-duration: 0.24s;
-    }
-
-    .dashboard-item:nth-child(7n + 5) {
-        animation-delay: -0.15s;
-        animation-duration: 0.25s;
-    }
-
-    .dashboard-item:nth-child(7n + 6) {
-        animation-delay: -0.2s;
-        animation-duration: 0.22s;
-    }
-
-    .dashboard-item-wrapper:nth-child(2n) .dashboard-item {
-        animation-name: keyframes1;
-        animation-iteration-count: infinite;
-        transform-origin: 50% 10%;
-    }
-
-    .dashboard-item-wrapper:nth-child(2n-1) .dashboard-item {
-        animation-name: keyframes2;
-        animation-iteration-count: infinite;
-        animation-direction: alternate;
-        transform-origin: 30% 5%;
-    }
-
-    @keyframes keyframes1 {
-        0% {
-            transform: rotate(-0.2deg);
-            animation-timing-function: ease-in;
-        }
-
-        50% {
-            transform: rotate(0.2deg);
-            animation-timing-function: ease-out;
-        }
-    }
-
-    @keyframes keyframes2 {
-        0% {
-            transform: rotate(0.2deg);
-            animation-timing-function: ease-in;
-        }
-
-        50% {
-            transform: rotate(-0.2deg);
-            animation-timing-function: ease-out;
-        }
     }
 }
 

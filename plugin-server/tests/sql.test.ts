@@ -99,6 +99,7 @@ test('getPluginRows', async () => {
             id: 60,
             is_global: false,
             is_preinstalled: false,
+            is_stateless: false,
             organization_id: commonOrganizationId,
             latest_tag: null,
             latest_tag_checked_at: null,

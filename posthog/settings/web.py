@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import List
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
-from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -42,6 +41,7 @@ INSTALLED_APPS = [
     "axes",
     "constance",
     "constance.backends.database",
+    "drf_spectacular",
 ]
 
 
@@ -68,10 +68,9 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-if EE_AVAILABLE:
-    INSTALLED_APPS.append("rest_hooks")
-    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-    MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
+INSTALLED_APPS.append("rest_hooks")
+INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
 
 # Use django-extensions if it exists
 try:
@@ -204,6 +203,13 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "POSTPROCESSING_HOOKS": ["posthog.api.documentation.custom_postprocessing_hook"],
 }
 
 EXCEPTIONS_HOG = {

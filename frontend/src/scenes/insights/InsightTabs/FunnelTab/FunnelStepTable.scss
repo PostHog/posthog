@@ -1,8 +1,10 @@
 @import '~/vars';
 
-.dashboard-item-container {
+.dashboard-item-container,
+.InsightCard {
     .funnel-steps-table {
         margin: 0 !important;
+        flex-grow: 1;
     }
 
     .funnel-bar-wrapper.breakdown.vertical {
@@ -272,9 +274,9 @@
                 overflow: hidden;
 
                 .ant-table-container {
-                    height: 100%;
                     display: flex;
                     flex-flow: column nowrap;
+                    height: 100%;
 
                     .ant-table-header {
                         flex: none;

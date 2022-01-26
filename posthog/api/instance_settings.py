@@ -1,11 +1,10 @@
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 from constance import config, settings
-from rest_framework import exceptions, mixins, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
-from posthog.permissions import StaffUser
+from posthog.permissions import IsStaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
@@ -69,7 +68,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 class InstanceSettingsViewset(
     viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin
 ):
-    permission_classes = [StaffUser]
+    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
 

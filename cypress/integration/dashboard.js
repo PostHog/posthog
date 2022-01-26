@@ -17,7 +17,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.get('[data-attr="edit-prop-name"]').click() // Rename insight
         cy.focused().clear().type('Test Insight Zeus')
-        cy.get('button').contains('Done').click() // Save the new name
+        cy.get('button').contains('Save').click() // Save the new name
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
         cy.get('button').contains('Add insight to dashboard').click() // Add the insight to a dashboard
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Go to the dashboard
@@ -36,7 +36,7 @@ describe('Dashboard', () => {
     })
 
     it('Pinned dashboards on menu', () => {
-        cy.clickNavMenu('legacy_events') // to make sure the dashboards menu item is not the active one
+        cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
         cy.get('[data-attr=menu-item-pinned-dashboards]').click()
         cy.get('.SideBar__pinned-dashboards').should('be.visible')
         cy.get('.SideBar__pinned-dashboards div').should('contain', 'App Analytics')

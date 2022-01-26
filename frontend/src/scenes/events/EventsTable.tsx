@@ -15,7 +15,7 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { EventName } from 'scenes/events/EventName'
+import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
@@ -27,11 +27,9 @@ import { IconSync } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { PageHeader } from '../../lib/components/PageHeader'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -59,13 +57,13 @@ export function EventsTable({
     // Disables all interactivity and polling for filters
     disableActions,
     // How many months of data to fetch?
-    fetchMonths,
+    fetchMonths = 12,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
         fixedFilters,
         key: pageKey,
-        sceneUrl: sceneUrl || urls.LEGACY_events(),
+        sceneUrl: sceneUrl || urls.events(),
         disableActions,
         fetchMonths,
     })
@@ -75,7 +73,6 @@ export function EventsTable({
         isLoading,
         hasNext,
         isLoadingNext,
-        newEvents,
         eventFilter,
         automaticLoadEnabled,
         exportUrl,
@@ -84,9 +81,15 @@ export function EventsTable({
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
-        useActions(logic)
-    const { filters } = useValues(propertyFilterLogic({ pageKey }))
+    const {
+        fetchNextEvents,
+        prependNewEvents,
+        setEventFilter,
+        toggleAutomaticLoad,
+        startDownload,
+        setPollingActive,
+        setProperties,
+    } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -107,9 +110,7 @@ export function EventsTable({
                         center
                         fullWidth
                     >
-                        {newEvents.length === 1
-                            ? `There is 1 new event. Click here to load it`
-                            : `There are ${newEvents.length || ''} new events. Click here to load them`}
+                        There are new events. Click here to load them
                     </LemonButton>
                 ) : (
                     '???'
@@ -336,13 +337,6 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {!disableActions && (
-                    <PageHeader
-                        title="Events & Actions"
-                        caption="See events being sent to this project in real time."
-                        tabbedPage
-                    />
-                )}
-                {!disableActions && (
                     <div
                         className="mb"
                         style={{
@@ -361,9 +355,12 @@ export function EventsTable({
                                 }}
                             />
                             <PropertyFilters
+                                propertyFilters={properties}
+                                onChange={setProperties}
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
+                                greyBadges={true}
                             />
                         </div>
 
@@ -399,7 +396,8 @@ export function EventsTable({
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     emptyState={
-                        isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
+                        isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
+                          eventFilter ? (
                             `No events matching filters found in the last ${months} months!`
                         ) : (
                             <>

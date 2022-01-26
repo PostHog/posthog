@@ -23,6 +23,9 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
+import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LastModified } from 'lib/components/InsightCard/LastModified'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -96,24 +99,20 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
 
     const insightScene = (
         <div className="insights-page">
-            <div className="insight-metadata">
-                <Row justify="space-between" align="top" style={{ marginTop: 24 }}>
-                    <Col xs={{ span: 24, order: 2 }} sm={{ order: 1 }} style={{ flex: 1 }}>
-                        <EditableField
-                            name="name"
-                            value={insight.name || ''}
-                            placeholder={UNNAMED_INSIGHT_NAME}
-                            onChange={(value) => setInsightMetadata({ name: value })}
-                            className="insight-metadata-name"
-                            dataAttr="insight-name"
-                        />
-                    </Col>
-                    <Col
-                        className="insights-tab-actions"
-                        xs={{ span: 24, order: 1 }}
-                        sm={{ order: 2 }}
-                        style={{ flex: 0 }}
-                    >
+            <PageHeader
+                title={
+                    <EditableField
+                        name="name"
+                        value={insight.name || ''}
+                        placeholder={UNNAMED_INSIGHT_NAME}
+                        onSave={(value) => setInsightMetadata({ name: value })}
+                        minLength={1}
+                        maxLength={400} // Sync with Insight model
+                        data-attr="insight-name"
+                    />
+                }
+                buttons={
+                    <div className="insights-tab-actions">
                         {filtersChanged ? (
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
@@ -141,31 +140,38 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         ) : (
                             <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
-                    </Col>
-                </Row>
-                <EditableField
-                    multiline
-                    name="description"
-                    value={insight.description || ''}
-                    placeholder={`Description (optional)`}
-                    onChange={(value) => setInsightMetadata({ description: value })}
-                    className={'insight-metadata-description'}
-                    dataAttr={'insight-description'}
-                    locked={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                />
-                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                    <div className={'insight-metadata-tags'} data-attr="insight-tags">
-                        <ObjectTags
-                            tags={insight.tags ?? []}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
-                            saving={tagLoading}
-                            tagsAvailable={[]}
-                        />
                     </div>
-                ) : null}
-            </div>
-
+                }
+                caption={
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            value={insight.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(value) => setInsightMetadata({ description: value })}
+                            maxLength={400} // Sync with Insight model
+                            data-attr="insight-description"
+                            compactButtons
+                            paywall
+                        />
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        )}
+                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
+                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        )}
+                    </>
+                }
+            />
             {insightMode === ItemMode.View ? (
                 <Row style={{ marginTop: 16 }}>
                     <Col span={24}>
@@ -196,6 +202,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         </Col>
                     </Row>
                     <NPSPrompt />
+                    <FeedbackCallCTA />
                 </>
             )}
 

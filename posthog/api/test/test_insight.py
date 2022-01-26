@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.case import skip
 from unittest.mock import patch
 
@@ -20,7 +20,6 @@ from posthog.models import (
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.utils import is_clickhouse_enabled
 
 
 def insight_test_factory(event_factory, person_factory):
@@ -115,6 +114,108 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
             self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+
+        def test_created_updated_and_last_modified(self):
+            alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
+            self_user_basic_serialized = {
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "first_name": self.user.first_name,
+                "email": self.user.email,
+            }
+            alt_user_basic_serialized = {
+                "id": alt_user.id,
+                "uuid": str(alt_user.uuid),
+                "distinct_id": alt_user.distinct_id,
+                "first_name": alt_user.first_name,
+                "email": alt_user.email,
+            }
+
+            # Newly created insight should have created_at being the current time, and same last_modified_at
+            # Fields created_by and last_modified_by should be set to the current user
+            with freeze_time("2021-08-23T12:00:00Z"):
+                response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
+                self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-08-23T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_1.json(),
+                )
+
+            insight_id = response_1.json()["id"]
+
+            # Updating fields that don't change the substance of the insight should affect updated_at
+            # BUT NOT last_modified_at or last_modified_by
+            with freeze_time("2021-09-20T12:00:00Z"):
+                response_2 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"color": "blue", "favorited": True}
+                )
+                self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-09-20T12:00:00Z",
+                        "last_modified_at": "2021-08-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_2.json(),
+                )
+
+            # Updating fields that DO change the substance of the insight should affect updated_at
+            # AND last_modified_at plus last_modified_by
+            with freeze_time("2021-10-21T12:00:00Z"):
+                response_3 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"filters": {"events": []}}
+                )
+                self.assertEqual(response_3.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-10-21T12:00:00Z",
+                        "last_modified_at": "2021-10-21T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_3.json(),
+                )
+            with freeze_time("2021-12-23T12:00:00Z"):
+                response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
+                self.assertEqual(response_4.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2021-12-23T12:00:00Z",
+                        "last_modified_at": "2021-12-23T12:00:00Z",
+                        "last_modified_by": self_user_basic_serialized,
+                    },
+                    response_4.json(),
+                )
+
+            # Field last_modified_by is updated when another user makes a material change
+            self.client.force_login(alt_user)
+            with freeze_time("2022-01-01T12:00:00Z"):
+                response_5 = self.client.patch(
+                    f"/api/projects/{self.team.id}/insights/{insight_id}", {"description": "Lorem ipsum."}
+                )
+                self.assertEqual(response_5.status_code, status.HTTP_200_OK)
+                self.assertDictContainsSubset(
+                    {
+                        "created_at": "2021-08-23T12:00:00Z",
+                        "created_by": self_user_basic_serialized,
+                        "updated_at": "2022-01-01T12:00:00Z",
+                        "last_modified_at": "2022-01-01T12:00:00Z",
+                        "last_modified_by": alt_user_basic_serialized,
+                    },
+                    response_5.json(),
+                )
 
         def test_basic_results(self):
             """
@@ -330,7 +431,8 @@ def insight_test_factory(event_factory, person_factory):
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
-        def test_insight_trends_basic(self):
+        @patch("posthog.api.insight.capture_exception")
+        def test_insight_trends_basic(self, patch_capture_exception):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
                 event_factory(team=self.team, event="$pageview", distinct_id="2")
@@ -342,6 +444,7 @@ def insight_test_factory(event_factory, person_factory):
 
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+            self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.calls)
 
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(
@@ -480,7 +583,7 @@ def insight_test_factory(event_factory, person_factory):
                 data={"properties": json.dumps([{"key": "test", "value": "val"}]),},
             ).json()
             post_response = self.client.post(
-                f"/api/projects/{self.team.id}/insights/path", {"properties": [{"key": "test", "value": "val"}],}
+                f"/api/projects/{self.team.id}/insights/path", {"properties": [{"key": "test", "value": "val"}],},
             ).json()
             self.assertEqual(len(get_response["result"]), 1)
             self.assertEqual(len(post_response["result"]), 1)
@@ -501,14 +604,11 @@ def insight_test_factory(event_factory, person_factory):
             ).json()
 
             # clickhouse funnels don't have a loading system
-            if is_clickhouse_enabled():
-                self.assertEqual(len(response["result"]), 2)
-                self.assertEqual(response["result"][0]["name"], "user signed up")
-                self.assertEqual(response["result"][0]["count"], 1)
-                self.assertEqual(response["result"][1]["name"], "user did things")
-                self.assertEqual(response["result"][1]["count"], 1)
-            else:
-                self.assertEqual(response["result"]["loading"], True)
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response["result"][0]["name"], "user signed up")
+            self.assertEqual(response["result"][0]["count"], 1)
+            self.assertEqual(response["result"][1]["name"], "user did things")
+            self.assertEqual(response["result"][1]["count"], 1)
 
         # Tests backwards-compatibility when we changed GET to POST | GET
         def test_insight_funnels_basic_get(self):
@@ -519,12 +619,9 @@ def insight_test_factory(event_factory, person_factory):
             ).json()
 
             # clickhouse funnels don't have a loading system
-            if is_clickhouse_enabled():
-                self.assertEqual(len(response["result"]), 2)
-                self.assertEqual(response["result"][0]["name"], "user signed up")
-                self.assertEqual(response["result"][1]["name"], "user did things")
-            else:
-                self.assertEqual(response["result"]["loading"], True)
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response["result"][0]["name"], "user signed up")
+            self.assertEqual(response["result"][1]["name"], "user did things")
 
         def test_insight_retention_basic(self):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
@@ -580,7 +677,3 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
-
-
-class TestInsight(insight_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
-    pass

@@ -25,19 +25,14 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     fullWidth?: boolean
     /** Whether the row's contents should be centered. */
     center?: boolean
+    /** A compact row is slightly smaller than normal to better look inline with text. */
+    compact?: boolean
     'data-attr'?: string
 }
 
-// This is a union so that a LemonRow can be compact OR have a sideIcon, but not both at once
-export type LemonRowProps<T extends keyof JSX.IntrinsicElements> =
-    | (LemonRowPropsBase<T> & {
-          sideIcon?: null
-          compact?: boolean
-      })
-    | (LemonRowPropsBase<T> & {
-          sideIcon?: React.ReactElement | null
-          compact?: false
-      })
+export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends LemonRowPropsBase<T> {
+    sideIcon?: React.ReactElement | null
+}
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a presentation element. */
 function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
@@ -65,6 +60,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 className,
                 status && `LemonRow--status-${status}`,
                 compact && 'LemonRow--compact',
+                !children && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 center && 'LemonRow--center'
             ),
@@ -87,9 +83,11 @@ export const LemonRow = React.forwardRef(LemonRowInternal)
 export interface LemonSpacerProps {
     /** Twice the default amount of margin. */
     large?: boolean
+    /** Whether the spacer should be vertical instead of horizontal. */
+    vertical?: boolean
 }
 
 /** A separator ideal for being sandwiched between LemonRows. */
-export function LemonSpacer({ large = false }: LemonSpacerProps): JSX.Element {
-    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large')} />
+export function LemonSpacer({ large = false, vertical = false }: LemonSpacerProps): JSX.Element {
+    return <div className={clsx('LemonSpacer', large && 'LemonSpacer--large', vertical && 'LemonSpacer--vertical')} />
 }

@@ -184,6 +184,8 @@ const EXAMPLE_TRENDS: InsightModel = {
         },
     ],
     created_at: '2021-12-14T11:05:45.815141Z',
+    last_modified_at: '2021-12-19T14:42:21.815141Z',
+    last_modified_by: null,
     description: 'Shows the number of unique users that use your app every day.',
     updated_at: '2021-12-14T12:58:26.665942Z',
     tags: ['demo', 'faux'],
@@ -237,9 +239,13 @@ export const InsightCard: Story = (args) => {
                         loading={args.loading}
                         apiError={args.apiError}
                         highlighted={args.highlighted}
+                        showResizeHandles={args.resizable}
                         updateColor={setInsightColor}
-                        removeItem={() => setWasItemRemoved(true)}
+                        removeFromDashboard={() => setWasItemRemoved(true)}
                         refresh={() => {}}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        moveToDashboard={() => {}}
                     />
                 )}
                 <InsightCardComponent
@@ -253,18 +259,26 @@ export const InsightCard: Story = (args) => {
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
-                    removeItem={() => {}}
+                    removeFromDashboard={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveToDashboard={() => {}}
                 />
                 <InsightCardComponent
                     insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
-                    removeItem={() => {}}
+                    removeFromDashboard={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveToDashboard={() => {}}
                 />
             </div>
         </KeaProvider>

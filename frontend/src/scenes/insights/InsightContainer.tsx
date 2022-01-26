@@ -7,8 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
-import { People } from 'scenes/funnels/FunnelPeople'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -24,7 +23,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
@@ -46,7 +44,6 @@ export function InsightContainer(
         disableTable: false,
     }
 ): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         insightProps,
@@ -103,18 +100,6 @@ export function InsightContainer(
 
     function renderTable(): JSX.Element | null {
         if (
-            !preflight?.is_clickhouse_enabled &&
-            !showErrorMessage &&
-            !showTimeoutMessage &&
-            areFiltersValid &&
-            activeView === InsightType.FUNNELS &&
-            filters?.display === FUNNEL_VIZ
-        ) {
-            return <People />
-        }
-
-        if (
-            preflight?.is_clickhouse_enabled &&
             activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&

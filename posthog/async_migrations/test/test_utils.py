@@ -13,12 +13,12 @@ from posthog.async_migrations.utils import (
     trigger_migration,
 )
 from posthog.constants import AnalyticsDBMS
-from posthog.models.async_migration import MigrationStatus
+from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
 from posthog.test.base import BaseTest
 
-DEFAULT_CH_OP = AsyncMigrationOperation(sql="SELECT 1", timeout_seconds=10)
+DEFAULT_CH_OP = AsyncMigrationOperation.simple_op(sql="SELECT 1", timeout_seconds=10)
 
-DEFAULT_POSTGRES_OP = AsyncMigrationOperation(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",)
+DEFAULT_POSTGRES_OP = AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",)
 
 
 class TestUtils(BaseTest):
@@ -41,11 +41,15 @@ class TestUtils(BaseTest):
     def test_process_error(self, _):
         sm = create_async_migration()
         process_error(sm, "some error")
+        process_error(sm, "second error")
 
         sm.refresh_from_db()
         self.assertEqual(sm.status, MigrationStatus.Errored)
-        self.assertEqual(sm.last_error, "some error")
         self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
+        errors = AsyncMigrationError.objects.filter(async_migration=sm).order_by("created_at")
+        self.assertEqual(len(errors), 2)
+        self.assertEqual(errors[0].description, "some error")
+        self.assertEqual(errors[1].description, "second error")
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_migration(self, mock_run_async_migration):
@@ -57,12 +61,14 @@ class TestUtils(BaseTest):
     @patch("posthog.celery.app.control.revoke")
     def test_force_stop_migration(self, mock_app_control_revoke):
         sm = create_async_migration()
-        force_stop_migration(sm)
+        force_stop_migration(sm, rollback=False)
 
         sm.refresh_from_db()
         mock_app_control_revoke.assert_called_once()
         self.assertEqual(sm.status, MigrationStatus.Errored)
-        self.assertEqual(sm.last_error, "Force stopped by user")
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].description, "Force stopped by user")
 
     def test_complete_migration(self):
 
@@ -73,5 +79,7 @@ class TestUtils(BaseTest):
 
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
-        self.assertEqual(sm.last_error, "")
+
         self.assertEqual(sm.progress, 100)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)

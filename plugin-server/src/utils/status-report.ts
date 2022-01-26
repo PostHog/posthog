@@ -9,6 +9,7 @@ class PluginDurationStats {
     onAction: number
     processEvent: number
     onSnapshot: number
+    handleAlert: number
     pluginTask: number
 
     constructor() {
@@ -17,6 +18,7 @@ class PluginDurationStats {
         this.onAction = 0
         this.processEvent = 0
         this.onSnapshot = 0
+        this.handleAlert = 0
         this.pluginTask = 0
     }
 

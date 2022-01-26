@@ -12,13 +12,23 @@ class Experiment(models.Model):
 
     # Parameters include configuration fields for the experiment: What the control & test variant are called,
     # and any test significance calculation parameters
+    # We have 4 parameters today:
+    #   minimum_detectable_effect: number
+    #   recommended_running_time: number
+    #   recommended_sample_size: number
+    #   feature_flag_variants: { key: string, name: string, rollout_percentage: number }[]
     parameters: models.JSONField = models.JSONField(default=dict, null=True)
+
+    # A list of filters for secondary metrics
+    secondary_metrics: models.JSONField = models.JSONField(default=list, null=True)
+
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.CASCADE)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     start_date: models.DateTimeField = models.DateTimeField(null=True)
     end_date: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    archived: models.BooleanField = models.BooleanField(default=False)
 
     def get_feature_flag_key(self):
         return self.feature_flag.key

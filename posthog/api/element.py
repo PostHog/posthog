@@ -41,6 +41,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    include_in_docs = False
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

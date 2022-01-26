@@ -15,6 +15,7 @@ NOTE: $medium is a SCSS var; not a keyword
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
+    --primary-hover: #{$primary_hover};
     --primary-active: #{$primary_active};
     --primary-bg-hover: #{$primary_bg_hover};
     --primary-bg-active: #{$primary_bg_active};
@@ -39,6 +40,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
     --radius: #{$radius};
+    --shadow-elevation: #{$shadow_elevation};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
@@ -103,20 +105,37 @@ body strong {
 }
 
 .page-title-row {
-    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin: 1.25rem 0 0.5rem;
+    @media screen and (min-width: $md) {
+        flex-wrap: nowrap;
+    }
 }
 
 .page-title {
+    min-width: 0;
     font-size: 28px;
     line-height: 34px;
-    margin-top: 0.5em;
-    font-weight: bold;
+    margin: 0;
+    font-weight: 600;
 }
 
 .page-caption {
     @extend .text-default;
-    max-width: 640px;
-    margin-bottom: 16px;
+    max-width: 48rem;
+    margin-bottom: 1rem;
+}
+
+.page-buttons {
+    flex-shrink: 0;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: right;
+    gap: 0.5rem;
 }
 
 .subtitle-row {
@@ -334,6 +353,12 @@ code.code {
 .flex-center {
     display: flex;
     align-items: center;
+}
+
+// Vendor-specific adjustments
+
+input::-ms-clear {
+    display: none; // Hide IE/Edge's clear button that can mess input sizing up
 }
 
 // Color styles
@@ -560,6 +585,22 @@ code.code {
     }
 }
 
+.LemonLinkButton {
+    // TODO: This should become a component at some point
+    padding: 1.3rem 1rem !important;
+    font-weight: $medium !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+
+    &.ant-btn {
+        padding-top: 1.3rem !important;
+    }
+    &:not(.ant-btn-primary) {
+        color: $primary;
+    }
+}
+
 // Graph series glyph
 
 .graph-series-glyph {
@@ -774,6 +815,7 @@ code.code {
 }
 
 .main-app-content {
+    position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
     padding: 0 2rem 4rem;
 
@@ -818,6 +860,9 @@ body {
     }
     .ant-dropdown-menu {
         border-radius: var(--radius);
+    }
+    .ant-modal-content {
+        box-shadow: var(--shadow-elevation);
     }
 }
 

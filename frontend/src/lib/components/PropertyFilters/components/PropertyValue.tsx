@@ -5,13 +5,13 @@ import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
-import dayjs, { Dayjs } from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 
-export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
+export const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 type PropValue = {
     id?: number
@@ -147,7 +147,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         style: { width: '100%', ...style },
-        loading: options[input]?.status === 'loading',
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -196,6 +195,7 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
+                    loading={options[propertyKey]?.status === 'loading'}
                     propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
@@ -236,7 +236,7 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
-                        inputReadOnly={true}
+                        inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
                         format="YYYY-MM-DD HH:mm:ss"
@@ -244,7 +244,7 @@ export function PropertyValue({
                         showNow={false}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
                         onOk={(selectedDate) => {
-                            setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
+                            setValue(selectedDate.format('YYYY-MM-DD HH:mm:ss'))
                         }}
                         getPopupContainer={(trigger: Element | null) => {
                             const container = trigger?.parentElement?.parentElement?.parentElement

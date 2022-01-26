@@ -49,8 +49,8 @@ services:
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
-            SENTRY_DSN: ${SENTRY_DSN}
-            SITE_URL: https://${DOMAIN}
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -58,10 +58,10 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            PRIMARY_DB: 'clickhouse'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: ${POSTHOG_SECRET}
-            PRIMARY_DB: 'clickhouse'
+            SECRET_KEY: $POSTHOG_SECRET
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
