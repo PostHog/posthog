@@ -458,9 +458,9 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter extends EntityFilter {
-    funnel_from_step: number
-    funnel_to_step: number
+export interface FunnelStepRangeEntityFilter {
+    funnel_from_step?: number
+    funnel_to_step?: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
