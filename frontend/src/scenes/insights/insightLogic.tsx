@@ -773,7 +773,7 @@ export const insightLogic = kea<insightLogicType>({
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': (params, searchParams, hashParams) => {
+        '/insights/:shortId(/:mode)': (params, searchParams, hashParams, _, previousLocation) => {
             if (values.syncWithUrl) {
                 const filters =
                     (typeof hashParams?.filters === 'object' ? hashParams?.filters : null) ??
@@ -807,6 +807,17 @@ export const insightLogic = kea<insightLogicType>({
 
                 if (!loadedFromAnotherLogic && insightIdChanged) {
                     actions.loadInsight(insightId)
+                }
+
+                // The insight didn't change, but we were not on an insight URL previously.
+                // The user probably moved back and forward in the browser.
+                // Report this as another "insight viewed" event.
+                if (
+                    !insightIdChanged &&
+                    values.insight.result &&
+                    !previousLocation.pathname.includes(urls.insightView(insightId))
+                ) {
+                    actions.reportInsightViewed(values.insight, values.insight.filters || {})
                 }
 
                 if (filters !== null) {
