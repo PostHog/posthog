@@ -7,11 +7,13 @@ import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { CloseButton } from 'lib/components/CloseButton'
 
 export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
     greyBadges?: boolean
     onClick?: () => void
+    onClose?: () => void
     setRef?: (ref: HTMLElement) => void
 }
 
@@ -29,11 +31,12 @@ export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonPro
 interface FilterRowProps {
     greyBadges?: boolean
     onClick?: () => void
+    onClose?: () => void
     setRef?: (ref: HTMLElement) => void
     children: string | JSX.Element
 }
 
-export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRowProps): JSX.Element {
+export function FilterButton({ greyBadges, onClick, onClose, setRef, children }: FilterRowProps): JSX.Element {
     return (
         <Button
             type="primary"
@@ -48,6 +51,16 @@ export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRo
                 style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
                 {children}
+                {onClose && (
+                    <CloseButton
+                        className={clsx('ml-1', !greyBadges && 'white-button')}
+                        onClick={(e: MouseEvent) => {
+                            e.stopPropagation()
+                            onClose()
+                        }}
+                        style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
+                    />
+                )}
             </span>
         </Button>
     )

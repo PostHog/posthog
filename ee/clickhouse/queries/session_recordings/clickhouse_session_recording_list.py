@@ -40,16 +40,17 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
 
     _event_and_recording_match_conditions_clause = """
         (
-            -- If there is a window_id on the recording, then it is newer data and we can match
-            -- the recording and events on session_id
+            -- If there is a session_id on the event, then it is from posthog-js
+            -- and we should use the session_id to match the recording
             (
-                notEmpty(session_recordings.window_id) AND
+                notEmpty(events.session_id) AND
                 events.session_id == session_recordings.session_id
             ) OR
-            -- If there's no window_id on the recording, then it is older data and we should match
-            -- events and recordings on timestamps
+            -- If there's no session_id on the event, then it is either older data or
+            -- from a posthog-client that doesn't support session (e.g. backend client)
+            -- and we should match on timestamp
             (
-                empty(session_recordings.window_id) AND
+                empty(events.session_id) AND
                 (
                     events.timestamp >= session_recordings.start_time
                     AND events.timestamp <= session_recordings.end_time

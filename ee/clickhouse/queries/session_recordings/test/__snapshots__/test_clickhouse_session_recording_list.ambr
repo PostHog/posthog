@@ -1,3 +1,117 @@
+# name: TestClickhouseSessionRecordingsList.test_event_filter_matching_with_no_session_id
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         sum(if(event = '$pageview', 1, 0)) as count_event_match_0
+  FROM
+    (SELECT distinct_id,
+            event,
+            team_id,
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            MIN(timestamp) AS start_time,
+            MAX(timestamp) AS end_time,
+            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events
+     WHERE team_id = 2
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_matching_with_no_session_id.1
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         sum(if(event = '$autocapture', 1, 0)) as count_event_match_0
+  FROM
+    (SELECT distinct_id,
+            event,
+            team_id,
+            timestamp ,
+            trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$autocapture']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            MIN(timestamp) AS start_time,
+            MAX(timestamp) AS end_time,
+            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events
+     WHERE team_id = 2
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
   '
   
@@ -231,9 +345,9 @@
      WHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
-  WHERE ((notEmpty(session_recordings.window_id)
+  WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
-         OR (empty(session_recordings.window_id)
+         OR (empty(events.session_id)
              AND (events.timestamp >= session_recordings.start_time
                   AND events.timestamp <= session_recordings.end_time)))
   GROUP BY session_recordings.session_id
@@ -288,9 +402,9 @@
      WHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
-  WHERE ((notEmpty(session_recordings.window_id)
+  WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
-         OR (empty(session_recordings.window_id)
+         OR (empty(events.session_id)
              AND (events.timestamp >= session_recordings.start_time
                   AND events.timestamp <= session_recordings.end_time)))
   GROUP BY session_recordings.session_id

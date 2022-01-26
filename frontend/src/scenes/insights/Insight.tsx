@@ -25,6 +25,7 @@ import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LastModified } from 'lib/components/InsightCard/LastModified'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -143,29 +144,35 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     </div>
                 }
                 caption={
-                    <EditableField
-                        multiline
-                        name="description"
-                        value={insight.description || ''}
-                        placeholder="Description (optional)"
-                        onSave={(value) => setInsightMetadata({ description: value })}
-                        data-attr="insight-description"
-                        compactButtons
-                        paywall
-                    />
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            value={insight.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(value) => setInsightMetadata({ description: value })}
+                            maxLength={400} // Sync with Insight model
+                            data-attr="insight-description"
+                            compactButtons
+                            paywall
+                        />
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        )}
+                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
+                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        )}
+                    </>
                 }
             />
-            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                <div className="insight-metadata-tags" data-attr="insight-tags">
-                    <ObjectTags
-                        tags={insight.tags ?? []}
-                        onTagSave={saveNewTag}
-                        onTagDelete={deleteTag}
-                        saving={tagLoading}
-                        tagsAvailable={[]}
-                    />
-                </div>
-            )}
             {insightMode === ItemMode.View ? (
                 <Row style={{ marginTop: 16 }}>
                     <Col span={24}>
