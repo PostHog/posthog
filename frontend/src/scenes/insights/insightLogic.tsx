@@ -50,6 +50,13 @@ export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
 }
 
+function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
+    return (
+        !filters ||
+        (Object.keys(filters).length < 2 && JSON.stringify(cleanFilters(filters)) === JSON.stringify(cleanFilters({})))
+    )
+}
+
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
@@ -146,10 +153,7 @@ export const insightLogic = kea<insightLogicType>({
                         return values.insight
                     }
 
-                    if (
-                        insight.filters &&
-                        JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
-                    ) {
+                    if ('filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
@@ -624,10 +628,8 @@ export const insightLogic = kea<insightLogicType>({
             if (!insightId) {
                 throw new Error('Can only save saved insights whose id is known.')
             }
-            if (
-                !values.insight.filters ||
-                JSON.stringify(cleanFilters(values.insight.filters)) === JSON.stringify(cleanFilters({}))
-            ) {
+
+            if (emptyFilters(values.insight.filters)) {
                 const error = new Error('Will not override empty filters in saveInsight.')
                 Sentry.captureException(error, {
                     extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
