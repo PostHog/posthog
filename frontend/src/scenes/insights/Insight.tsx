@@ -148,6 +148,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         value={insight.description || ''}
                         placeholder="Description (optional)"
                         onSave={(value) => setInsightMetadata({ description: value })}
+                        maxLength={400} // Sync with Insight model
                         data-attr="insight-description"
                         compactButtons
                         paywall
