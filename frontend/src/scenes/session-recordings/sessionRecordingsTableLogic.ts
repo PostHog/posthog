@@ -18,6 +18,8 @@ import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonUUID = string
 interface Params {
@@ -219,9 +221,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
         showFilters: [
-            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters],
-            (filterEnabled, entityFilters, propertyFilters) => {
+            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters, featureFlagLogic.selectors.featureFlags],
+            (filterEnabled, entityFilters, propertyFilters, featureFlags) => {
                 return (
+                    featureFlags[FEATURE_FLAGS.RECORDINGS_FILTER_EXPERIMENT] === 'test' ||
                     filterEnabled ||
                     entityFilters !== DEFAULT_ENTITY_FILTERS ||
                     propertyFilters !== DEFAULT_PROPERTY_FILTERS
