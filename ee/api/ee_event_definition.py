@@ -1,5 +1,5 @@
 from django.utils import timezone
-from rest_framework import exceptions, serializers
+from rest_framework import serializers
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
