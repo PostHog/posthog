@@ -17,6 +17,7 @@ import { LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
 import { ObjectTags } from '../ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
+import { LastModified } from './LastModified'
 import './InsightCard.scss'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -103,6 +104,7 @@ function InsightMeta({
                                             )),
                                             placement: 'right-start',
                                             fallbackPlacements: ['left-start'],
+                                            actionable: true,
                                         }}
                                         fullWidth
                                     >
@@ -124,6 +126,7 @@ function InsightMeta({
                                                 )),
                                                 placement: 'right-start',
                                                 fallbackPlacements: ['left-start'],
+                                                actionable: true,
                                             }}
                                             fullWidth
                                         >
@@ -161,6 +164,7 @@ function InsightMeta({
                 </Link>
                 <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                 {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+                <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
             </div>
         </div>
     )
