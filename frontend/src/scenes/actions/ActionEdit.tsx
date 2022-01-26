@@ -13,6 +13,9 @@ import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { AvailableFeature } from '~/types'
+import { userLogic } from 'scenes/userLogic'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const relevantActionEditLogic = actionEditLogic({
@@ -25,6 +28,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { setAction, saveAction } = useActions(relevantActionEditLogic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [edited, setEdited] = useState(false)
     const slackEnabled = currentTeam?.slack_incoming_webhook
@@ -61,7 +65,41 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <PageHeader title={id ? 'Editing action' : 'Creating action'} buttons={deleteAction} />
+            <PageHeader
+                title={
+                    <EditableField
+                        name="name"
+                        value={action.name || ''}
+                        placeholder="Name this action"
+                        onSave={(name) => {
+                            setAction({ ...action, name })
+                            setEdited(!!name)
+                        }}
+                        minLength={1}
+                        maxLength={400} // Sync with action model
+                        data-attr="action-name"
+                        saveButtonText="Set"
+                    />
+                }
+                caption={
+                    <EditableField
+                        multiline
+                        name="description"
+                        value={action.description || ''}
+                        placeholder="Description (optional)"
+                        onSave={(description) => {
+                            setAction({ ...action, description })
+                            setEdited(!!description)
+                        }}
+                        data-attr="action-description"
+                        compactButtons
+                        maxLength={600} // No limit on backend model, but enforce shortish description
+                        isGated={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                        saveButtonText="Set"
+                    />
+                }
+                buttons={deleteAction}
+            />
             <form
                 onSubmit={(e) => {
                     e.preventDefault()
@@ -69,29 +107,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 }}
             >
                 <div className="input-set">
-                    <label htmlFor="actionName">Action name</label>
-                    <Input
-                        required
-                        placeholder="e.g. user account created, purchase completed, movie watched"
-                        value={action.name}
-                        style={{ maxWidth: 500, display: 'block', marginBottom: 8 }}
-                        onChange={(e) => {
-                            setAction({ ...action, name: e.target.value })
-                            setEdited(e.target.value ? true : false)
-                        }}
-                        data-attr="edit-action-input"
-                        id="actionName"
-                    />
-                    <label htmlFor="description">Description</label>
-                    <Input.TextArea
-                        style={{ minHeight: 108, maxWidth: 500, display: 'block', marginBottom: 8 }}
-                        placeholder="Add description"
-                        value={action.description || ''}
-                        onChange={(e) => {
-                            setAction({ ...action, description: e.target.value })
-                            setEdited(e.target.value ? true : false)
-                        }}
-                    />
                     {id && (
                         <div>
                             <span className="text-muted mb-05">

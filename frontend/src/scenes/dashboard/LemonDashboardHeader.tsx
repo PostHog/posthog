@@ -16,9 +16,10 @@ import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardMode } from '~/types'
+import { AvailableFeature, DashboardMode } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 function ShareButton(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -96,6 +97,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     return (
         dashboard && (
@@ -241,7 +243,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
                                 className="mb"
                                 compactButtons
-                                paywall
+                                isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
                             <ObjectTags
                                 tags={dashboard.tags}

@@ -150,7 +150,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         onSave={(value) => setInsightMetadata({ description: value })}
                         data-attr="insight-description"
                         compactButtons
-                        paywall
+                        isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                     />
                 }
             />

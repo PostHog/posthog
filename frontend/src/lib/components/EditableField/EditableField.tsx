@@ -7,9 +7,6 @@ import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
-import { useValues } from 'kea'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
 
 interface EditableFieldProps {
     /** What this field stands for. */
@@ -22,10 +19,11 @@ interface EditableFieldProps {
     maxLength?: number
     multiline?: boolean
     compactButtons?: boolean
-    /** Whether this field should be gated based on AvailableFeature.DASHBOARD_COLLABORATION. */
-    paywall?: boolean
+    /** Whether this field should be shown or hidden (gated). */
+    isGated?: boolean
     className?: string
     'data-attr'?: string
+    saveButtonText?: string
 }
 
 export function EditableField({
@@ -38,12 +36,11 @@ export function EditableField({
     maxLength,
     multiline = false,
     compactButtons = false,
-    paywall = false,
+    isGated = false,
     className,
     'data-attr': dataAttr,
+    saveButtonText = 'Save',
 }: EditableFieldProps): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-
     const [isEditing, setIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
 
@@ -51,7 +48,6 @@ export function EditableField({
         setTentativeValue(value)
     }, [value])
 
-    const isGated = paywall && !hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
     const isSaveable = !minLength || tentativeValue.length >= minLength
 
     const cancel = (): void => {
@@ -145,7 +141,7 @@ export function EditableField({
                                 onClick={save}
                                 type="primary"
                             >
-                                Save
+                                {saveButtonText}
                             </LemonButton>
                         </>
                     ) : (
