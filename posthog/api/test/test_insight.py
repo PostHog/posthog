@@ -159,15 +159,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 response_5.json(),
             )
 
-    def test_basic_results(self):
-        """
-        The `skip_results` query parameter can be passed so that only a list of objects is returned, without
-        the actual query data. This can speed things up if it's not needed.
-        """
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-        }
-
     def test_get_saved_insight_items(self):
         filter_dict = {
             "events": [{"id": "$pageview"}],
