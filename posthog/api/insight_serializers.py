@@ -1,19 +1,46 @@
-from typing import get_args
+import json
+from typing import Optional, get_args
 
+from django.forms import ValidationError
 from numpy import require
 from rest_framework import serializers
 
 from posthog.api.documentation import FilterActionSerializer, FilterEventSerializer, PropertySerializer
 from posthog.constants import (
+    ACTIONS,
     BREAKDOWN_TYPES,
     DISPLAY_TYPES,
+    EVENTS,
     FUNNEL_WINDOW_INTERVAL_TYPES,
+    PROPERTIES,
     FunnelOrderType,
     FunnelVizType,
 )
 
 
 class GenericInsightsSerializer(serializers.Serializer):
+    def __init__(self, request=None, *args, **kwargs):
+        if request:
+            data = {**request.data, **request.GET.dict()}
+            if data.get(ACTIONS):
+                actions = data.get(ACTIONS, [])
+                if isinstance(actions, str):
+                    actions = json.loads(actions)
+                data["actions"] = actions
+            if data.get(EVENTS):
+                events = data.get(EVENTS, [])
+                if isinstance(events, str):
+                    events = json.loads(events)
+                data["events"] = events
+            if data.get(PROPERTIES):
+                properties = data.get(PROPERTIES, [])
+                if isinstance(properties, str):
+                    properties = json.loads(properties)
+                data["properties"] = properties
+            kwargs["data"] = data
+
+        super().__init__(*args, **kwargs)
+
     events = FilterEventSerializer(
         required=False, many=True, help_text="Events to filter on. One of `events` or `actions` is required."
     )

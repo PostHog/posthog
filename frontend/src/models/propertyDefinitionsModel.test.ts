@@ -2,7 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { PropertyDefinition } from '~/types'
+import { PropertyDefinition, PropertyType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -23,7 +23,15 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'String',
+            property_type: PropertyType.String,
+        },
+        {
+            id: 'an id',
+            name: '$time',
+            description: 'a description',
+            volume_30_day: null,
+            query_usage_30_day: null,
+            property_type: PropertyType.DateTime,
         },
         {
             id: 'an id',
@@ -31,7 +39,7 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'DateTime',
+            property_type: PropertyType.DateTime,
         },
     ]
 

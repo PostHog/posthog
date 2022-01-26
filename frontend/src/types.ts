@@ -668,17 +668,19 @@ export interface InsightModel {
     deleted: boolean
     saved: boolean
     created_at: string
+    created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
     last_refresh: string
     refreshing: boolean
-    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -1333,6 +1335,14 @@ export interface EventDefinition {
     updated_by?: UserBasicType | null
 }
 
+// TODO duplicated from plugin server. Follow-up to de-duplicate
+export enum PropertyType {
+    DateTime = 'DateTime',
+    String = 'String',
+    Numeric = 'Numeric',
+    Boolean = 'Boolean',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -1344,7 +1354,7 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
-    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type?: PropertyType
 }
 
 export interface PersonProperty {

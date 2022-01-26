@@ -79,6 +79,7 @@ class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Insight
@@ -98,15 +99,25 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "result",
             "created_at",
+            "created_by",
             "description",
             "updated_at",
             "tags",
             "favorited",
             "saved",
-            "created_by",
+            "last_modified_at",
+            "last_modified_by",
             "is_sample",
         ]
-        read_only_fields = ("created_by", "created_at", "short_id", "updated_at", "is_sample")
+        read_only_fields = (
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+            "short_id",
+            "updated_at",
+            "is_sample",
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
@@ -114,12 +125,14 @@ class InsightSerializer(InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
-            dashboard_item = Insight.objects.create(team=team, created_by=request.user, **validated_data)
+            dashboard_item = Insight.objects.create(
+                team=team, created_by=request.user, last_modified_by=request.user, **validated_data
+            )
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = Insight.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
             return dashboard_item
         else:
@@ -128,6 +141,9 @@ class InsightSerializer(InsightBasicSerializer):
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
+        if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
+            instance.last_modified_at = now()
+            instance.last_modified_by = self.context["request"].user
         return super().update(instance, validated_data)
 
     def get_result(self, insight: Insight):
@@ -250,8 +266,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = TrendSerializer(data={**request.data, **request.GET})
         try:
+            serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
@@ -300,8 +316,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = FunnelSerializer(data={**request.data, **request.GET})
         try:
+            serializer = FunnelSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
