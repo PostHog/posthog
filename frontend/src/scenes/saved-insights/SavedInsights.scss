@@ -135,3 +135,13 @@
         }
     }
 }
+
+.saved-insights-grid {
+    position: relative;
+    display: grid;
+    grid-gap: 1rem;
+    min-height: 30rem;
+    @media screen and (min-width: $lg) {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
