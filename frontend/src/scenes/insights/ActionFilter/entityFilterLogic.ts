@@ -7,7 +7,6 @@ import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLog
 
 export type LocalFilter = ActionFilter & {
     order: number
-    properties?: AnyPropertyFilter[]
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
@@ -184,7 +183,9 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         },
         updateFilterProperty: async ({ properties, index }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
+                values.localFilters.map(
+                    (filter, i) => (i === index ? { ...filter, properties } : filter) as LocalFilter
+                )
             )
         },
         updateFilterMath: async ({ index, ...mathProperties }) => {
@@ -229,7 +230,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 ...filter,
                 custom_name: undefined,
                 order: order + 1,
-            })
+            } as LocalFilter)
             actions.setFilters(newFilters)
             actions.setEntityFilterVisibility(order + 1, values.entityFilterVisible[order])
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Duplicate)
