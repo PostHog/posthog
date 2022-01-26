@@ -906,7 +906,7 @@ export function ExperimentPreview({
                                 {!!experiment?.filters?.properties?.length ? (
                                     <div>
                                         {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                            return <PropertyFilterButton key={item.key} item={item} greyBadges={true} />
+                                            return <PropertyFilterButton key={item.key} item={item} />
                                         })}
                                     </div>
                                 ) : (
@@ -955,7 +955,7 @@ export function ExperimentPreview({
                                             </b>
                                         </Row>
                                         {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                            <PropertyFilterButton key={prop.key} item={prop} />
                                         ))}
                                     </Col>
                                 ))}
