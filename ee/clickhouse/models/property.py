@@ -272,7 +272,7 @@ def _choose_date_comparison_query(
     assert isinstance(prop.value, str)
 
     prop_value_param_key = "v{}_{}".format(prepend, idx)
-    if prop.key in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE["DateTime"]:
+    if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
         query = f"""AND {prop.key} {operator} %({prop_value_param_key})s"""
     else:
         query = f"""AND coalesce(
@@ -336,14 +336,14 @@ def get_single_or_multi_property_string_expr(
 
 """
 These are "metadata" of events (columns in the events table in ClickHouse
-    that users should be able to query as if they were properties.
+    that users should be able to query as if they were in the properties JSON blob.
 
 They are separated by type to allow type-aware processing.
 
 For example: when using date queries ClickHouse's `parseDateTime...` functions are used. 
 These fail if given a DateTime value. So parsing can be skipped when an attribute is known to be a DateTime. 
 """
-EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE: Dict[str, List[str]] = {
+EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE: Dict[str, List[str]] = {
     "DateTime": ["timestamp", "created_at"],
     "String": ["distinct_id"],
 }
@@ -363,7 +363,7 @@ def get_property_string_expr(
         the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
         this is either a key expected to be found in a properties JSON blob, the name of a materialized column,
-        or a reserved name known to be a column on the events table
+        or a reserved property known to be a column on the events table
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
         If a flat value it should be escaped before being passed to this function
@@ -375,7 +375,7 @@ def get_property_string_expr(
     :return:
     """
 
-    for reserved_words in EVENT_ATTRIBUTE_RESERVED_WORDS_BY_TYPE.values():
+    for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
         if property_name in reserved_words:
             return property_name, False
 
