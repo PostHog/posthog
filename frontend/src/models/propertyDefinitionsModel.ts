@@ -16,16 +16,6 @@ interface PropertyDefinitionStorage {
 
 export const reservedProperties: PropertyDefinition[] = [
     {
-        id: 'created_at',
-        name: 'created_at',
-        description: '',
-        property_type: PropertyType.DateTime,
-        is_event_property: undefined,
-        query_usage_30_day: null,
-        volume_30_day: null,
-        is_numerical: false,
-    },
-    {
         id: 'timestamp',
         name: 'timestamp',
         description: '',

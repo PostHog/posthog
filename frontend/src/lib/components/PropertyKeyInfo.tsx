@@ -401,13 +401,6 @@ export const keyMapping: KeyMappingInterface = {
                 'Time the event was sent. Provided by some SDKs and client libraries, but not always present. Unless you are sure you want to filter on this, you should filter on `Timestamp`',
             hide: true,
         },
-        created_at: {
-            label: 'Created At',
-            description:
-                'Time the event was stored. Added by PostHog when events are ingested. Cannot be overridden when capturing events.',
-            examples: [new Date().toISOString()],
-            hide: true,
-        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',

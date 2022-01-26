@@ -344,7 +344,7 @@ For example: when using date queries ClickHouse's `parseDateTime...` functions a
 These fail if given a DateTime value. So parsing can be skipped when an attribute is known to be a DateTime. 
 """
 EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE: Dict[str, List[str]] = {
-    "DateTime": ["timestamp", "created_at"],
+    "DateTime": ["timestamp"],
     "String": ["distinct_id"],
 }
 
