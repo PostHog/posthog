@@ -56,7 +56,21 @@ describe('infiniteListLogic', () => {
                     results: [...reservedProperties],
                     searchQuery: '',
                     queryChanged: false,
-                    count: 3,
+                    count: 2,
+                }),
+            ])
+        })
+
+        it('can search reserved words when searching the first page of the event property definitions', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('stamp')
+                logic.actions.loadRemoteItems({ offset: 0, limit: 10 })
+            }).toDispatchActions([
+                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
+                    results: [...reservedProperties].filter((p) => p.name === 'timestamp'),
+                    searchQuery: 'stamp',
+                    queryChanged: true,
+                    count: 1,
                 }),
             ])
         })
