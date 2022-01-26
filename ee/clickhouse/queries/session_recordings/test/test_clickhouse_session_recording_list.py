@@ -101,3 +101,31 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url", "$session_id"])
+    def test_event_filter_matching_with_no_session_id(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        self.create_snapshot("user", "1", self.base_time, window_id="1")
+        self.create_event("user", self.base_time)
+        self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30), window_id="1")
+        self.create_event("user", self.base_time + relativedelta(seconds=31), event_name="$autocapture")
+
+        # Pageview within timestamps matches recording
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+        )
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], "1")
+
+        # Pageview outside timestamps does not match recording
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
+        )
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)

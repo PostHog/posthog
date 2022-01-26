@@ -176,7 +176,7 @@ export function LEGACY_LineGraph({
 
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (type === 'horizontalBar') {
+            if (type === 'horizontalBar' || type === 'doughnut') {
                 // If series are nested (for ActionsHorizontalBar only), filter out the series by index
                 const filterFn = (_, i) => !hiddenLegendKeys?.[i]
                 datasets = datasets.map((_data) => {

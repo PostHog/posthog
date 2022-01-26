@@ -1337,6 +1337,14 @@ export interface EventDefinition {
     verified_by?: string
 }
 
+// TODO duplicated from plugin server. Follow-up to de-duplicate
+export enum PropertyType {
+    DateTime = 'DateTime',
+    String = 'String',
+    Numeric = 'Numeric',
+    Boolean = 'Boolean',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -1348,7 +1356,7 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
-    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type?: PropertyType
 }
 
 export interface PersonProperty {
