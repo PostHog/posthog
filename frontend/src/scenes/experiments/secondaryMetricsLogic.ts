@@ -12,13 +12,13 @@ import {
     SecondaryExperimentMetric,
 } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import dayjs from 'dayjs'
 import { FunnelLayout } from 'lib/constants'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 import { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
+import { dayjs } from 'lib/dayjs'
 
 const DEFAULT_DURATION = 14
 
