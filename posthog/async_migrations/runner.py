@@ -180,8 +180,13 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
             execute_op(op, str(UUIDT()), rollback=True)
         except Exception as e:
             error = f"At operation {op_index} rollback failed with error:{str(e)}"
-
-            process_error(migration_instance=migration_instance, error=error, rollback=False, alert=True)
+            process_error(
+                migration_instance=migration_instance,
+                error=error,
+                rollback=False,
+                alert=True,
+                current_operation_index=op_index,
+            )
 
             return
 

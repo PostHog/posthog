@@ -35,11 +35,21 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */ " + sql)
 
 
-def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True, alert: bool = False):
+def process_error(
+    migration_instance: AsyncMigration,
+    error: str,
+    rollback: bool = True,
+    alert: bool = False,
+    current_operation_index: Optional[int] = None,
+):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
 
     update_async_migration(
-        migration_instance=migration_instance, status=MigrationStatus.Errored, error=error, finished_at=datetime.now(),
+        migration_instance=migration_instance,
+        current_operation_index=current_operation_index,
+        status=MigrationStatus.Errored,
+        error=error,
+        finished_at=datetime.now(),
     )
 
     if async_migrations_emails_enabled():
