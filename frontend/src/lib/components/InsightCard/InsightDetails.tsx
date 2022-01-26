@@ -43,6 +43,7 @@ function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName
                                     </>
                                 ) : (
                                     <>
+                                        {subFilter.type || 'event'}{' '}
                                         <b>
                                             <PropertyKeyInfo value={subFilter.key} />
                                         </b>{' '}
