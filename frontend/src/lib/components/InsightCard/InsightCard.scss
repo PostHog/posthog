@@ -193,14 +193,17 @@
 .InsightDetails {
     font-size: 0.8125rem;
     h5 {
-        margin-top: 0.5rem;
         margin-bottom: 0.25rem;
+    }
+    section:not(:last-child) {
+        margin-bottom: 0.5rem;
     }
     .property-filters {
         margin: 0;
     }
     .LemonRow {
         min-height: 2rem;
+        font-size: inherit;
     }
 }
 
@@ -289,6 +292,7 @@
 }
 
 .SeriesDisplay__arrow {
+    flex-shrink: 0;
     margin-right: 0.25rem;
     color: var(--border-dark);
     font-size: 1.25rem;
