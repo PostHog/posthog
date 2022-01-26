@@ -71,8 +71,8 @@ class ClickhouseTestEventApi(
         self.assertEqual(
             [r["name"] for r in response],
             [
-                first_within_query_limits.strftime("%Y-%m-%d %H:%M:%S"),
-                second_within_query_limits.strftime("%Y-%m-%d %H:%M:%S"),
+                first_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
+                second_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
             ],
         )
 
