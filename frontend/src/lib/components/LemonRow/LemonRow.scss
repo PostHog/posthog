@@ -128,6 +128,7 @@
     height: 1px;
     background: var(--border);
     margin: 0.5rem 0;
+    flex-shrink: 0;
     &--large {
         margin: 1rem 0;
     }

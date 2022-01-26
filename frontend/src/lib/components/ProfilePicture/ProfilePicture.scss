@@ -3,7 +3,9 @@
 .profile-package {
     display: inline-flex;
     align-items: center;
-    margin-left: 0.25rem;
+    &:not(:first-child) {
+        margin-left: 0.25rem;
+    }
 }
 
 .profile-name {
