@@ -21,7 +21,7 @@ export function ActionsPie({
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType } = useValues(logic)
+    const { results, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results]
@@ -47,14 +47,14 @@ export function ActionsPie({
                 borderWidth: 1,
             },
         ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
     }
 
     useEffect(() => {
         if (results) {
             updateData()
         }
-    }, [results, color])
+    }, [results, color, hiddenLegendKeys])
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -63,6 +63,7 @@ export function ActionsPie({
                     <LineGraph
                         data-attr="trend-pie-graph"
                         color={color}
+                        hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
                         datasets={data}
                         labels={data[0].labels}

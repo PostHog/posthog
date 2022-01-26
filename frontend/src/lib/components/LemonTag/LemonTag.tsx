@@ -2,8 +2,9 @@ import clsx from 'clsx'
 import React from 'react'
 import './LemonTag.scss'
 
+export type LemonTagPropsType = 'warning' | 'danger' | 'success' | 'default'
 interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
-    type?: 'warning' | 'danger' | 'success' | 'default'
+    type?: LemonTagPropsType
     children: JSX.Element | string
 }
 

@@ -35,6 +35,8 @@ import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -141,6 +143,8 @@ export function ActionFilterRow({
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -385,6 +389,7 @@ export function ActionFilterRow({
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 properties={numericalPropertyNames}
                                                 horizontalUI={horizontalUI}
+                                                exposeWebPerformance={!!featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE]}
                                             />
                                         </Col>
                                     </>
@@ -557,6 +562,7 @@ interface MathPropertySelectorProps {
     onMathPropertySelect: (index: number, value: string) => any
     properties: SelectOption[]
     horizontalUI?: boolean
+    exposeWebPerformance?: boolean
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
@@ -564,12 +570,16 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
 
     function isPropertyApplicable(value: PropertyFilter['value']): boolean {
         const includedProperties = ['$time']
+        if (props.exposeWebPerformance) {
+            includedProperties.push('$performance_page_loaded')
+        }
         const excludedProperties = ['distinct_id', 'token']
         if (typeof value !== 'string' || !value || excludedProperties.includes(value)) {
             return false
         }
         return value[0] !== '$' || includedProperties.includes(value)
     }
+
     const applicableProperties = props.properties
         .filter(({ value }) => isPropertyApplicable(value))
         .sort((a, b) => (a.value + '').localeCompare(b.value + ''))

@@ -7,6 +7,8 @@
     flex-direction: column;
     align-items: stretch;
     height: 30rem;
+    min-width: 0;
+    max-width: 100%;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     z-index: 3;
@@ -17,6 +19,11 @@
     }
     .InsightMeta {
         border-bottom: 1px solid var(--border);
+    }
+    .ant-alert {
+        margin: 1rem;
+        width: 100%;
+        overflow: auto;
     }
 }
 
@@ -103,6 +110,15 @@
     color: var(--text-muted);
     max-height: 7em; // Display at most 4.5 lines at once, then scroll
     overflow: auto;
+}
+
+.LastModified {
+    display: flex;
+    align-items: center;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow-x: auto;
 }
 
 .handle {

@@ -32,7 +32,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),
     [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
     [Scene.Licenses]: () => import('./instance/Licenses'),
-    [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations'),
+    [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.MySettings]: () => import('./me/Settings'),
     [Scene.Annotations]: () => import('./annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck'),

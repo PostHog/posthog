@@ -13,7 +13,7 @@
     border: none;
     font-size: 0.875rem;
     text-align: left;
-    line-height: 1.5;
+    line-height: 1.25rem;
     &.LemonRow--status-highlighted {
         background: rgba($primary, 0.1);
         color: var(--text-default);
@@ -94,8 +94,11 @@
 
 .LemonRow__icon {
     width: 1em;
+    height: 1em;
     transition: background-color 200ms ease, color 200ms ease;
     display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 1.5rem;
     color: var(--muted-alt);
 }

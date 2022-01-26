@@ -10,6 +10,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { VersionType } from '~/types'
 import { navigationLogicType } from './navigationLogicType'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 type WarningType =
     | 'welcome'
@@ -17,12 +20,13 @@ type WarningType =
     | 'incomplete_setup_on_real_project'
     | 'demo_project'
     | 'real_project_with_no_events'
+    | 'invite_teammates'
     | null
 
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
     },
     actions: {
         toggleSideBarBase: true,
@@ -150,12 +154,15 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
         demoWarning: [
-            () => [
+            (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
+                s.members,
+                s.membersLoading,
+                featureFlagLogic.selectors.featureFlags,
             ],
-            (organization, currentTeam, preflight): WarningType => {
+            (organization, currentTeam, preflight, members, membersLoading, featureFlags): WarningType => {
                 if (!organization) {
                     return null
                 }
@@ -165,10 +172,14 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
                     currentTeam?.is_demo
                 ) {
+                    // TODO: Currently unused
                     return 'welcome'
                 } else if (organization.setup.is_active && currentTeam?.is_demo) {
+                    // TODO: Currently unused
+
                     return 'incomplete_setup_on_demo_project'
                 } else if (organization.setup.is_active) {
+                    // TODO: Currently unused
                     return 'incomplete_setup_on_real_project'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
@@ -177,7 +188,14 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     return 'demo_project'
                 } else if (currentTeam && !currentTeam.ingested_event) {
                     return 'real_project_with_no_events'
+                } else if (
+                    featureFlags[FEATURE_FLAGS.INVITE_TEAMMATES_BANNER] == 'test' &&
+                    !membersLoading &&
+                    members.length <= 1
+                ) {
+                    return 'invite_teammates'
                 }
+
                 return null
             },
         ],
