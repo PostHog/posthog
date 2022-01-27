@@ -53,7 +53,7 @@ INSTANCE_PREFERENCES = {
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
-    JS_URL = os.getenv("JS_URL", "http://localhost:8234")
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:
     JS_URL = os.getenv("JS_URL", "")
 
