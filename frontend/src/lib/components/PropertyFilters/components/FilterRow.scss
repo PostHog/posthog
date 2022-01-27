@@ -25,12 +25,15 @@
         top: -4px;
         user-select: none;
     }
+}
 
-    .white-button {
-        color: white;
-    }
+.property-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin: 0.25rem 0 1rem;
 
-    .property-filter-grey {
+    .property-filter {
         color: #2d2d2d;
         border-color: $dark-grey;
         background: $dark-grey;
@@ -42,11 +45,4 @@
             color: #2d2d2d;
         }
     }
-}
-
-.property-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    margin: 0.25rem 0 1rem;
 }
