@@ -4,12 +4,12 @@
     display: inline-flex;
     align-items: center;
     &:not(:first-child) {
-        margin-left: 0.25rem;
+        margin-left: 0.375rem;
     }
 }
 
 .profile-name {
-    margin-left: 0.25rem;
+    margin-left: 0.375rem;
     font-weight: 500;
 }
 

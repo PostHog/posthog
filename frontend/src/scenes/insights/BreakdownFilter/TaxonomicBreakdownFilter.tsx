@@ -97,17 +97,11 @@ export function BreakdownFilter({
     const onChange = setFilters ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }) : undefined
 
     return (
-        <>
-            <Space direction={'horizontal'} wrap={true}>
-                {tags}
-                {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
-                    <TaxonomicBreakdownButton
-                        buttonType={buttonType}
-                        breakdownType={breakdownType}
-                        onChange={onChange}
-                    />
-                ) : null}
-            </Space>
-        </>
+        <Space direction="horizontal" wrap>
+            {tags}
+            {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
+                <TaxonomicBreakdownButton buttonType={buttonType} breakdownType={breakdownType} onChange={onChange} />
+            ) : null}
+        </Space>
     )
 }
