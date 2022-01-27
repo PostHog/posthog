@@ -40,8 +40,9 @@ jobs:
               id: meta
               uses: docker/metadata-action@v3
               with:
+                  flavor: latest=auto
                   images: ${{ steps.login-ecr.outputs.registry }}/posthog/posthog
-                  tags: type=ref,event=branch
+                  tags: type=ref,event=pr
 
             # We also want to use cache-from when building, but we want to also
             # include the master tag so we get the master branch image as well.
@@ -51,9 +52,7 @@ jobs:
               uses: docker/metadata-action@v3
               with:
                   images: ${{ steps.login-ecr.outputs.registry }}/posthog/posthog
-                  tags: |
-                      type=ref,event=branch
-                      type=raw,value=master
+                  tags: type=raw,value=master
 
             - name: Build production image
               id: docker-latest
