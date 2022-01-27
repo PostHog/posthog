@@ -27,7 +27,7 @@ import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
-const FUNNEL_STEP_COUNT_LIMIT = 12
+const FUNNEL_STEP_COUNT_LIMIT = 22
 
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
