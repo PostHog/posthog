@@ -109,16 +109,14 @@ class PropertyDefinitionViewSet(
         }
 
         # adding reserved attributes as a CTE lets existing sorting and searching work against these attributes too
-        reserved_attributes_cte = """WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type_format, property_type_format, is_event_property) AS (
-                  VALUES
-                   ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, null::boolean),
-                   ('4771d3f7-f53d-4f35-96ee-cfb144af3e5e'::uuid,'distinct_id', false, null::int, null::int, 1, 'String', null::varchar, null::boolean)
-                )"""
-
         if use_entreprise_taxonomy:
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
-                {reserved_attributes_cte}
+                WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, propertydefinition_ptr_id, description, tags, updated_at, updated_by_id, is_event_property) AS (
+                  VALUES
+                   ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, '2adede51-e213-48dd-b2de-395c311020f3'::uuid, '', null::varchar[], '1970-01-01 00:00+00'::timestamptz, 0, null::boolean),
+                   ('4771d3f7-f53d-4f35-96ee-cfb144af3e5e'::uuid,'distinct_id', false, null::int, null::int, 1, 'String', null::varchar, '4771d3f7-f53d-4f35-96ee-cfb144af3e5e'::uuid, '', null::varchar[], '1970-01-01 00:00+00'::timestamptz, 0, null::boolean)
+                )
                 SELECT posthog_propertydefinition.*,
                        ee_enterprisepropertydefinition.*, 
                        {event_property_field} AS is_event_property
@@ -126,7 +124,8 @@ class PropertyDefinitionViewSet(
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                UNION ALL SELECT * FROM reserved_attributes name WHERE 1=1 {search_query} -- search query includes an AND so can't follow where'
+                -- the two filters start with AND, so 1=1 to avoid editing them
+                UNION ALL SELECT * FROM reserved_attributes WHERE 1=1 {name_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
@@ -134,11 +133,16 @@ class PropertyDefinitionViewSet(
         else:
             return PropertyDefinition.objects.raw(
                 f"""
-                {reserved_attributes_cte}
+                WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, is_event_property) AS (
+                  VALUES
+                   ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, null::boolean),
+                   ('4771d3f7-f53d-4f35-96ee-cfb144af3e5e'::uuid,'distinct_id', false, null::int, null::int, 1, 'String', null::varchar, null::boolean)
+                )
                 SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                UNION ALL SELECT * FROM reserved_attributes name WHERE 1=1 {search_query} -- search query includes an AND so can't follow where
+                -- the two filters start with AND, so 1=1 to avoid editing them
+                UNION ALL SELECT * FROM reserved_attributes WHERE 1=1 {name_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,

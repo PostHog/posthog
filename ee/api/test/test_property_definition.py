@@ -135,6 +135,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
 
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=timest")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
@@ -182,6 +187,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["count"], 3)
         for item in response.json()["results"]:
-            self.assertIn(item["name"], ["plan", "app_rating"])
+            self.assertIn(item["name"], ["plan", "app_rating", "timestamp"])
