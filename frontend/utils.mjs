@@ -110,8 +110,14 @@ export function copyIndexHtml(
         fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
-                    // Load styles first, such that we have them before code
-                    // loads and starts adding elements to html
+                    // NOTE: the link for the stylesheet will be added just
+                    // after this script block. The react code will need the
+                    // body to have been parsed before it is able to interact
+                    // with it and add anything to it.
+                    //
+                    // Fingers crossed the browser waits for the stylesheet to
+                    // load such that it's in place when react starts
+                    // adding elements to the DOM
                     ${cssLoader}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
