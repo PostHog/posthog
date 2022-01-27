@@ -39,6 +39,11 @@ class PropertyDefinition(UUIDModel):
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
     # DEPRECATED
+    property_type_format = models.CharField(
+        max_length=50, choices=PropertyFormat.choices, blank=True, null=True
+    )  # Deprecated in #8292
+
+    # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Deprecated in #4480
