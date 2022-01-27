@@ -1,11 +1,11 @@
-import { infiniteListLogic } from './infiniteListLogic'
+import { excludedProperties, infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
-import { AppContext } from '~/types'
+import { AppContext, PropertyDefinition, PropertyType } from '~/types'
 import { reservedProperties } from '~/models/propertyDefinitionsModel'
 
 jest.mock('lib/api')
@@ -14,6 +14,8 @@ window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown a
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
+
+    let apiReturnedPropertyDefinitions: PropertyDefinition[]
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
@@ -27,8 +29,8 @@ describe('infiniteListLogic', () => {
         }
         if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
             return {
-                results: [],
-                count: 0,
+                results: apiReturnedPropertyDefinitions,
+                count: apiReturnedPropertyDefinitions.length,
             }
         }
     })
@@ -36,6 +38,7 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
+        apiReturnedPropertyDefinitions = []
     })
 
     describe('event property data source', () => {
@@ -84,6 +87,46 @@ describe('infiniteListLogic', () => {
                     searchQuery: '',
                     queryChanged: false,
                     count: 0,
+                }),
+            ])
+        })
+
+        it('excludes specific fields when loading event property definitions', async () => {
+            excludedProperties
+                .map((prop) => {
+                    return {
+                        id: prop,
+                        name: prop,
+                        description: '',
+                        property_type: PropertyType.String,
+                        is_event_property: undefined,
+                        query_usage_30_day: null,
+                        volume_30_day: null,
+                        is_numerical: false,
+                    }
+                })
+                .forEach((p) => apiReturnedPropertyDefinitions.push(p))
+
+            const toInclude = {
+                id: 'toInclude',
+                name: 'toInclude',
+                description: '',
+                property_type: PropertyType.String,
+                is_event_property: undefined,
+                query_usage_30_day: null,
+                volume_30_day: null,
+                is_numerical: false,
+            }
+            apiReturnedPropertyDefinitions.push(toInclude)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRemoteItems({ offset: 0, limit: 11 }) //change limit to avoid URL cache
+            }).toDispatchActions([
+                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
+                    results: [...reservedProperties, toInclude], // toExclude is returned by the API but filtered inside the logic
+                    searchQuery: '',
+                    queryChanged: false,
+                    count: 3,
                 }),
             ])
         })

@@ -394,12 +394,14 @@ export const keyMapping: KeyMappingInterface = {
                 'Time the event happened. Provided by some SDKs and client libraries, but not always present. Unless you are sure you want to filter on this, you should filter on `Timestamp`',
             examples: [new Date().toISOString()],
             hide: true,
+            excludeFromTaxonomicFilter: true,
         },
         $time: {
             label: 'Time',
             description:
                 'Time the event was sent. Provided by some SDKs and client libraries, but not always present. Unless you are sure you want to filter on this, you should filter on `Timestamp`',
             hide: true,
+            excludeFromTaxonomicFilter: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',

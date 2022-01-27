@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
-import { CohortType, EventDefinition } from '~/types'
+import { CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import {
     InfiniteListLogicProps,
@@ -16,6 +16,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { reservedProperties } from '~/models/propertyDefinitionsModel'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -39,6 +40,10 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 const API_CACHE_TIMEOUT = 60000
 const apiCache: Record<string, EventDefinitionStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
+
+export const excludedProperties: string[] = Object.entries(keyMapping.event)
+    .filter((keyMap) => keyMap[1].excludeFromTaxonomicFilter)
+    .map(([key]) => key)
 
 export const infiniteListLogic = kea<infiniteListLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
@@ -113,16 +118,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     } else {
                         response = await api.get(url)
 
-                        if (values.group?.type === TaxonomicFilterGroupType.EventProperties && offset === 0) {
-                            // TODO this filtering should be moved to the backend and/or hidden behind the solution to https://github.com/PostHog/posthog/issues/8257
-                            let propertiesToAdd = [...reservedProperties]
-                            if (searchQuery.length > 0) {
-                                propertiesToAdd = propertiesToAdd.filter((p) => p.name.indexOf(searchQuery) >= 0)
+                        if (values.group?.type === TaxonomicFilterGroupType.EventProperties) {
+                            let propertiesToAdd: PropertyDefinition[] = []
+
+                            const resultsWithExcludedPropertiesRemoved = (response?.results || []).filter(
+                                (r: PropertyDefinition) => !excludedProperties.includes(r.name)
+                            )
+
+                            if (offset === 0) {
+                                // TODO this filtering should be moved to the backend and/or hidden behind the solution to https://github.com/PostHog/posthog/issues/8257
+                                propertiesToAdd = [...reservedProperties]
+                                if (searchQuery.length > 0) {
+                                    propertiesToAdd = propertiesToAdd.filter((p) => p.name.indexOf(searchQuery) >= 0)
+                                }
                             }
                             response = {
                                 ...response,
-                                count: propertiesToAdd.length + (response?.count ?? 0),
-                                results: [...propertiesToAdd, ...response?.results],
+                                count: propertiesToAdd.length + (resultsWithExcludedPropertiesRemoved.length ?? 0),
+                                results: [...propertiesToAdd, ...resultsWithExcludedPropertiesRemoved],
                             }
                         }
 
