@@ -1,6 +1,6 @@
 # name: RetentionTests.test_retention_test_account_filters
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (ClickhouseInsightsViewSet) */ WITH actor_query AS
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (InsightViewSet) */ WITH actor_query AS
     (WITH 'day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
