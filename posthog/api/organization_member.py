@@ -1,10 +1,12 @@
 from typing import cast
 
 from django.db.models import Model
+from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import raise_errors_on_nested_writes
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -71,9 +73,23 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMemberSerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
-    queryset = OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+    queryset = OrganizationMembership.objects.all().order_by(Lower('user__first_name')).exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
     lookup_field = "user__uuid"
     ordering = ["level", "-joined_at"]
+
+    def list(self, request, *args, **kwargs):
+        #put the loggedInUser object on top as per issue:8234
+        queryset = self.filter_queryset(self.get_queryset())
+        loggedInUser  = queryset.filter(user = request.user).first()
+        queryset = queryset.exclude(user = request.user)
+        queryset = [loggedInUser] + list(queryset)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())

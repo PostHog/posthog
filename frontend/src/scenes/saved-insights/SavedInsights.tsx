@@ -367,11 +367,16 @@ export function SavedInsights(): JSX.Element {
                                 }}
                             >
                                 <Select.Option value={'All users'}>All users</Select.Option>
-                                {members.map((member) => (
+                                {members.map((member, index) =>{
+                                    return index === 0 ? (
+                                    <Select.Option key={member.user.id} value={member.user.id}>
+                                        <strong>{member.user.first_name}</strong>
+                                    </Select.Option>) 
+                                    : (
                                     <Select.Option key={member.user.id} value={member.user.id}>
                                         {member.user.first_name}
-                                    </Select.Option>
-                                ))}
+                                    </Select.Option>)
+                                })}
                             </Select>
                         </Col>
                     ) : null}
