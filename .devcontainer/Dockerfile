@@ -21,17 +21,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add docker cli so we can do things like `docker logs`, and build images
-    # NOTE: I'm not pinning the version as older package was removed causing
-    # build failures. I'm sure there's a better way with apt to add a constraint
-    # but wasn't immediately obvious
-    "docker.io" \
+    "docker.io=20.*" \
     # Add in useful db debugging tools
-    "postgresql-client=13+225" \
+    "postgresql-client=13+*" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
 RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get -y install --no-install-recommends "nodejs=14.18.2-deb-1nodesource1" \
+    && apt-get -y install --no-install-recommends "nodejs=14.*" \
     && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
