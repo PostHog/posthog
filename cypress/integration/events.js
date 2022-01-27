@@ -125,7 +125,8 @@ describe('Events', () => {
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Timestamp < ')
 
         cy.wait('@getEvents').then(() => {
-            cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
+            // as the seeded events are random(-ish) it may be "a day ago" it may be "2 days ago"
+            cy.get('tr.event-row:first-child').should('contain.text', 'day').should('contain.text', 'ago')
             cy.get('tr.event-row').should((rows) => {
                 // test data setup is slightly random so...
                 expect(rows.length).to.be.greaterThan(50)
@@ -137,7 +138,7 @@ describe('Events', () => {
             cy.wait('@getEvents').then(() => {
                 cy.get('[data-attr="property-filter-0"]').should('include.text', 'Timestamp > ')
                 // as the seeded events are random(-ish) we can't assert on how long ago they will be
-                cy.get('tr.event-row:first-child').should('not.contain.text', 'a day ago')
+                cy.get('tr.event-row:first-child').should('not.contain.text', 'day')
                 cy.get('tr.event-row').should((rows) => {
                     // test data setup is slightly random so...
                     expect(rows.length).to.be.greaterThan(5)
