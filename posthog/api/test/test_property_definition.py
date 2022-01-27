@@ -1,7 +1,6 @@
 import random
-from typing import Dict
+from typing import Any, Dict, List
 
-import structlog
 from rest_framework import status
 
 from posthog.demo import create_demo_team
@@ -14,7 +13,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     demo_team: Team = None  # type: ignore
 
-    EXPECTED_PROPERTY_DEFINITIONS = [
+    EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Any]] = [
         {"name": "timestamp", "query_usage_30_day": None, "is_numerical": False},
         {"name": "distinct_id", "query_usage_30_day": None, "is_numerical": False},
         {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
