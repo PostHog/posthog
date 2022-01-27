@@ -193,7 +193,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             dashboard = get_object_or_404(queryset, pk=pk)
         except Http404 as e:
             user = cast(User, request.user)
-            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams)
+            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams, pk=pk)
             if alternative_team.exists():
                 raise ObjectExistsInOtherProject(
                     alternative_team_id=alternative_team.first().team_id,  # type: ignore
