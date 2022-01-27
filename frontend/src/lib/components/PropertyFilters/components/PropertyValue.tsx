@@ -151,6 +151,8 @@ export function PropertyValue({
 
     const validationError = operator ? getValidationError(operator, value) : null
 
+    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
+
     const commonInputProps = {
         style: { width: '100%', ...style },
         onSearch: (newInput: string) => {
@@ -245,7 +247,7 @@ export function PropertyValue({
                         format="YYYY-MM-DD HH:mm:ss"
                         showTime={true}
                         showNow={false}
-                        value={dayJSMightParse(value) ? dayjs(value) : null}
+                        value={datePickerStartingValue}
                         onFocus={() => setDatePickerOpen(true)}
                         onBlur={() => setDatePickerOpen(false)}
                         onOk={(selectedDate) => {
