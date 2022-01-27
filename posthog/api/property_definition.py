@@ -14,7 +14,13 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 HIDDEN_PROPERTY_DEFINITIONS = set(
     [
         # distinct_id is set in properties by some libraries
+        # that distinct_id should be hidden,
+        #  but it is added back in as a reserved attribute below
         "distinct_id",
+        # $time and $timestamp are added by SDKs
+        # but should not be used for filtering
+        "$time",
+        "$timestamp",
         # used for updating properties
         "$set",
         "$set_once",
@@ -23,11 +29,14 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         "$group_type",
         "$group_key",
         "$group_set",
-        "$time",
-        "$timestamp",
     ]
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
 )
+
+RESERVED_EVENT_ATTRIBUTES = [
+    {"id": "timestamp", "name": "timestamp", "is_numerical": False, "property_type": "DateTime"},
+    {"id": "distinct_id", "name": "distinct_id", "is_numerical": False, "property_type": "String"},
+]
 
 
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
@@ -99,9 +108,17 @@ class PropertyDefinitionViewSet(
             **search_kwargs,
         }
 
+        # adding reserved attributes as a CTE lets existing sorting and searching work against these attributes too
+        reserved_attributes_cte = """WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type_format, property_type_format, is_event_property) AS (
+                  VALUES
+                   ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, null::boolean),
+                   ('4771d3f7-f53d-4f35-96ee-cfb144af3e5e'::uuid,'distinct_id', false, null::int, null::int, 1, 'String', null::varchar, null::boolean)
+                )"""
+
         if use_entreprise_taxonomy:
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
+                {reserved_attributes_cte}
                 SELECT posthog_propertydefinition.*,
                        ee_enterprisepropertydefinition.*, 
                        {event_property_field} AS is_event_property
@@ -109,6 +126,7 @@ class PropertyDefinitionViewSet(
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                UNION ALL SELECT * FROM reserved_attributes name WHERE 1=1 {search_query} # search query includes an AND so can't follow where'
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
@@ -116,9 +134,11 @@ class PropertyDefinitionViewSet(
         else:
             return PropertyDefinition.objects.raw(
                 f"""
+                {reserved_attributes_cte}
                 SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                UNION ALL SELECT * FROM reserved_attributes name WHERE 1=1 {search_query} # search query includes an AND so can't follow where
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
