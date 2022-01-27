@@ -52,7 +52,7 @@ export function OperatorValueSelect({
     // DateTime properties should not default to Exact
     const startingOperator =
         allowQueryingEventsByDateTime &&
-        propertyDefinition?.property_type == 'DateTime' &&
+        propertyDefinition?.property_type == PropertyType.DateTime &&
         (!operator || operator == PropertyOperator.Exact)
             ? PropertyOperator.IsDateBefore
             : operator
