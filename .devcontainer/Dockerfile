@@ -21,7 +21,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add docker cli so we can do things like `docker logs`, and build images
-    "docker.io=20.10.5+dfsg1-1+b5" \
+    # NOTE: I'm not pinning the version as older package was removed causing
+    # build failures. I'm sure there's a better way with apt to add a constraint
+    # but wasn't immediately obvious
+    "docker.io" \
     # Add in useful db debugging tools
     "postgresql-client=13+225" \
     && rm -rf /var/lib/apt/lists/*
