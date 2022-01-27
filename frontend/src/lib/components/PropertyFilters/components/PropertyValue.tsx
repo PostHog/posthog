@@ -82,6 +82,8 @@ export function PropertyValue({
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
+    const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
+
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
     // update the input field if passed a new `value` prop
@@ -236,7 +238,7 @@ export function PropertyValue({
                     <DatePicker
                         {...commonInputProps}
                         autoFocus={autoFocus}
-                        open={autoFocus}
+                        open={datePickerOpen}
                         inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
@@ -244,8 +246,11 @@ export function PropertyValue({
                         showTime={true}
                         showNow={false}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
+                        onFocus={() => setDatePickerOpen(true)}
+                        onBlur={() => setDatePickerOpen(false)}
                         onOk={(selectedDate) => {
                             setValue(selectedDate.format('YYYY-MM-DD HH:mm:ss'))
+                            setDatePickerOpen(false)
                         }}
                         getPopupContainer={(trigger: Element | null) => {
                             const container = trigger?.parentElement?.parentElement?.parentElement
