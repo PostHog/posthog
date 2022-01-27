@@ -74,7 +74,7 @@ export function copyIndexHtml(
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
-                await import(window.JS_URL + '/static/' + file)
+                await import((window.JS_URL || '') + '/static/' + file)
             } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
