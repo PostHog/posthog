@@ -235,6 +235,8 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
+                        autoFocus={autoFocus}
+                        open={autoFocus}
                         inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
@@ -266,7 +268,7 @@ export function PropertyValue({
                                 >
                                     {[
                                         ...Object.entries(dateMapping).map(([key, { inactive }]) => {
-                                            if (key === 'Custom' || key == 'all' || inactive) {
+                                            if (key === 'Custom' || key == 'All time' || inactive) {
                                                 return null
                                             }
 
