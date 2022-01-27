@@ -1,60 +1,54 @@
-import React, { useState } from 'react'
-import { Modal, Switch, Button } from 'antd'
+import React from 'react'
+import { Modal, Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { urls } from 'scenes/urls'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
-export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element {
+export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element | null {
     const { dashboard } = useValues(dashboardLogic)
+    const { dashboardLoading } = useValues(dashboardsModel)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
-    const [isShared, setIsShared] = useState(dashboard?.is_shared)
 
-    const url = window.location.origin + '/shared_dashboard/' + dashboard?.share_token
+    const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
         <Modal
             visible={visible}
             onCancel={onCancel}
             footer={<Button onClick={onCancel}>Close</Button>}
-            title="Share your dashboard with people outside of PostHog."
+            title="Dashboard sharing"
             destroyOnClose
         >
-            <p>
-                <Switch
-                    onClick={(_, e) => e.stopPropagation()}
-                    checked={isShared}
-                    data-attr="share-dashboard-switch"
-                    onChange={(active) => {
-                        setIsShared(active)
-                        setIsSharedDashboard(dashboard.id, active)
-                    }}
-                    style={{ marginRight: 8 }}
-                />
-                Share your dashboard
-            </p>
-            {isShared ? (
+            <LemonSwitch
+                label="Share dashboard publicly"
+                checked={dashboard.is_shared}
+                loading={dashboardLoading}
+                data-attr="share-dashboard-switch"
+                onChange={(active) => {
+                    setIsSharedDashboard(dashboard.id, active)
+                }}
+                block
+            />
+            {dashboard.is_shared ? (
                 <>
-                    <p>
-                        Your dashboard is visible to everyone with the link:
-                        {dashboard.share_token && (
-                            <CopyToClipboardInput data-attr="share-dashboard-link" value={url} description="link" />
-                        )}
-                    </p>
-                    To embed this dashboard on your own website, copy this snippet:
+                    {dashboard.share_token && (
+                        <CopyToClipboardInput
+                            data-attr="share-dashboard-link"
+                            value={shareLink}
+                            description="link"
+                            className="mb"
+                        />
+                    )}
+                    To embed this dashboard on your website, copy this snippet:
                     <CodeSnippet language={Language.HTML}>
-                        {`<iframe width="100%" height="100%" frameborder="0" src="${url}?embedded" />`}
+                        {`<iframe width="100%" height="100%" frameborder="0" src="${shareLink}?embedded" />`}
                     </CodeSnippet>
-                    <small>
-                        Modify attributes <code>width</code> and <code>height</code> to optimize the embed's size for
-                        your website.
-                    </small>
                 </>
-            ) : (
-                'Your dashboard is private.'
-            )}
+            ) : null}
         </Modal>
-    ) : (
-        <div />
-    )
+    ) : null
 }

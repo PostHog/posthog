@@ -10,7 +10,10 @@ export interface LemonSwitchProps {
     label?: string | JSX.Element
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
+    /** Whether the switch should be wrapped in an outlined block for visual distinction */
+    block?: boolean
     style?: React.CSSProperties
+    wrapperStyle?: React.CSSProperties
     disabled?: boolean
 }
 
@@ -21,7 +24,9 @@ export function LemonSwitch({
     loading,
     label,
     alt,
+    block,
     style,
+    wrapperStyle,
     disabled,
 }: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
@@ -52,7 +57,7 @@ export function LemonSwitch({
     )
 
     return label ? (
-        <div className="LemonSwitch__wrapper">
+        <div className={clsx('LemonSwitch__wrapper', block && 'LemonSwitch__wrapper--block')} style={wrapperStyle}>
             <label className="LemonSwitch__label" htmlFor={id}>
                 {label}
             </label>
