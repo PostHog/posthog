@@ -53,16 +53,18 @@ INSTANCE_PREFERENCES = {
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
-    JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234")
 else:
     JS_URL = os.getenv("JS_URL", "")
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
-PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
-    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
-).split(",") if not DISABLE_MMDB else []
+PLUGINS_PREINSTALLED_URLS: List[str] = (
+    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip").split(",")
+    if not DISABLE_MMDB
+    else []
+)
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 PLUGINS_ALERT_CHANNEL = "plugins-alert"
