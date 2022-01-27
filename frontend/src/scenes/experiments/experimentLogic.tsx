@@ -415,11 +415,9 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
         parsedSecondaryMetrics: [
             (s) => [s.newExperimentData, s.experimentData],
-            (newExperimentData, experimentData): SecondaryExperimentMetric[] => {
+            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
                 const secondaryMetrics: Partial<FilterType>[] =
-                    newExperimentData?.parameters?.secondary_metrics ||
-                    experimentData?.parameters?.secondary_metrics ||
-                    []
+                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
                 return secondaryMetrics.map((metric) => ({ filters: metric }))
             },
         ],
