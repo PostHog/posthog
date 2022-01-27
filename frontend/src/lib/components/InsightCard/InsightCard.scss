@@ -259,11 +259,19 @@
 
 .SeriesDisplay {
     line-height: 1.5rem;
+    .property-key-info {
+        line-height: 1rem;
+    }
+    .property-key-info-logo {
+        height: 1rem;
+        width: 1rem;
+        margin-right: 0.25rem;
+    }
 }
 
 .SeriesDisplay__raw-name {
     display: inline-flex;
-    margin: 0 0.5rem;
+    margin-left: 0.375rem;
     padding: 0.25rem;
     background: var(--primary-bg-hover);
     border-radius: var(--radius);

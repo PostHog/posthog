@@ -70,7 +70,7 @@ function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName
                     </Link>
                 ) : (
                     <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        {filter.name || '$pageview'}
+                        <PropertyKeyInfo value={filter.name || '$pageview'} />
                     </span>
                 )}
             </span>
