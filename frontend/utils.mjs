@@ -101,7 +101,7 @@ export function copyIndexHtml(
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
-        link.href = window.JS_URL + "/static/${cssFile}"
+        link.href = (window.JS_URL || '') + "/static/${cssFile}"
         document.head.appendChild(link)
     `
 
