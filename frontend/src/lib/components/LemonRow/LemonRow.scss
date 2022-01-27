@@ -80,7 +80,7 @@
 
 .LemonRow--symbolic {
     display: block;
-    min-height: 1.5rem;
+    min-height: 0;
     height: 1.5rem;
     padding: 0;
 }
@@ -89,6 +89,7 @@
     min-height: 2rem;
     padding: 0.125rem 0.5rem;
     &.LemonRow--symbolic {
+        min-height: 0;
         height: 1.25rem;
         padding: 0;
     }

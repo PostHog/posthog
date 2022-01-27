@@ -54,19 +54,34 @@ function CompactPropertyFiltersDisplay({
     )
 }
 
-function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName: string | number }): JSX.Element {
+function SeriesDisplay({
+    filter,
+    insightType = InsightType.TRENDS,
+    index,
+}: {
+    filter: LocalFilter
+    insightType?: InsightType
+    index: number
+}): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
 
     return (
         <LemonRow
             fullWidth
             className="SeriesDisplay"
-            icon={<Lettermark name={seriesName.toString()} />}
+            icon={<Lettermark name={insightType !== InsightType.FUNNELS ? alphabet[index] : index + 1} />}
             extendedContent={
                 <>
-                    <div>
-                        counted by <b>{mathDefinitions[filter.math || 'total'].name.toLowerCase()}</b>
-                    </div>
+                    {insightType !== InsightType.FUNNELS && (
+                        <div>
+                            counted by{' '}
+                            <b>
+                                {mathDefinitions[
+                                    insightType === InsightType.LIFECYCLE ? 'dau' : filter.math || 'total'
+                                ].name.toLowerCase()}
+                            </b>
+                        </div>
+                    )}
                     {filter.properties && filter.properties.length > 0 && (
                         <CompactPropertyFiltersDisplay properties={filter.properties} embedded />
                     )}
@@ -74,7 +89,8 @@ function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName
             }
         >
             <span>
-                Showing{filter.custom_name && <b> "{filter.custom_name}"</b>}
+                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
+                {filter.custom_name && <b> "{filter.custom_name}"</b>}
                 {filter.type === 'actions' && filter.id ? (
                     <Link
                         to={urls.action(filter.id)}
@@ -115,17 +131,15 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     </>
                 )}
                 <div className="InsightDetails__series">
-                    <SeriesDisplay
-                        filter={localFilters[0]}
-                        seriesName={filters.insight !== InsightType.FUNNELS ? 'A' : 1}
-                    />
+                    <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
                     {localFilters.slice(1).map((filter, index) => (
                         <>
                             <LemonSpacer />
                             <SeriesDisplay
                                 key={index}
                                 filter={filter}
-                                seriesName={filters.insight !== InsightType.FUNNELS ? alphabet[index + 1] : index + 2}
+                                insightType={filters.insight}
+                                index={index + 1}
                             />
                         </>
                     ))}

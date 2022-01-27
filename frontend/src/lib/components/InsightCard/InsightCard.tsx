@@ -25,6 +25,9 @@ import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+// TODO: Add support for Retention and Paths to InsightDetails
+const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION, InsightType.PATHS]
+
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
@@ -85,7 +88,11 @@ function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
-    const { ref: primaryRef, height: primaryHeight } = useResizeObserver()
+    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
+        insight.filters.insight || InsightType.TRENDS
+    )
+
+    const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
 
     useEffect(() => {
@@ -132,14 +139,16 @@ function InsightMeta({
                                     • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
                                 <div className="InsightMeta__controls">
-                                    {setAreDetailsShown && (
+                                    {areDetailsSupported && setAreDetailsShown && (
                                         <LemonButton
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
                                             compact
                                         >
-                                            {!areDetailsShown ? 'Show' : 'Hide'} details
+                                            {primaryWidth &&
+                                                primaryWidth > 480 &&
+                                                `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
                                     <More
