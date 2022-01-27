@@ -1,12 +1,11 @@
-import { excludedProperties, infiniteListLogic } from './infiniteListLogic'
+import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
-import { AppContext, PropertyDefinition, PropertyType } from '~/types'
-import { reservedProperties } from '~/models/propertyDefinitionsModel'
+import { AppContext, PropertyDefinition } from '~/types'
 
 jest.mock('lib/api')
 
@@ -39,97 +38,6 @@ describe('infiniteListLogic', () => {
         initKeaTests()
         teamLogic.mount()
         apiReturnedPropertyDefinitions = []
-    })
-
-    describe('event property data source', () => {
-        beforeEach(() => {
-            logic = infiniteListLogic({
-                taxonomicFilterLogicKey: 'testList',
-                listGroupType: TaxonomicFilterGroupType.EventProperties,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-            })
-            logic.mount()
-        })
-
-        it('adds reserved words when loading the first page of the event property definitions', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadRemoteItems({ offset: 0, limit: 10 })
-            }).toDispatchActions([
-                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
-                    results: [...reservedProperties],
-                    searchQuery: '',
-                    queryChanged: false,
-                    count: 2,
-                }),
-            ])
-        })
-
-        it('can search reserved words when searching the first page of the event property definitions', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSearchQuery('stamp')
-                logic.actions.loadRemoteItems({ offset: 0, limit: 10 })
-            }).toDispatchActions([
-                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
-                    results: [...reservedProperties].filter((p) => p.name === 'timestamp'),
-                    searchQuery: 'stamp',
-                    queryChanged: true,
-                    count: 1,
-                }),
-            ])
-        })
-
-        it('does not add reserved words when loading any other page of the event property definitions', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadRemoteItems({ offset: 1, limit: 10 })
-            }).toDispatchActions([
-                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
-                    results: [],
-                    searchQuery: '',
-                    queryChanged: false,
-                    count: 0,
-                }),
-            ])
-        })
-
-        it('excludes specific fields when loading event property definitions', async () => {
-            excludedProperties
-                .map((prop) => {
-                    return {
-                        id: prop,
-                        name: prop,
-                        description: '',
-                        property_type: PropertyType.String,
-                        is_event_property: undefined,
-                        query_usage_30_day: null,
-                        volume_30_day: null,
-                        is_numerical: false,
-                    }
-                })
-                .forEach((p) => apiReturnedPropertyDefinitions.push(p))
-
-            const toInclude = {
-                id: 'toInclude',
-                name: 'toInclude',
-                description: '',
-                property_type: PropertyType.String,
-                is_event_property: undefined,
-                query_usage_30_day: null,
-                volume_30_day: null,
-                is_numerical: false,
-            }
-            apiReturnedPropertyDefinitions.push(toInclude)
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRemoteItems({ offset: 0, limit: 11 }) //change limit to avoid URL cache
-            }).toDispatchActions([
-                logic.actionCreators.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
-                    results: [...reservedProperties, toInclude], // toExclude is returned by the API but filtered inside the logic
-                    searchQuery: '',
-                    queryChanged: false,
-                    count: 3,
-                }),
-            ])
-        })
     })
 
     describe('events with remote data source', () => {
