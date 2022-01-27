@@ -17,6 +17,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { alphabet } from 'lib/utils'
 
 export interface TrendTabProps {
     view: string
@@ -59,7 +60,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         typeKey={`trends_${view}`}
                         buttonCopy="Add graph series"
                         showSeriesIndicator
-                        singleFilter={filters.insight === InsightType.LIFECYCLE}
+                        entitiesLimit={filters.insight === InsightType.LIFECYCLE ? 1 : alphabet.length}
                         hideMathSelector={filters.insight === InsightType.LIFECYCLE}
                         propertiesTaxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,

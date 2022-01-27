@@ -27,6 +27,8 @@ import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
+const FUNNEL_STEP_COUNT_LIMIT = 12
+
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
@@ -82,6 +84,7 @@ export function FunnelTab(): JSX.Element {
                                 buttonType="link"
                                 showSeriesIndicator={!isStepsEmpty}
                                 seriesIndicatorType="numeric"
+                                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}

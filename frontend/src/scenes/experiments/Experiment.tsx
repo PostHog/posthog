@@ -436,7 +436,7 @@ export function Experiment(): JSX.Element {
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={true}
+                                                                entitiesLimit={1}
                                                                 hideMathSelector={false}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
