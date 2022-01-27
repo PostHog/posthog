@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import {
     allOperatorsMapping,
@@ -59,7 +59,7 @@ export function OperatorValueSelect({
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
     const operatorMapping =
-        allowQueryingEventsByDateTime && propertyDefinition?.property_type == 'DateTime'
+        allowQueryingEventsByDateTime && propertyDefinition?.property_type == PropertyType.DateTime
             ? dateTimeOperatorMap
             : genericOperatorMap
     const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
