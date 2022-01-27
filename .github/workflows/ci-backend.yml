@@ -347,3 +347,8 @@ jobs:
                   source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+
+            - name: Check async migrations are not required on fresh instances
+              run: |
+                  python manage.py migrate_clickhouse
+                  python manage.py test_async_migrations_not_required

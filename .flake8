@@ -32,6 +32,7 @@ per-file-ignores =
     ./posthog/management/commands/partition.py: T001
     ./posthog/management/commands/sync_feature_flags.py: T001
     ./posthog/management/commands/test_migrations_are_null.py: T001
+    ./posthog/management/commands/test_async_migrations_not_required.py: T001
     ./posthog/migrations/0027_move_elements_to_group.py: T001
     ./posthog/migrations/0038_migrate_actions_to_precalculate_events.py: T001
     ./posthog/models/plugin.py: T001
