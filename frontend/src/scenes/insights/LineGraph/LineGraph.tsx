@@ -17,7 +17,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
-import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
+import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
