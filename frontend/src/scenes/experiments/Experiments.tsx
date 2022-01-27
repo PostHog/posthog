@@ -152,7 +152,7 @@ export function Experiments(): JSX.Element {
                             rel="noopener"
                         >
                             {' '}
-                            Experimentation User Guide
+                            Experimentation user guide
                             <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                         </a>
                     </div>
