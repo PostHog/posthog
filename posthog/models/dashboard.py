@@ -1,7 +1,10 @@
 from typing import Any, Dict
 
+from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
+from posthog.models.tagged_item import EnterpriseTaggedItem
 
 
 class Dashboard(models.Model):
@@ -24,6 +27,7 @@ class Dashboard(models.Model):
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CREATION_MODE_CHOICES)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
+    tags_v2: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="dashboard")
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """

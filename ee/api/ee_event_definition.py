@@ -17,6 +17,7 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "owner",
             "description",
             "tags",
+            "tags_v2",
             "volume_30_day",
             "query_usage_30_day",
             "created_at",

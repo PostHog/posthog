@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from rest_framework import request, status
+from rest_framework import request, serializers, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 

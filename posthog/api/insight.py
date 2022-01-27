@@ -1,4 +1,3 @@
-from re import I
 from typing import Any, Dict, Type
 
 from django.core.cache import cache
@@ -22,6 +21,7 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, WritableSerializerMethodField
 from posthog.api.utils import format_paginated_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
@@ -75,7 +75,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -103,6 +103,7 @@ class InsightSerializer(InsightBasicSerializer):
             "description",
             "updated_at",
             "tags",
+            "tags_v2",
             "favorited",
             "saved",
             "last_modified_at",

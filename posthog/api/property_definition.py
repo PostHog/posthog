@@ -4,6 +4,7 @@ from typing import Any, Type
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, WritableSerializerMethodField
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -28,7 +29,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
 )
 
 
-class PropertyDefinitionSerializer(serializers.ModelSerializer):
+class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -40,6 +41,8 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "property_type_format",
             # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
+            "tags_v2",
+            "tags",
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):

@@ -2,6 +2,7 @@ import secrets
 import string
 from typing import Optional
 
+from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
@@ -11,6 +12,7 @@ from django_deprecate_fields import deprecate_field
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
+from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.utils import generate_cache_key
 
 
@@ -50,13 +52,14 @@ class Insight(models.Model):
         max_length=12, blank=True, default=generate_short_id,
     )
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
     )
+    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
+    tags_v2: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="insight")
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 

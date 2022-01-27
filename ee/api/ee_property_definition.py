@@ -13,6 +13,7 @@ class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "tags_v2",
             "tags",
             "is_numerical",
             "updated_at",
