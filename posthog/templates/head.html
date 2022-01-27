@@ -32,5 +32,5 @@
     // Inject the expected location of JS bundle, use to allow the location of
     // he bundle to be set at runtime, e.g. for PostHog Cloud we serve the
     // frontent JS from a CDN
-    window.JS_URL = "{{ js_url|default:"/" }}";
+    window.JS_URL = "{{ js_url|default:"" }}";
 </script>
