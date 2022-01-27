@@ -7,16 +7,52 @@ import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entity
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { InsightModel, InsightType } from '~/types'
+import { InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow, LemonSpacer } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
 import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
-import PropertyFiltersDisplay from '../PropertyFilters/components/PropertyFiltersDisplay'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
+
+function CompactPropertyFiltersDisplay({
+    properties,
+    embedded,
+}: {
+    properties: PropertyFilter[]
+    embedded?: boolean
+}): JSX.Element {
+    return (
+        <>
+            {properties.map((subFilter, subIndex) => (
+                <div key={subIndex} className="SeriesDisplay__condition">
+                    {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
+                    <span>
+                        {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : 'and '}
+                        {subFilter.type === 'cohort' ? (
+                            <>
+                                person belongs to cohort
+                                <span className="SeriesDisplay__raw-name">
+                                    <PropertyFilterText item={subFilter} />
+                                </span>
+                            </>
+                        ) : (
+                            <>
+                                {subFilter.type || 'event'}'s
+                                <span className="SeriesDisplay__raw-name">
+                                    <PropertyKeyInfo value={subFilter.key} />
+                                </span>
+                                {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
+                            </>
+                        )}
+                    </span>
+                </div>
+            ))}
+        </>
+    )
+}
 
 function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName: string | number }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
@@ -31,30 +67,9 @@ function SeriesDisplay({ filter, seriesName }: { filter: LocalFilter; seriesName
                     <div>
                         counted by <b>{mathDefinitions[filter.math || 'total'].name.toLowerCase()}</b>
                     </div>
-                    {filter.properties?.map((subFilter, subIndex) => (
-                        <div key={subIndex} className="SeriesDisplay__condition">
-                            <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />
-                            <span>
-                                {subIndex === 0 ? 'where ' : 'and '}
-                                {subFilter.type === 'cohort' ? (
-                                    <>
-                                        person belongs to cohort{' '}
-                                        <b>
-                                            <PropertyFilterText item={subFilter} />
-                                        </b>
-                                    </>
-                                ) : (
-                                    <>
-                                        {subFilter.type || 'event'}{' '}
-                                        <b>
-                                            <PropertyKeyInfo value={subFilter.key} />
-                                        </b>{' '}
-                                        {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
-                                    </>
-                                )}
-                            </span>
-                        </div>
-                    ))}
+                    {filter.properties && filter.properties.length > 0 && (
+                        <CompactPropertyFiltersDisplay properties={filter.properties} embedded />
+                    )}
                 </>
             }
         >
@@ -118,7 +133,11 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
             </section>
             <h5>Filters</h5>
             <section>
-                {filters.properties?.length ? <PropertyFiltersDisplay filters={filters.properties} /> : <i>None</i>}
+                {filters.properties?.length ? (
+                    <CompactPropertyFiltersDisplay properties={filters.properties} />
+                ) : (
+                    <i>None</i>
+                )}
             </section>
             <div className="InsightDetails__footer">
                 <div>

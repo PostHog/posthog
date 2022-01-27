@@ -195,7 +195,7 @@
     font-size: 0.8125rem;
     line-height: 1.5rem;
     h5 {
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.125rem;
     }
     section:not(:last-child) {
         margin-bottom: 0.5rem;
@@ -210,6 +210,7 @@
 }
 
 .InsightDetails__query {
+    margin-top: 0.25rem;
     padding: 0.5rem;
     border-radius: var(--radius);
     background: var(--bg-side);
@@ -259,6 +260,40 @@
 
 .SeriesDisplay {
     line-height: 1.5rem;
+}
+
+.SeriesDisplay__raw-name {
+    display: inline-flex;
+    padding: 0.125rem 0.25rem;
+    margin: 0 0.25rem;
+    background: var(--primary-bg-hover);
+    border-radius: var(--radius);
+    color: var(--primary-alt);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1rem;
+    &.SeriesDisplay__raw-name--action,
+    &.SeriesDisplay__raw-name--event {
+        padding: 0.25rem;
+        margin-left: 0 0 0 0.375rem;
+        &::before {
+            display: inline-block;
+            text-align: center;
+            width: 1rem;
+            border-radius: 0.25rem;
+            margin-right: 0.25rem;
+            background: var(--primary);
+            color: #fff;
+            line-height: 1rem;
+            font-weight: 700;
+        }
+    }
+    &.SeriesDisplay__raw-name--action::before {
+        content: 'A';
+    }
+    &.SeriesDisplay__raw-name--event::before {
+        content: 'E';
+    }
     .property-key-info {
         line-height: 1rem;
     }
@@ -266,36 +301,6 @@
         height: 1rem;
         width: 1rem;
         margin-right: 0.25rem;
-    }
-}
-
-.SeriesDisplay__raw-name {
-    display: inline-flex;
-    margin-left: 0.375rem;
-    padding: 0.25rem;
-    background: var(--primary-bg-hover);
-    border-radius: var(--radius);
-    color: var(--primary-alt);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1rem;
-    &.SeriesDisplay__raw-name--action::before,
-    &.SeriesDisplay__raw-name--event::before {
-        display: inline-block;
-        text-align: center;
-        width: 1rem;
-        border-radius: 0.25rem;
-        margin-right: 0.25rem;
-        background: var(--primary);
-        color: #fff;
-        line-height: 1rem;
-        font-weight: 700;
-    }
-    &.SeriesDisplay__raw-name--action::before {
-        content: 'A';
-    }
-    &.SeriesDisplay__raw-name--event::before {
-        content: 'E';
     }
 }
 
