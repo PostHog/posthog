@@ -43,7 +43,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                             className="mb"
                         />
                     )}
-                    To embed this dashboard on your website, copy this snippet:
+                    Use this HTML snippet to embed the dashboard on your website:
                     <CodeSnippet language={Language.HTML}>
                         {`<iframe width="100%" height="100%" frameborder="0" src="${shareLink}?embedded" />`}
                     </CodeSnippet>
