@@ -1,4 +1,5 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
+from typing import Literal, Union
 
 from django.conf import settings
 
@@ -57,15 +58,13 @@ def kafka_engine(
     topic: str,
     kafka_host=None,
     group="group1",
-    serialization="JSONEachRow",
+    serialization: Literal["JSONEachRow", "Protobuf"] = "JSONEachRow",
     proto_schema=None,
     skip_broken_messages=100,
 ):
     if kafka_host is None:
         kafka_host = settings.KAFKA_HOSTS_FOR_CLICKHOUSE
-    if serialization == "JSONEachRow":
-        return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
-    elif serialization == "Protobuf":
+    if serialization == "Protobuf" and not settings.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS:
         return KAFKA_PROTO_ENGINE.format(
             topic=topic,
             kafka_host=kafka_host,
@@ -73,6 +72,8 @@ def kafka_engine(
             proto_schema=proto_schema,
             skip_broken_messages=skip_broken_messages,
         )
+    else:
+        return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
 
 
 def ttl_period(field: str = "created_at", weeks: int = 3):

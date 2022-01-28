@@ -657,12 +657,16 @@ export class EventsProcessor {
         let eventId: Event['id'] | undefined
 
         if (this.kafkaProducer) {
+            const message = this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS
+                ? Buffer.from(JSON.stringify(eventPayload))
+                : (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_EVENTS,
                 messages: [
                     {
                         key: uuid,
-                        value: EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer,
+                        value: message,
                     },
                 ],
             })

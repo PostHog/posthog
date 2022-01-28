@@ -68,3 +68,9 @@ def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings)
         query = query()
 
     assert query == snapshot
+
+
+def test_create_kafka_events_with_disabled_protobuf(snapshot, settings):
+    settings.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = True
+
+    assert KAFKA_EVENTS_TABLE_SQL() == snapshot
