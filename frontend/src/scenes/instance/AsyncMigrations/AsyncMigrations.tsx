@@ -74,7 +74,7 @@ export function AsyncMigrations(): JSX.Element {
                 const type: LemonTagPropsType =
                     status === AsyncMigrationStatus.Running
                         ? 'success'
-                        : status === AsyncMigrationStatus.Errored
+                        : status === AsyncMigrationStatus.Errored || AsyncMigrationStatus.FailedAtStartup
                         ? 'danger'
                         : status === AsyncMigrationStatus.Starting
                         ? 'warning'

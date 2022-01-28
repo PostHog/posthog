@@ -15,6 +15,7 @@ export enum AsyncMigrationStatus {
     Errored = 3,
     RolledBack = 4,
     Starting = 5,
+    FailedAtStartup = 6,
 }
 
 export enum AsyncMigrationsTab {
