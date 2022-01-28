@@ -266,6 +266,8 @@ export function LEGACY_LineGraph({
                     if (type === 'horizontalBar') {
                         const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                         value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                    } else if (percentage) {
+                        value = `${tooltipItem.yLabel.toLocaleString()} %`
                     }
 
                     let showCountedByTag = false
