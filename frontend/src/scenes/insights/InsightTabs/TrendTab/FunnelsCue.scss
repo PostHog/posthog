@@ -1,9 +1,8 @@
 @import '~/vars';
 
 .funnels-product-cue {
-    margin-bottom: $default_spacing;
+    margin-bottom: 0;
     max-height: 0;
-    //transition: max-height 0.3s ease-in-out;
     position: relative;
     overflow: hidden;
 
@@ -11,6 +10,7 @@
         height: auto;
         max-height: 600px;
         overflow: visible;
+        margin-bottom: 1rem;
     }
 
     .inline-message {

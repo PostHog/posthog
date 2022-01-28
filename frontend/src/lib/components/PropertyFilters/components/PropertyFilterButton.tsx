@@ -15,13 +15,17 @@ export interface PropertyFilterButtonProps {
     setRef?: (ref: HTMLElement) => void
 }
 
-export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
+export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
+    return <>{formatPropertyLabel(item, cohorts, keyMapping, (s) => formatForDisplay(item.key, s))}</>
+}
+
+export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
     return (
         <FilterButton {...props}>
-            {formatPropertyLabel(item, cohorts, keyMapping, (s) => formatForDisplay(item.key, s))}
+            <PropertyFilterText item={item} />
         </FilterButton>
     )
 }
