@@ -61,4 +61,5 @@ export const urls = {
     systemStatus: () => '/instance/status',
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     asyncMigrations: () => '/instance/async_migrations',
+    deadLetterQueue: () => '/instance/dead_letter_queue',
 }

@@ -179,6 +179,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
     },
+    [Scene.DeadLetterQueue]: {
+        instanceLevel: true,
+    },
     // Personal routes
     [Scene.MySettings]: {
         personal: true,
@@ -241,6 +244,7 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
