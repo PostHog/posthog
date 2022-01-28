@@ -110,6 +110,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         response = apiCache[url]
                     } else {
                         response = await api.get(url)
+
                         apiCache[url] = response
                         apiCacheTimers[url] = window.setTimeout(() => {
                             delete apiCache[url]

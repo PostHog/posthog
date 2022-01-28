@@ -515,7 +515,7 @@ def test_breakdown_query_expression(
 @pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
+        _create_event(event="$pageview", team=team, distinct_id="some_guid", properties={"email": "test@posthog.com"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "mongo@example.com"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "some_val"},),
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "50"},),
@@ -592,13 +592,13 @@ def test_events(db, team) -> List[UUID]:
             properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
         ),
         _create_event(
-            event="$pageview",
+            event="some_custom_event",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
         ),
         _create_event(
-            event="$pageview",
+            event="some_custom_event",
             team=team,
             distinct_id="whatever",
             properties={"relative_dates": f"{datetime(2021, 3, 31):%d/%m/%Y %H:%M:%S}"},
@@ -624,6 +624,9 @@ def test_events(db, team) -> List[UUID]:
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
+        _create_event(
+            event="has set timestamp not `now`", team=team, distinct_id="some_guid", timestamp=datetime(2000, 4, 1)
+        ),
     ]
 
 
@@ -636,12 +639,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 22),
+        range(1, 23),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 22),
+        range(2, 23),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -649,7 +652,7 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 22),
+        range(2, 23),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
@@ -806,4 +809,43 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     )
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
+    assert uuids == expected
+
+
+TEST_RESERVED_WORDS = [
+    pytest.param(
+        Property(key="timestamp", value="2000-04-02 18:00:00", operator="is_date_after"),
+        range(0, 22),
+        id="most events have time of execution set as timestamp, they are all matched by this filter",
+    ),
+    pytest.param(
+        Property(key="timestamp", value="2000-04-02 18:00:00", operator="is_date_before"),
+        [22],
+        id="most events have time of execution set as timestamp, they are all not matched by this filter",
+    ),
+    pytest.param(
+        Property(key="distinct_id", value="some_guid", operator="exact"),
+        [0, 22],
+        id="can select by the distinct id column",
+    ),
+]
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_RESERVED_WORDS)
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_for_reserved_words(test_events, property, expected_event_indexes, team):
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
+    uuids = list(
+        sorted(
+            [
+                uuid
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
