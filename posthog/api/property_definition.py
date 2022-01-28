@@ -33,11 +33,6 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
 )
 
-RESERVED_EVENT_ATTRIBUTES = [
-    {"id": "timestamp", "name": "timestamp", "is_numerical": False, "property_type": "DateTime"},
-    {"id": "distinct_id", "name": "distinct_id", "is_numerical": False, "property_type": "String"},
-]
-
 
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
