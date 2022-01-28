@@ -37,7 +37,7 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, WritableSerializerMethodField
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.api.utils import format_paginated_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import (

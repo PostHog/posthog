@@ -34,9 +34,12 @@ class EnterpriseTaggedItem(UUIDModel):
     """
 
     tag: models.SlugField = models.SlugField()
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
     content_type: models.ForeignKey = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     # Primary key value of related model. Query by this to get all tags for specific model
-    object_id: models.ForeignKey = models.PositiveIntegerField()
+    object_id: models.CharField = models.CharField(max_length=400)
     content_object: GenericForeignKey = GenericForeignKey("content_type", "object_id")
 
     def __str__(self):
