@@ -30,6 +30,7 @@ export const migrationStatusNumberToMessage = {
     3: 'Error',
     4: 'Rolled back',
     5: 'Starting',
+    6: 'Failed at startup',
 }
 
 export interface AsyncMigrationError {
