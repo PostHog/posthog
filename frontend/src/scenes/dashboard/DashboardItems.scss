@@ -190,9 +190,13 @@
     }
 }
 
+.react-grid-item.react-draggable {
+    cursor: move;
+}
+
 .react-grid-item.react-draggable-dragging {
     transition: none;
-    z-index: 3;
+    z-index: 105;
     will-change: transform;
 }
 

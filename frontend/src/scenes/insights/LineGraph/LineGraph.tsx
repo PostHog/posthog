@@ -422,8 +422,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 if (onClick && point.length) {
                     target.style.cursor = 'pointer'
-                } else {
-                    target.style.cursor = 'default'
                 }
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
