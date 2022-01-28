@@ -108,10 +108,10 @@ class PropertyDefinitionViewSet(
             **search_kwargs,
         }
 
-        # adding reserved attributes as a CTE lets existing sorting and searching work against these attributes too
         if use_entreprise_taxonomy:
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
+                -- adding reserved attributes as a CTE lets existing sorting and searching work against these attributes without duplicating it in code
                 WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, propertydefinition_ptr_id, description, tags, updated_at, updated_by_id, is_event_property) AS (
                   VALUES
                    ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, '2adede51-e213-48dd-b2de-395c311020f3'::uuid, '', null::varchar[], '1970-01-01 00:00+00'::timestamptz, 0, null::boolean),
@@ -133,6 +133,7 @@ class PropertyDefinitionViewSet(
         else:
             return PropertyDefinition.objects.raw(
                 f"""
+                -- adding reserved attributes as a CTE lets existing sorting and searching work against these attributes without duplicating it in code
                 WITH reserved_attributes (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format, is_event_property) AS (
                   VALUES
                    ('2adede51-e213-48dd-b2de-395c311020f3'::uuid,'timestamp', false, null::int, null::int, 1, 'DateTime', null::varchar, null::boolean),

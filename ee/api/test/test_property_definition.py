@@ -133,7 +133,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(len(response_data["results"]), 4)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=timest")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -184,7 +184,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
         EnterprisePropertyDefinition.objects.create(team=self.team, name="app_rating")
 
-        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
+        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating,timestamp")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 3)
