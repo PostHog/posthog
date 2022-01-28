@@ -15,7 +15,15 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
-        fields = ("id", "name", "volume_30_day", "query_usage_30_day", "created_at", "last_seen_at", "tags_v2")
+        fields = (
+            "id",
+            "name",
+            "volume_30_day",
+            "query_usage_30_day",
+            "created_at",
+            "last_seen_at",
+            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+        )
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()

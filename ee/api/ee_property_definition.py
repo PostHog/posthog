@@ -14,8 +14,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "id",
             "name",
             "description",
-            "tags_v2",
-            "tags",
+            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
             "is_numerical",
             "updated_at",
             "updated_by",

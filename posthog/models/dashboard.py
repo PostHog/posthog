@@ -3,6 +3,7 @@ from typing import Any, Dict
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django_deprecate_fields import deprecate_field
 
 from posthog.models.tagged_item import EnterpriseTaggedItem
 
@@ -26,8 +27,13 @@ class Dashboard(models.Model):
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CREATION_MODE_CHOICES)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
-    tags_v2: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="dashboard")
+
+    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="dashboard")
+
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
+    )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """

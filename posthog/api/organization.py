@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, response, serializers, viewsets
@@ -12,6 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed, report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
@@ -152,9 +155,20 @@ class OrganizationSerializer(serializers.ModelSerializer):
         except ImportError:
             return output
 
-        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(description="", tags=[]).count()
-        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-            description="", tags=[]
+        events_with_descriptions = list(
+            EnterpriseEventDefinition.objects.exclude(description="").values_list("id", flat=True)
+        )
+        event_definition_type = ContentType.objects.get_for_model(EnterpriseEventDefinition)
+        output["taxonomy_set_events_count"] = EnterpriseTaggedItem.objects.filter(
+            content_type__pk=event_definition_type.id, object_id__in=events_with_descriptions
+        ).count()
+
+        properties_with_descriptions = list(
+            EnterprisePropertyDefinition.objects.exclude(description="").values_list("id", flat=True)
+        )
+        property_definition_type = ContentType.objects.get_for_model(EnterprisePropertyDefinition)
+        output["taxonomy_set_properties_count"] = EnterpriseTaggedItem.objects.filter(
+            content_type__pk=property_definition_type.id, object_id__in=properties_with_descriptions
         ).count()
         return output
 

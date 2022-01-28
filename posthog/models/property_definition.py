@@ -47,7 +47,7 @@ class PropertyDefinition(UUIDModel):
         default=None, null=True,
     )  # Deprecated in #4480
 
-    tags_v2: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="property_definition")
+    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="property_definition")
 
     class Meta:
         unique_together = ("team", "name")

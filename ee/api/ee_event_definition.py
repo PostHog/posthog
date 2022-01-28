@@ -17,8 +17,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "name",
             "owner",
             "description",
-            "tags",
-            "tags_v2",
+            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
             "volume_30_day",
             "query_usage_30_day",
             "created_at",

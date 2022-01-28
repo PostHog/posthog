@@ -58,8 +58,7 @@ class Insight(models.Model):
     last_modified_by: models.ForeignKey = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
     )
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
-    tags_v2: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="insight")
+    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="insight")
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 
@@ -71,6 +70,11 @@ class Insight(models.Model):
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
+    )
 
     class Meta:
         db_table = "posthog_dashboarditem"

@@ -27,7 +27,6 @@ class EnterpriseTaggedItem(UUIDModel):
     - models/dashboard.py
     - models/event_definition.py
     - models/property_definition.py
-    - models/feature_flag.py
     - models/insight.py
 
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
@@ -38,7 +37,8 @@ class EnterpriseTaggedItem(UUIDModel):
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     content_type: models.ForeignKey = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    # Primary key value of related model. Query by this to get all tags for specific model
+    # Primary key value of related model. Query by this to get all tags for specific model. This is a charfield because
+    # there we don't have a standard way of storing objects. Some models use positive integer ids and others use UUID's.
     object_id: models.CharField = models.CharField(max_length=400)
     content_object: GenericForeignKey = GenericForeignKey("content_type", "object_id")
 

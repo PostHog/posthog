@@ -39,9 +39,9 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "query_usage_30_day",
             "property_type",
             "property_type_format",
+            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
             # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
-            "tags_v2",
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
