@@ -4,13 +4,14 @@ from freezegun.api import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_trends import (
     TrendsRequest,
     TrendsRequestBreakdown,
     get_people_from_url_ok,
     get_trends_aggregate_ok,
+    get_trends_ok,
     get_trends_time_series_ok,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -356,6 +357,97 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert sorted([p["id"] for p in prev_people]) == sorted(
             [str(created_people["p1"].uuid), str(created_people["p2"].uuid)]
         )
+
+    @test_with_materialized_columns(["distinct_id"])
+    def test_regression_on_filtering_on_distinct_id(self):
+        # Regression test for
+        # https://sentry.io/organizations/posthog2/issues/2968014180/?project=1899813&query=is%3Aunresolved+CHQueryErrorAmbiguousColumnName&statsPeriod=14d
+        #
+        # This [PR](https://github.com/PostHog/posthog/pull/8291/files) resulted
+        # in a disambiguous reference to distinct_id, when distinct_id was
+        # filtered as a person property.
+        #
+        # NOTE: This tests that we can filter for the distinct_id on persons,
+        # which is a little ambiguous between if you want to look for a
+        # distinct_id in person properties, or an associated distinct_id to a
+        # person. As of writing it is the former.
+        # At time of writing only two teams have distinct_id in person properties
+        # And only on a small percentage of persons
+        update_or_create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"distinct_id": "person1"})
+        update_or_create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"distinct_id": "person2"})
+        events_by_person = {
+            "p1": [{"event": "$pageview", "timestamp": datetime(2020, 1, 2, 3)},],
+            "p2": [{"event": "$pageview", "timestamp": datetime(2020, 1, 2, 3)},],
+        }
+        journeys_for(events_by_person, self.team)
+        response = get_trends_ok(
+            client=self.client,
+            request=TrendsRequest(
+                date_from="2020-01-02T00:00:00Z",
+                date_to="2020-01-02T00:00:00Z",
+                events=[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,},],
+                properties=[{"key": "distinct_id", "value": "person1", "operator": "ncontains", "type": "person"}],
+            ),
+            team=self.team,
+        )
+        people = get_people_from_url_ok(client=self.client, url=response["result"][0]["persons_urls"][0]["url"])
+        assert {distinct_id for person in people for distinct_id in person["distinct_ids"]} == {"p1"}
+
+    def test_can_filter_trends_by_event_timestamp(self):
+        update_or_create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        update_or_create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        events_by_person = {
+            "p1": [{"event": "$pageview", "timestamp": datetime(2020, 1, 2, 3)},],
+            "p2": [{"event": "$pageview", "timestamp": datetime(2020, 1, 2, 4)},],
+        }
+
+        journeys_for(events_by_person, self.team)
+
+        response = get_trends_ok(
+            client=self.client,
+            request=TrendsRequest(
+                date_from="2020-01-02T00:00:00Z",
+                date_to="2020-01-02T00:00:00Z",
+                events=[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,},],
+                properties=[
+                    {"key": "timestamp", "value": "2020-01-02 03:30:00", "operator": "is_date_after", "type": "event"}
+                ],
+            ),
+            team=self.team,
+        )
+        people = get_people_from_url_ok(client=self.client, url=response["result"][0]["persons_urls"][0]["url"])
+        assert {distinct_id for person in people for distinct_id in person["distinct_ids"]} == {"p2"}
+
+    def test_can_filter_trends_by_event_property_holding_a_datetime(self):
+        update_or_create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        update_or_create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        events_by_person = {
+            "p1": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 3), "properties": {"a_date": "2021-04-01"}}
+            ],
+            "p2": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 4), "properties": {"a_date": "2021-04-03"}}
+            ],
+        }
+
+        journeys_for(events_by_person, self.team)
+
+        response = get_trends_ok(
+            client=self.client,
+            request=TrendsRequest(
+                date_from="2020-01-02T00:00:00Z",
+                date_to="2020-01-02T00:00:00Z",
+                events=[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,},],
+                properties=[
+                    {"key": "a_date", "value": "2021-04-02 03:30:00", "operator": "is_date_before", "type": "event"}
+                ],
+            ),
+            team=self.team,
+        )
+        people = get_people_from_url_ok(client=self.client, url=response["result"][0]["persons_urls"][0]["url"])
+        assert {distinct_id for person in people for distinct_id in person["distinct_ids"]} == {"p1"}
 
 
 class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
