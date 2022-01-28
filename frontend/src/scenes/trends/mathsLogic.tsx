@@ -5,6 +5,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 
+export interface MathDefinition {
+    name: string
+    description: string | JSX.Element
+    onProperty: boolean
+    type: 'property' | 'event'
+}
+
 export function mathTypeToApiValues(mathType: string): {
     math: string
     math_group_type_index?: number | null | undefined
@@ -23,7 +30,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     return math || 'total'
 }
 
-export const mathsLogic = kea<mathsLogicType>({
+export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
@@ -39,7 +46,7 @@ export const mathsLogic = kea<mathsLogicType>({
         ],
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
-            (groupOptions) => ({
+            (groupOptions): Record<string, MathDefinition> => ({
                 total: {
                     name: 'Total count',
                     description: (

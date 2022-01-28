@@ -5,7 +5,7 @@ import { allOperatorsMapping, alphabet } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
@@ -65,6 +65,14 @@ function SeriesDisplay({
 }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
 
+    const mathDefinition = mathDefinitions[
+        insightType === InsightType.LIFECYCLE
+            ? 'dau'
+            : filter.math
+            ? apiValueToMathType(filter.math, filter.math_group_type_index)
+            : 'total'
+    ] as MathDefinition | undefined
+
     return (
         <LemonRow
             fullWidth
@@ -75,11 +83,16 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            <b>
-                                {mathDefinitions[
-                                    insightType === InsightType.LIFECYCLE ? 'dau' : filter.math || 'total'
-                                ].name.toLowerCase()}
-                            </b>
+                            {mathDefinition?.onProperty && filter.math_property && (
+                                <>
+                                    {' '}
+                                    event's
+                                    <span className="SeriesDisplay__raw-name">
+                                        <PropertyKeyInfo value={filter.math_property} />
+                                    </span>
+                                </>
+                            )}
+                            <b>{mathDefinition?.name.toLowerCase()}</b>
                         </div>
                     )}
                     {filter.properties && filter.properties.length > 0 && (
