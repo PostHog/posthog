@@ -12,10 +12,11 @@ export interface KeyMappingInterface {
 
 export const keyMapping: KeyMappingInterface = {
     event: {
-        $timestamp: {
+        timestamp: {
             label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            description:
+                'Time the event happened. Added by PostHog when events are ingested. Can be overridden by including `timestamp` as a property when capturing an event.',
+            examples: [new Date().toISOString(), String(new Date().getTime()).substring(0, 11)],
         },
         $browser: {
             label: 'Browser',
@@ -423,11 +424,6 @@ export const keyMapping: KeyMappingInterface = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            hide: true,
-        },
-        $time: {
-            label: 'Time',
-            description: 'Time as given by the client.',
             hide: true,
         },
         $device_id: {

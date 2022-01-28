@@ -1,7 +1,6 @@
 import random
-from typing import Dict
+from typing import Any, Dict, List
 
-import structlog
 from rest_framework import status
 
 from posthog.demo import create_demo_team
@@ -14,7 +13,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     demo_team: Team = None  # type: ignore
 
-    EXPECTED_PROPERTY_DEFINITIONS = [
+    EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Any]] = [
+        {"name": "timestamp", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "distinct_id", "query_usage_30_day": None, "is_numerical": False},
         {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
@@ -34,6 +35,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
+        PropertyDefinition.objects.create(
+            team=cls.demo_team, name="$timestamp", property_type="DateTime", property_type_format="unix_timestamp"
+        )
+        PropertyDefinition.objects.create(
+            team=cls.demo_team, name="$time", property_type="DateTime", property_type_format="unix_timestamp"
+        )
 
     def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
@@ -45,8 +52,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.json()["property_type_format"] == "unix_timestamp"
 
     def test_list_property_definitions(self):
-
         response = self.client.get("/api/projects/@current/property_definitions/")
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
@@ -64,14 +71,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 308)
+        self.assertEqual(response.json()["count"], 310)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
         self.assertEqual(response.json()["results"][0]["name"], "$browser")  # Order by name (ascending)
 
         property_checkpoints = [
-            182,
-            272,
-            92,
+            180,
+            270,
+            90,
         ]  # Because Postgres's sorter does this: property_1; property_100, ..., property_2, property_200, ..., it's
         # easier to deterministically set the expected events
 
@@ -79,9 +86,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 308)
+            self.assertEqual(response.json()["count"], 310)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 8,
+                len(response.json()["results"]), 100 if i < 2 else 10,
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_property_{property_checkpoints[i]}")
 

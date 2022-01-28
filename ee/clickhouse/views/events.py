@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
-from numpy import require
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -128,7 +127,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def values(self, request: Request, **kwargs) -> Response:  # type: ignore
         key = request.GET.get("key")
         team = self.team
-        result = []
+
         flattened = []
         if key == "custom_event":
             events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
@@ -139,7 +138,7 @@ class ClickhouseEventsViewSet(EventViewSet):
                 try:
                     # Try loading as json for dicts or arrays
                     flattened.append(json.loads(value[0]))
-                except json.decoder.JSONDecodeError:
+                except (json.decoder.JSONDecodeError, TypeError):
                     flattened.append(value[0])
         return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 

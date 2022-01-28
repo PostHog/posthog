@@ -133,7 +133,12 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(len(response_data["results"]), 4)
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=timest")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -179,9 +184,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
         EnterprisePropertyDefinition.objects.create(team=self.team, name="app_rating")
 
-        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
+        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating,timestamp")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["count"], 3)
         for item in response.json()["results"]:
-            self.assertIn(item["name"], ["plan", "app_rating"])
+            self.assertIn(item["name"], ["plan", "app_rating", "timestamp"])

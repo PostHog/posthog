@@ -1,6 +1,6 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
@@ -22,6 +22,12 @@ describe('infiniteListLogic', () => {
             return {
                 results,
                 count: results.length,
+            }
+        }
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
+            return {
+                results: [],
+                count: 0,
             }
         }
     })
