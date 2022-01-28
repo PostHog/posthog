@@ -1,13 +1,13 @@
 import React, { useState } from 'react'
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import {
+    allOperatorsMapping,
     dateTimeOperatorMap,
+    genericOperatorMap,
     isMobile,
     isOperatorFlag,
     isOperatorMulti,
-    allOperatorsMapping,
-    genericOperatorMap,
 } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
@@ -45,13 +45,21 @@ export function OperatorValueSelect({
     operatorSelectProps,
     allowQueryingEventsByDateTime,
 }: OperatorValueSelectProps): JSX.Element {
-    const [currentOperator, setCurrentOperator] = useState(operator)
     const { propertyDefinitions } = useValues(propertyDefinitionsModel)
 
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
+    // DateTime properties should not default to Exact
+    const startingOperator =
+        allowQueryingEventsByDateTime &&
+        propertyDefinition?.property_type == PropertyType.DateTime &&
+        (!operator || operator == PropertyOperator.Exact)
+            ? PropertyOperator.IsDateBefore
+            : operator || PropertyOperator.Exact
+    const [currentOperator, setCurrentOperator] = useState(startingOperator)
+
     const operatorMapping =
-        allowQueryingEventsByDateTime && propertyDefinition?.property_type == 'DateTime'
+        allowQueryingEventsByDateTime && propertyDefinition?.property_type == PropertyType.DateTime
             ? dateTimeOperatorMap
             : genericOperatorMap
     const operators = Object.keys(operatorMapping) as Array<PropertyOperator>

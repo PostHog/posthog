@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, Loading } from 'lib/utils'
 import React from 'react'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -35,6 +35,9 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
+import { InsightCard } from 'lib/components/InsightCard'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -53,7 +56,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
-        name: 'Funnels',
+        name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,
@@ -156,10 +159,10 @@ export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting } = useValues(savedInsightsLogic)
-
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
@@ -238,13 +241,12 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    type="stealth"
-                                    to={urls.insightView(insight.short_id, insight.filters)}
-                                    compact
-                                    fullWidth
-                                >
+                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} compact fullWidth>
                                     View
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} compact fullWidth>
+                                    Edit
                                 </LemonButton>
                                 <LemonButton
                                     type="stealth"
@@ -435,6 +437,25 @@ export function SavedInsights(): JSX.Element {
                             rowKey="id"
                             nouns={['insight', 'insights']}
                         />
+                    ) : featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? (
+                        <div className="saved-insights-grid">
+                            {insights?.results.map((insight: InsightModel) => (
+                                <InsightCard
+                                    key={insight.short_id}
+                                    insight={{ ...insight, color: null }}
+                                    rename={() => renameInsight(insight)}
+                                    duplicate={() => duplicateInsight(insight)}
+                                    deleteWithUndo={() =>
+                                        deleteWithUndo({
+                                            object: insight,
+                                            endpoint: `projects/${currentTeamId}/insights`,
+                                            callback: loadInsights,
+                                        })
+                                    }
+                                />
+                            ))}
+                            {insightsLoading && <Loading />}
+                        </div>
                     ) : (
                         <Row gutter={[16, 16]}>
                             {insights &&

@@ -155,7 +155,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(kafka_produce)

@@ -71,7 +71,7 @@ export const FEATURE_FLAGS = {
     FEEDBACK_CALL_CTA: 'feedback-call-cta', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205 `control`, `test`
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
@@ -93,6 +93,7 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
+    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
+import { dateMapping, isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -58,6 +58,10 @@ function getValidationError(operator: PropertyOperator, value: any): string | nu
     return null
 }
 
+const dayJSMightParse = (
+    candidateDateTimeValue: string | number | (string | number)[] | null | undefined
+): candidateDateTimeValue is string | number | undefined => ['string', 'number'].includes(typeof candidateDateTimeValue)
+
 export function PropertyValue({
     propertyKey,
     type,
@@ -77,6 +81,8 @@ export function PropertyValue({
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
+
+    const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
 
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -145,6 +151,8 @@ export function PropertyValue({
 
     const validationError = operator ? getValidationError(operator, value) : null
 
+    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
+
     const commonInputProps = {
         style: { width: '100%', ...style },
         onSearch: (newInput: string) => {
@@ -185,11 +193,6 @@ export function PropertyValue({
             }
         },
     }
-
-    const dayJSMightParse = (
-        candidateDateTimeValue: string | number | (string | number)[] | null | undefined
-    ): candidateDateTimeValue is string | number | undefined =>
-        ['string', 'number'].includes(typeof candidateDateTimeValue)
 
     return (
         <>
@@ -236,20 +239,56 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
+                        autoFocus={autoFocus}
+                        open={datePickerOpen}
                         inputReadOnly={false}
                         className={'filter-date-picker'}
                         dropdownClassName={'filter-date-picker-dropdown'}
                         format="YYYY-MM-DD HH:mm:ss"
                         showTime={true}
                         showNow={false}
-                        value={dayJSMightParse(value) ? dayjs(value) : null}
+                        value={datePickerStartingValue}
+                        onFocus={() => setDatePickerOpen(true)}
+                        onBlur={() => setDatePickerOpen(false)}
                         onOk={(selectedDate) => {
                             setValue(selectedDate.format('YYYY-MM-DD HH:mm:ss'))
+                            setDatePickerOpen(false)
                         }}
                         getPopupContainer={(trigger: Element | null) => {
                             const container = trigger?.parentElement?.parentElement?.parentElement
                             return container ?? document.body
                         }}
+                        renderExtraFooter={() => (
+                            <>
+                                <span>quick choices: </span>{' '}
+                                <Select
+                                    bordered={true}
+                                    style={{ width: '100%' }}
+                                    onSelect={(selectedRelativeRange) => {
+                                        const matchedMapping = dateMapping[String(selectedRelativeRange)]
+                                        const formattedForDateFilter =
+                                            matchedMapping?.getFormattedDate &&
+                                            matchedMapping?.getFormattedDate(now(), 'YYYY-MM-DD HH:mm:ss')
+                                        setValue(formattedForDateFilter?.split(' - ')[0])
+                                    }}
+                                    placeholder={'e.g. 7 days ago'}
+                                >
+                                    {[
+                                        ...Object.entries(dateMapping).map(([key, { inactive }]) => {
+                                            if (key === 'Custom' || key == 'All time' || inactive) {
+                                                return null
+                                            }
+
+                                            return (
+                                                <Select.Option key={key} value={key}>
+                                                    {key.startsWith('Last') ? key.replace('Last ', '') + ' ago' : key}
+                                                </Select.Option>
+                                            )
+                                        }),
+                                    ]}
+                                </Select>
+                            </>
+                        )}
                     />
                 </>
             ) : (

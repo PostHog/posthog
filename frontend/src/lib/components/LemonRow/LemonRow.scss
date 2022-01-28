@@ -6,7 +6,7 @@
     flex-direction: column;
     align-items: start;
     justify-content: center;
-    height: 2.5rem;
+    min-height: 2.5rem;
     padding: 0.25rem 1rem;
     background: none;
     border-radius: var(--radius);
@@ -51,16 +51,19 @@
 }
 
 .LemonRow__extended-area {
+    display: flex;
+    flex-direction: column;
     font-size: 0.8125rem;
-    margin-top: -0.3333rem;
-    margin-bottom: 0.5rem;
-    margin-left: 2.5rem;
+    margin-left: 2rem;
 }
 
 .LemonRow--full-width {
     width: 100%;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+    .LemonRow__icon:not(:first-child):last-child {
+        margin-right: 0;
+    }
     .LemonRow__main-area {
         justify-content: start;
     }
@@ -77,13 +80,16 @@
 
 .LemonRow--symbolic {
     display: block;
+    min-height: 0;
     height: 1.5rem;
     padding: 0;
 }
 
 .LemonRow--compact {
-    height: 2rem;
+    min-height: 2rem;
+    padding: 0.125rem 0.5rem;
     &.LemonRow--symbolic {
+        min-height: 0;
         height: 1.25rem;
         padding: 0;
     }
@@ -101,6 +107,9 @@
     justify-content: center;
     font-size: 1.5rem;
     color: var(--muted-alt);
+    &:not(:first-child):last-child {
+        margin-right: -0.5rem;
+    }
 }
 
 .LemonRow__content {
@@ -121,6 +130,7 @@
     height: 1px;
     background: var(--border);
     margin: 0.5rem 0;
+    flex-shrink: 0;
     &--large {
         margin: 1rem 0;
     }
