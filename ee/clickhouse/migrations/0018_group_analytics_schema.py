@@ -4,6 +4,6 @@ from ee.clickhouse.sql.groups import GROUPS_TABLE_MV_SQL, GROUPS_TABLE_SQL, KAFK
 
 operations = [
     migrations.RunSQL(GROUPS_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_GROUPS_TABLE_SQL),
+    migrations.RunSQL(KAFKA_GROUPS_TABLE_SQL()),
     migrations.RunSQL(GROUPS_TABLE_MV_SQL),
 ]

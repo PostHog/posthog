@@ -54,7 +54,7 @@ class Test0002EventsSampleBy(BaseTest):
         SETTINGS index_granularity = 8192               
         """
         )
-        execute_query(KAFKA_EVENTS_TABLE_SQL)
+        execute_query(KAFKA_EVENTS_TABLE_SQL())
         execute_query(EVENTS_TABLE_MV_SQL)
 
         execute_query(

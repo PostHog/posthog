@@ -43,7 +43,7 @@ SETTINGS index_granularity=512
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
-KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
+KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
@@ -78,24 +78,24 @@ FROM {database}.kafka_{table_name}
 
 
 INSERT_DEAD_LETTER_QUEUE_EVENT_SQL = """
-INSERT INTO events_dead_letter_queue 
-SELECT 
-%(id)s, 
-%(event_uuid)s, 
-%(event)s, 
-%(properties)s, 
-%(distinct_id)s, 
-%(team_id)s, 
-%(elements_chain)s, 
-%(created_at)s, 
-%(ip)s, 
-%(site_url)s, 
-%(now)s, 
-%(raw_payload)s, 
-%(error_timestamp)s, 
-%(error_location)s, 
-%(error)s, 
-0, 
+INSERT INTO events_dead_letter_queue
+SELECT
+%(id)s,
+%(event_uuid)s,
+%(event)s,
+%(properties)s,
+%(distinct_id)s,
+%(team_id)s,
+%(elements_chain)s,
+%(created_at)s,
+%(ip)s,
+%(site_url)s,
+%(now)s,
+%(raw_payload)s,
+%(error_timestamp)s,
+%(error_location)s,
+%(error)s,
+0,
 now()
 """
 

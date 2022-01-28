@@ -9,9 +9,9 @@ from ee.clickhouse.sql.person import (
 )
 
 operations = [
-    migrations.RunSQL(KAFKA_EVENTS_TABLE_SQL),
-    migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL),
-    migrations.RunSQL(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL),
+    migrations.RunSQL(KAFKA_EVENTS_TABLE_SQL()),
+    migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL()),
+    migrations.RunSQL(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL()),
     migrations.RunSQL(EVENTS_TABLE_MV_SQL),
     migrations.RunSQL(PERSONS_TABLE_MV_SQL),
     migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_MV_SQL),

@@ -9,6 +9,6 @@ operations = [
     migrations.RunSQL(
         f"ALTER TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER} ADD COLUMN IF NOT EXISTS is_deleted Boolean DEFAULT 0"
     ),
-    migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL),
+    migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL()),
     migrations.RunSQL(PERSONS_TABLE_MV_SQL),
 ]

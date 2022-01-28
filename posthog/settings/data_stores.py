@@ -101,9 +101,16 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
 # Kafka configs
+
+_parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
+
+# URL Used by kafka clients/producers
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
-KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
-KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
+KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
+
+# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
+KAFKA_HOSTS_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_CLICKHOUSE", KAFKA_URL))
+
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 PRIMARY_DB = AnalyticsDBMS.CLICKHOUSE
