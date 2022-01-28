@@ -636,10 +636,8 @@ export class EventsProcessor {
         timestamp?: DateTime | string,
         elements?: Element[]
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
-        const timestampString = castTimestampOrNow(
-            timestamp,
-            this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        )
+        const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
+        const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
@@ -651,7 +649,7 @@ export class EventsProcessor {
             team_id: teamId,
             distinct_id: distinctId,
             elements_chain: elementsChain,
-            created_at: castTimestampOrNow(),
+            created_at: castTimestampOrNow(null, timestampFormat),
         }
 
         let eventId: Event['id'] | undefined
