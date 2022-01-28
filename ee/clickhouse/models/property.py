@@ -375,13 +375,14 @@ def get_property_string_expr(
     :return:
     """
 
-    for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
-        if property_name in reserved_words:
-            return property_name, False
+    table_string = f"{table_alias}." if table_alias != None else ""
+
+    if table == "events":
+        for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
+            if property_name in reserved_words:
+                return f"{table_string}{property_name}", False
 
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
-
-    table_string = f"{table_alias}." if table_alias != None else ""
 
     if allow_denormalized_props and property_name in materialized_columns:
         return f"{table_string}{materialized_columns[property_name]}", True
