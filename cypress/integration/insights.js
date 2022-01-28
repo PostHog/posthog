@@ -8,7 +8,7 @@ describe('Insights', () => {
 
     it('Opens insight with short URL', () => {
         cy.visit('/i/TEST1234') // Insight `TEST1234` is created in demo data (revenue_data_generator.py)
-        cy.location('pathname').should('eq', '/insights/TEST1234') // User is taken to the insights page
+        cy.location('pathname').should('eq', '/i/TEST1234') // User is taken to the insights page
         cy.get('[data-attr=insight-edit-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').contains('Pageview').should('exist') // Funnel is properly loaded
         cy.get('[data-attr=trend-element-subject-1]').contains('Purchase').should('exist')
