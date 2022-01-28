@@ -1,12 +1,14 @@
 import React from 'react'
-import { Modal, Button } from 'antd'
 import { useActions, useValues } from 'kea'
-import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonModal } from 'lib/components/LemonModal/LemonModal'
+import { LemonButton } from 'lib/components/LemonButton'
+import { copyToClipboard } from 'lib/utils'
+import { IconCopy } from 'lib/components/icons'
 
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element | null {
     const { dashboard } = useValues(dashboardLogic)
@@ -16,14 +18,10 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
-        <Modal
-            visible={visible}
-            onCancel={onCancel}
-            footer={<Button onClick={onCancel}>Close</Button>}
-            title="Dashboard sharing"
-            destroyOnClose
-        >
+        <LemonModal visible={visible} onCancel={onCancel} destroyOnClose>
+            <h5>Dashboard sharing</h5>
             <LemonSwitch
+                id="share-dashboard-switch"
                 label="Share dashboard publicly"
                 checked={dashboard.is_shared}
                 loading={dashboardLoading}
@@ -36,19 +34,21 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
             {dashboard.is_shared ? (
                 <>
                     {dashboard.share_token && (
-                        <CopyToClipboardInput
-                            data-attr="share-dashboard-link"
-                            value={shareLink}
-                            description="link"
-                            className="mb"
-                        />
+                        <LemonButton
+                            data-attr="share-dashboard-link-button"
+                            onClick={() => copyToClipboard(shareLink, 'link')}
+                            icon={<IconCopy />}
+                            style={{ width: '100%', height: '3rem', border: '1px solid var(--border)' }}
+                        >
+                            Copy shared dashboard link
+                        </LemonButton>
                     )}
-                    Use this HTML snippet to embed the dashboard on your website:
+                    <div>Use this HTML snippet to embed the dashboard on your website:</div>
                     <CodeSnippet language={Language.HTML}>
                         {`<iframe width="100%" height="100%" frameborder="0" src="${shareLink}?embedded" />`}
                     </CodeSnippet>
                 </>
             ) : null}
-        </Modal>
+        </LemonModal>
     ) : null
 }

@@ -37,15 +37,3 @@
         transform: rotateX(0);
     }
 }
-
-.PopupHeader {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    width: 100%;
-    gap: 0.5rem;
-    h3 {
-        font-size: 1rem;
-        font-weight: 600;
-    }
-}

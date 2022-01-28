@@ -7,8 +7,6 @@ import { SessionRecording } from './SessionRecording'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ReloadOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { ToolbarSettings } from './ToolbarSettings'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
@@ -33,6 +31,7 @@ import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
+import { IconRefresh } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -139,8 +138,8 @@ export function ProjectSettings(): JSX.Element {
                 <CodeSnippet
                     actions={[
                         {
-                            Icon: ReloadOutlined,
-                            title: 'Reset Project API Key',
+                            icon: <IconRefresh />,
+                            title: 'Reset project API key',
                             popconfirmProps: {
                                 title: (
                                     <>
@@ -148,9 +147,8 @@ export function ProjectSettings(): JSX.Element {
                                         <b>This will invalidate the current API key and cannot be undone.</b>
                                     </>
                                 ),
-                                okText: 'Reset Key',
+                                okText: 'Reset key',
                                 okType: 'danger',
-                                icon: <ReloadOutlined style={{ color: red.primary }} />,
                                 placement: 'left',
                             },
                             callback: resetToken,
