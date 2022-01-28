@@ -648,10 +648,10 @@ export class EventsProcessor {
             event,
             properties: JSON.stringify(properties ?? {}),
             timestamp: timestampString,
-            teamId,
-            distinctId,
-            elementsChain,
-            createdAt: castTimestampOrNow(),
+            team_id: teamId,
+            distinct_id: distinctId,
+            elements_chain: elementsChain,
+            created_at: castTimestampOrNow(),
         }
 
         let eventId: Event['id'] | undefined
@@ -680,11 +680,11 @@ export class EventsProcessor {
             } = await this.db.postgresQuery(
                 'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
                 [
-                    eventPayload.createdAt,
+                    eventPayload.created_at,
                     eventPayload.event,
                     distinctId,
                     eventPayload.properties,
-                    eventPayload.teamId,
+                    eventPayload.team_id,
                     eventPayload.timestamp,
                     JSON.stringify(elements || []),
                     elementsHash,
