@@ -380,3 +380,7 @@ GROUP BY actor_id
 {limit}
 {offset}
 """
+
+COMMENT_DISTINCT_ID_COLUMN_SQL = (
+    lambda: f"ALTER TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+)

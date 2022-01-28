@@ -7,6 +7,7 @@ from ee.clickhouse.sql.dead_letter_queue import (
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
+from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -39,6 +40,7 @@ def create_clickhouse_tables(num_tables: int):
         PERSONS_TABLE_SQL(),
         PERSONS_DISTINCT_ID_TABLE_SQL(),
         PERSON_DISTINCT_ID2_TABLE_SQL(),
+        COMMENT_DISTINCT_ID_COLUMN_SQL(),
         PERSON_STATIC_COHORT_TABLE_SQL(),
         SESSION_RECORDING_EVENTS_TABLE_SQL(),
         PLUGIN_LOG_ENTRIES_TABLE_SQL(),
