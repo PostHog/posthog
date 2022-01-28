@@ -46,7 +46,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
@@ -119,7 +119,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
