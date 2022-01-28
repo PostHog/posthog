@@ -10,6 +10,7 @@ from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_event import factory_test_event_api
 from posthog.models import Action, ActionStep, Event, Person
+from posthog.test.base import test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -74,6 +75,25 @@ class ClickhouseTestEventApi(
                 first_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
                 second_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
             ],
+        )
+
+    @test_with_materialized_columns(["key"])
+    def test_can_ignore_null_values(self):
+        journeys_for(
+            {
+                "2": [
+                    {"event": "should_be_excluded", "properties": {},},
+                    {"event": "should_be_included", "properties": {"key": "another thing"},},
+                ]
+            },
+            self.team,
+        )
+
+        response = self.client.get(f"/api/event/values/?key=key").json()
+
+        self.assertEqual(len(response), 1)
+        self.assertEqual(
+            [r["name"] for r in response], ["another thing"],
         )
 
     def test_filter_events_by_being_after_properties_with_date_type(self):

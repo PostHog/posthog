@@ -413,9 +413,12 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
         )
 
     if "FROM JSONExtractRaw" in property_string_expr:
+        # only include rows which have the desired key in the properties blob
         existence_check = "AND JSONHas(properties, %(key)s)"
     else:
-        existence_check = ""
+        # `property_string_expr` is either a table level column or a materialized column
+        # so only include rows where the value is present
+        existence_check = f"AND isNotNull(NULLIF({property_string_expr}, ''))"
 
     return sync_execute(
         SELECT_PROP_VALUES_SQL.format(
