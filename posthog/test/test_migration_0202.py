@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.models import ContentType
+
 from posthog.test.base import TestMigrations
 
 
@@ -24,16 +26,26 @@ class TagsTestCase(TestMigrations):
 
     def test_tags_migrated(self):
         EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")
+        Dashboard = self.apps.get_model("posthog", "Dashboard")
+        Insight = self.apps.get_model("posthog", "Insight")
+        dashboard_type = ContentType.objects.get_for_model(Dashboard)
+        insight_type = ContentType.objects.get_for_model(Insight)
 
-        dashboard_tags = EnterpriseTaggedItem.objects.filter(object_id=self.dashboard.id)
-        self.assertEqual(dashboard_tags.count(), 5)
-        self.assertEqual(list(dashboard_tags.values_list("tag", flat=True)), ["a", "b", "c"])
+        dashboard_tags = EnterpriseTaggedItem.objects.filter(
+            content_type__pk=dashboard_type.id, object_id=self.dashboard.id
+        )
+        self.assertEqual(dashboard_tags.count(), 3)
+        self.assertEqual(list(dashboard_tags.order_by("tag").values_list("tag", flat=True)), ["a", "b", "c"])
 
-        insight_with_tags_tags = EnterpriseTaggedItem.objects.filter(object_id=self.insight_with_tags.id)
+        insight_with_tags_tags = EnterpriseTaggedItem.objects.filter(
+            content_type__pk=insight_type.id, object_id=self.insight_with_tags.id
+        )
         self.assertEqual(insight_with_tags_tags.count(), 2)
         self.assertEqual(list(insight_with_tags_tags.values_list("tag", flat=True)), ["c", "d"])
 
-        insight_without_tags_tags = EnterpriseTaggedItem.objects.filter(object_id=self.insight_without_tags.id)
+        insight_without_tags_tags = EnterpriseTaggedItem.objects.filter(
+            content_type__pk=insight_type.id, object_id=self.insight_without_tags.id
+        )
         self.assertEqual(insight_without_tags_tags.count(), 0)
 
         self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 5)
