@@ -7,7 +7,7 @@ import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entity
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { InsightModel, InsightType, PropertyFilter } from '~/types'
+import { FilterType, InsightModel, InsightType, PathType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow, LemonSpacer } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
@@ -122,6 +122,39 @@ function SeriesDisplay({
     )
 }
 
+function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const humanEventTypes: string[] = []
+    if (filters.include_event_types) {
+        if (filters.include_event_types.includes(PathType.PageView)) {
+            humanEventTypes.push('page views')
+        }
+        if (filters.include_event_types.includes(PathType.Screen)) {
+            humanEventTypes.push('screen views')
+        }
+        if (filters.include_event_types.includes(PathType.CustomEvent)) {
+            humanEventTypes.push('custom events')
+        }
+    }
+
+    return (
+        <div className="SeriesDisplay">
+            <div>
+                Paths based on <b>{humanEventTypes.join(', ')}</b>
+            </div>
+            {filters.start_point && (
+                <div>
+                    starting at <b>{filters.start_point}</b>
+                </div>
+            )}
+            {filters.end_point && (
+                <div>
+                    ending at <b>{filters.end_point}</b>
+                </div>
+            )}
+        </div>
+    )
+}
+
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
 
@@ -144,18 +177,28 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     </>
                 )}
                 <div className="InsightDetails__series">
-                    <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
-                    {localFilters.slice(1).map((filter, index) => (
+                    {filters.insight === InsightType.PATHS ? (
+                        <PathsSummary filters={filters} />
+                    ) : (
                         <>
-                            <LemonSpacer />
-                            <SeriesDisplay
-                                key={index}
-                                filter={filter}
-                                insightType={filters.insight}
-                                index={index + 1}
-                            />
+                            {localFilters.length > 0 && (
+                                <>
+                                    <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
+                                    {localFilters.slice(1).map((filter, index) => (
+                                        <>
+                                            <LemonSpacer />
+                                            <SeriesDisplay
+                                                key={index}
+                                                filter={filter}
+                                                insightType={filters.insight}
+                                                index={index + 1}
+                                            />
+                                        </>
+                                    ))}
+                                </>
+                            )}
                         </>
-                    ))}
+                    )}
                 </div>
             </section>
             <h5>Filters</h5>

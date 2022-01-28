@@ -180,7 +180,7 @@ export function PathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Pageviews
+                                    Page views
                                 </Checkbox>
                             </Col>
                             <Col
@@ -196,7 +196,7 @@ export function PathTab(): JSX.Element {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Screenviews
+                                    Screen views
                                 </Checkbox>
                             </Col>
                             <Col
