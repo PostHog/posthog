@@ -314,7 +314,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             document.body.appendChild(tooltipEl)
                         }
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            tooltipEl.style.opacity = '1'
                             return
                         }
 
@@ -353,7 +353,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={

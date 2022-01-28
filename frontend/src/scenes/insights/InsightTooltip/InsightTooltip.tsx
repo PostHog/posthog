@@ -48,6 +48,7 @@ export function InsightTooltip({
             {value}
         </>
     ),
+    renderCount = (value: React.ReactNode) => <>{value}</>,
     hideColorCol = false,
     forceEntitiesAsColumns = false,
     rowCutoff = ROW_CUTOFF,
@@ -110,7 +111,11 @@ export function InsightTooltip({
                                     colIdx
                                 )),
                         render: function renderSeriesColumnData(_, datum) {
-                            return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
+                            return (
+                                <div className="series-data-cell">
+                                    {renderCount(datum.seriesData?.[colIdx]?.count ?? 0, datum, colIdx)}
+                                </div>
+                            )
                         },
                     })
                 })
@@ -177,8 +182,8 @@ export function InsightTooltip({
             width: 50,
             title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
             align: 'right',
-            render: function renderDatum(_, datum) {
-                return <div className="series-data-cell">{datum.count ?? 0}</div>
+            render: function renderDatum(_, datum, rowIdx) {
+                return <div className="series-data-cell">{renderCount(datum?.count ?? 0, datum, rowIdx)}</div>
             },
         })
 

@@ -7,6 +7,7 @@ import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 export function FunnelLineGraph({
     dashboardItemId,
@@ -28,6 +29,19 @@ export function FunnelLineGraph({
             isInProgress={incompletenessOffsetFromEnd < 0}
             insightId={insight.id}
             inSharedMode={!!inSharedMode}
+            tooltip={{
+                showHeader: false,
+                hideColorCol: true,
+                renderSeries: (_, datum) => {
+                    if (!steps?.[0]?.days) {
+                        return 'Trend'
+                    }
+                    return getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval)
+                },
+                renderCount: (count) => {
+                    return `${count}%`
+                },
+            }}
             percentage={true}
             labelGroupType={filters.aggregation_group_type_index ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
