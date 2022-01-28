@@ -156,10 +156,6 @@ def run_migration_precheck(migration_instance: AsyncMigration):
     return get_async_migration_definition(migration_instance.name).precheck()
 
 
-def run_migration_healthcheck(migration_instance: AsyncMigration):
-    return get_async_migration_definition(migration_instance.name).healthcheck()
-
-
 def update_migration_progress(migration_instance: AsyncMigration):
     """
     We don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
