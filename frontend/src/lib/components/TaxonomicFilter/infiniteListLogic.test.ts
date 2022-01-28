@@ -5,7 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
-import { AppContext, PropertyDefinition } from '~/types'
+import { AppContext } from '~/types'
 
 jest.mock('lib/api')
 
@@ -13,8 +13,6 @@ window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown a
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
-
-    let apiReturnedPropertyDefinitions: PropertyDefinition[]
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
@@ -28,8 +26,8 @@ describe('infiniteListLogic', () => {
         }
         if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
             return {
-                results: apiReturnedPropertyDefinitions,
-                count: apiReturnedPropertyDefinitions.length,
+                results: [],
+                count: 0,
             }
         }
     })
@@ -37,7 +35,6 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
-        apiReturnedPropertyDefinitions = []
     })
 
     describe('events with remote data source', () => {

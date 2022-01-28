@@ -409,7 +409,7 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
             ),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            {"team_id": team.pk, "value": "%{}%".format(value)},
         )
 
     if "FROM JSONExtractRaw" in property_string_expr:
@@ -427,7 +427,7 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
         ),
-        {"team_id": team.pk, "key": key},
+        {"team_id": team.pk},
     )
 
 

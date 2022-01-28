@@ -1422,7 +1422,6 @@ export interface KeyMapping {
     description?: string | JSX.Element
     examples?: string[]
     hide?: boolean
-    excludeFromTaxonomicFilter?: boolean
 }
 
 export interface TileParams {
