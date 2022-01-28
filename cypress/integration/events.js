@@ -25,13 +25,13 @@ const selectNewTimestampPropertyFilter = () => {
     cy.get('.taxonomic-list-row').should('have.length', 1).click()
 }
 
-const selectOperator = (operator, openPopUp) => {
+const selectDateTimeOperator = (operator, openPopUp) => {
     if (openPopUp) {
         cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
     }
 
     cy.get('.taxonomic-operator').click()
-    cy.get('.operator-value-option').its('length').should('eql', 8)
+    cy.get('.operator-value-option').its('length').should('eql', 4)
     cy.get('.operator-value-option').contains('< before').should('be.visible')
     cy.get('.operator-value-option').contains('> after').should('be.visible')
 
@@ -39,7 +39,7 @@ const selectOperator = (operator, openPopUp) => {
 }
 
 const changeSecondPropertyFilterToDateAfter = () => {
-    selectOperator('> after', true)
+    selectDateTimeOperator('> after', true)
 }
 
 describe('Events', () => {
@@ -118,7 +118,7 @@ describe('Events', () => {
         selectNewTimestampPropertyFilter()
 
         const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
-        selectOperator('< before', undefined)
+        selectDateTimeOperator('< before', undefined)
         cy.get('.taxonomic-value-select').click()
         cy.get('.filter-date-picker').type(oneDayAgo)
         cy.get('.ant-picker-footer button').click({ scrollBehavior: false, force: true })
