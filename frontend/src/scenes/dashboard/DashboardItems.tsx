@@ -54,7 +54,7 @@ export function DashboardItems(): JSX.Element {
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
             <ReactGridLayout
-                width={gridWrapperWidth}
+                width={gridWrapperWidth || 0}
                 className={className}
                 isDraggable={dashboardMode === DashboardMode.Edit}
                 isResizable={dashboardMode === DashboardMode.Edit}
