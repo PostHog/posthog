@@ -319,7 +319,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                             document.body.appendChild(tooltipEl)
                         }
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '1'
+                            tooltipEl.style.opacity = '0'
                             return
                         }
 
