@@ -109,7 +109,7 @@ KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 
 # Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_CLICKHOUSE", KAFKA_URL))
+KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 

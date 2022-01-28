@@ -62,7 +62,7 @@ def kafka_engine(
     skip_broken_messages=100,
 ):
     if kafka_host is None:
-        kafka_host = settings.KAFKA_HOSTS_CLICKHOUSE
+        kafka_host = settings.KAFKA_HOSTS_FOR_CLICKHOUSE
     if serialization == "JSONEachRow":
         return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
     elif serialization == "Protobuf":

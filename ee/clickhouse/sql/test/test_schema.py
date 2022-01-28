@@ -62,7 +62,7 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
 
 @pytest.mark.parametrize("query", KAFKA_CREATE_TABLE_QUERIES, ids=build_query)
 def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings):
-    settings.KAFKA_HOSTS_CLICKHOUSE = "test.kafka.broker:9092"
+    settings.KAFKA_HOSTS_FOR_CLICKHOUSE = "test.kafka.broker:9092"
 
     if not isinstance(query, str):
         query = query()
