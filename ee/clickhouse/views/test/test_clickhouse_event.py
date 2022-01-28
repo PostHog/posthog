@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -10,7 +10,6 @@ from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_event import factory_test_event_api
 from posthog.models import Action, ActionStep, Event, Person
-from posthog.test.base import test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -48,53 +47,6 @@ class ClickhouseTestEventApi(
         patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(patch_sync_execute.call_count, 3)
-
-    def test_can_load_event_timestamp_values(self):
-        # query is limited to last seven days
-        before_query_limits = datetime.now() - timedelta(days=8)
-        first_within_query_limits = before_query_limits + timedelta(days=3)
-        second_within_query_limits = before_query_limits + timedelta(days=4)
-
-        journeys_for(
-            {
-                "2": [
-                    {"event": "should_be_excluded", "properties": {}, "timestamp": before_query_limits,},
-                    {"event": "should_be_included", "properties": {}, "timestamp": first_within_query_limits,},
-                    {"event": "should_be_included", "properties": {}, "timestamp": second_within_query_limits,},
-                ]
-            },
-            self.team,
-        )
-
-        response = self.client.get(f"/api/event/values/?key=timestamp").json()
-
-        self.assertEqual(len(response), 2)
-        self.assertEqual(
-            [r["name"] for r in response],
-            [
-                first_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
-                second_within_query_limits.strftime("%Y-%m-%d %H:%M:%S.%f+00:00"),
-            ],
-        )
-
-    @test_with_materialized_columns(["key"])
-    def test_can_ignore_null_values(self):
-        journeys_for(
-            {
-                "2": [
-                    {"event": "should_be_excluded", "properties": {},},
-                    {"event": "should_be_included", "properties": {"key": "another thing"},},
-                ]
-            },
-            self.team,
-        )
-
-        response = self.client.get(f"/api/event/values/?key=key").json()
-
-        self.assertEqual(len(response), 1)
-        self.assertEqual(
-            [r["name"] for r in response], ["another thing"],
-        )
 
     def test_filter_events_by_being_after_properties_with_date_type(self):
         journeys_for(
