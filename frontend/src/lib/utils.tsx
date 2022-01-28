@@ -372,10 +372,6 @@ export const genericOperatorMap: Record<string, string> = {
 }
 
 export const dateTimeOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
     is_date_before: '< before',
     is_date_after: '> after',
     is_set: '✓ is set',
