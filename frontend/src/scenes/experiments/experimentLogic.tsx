@@ -281,7 +281,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 `api/projects/${values.currentTeamId}/insights`,
                 newInsight
             )
-            console.log('main insightID: ', createdInsight.short_id)
             actions.setExperimentInsightId(createdInsight.short_id)
             actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
