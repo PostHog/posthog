@@ -51,10 +51,6 @@ class PropertyDefinition(UUIDModel):
 
     global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="property_definition")
 
-    @property
-    def global_tags_list(self) -> List[str]:
-        return list(self.global_tags.values_list("tag", flat=True))
-
     class Meta:
         unique_together = ("team", "name")
         indexes = [

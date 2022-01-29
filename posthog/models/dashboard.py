@@ -35,10 +35,6 @@ class Dashboard(models.Model):
         ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
     )
 
-    @property
-    def global_tags_list(self) -> List[str]:
-        return list(self.global_tags.values_list("tag", flat=True))
-
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """
         Returns serialized information about the object for analytics reporting.
