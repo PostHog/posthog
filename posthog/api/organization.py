@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, response, serializers, viewsets
 from rest_framework.request import Request
@@ -160,16 +160,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
         )
         event_definition_type = ContentType.objects.get_for_model(EnterpriseEventDefinition)
         output["taxonomy_set_events_count"] = EnterpriseTaggedItem.objects.filter(
-            content_type__pk=event_definition_type.id, object_id__in=events_with_descriptions
-        ).count()
+            Q(content_type__pk=event_definition_type.id) & ~Q(object_id__in=events_with_descriptions)
+        ).count() + len(events_with_descriptions)
 
         properties_with_descriptions = list(
             EnterprisePropertyDefinition.objects.exclude(description="").values_list("id", flat=True)
         )
         property_definition_type = ContentType.objects.get_for_model(EnterprisePropertyDefinition)
         output["taxonomy_set_properties_count"] = EnterpriseTaggedItem.objects.filter(
-            content_type__pk=property_definition_type.id, object_id__in=properties_with_descriptions
-        ).count()
+            Q(content_type__pk=property_definition_type.id) & ~Q(object_id__in=properties_with_descriptions)
+        ).count() + len(properties_with_descriptions)
         return output
 
 

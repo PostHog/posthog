@@ -107,6 +107,8 @@ class TestUserAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
+        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
+        EnterpriseTaggedItem.objects.create(content_object=tagged_property, tag="test2", team=self.team)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="some_prop",  # I shouldn't be counted
         )
@@ -116,7 +118,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
-        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 2)
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 3)
 
     def test_cannot_retrieve_or_list_other_users(self):
         """
