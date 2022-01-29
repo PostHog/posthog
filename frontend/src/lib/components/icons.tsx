@@ -795,9 +795,9 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
     )
 }
 
-export function PageviewIcon(): JSX.Element {
+export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -808,9 +808,9 @@ export function PageviewIcon(): JSX.Element {
     )
 }
 
-export function AutocaptureIcon(): JSX.Element {
+export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
                 fill="currentColor"
@@ -828,9 +828,9 @@ export function AutocaptureIcon(): JSX.Element {
     )
 }
 
-export function PageleaveIcon(): JSX.Element {
+export function PageleaveIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
                 fill="currentColor"

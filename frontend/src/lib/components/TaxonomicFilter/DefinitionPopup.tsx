@@ -215,12 +215,12 @@ DefinitionPopup.Grid = Grid
 DefinitionPopup.Section = Section
 DefinitionPopup.Card = Card
 
-// TaxonomicFilterGroupType.Actions,
+// X TaxonomicFilterGroupType.Actions,
 // TaxonomicFilterGroupType.Elements,
 // X TaxonomicFilterGroupType.Events,
 // X TaxonomicFilterGroupType.CustomEvents,
-// TaxonomicFilterGroupType.EventProperties,
-// TaxonomicFilterGroupType.PersonProperties,
+// X TaxonomicFilterGroupType.EventProperties,
+// X TaxonomicFilterGroupType.PersonProperties,
 // TaxonomicFilterGroupType.Cohorts,
 // TaxonomicFilterGroupType.CohortsWithAllUsers,
 
@@ -270,7 +270,32 @@ const renderRestOfDefinition = (
             </>
         )
     }
-    return <></>
+    if (
+        [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.GroupsPrefix,
+        ].includes(listGroupType)
+    ) {
+        const _item = item as PropertyDefinition
+        return (
+            <>
+                <Grid cols={2}>
+                    <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
+                    <Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)} />
+                    <Card title="30 day volume" value={_item.volume_30_day ?? '-'} />
+                    <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
+                </Grid>
+                <HorizontalLine />
+                <Section>
+                    <Card
+                        title="Sent as"
+                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
+                    />
+                </Section>
+            </>
+        )
+    }
 }
 
 export const renderItemPopup = (
@@ -317,7 +342,7 @@ export const renderItemPopup = (
                     updatedAt={('updated_at' in item && item.updated_at) || undefined}
                     updatedBy={('updated_by' in item && item.updated_by) || undefined}
                 />
-                <HorizontalLine />
+                <DefinitionPopup.HorizontalLine />
                 {/* Things start to get different here */}
                 {renderRestOfDefinition(item, listGroupType)}
             </DefinitionPopup>

@@ -309,7 +309,14 @@ export function InfiniteList(): JSX.Element {
         )
     }
 
-    console.log('LIST GROUP', listGroupType)
+    console.log(
+        'LIST GROUP',
+        listGroupType,
+        isActiveTab,
+        selectedItemInView,
+        selectedItemHasPopup(selectedItem, listGroupType, group, showNewTaxonomyFeature),
+        tooltipDesiredState(referenceElement) !== ListTooltip.None
+    )
 
     return (
         <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`}>

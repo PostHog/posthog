@@ -22,8 +22,41 @@ import { capitalizeFirstLetter, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ActionStack, CohortIcon, UnverifiedEventStack, VerifiedEventStack } from 'lib/components/icons'
+import {
+    ActionStack,
+    AutocaptureIcon,
+    CohortIcon,
+    PageleaveIcon,
+    PageviewIcon,
+    UnverifiedEventStack,
+    VerifiedEventStack,
+} from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+
+const eventTaxonomicGroupProps = {
+    getPopupHeader: (eventDefinition: EventDefinition): string => {
+        if (!!keyMapping.event[eventDefinition.name]) {
+            return 'Default Event'
+        }
+        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
+    },
+    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
+        if (eventDefinition.name === '$pageview') {
+            return <PageviewIcon fill="var(--text_muted_alt)" />
+        }
+        if (eventDefinition.name === '$pageleave') {
+            return <PageleaveIcon fill="var(--text_muted_alt)" />
+        }
+        if (eventDefinition.name === '$autocapture') {
+            return <AutocaptureIcon fill="var(--text_muted_alt)" />
+        }
+        return eventDefinition.verified ? (
+            <VerifiedEventStack fill="var(--success)" />
+        ) : (
+            <UnverifiedEventStack fill="var(--text_muted_alt)" />
+        )
+    },
+}
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -111,19 +144,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
-                    getPopupHeader: (eventDefinition: EventDefinition): string =>
-                        `${
-                            eventDefinition.verified || !!keyMapping.event[eventDefinition.name]
-                                ? 'Verified'
-                                : 'Unverified'
-                        } Event`,
-                    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
-                        return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
-                            <VerifiedEventStack style={{ fill: 'var(--success)' }} />
-                        ) : (
-                            <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
-                        )
-                    },
+                    ...eventTaxonomicGroupProps,
                 },
                 {
                     name: 'Actions',
@@ -135,7 +156,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
                     getPopupHeader: (): string => 'Action',
                     getIcon: function _getIcon(): JSX.Element {
-                        return <ActionStack style={{ fill: 'var(--primary-alt)' }} />
+                        return <ActionStack fill="var(--primary-alt)" />
                     },
                 },
                 {
@@ -181,7 +202,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
                     getPopupHeader: (cohort: CohortType): string => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                     getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon style={{ fill: 'var(--text_muted_alt)' }} />
+                        return <CohortIcon fill="var(--text_muted_alt)" />
                     },
                 },
                 {
@@ -194,7 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
                     getPopupHeader: (): string => `All Users`,
                     getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon style={{ fill: 'var(--text_muted_alt)' }} />
+                        return <CohortIcon fill="var(--text_muted_alt)" />
                     },
                 },
                 {
@@ -225,19 +246,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     value: 'customEvents',
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
                     getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
-                    getPopupHeader: (eventDefinition: EventDefinition): string =>
-                        `${
-                            eventDefinition.verified || !!keyMapping.event[eventDefinition.name]
-                                ? 'Verified'
-                                : 'Unverified'
-                        } Custom Event`,
-                    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
-                        return eventDefinition.verified || !!keyMapping.event[eventDefinition.name] ? (
-                            <VerifiedEventStack style={{ fill: 'var(--success)' }} />
-                        ) : (
-                            <UnverifiedEventStack style={{ fill: 'var(--text_muted_alt)' }} />
-                        )
-                    },
+                    ...eventTaxonomicGroupProps,
                 },
                 {
                     name: 'Wildcards',
