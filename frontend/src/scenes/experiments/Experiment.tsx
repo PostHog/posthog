@@ -52,6 +52,7 @@ import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { InsightLabel } from 'lib/components/InsightLabel'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -135,8 +136,8 @@ export function Experiment(): JSX.Element {
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                  (experimentData?.parameters?.recommended_running_time || 1)) *
-              100
+                (experimentData?.parameters?.recommended_running_time || 1)) *
+            100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -363,7 +364,7 @@ export function Experiment(): JSX.Element {
                                                     <b>Goal type</b>
                                                     <div className="text-muted">
                                                         {experimentInsightType === InsightType.TRENDS
-                                                            ? 'Track how many participants complete a specific event or action'
+                                                            ? 'Track counts of a specific event or action'
                                                             : 'Track how many persons complete a sequence of actions and or events'}
                                                     </div>
                                                 </div>
@@ -441,8 +442,8 @@ export function Experiment(): JSX.Element {
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={true}
-                                                                hideMathSelector={true}
+                                                                entitiesLimit={1}
+                                                                hideMathSelector={false}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
                                                                     TaxonomicFilterGroupType.PersonProperties,
@@ -930,7 +931,7 @@ export function ExperimentPreview({
                                 {!!experiment?.filters?.properties?.length ? (
                                     <div>
                                         {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                            return <PropertyFilterButton key={item.key} item={item} greyBadges={true} />
+                                            return <PropertyFilterButton key={item.key} item={item} />
                                         })}
                                     </div>
                                 ) : (
@@ -940,7 +941,7 @@ export function ExperimentPreview({
                         </Col>
                     </Row>
                     <Row>
-                        {experimentId !== 'new' && (
+                        {experimentId !== 'new' && !editingExistingExperiment && (
                             <Col className="mr">
                                 <div className="card-secondary mt">Start date</div>
                                 {experiment?.start_date ? (
@@ -958,7 +959,7 @@ export function ExperimentPreview({
                         )}
                     </Row>
                 </Row>
-                {experimentId !== 'new' && (
+                {experimentId !== 'new' && !editingExistingExperiment && (
                     <Row className="experiment-preview-row">
                         <Col>
                             <div className="card-secondary mb-05">
@@ -975,11 +976,15 @@ export function ExperimentPreview({
                                                     : idx + 1}
                                             </div>
                                             <b>
-                                                <EntityFilterInfo filter={event} />
+                                                <InsightLabel
+                                                    action={event}
+                                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
+                                                    hideIcon
+                                                />
                                             </b>
                                         </Row>
                                         {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                            <PropertyFilterButton key={prop.key} item={prop} />
                                         ))}
                                     </Col>
                                 ))}
@@ -987,7 +992,7 @@ export function ExperimentPreview({
                     </Row>
                 )}
             </Col>
-            {experimentId !== 'new' && (
+            {experimentId !== 'new' && !editingExistingExperiment && (
                 <Col span={12} className="pl">
                     <div className="card-secondary mb">Feature flag usage and implementation</div>
                     <Row justify="space-between" className="mb-05">

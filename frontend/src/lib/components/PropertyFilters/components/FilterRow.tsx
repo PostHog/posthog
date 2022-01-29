@@ -27,7 +27,6 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
-    greyBadges?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -43,7 +42,6 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
-    greyBadges,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -103,7 +101,6 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClose={() => onRemove(index)}
                                             item={item}
                                             setRef={setRef}
-                                            greyBadges={greyBadges}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <FilterButton

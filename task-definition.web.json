@@ -87,6 +87,10 @@
                     "value": "https://app.posthog.com"
                 },
                 {
+                    "name": "JS_URL",
+                    "value": "https://app-static.posthog.com"
+                },
+                {
                     "name": "EMAIL_DEFAULT_FROM",
                     "value": "hey@posthog.com"
                 },

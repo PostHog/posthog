@@ -6,7 +6,7 @@ from django.utils.text import slugify
 from rest_framework import status
 
 from posthog.models import Team, User
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
 
@@ -342,6 +342,22 @@ class TestUserAPI(APIBaseTest):
         )
 
         self._assert_current_org_and_team_unchanged()
+
+    def test_current_team_prefer_current_organization(self):
+        """
+        If current_organization is set but current_team isn't (for example when a team is deleted), make sure we set the team in the current organization
+        """
+        org2 = Organization.objects.create(name="bla")
+        OrganizationMembership.objects.create(organization=org2, user=self.user)
+        team2 = Team.objects.create(organization=org2)
+
+        # select current organization
+        self.user.current_organization = org2
+        self.user.current_team = None
+        self.user.save()
+
+        response = self.client.get("/api/users/@me/").json()
+        self.assertEqual(response["team"]["id"], team2.pk)
 
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture):

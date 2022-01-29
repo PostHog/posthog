@@ -13,7 +13,7 @@ import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     buttonType?: ButtonType
     useMultiBreakdown?: boolean
 }
@@ -48,32 +48,34 @@ export function BreakdownFilter({
 
     const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
 
-    const onCloseFor = (t: string | number, index: number): (() => void) => {
-        return () => {
-            if (isCohortBreakdown(t)) {
-                const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
-                if (newParts.length === 0) {
-                    setFilters({ breakdown: null, breakdown_type: null })
-                } else {
-                    setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
-                }
-            } else {
-                if (useMultiBreakdown) {
-                    if (!breakdown_type) {
-                        console.error(new Error(`Unknown breakdown_type: "${breakdown_type}"`))
-                    } else {
-                        const newParts = breakdownParts.filter((_, i) => i !== index)
-                        setFilters({
-                            breakdowns: newParts.map((np): Breakdown => ({ property: np, type: breakdown_type })),
-                            breakdown_type: breakdown_type,
-                        })
-                    }
-                } else {
-                    setFilters({ breakdown: undefined, breakdown_type: null })
-                }
-            }
-        }
-    }
+    const onCloseFor = setFilters
+        ? (t: string | number, index: number): (() => void) => {
+              return () => {
+                  if (isCohortBreakdown(t)) {
+                      const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
+                      if (newParts.length === 0) {
+                          setFilters({ breakdown: null, breakdown_type: null })
+                      } else {
+                          setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
+                      }
+                  } else {
+                      if (useMultiBreakdown) {
+                          if (!breakdown_type) {
+                              console.error(new Error(`Unknown breakdown_type: "${breakdown_type}"`))
+                          } else {
+                              const newParts = breakdownParts.filter((_, i) => i !== index)
+                              setFilters({
+                                  breakdowns: newParts.map((np): Breakdown => ({ property: np, type: breakdown_type })),
+                                  breakdown_type: breakdown_type,
+                              })
+                          }
+                      } else {
+                          setFilters({ breakdown: undefined, breakdown_type: null })
+                      }
+                  }
+              }
+          }
+        : undefined
 
     const tags = !breakdown_type
         ? []
@@ -81,8 +83,8 @@ export function BreakdownFilter({
               <Tag
                   className="taxonomic-breakdown-filter tag-pill"
                   key={t}
-                  closable={true}
-                  onClose={onCloseFor(t, index)}
+                  closable={!!setFilters}
+                  onClose={onCloseFor?.(t, index)}
               >
                   {isPersonEventOrGroup(t) && <PropertyKeyInfo value={t} />}
                   {isAllCohort(t) && <PropertyKeyInfo value={'All Users'} />}
@@ -92,20 +94,14 @@ export function BreakdownFilter({
               </Tag>
           ))
 
-    const onChange = onFilterChange({ useMultiBreakdown, breakdownParts, setFilters })
+    const onChange = setFilters ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }) : undefined
 
     return (
-        <>
-            <Space direction={'horizontal'} wrap={true}>
-                {tags}
-                {!hasSelectedBreakdown || useMultiBreakdown ? (
-                    <TaxonomicBreakdownButton
-                        buttonType={buttonType}
-                        breakdownType={breakdownType}
-                        onChange={onChange}
-                    />
-                ) : null}
-            </Space>
-        </>
+        <Space direction="horizontal" wrap>
+            {tags}
+            {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
+                <TaxonomicBreakdownButton buttonType={buttonType} breakdownType={breakdownType} onChange={onChange} />
+            ) : null}
+        </Space>
     )
 }

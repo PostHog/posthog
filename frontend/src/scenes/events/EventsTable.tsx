@@ -360,7 +360,6 @@ export function EventsTable({
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
-                                greyBadges={true}
                             />
                         </div>
 
