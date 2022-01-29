@@ -5,8 +5,8 @@ from posthog.test.base import TestMigrations
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0201_global_tags_setup"
-    migrate_to = "0202_migrate_dashboard_insight_tags"
+    migrate_from = "0201_global_tags_setup"  # type: ignore
+    migrate_to = "0202_migrate_dashboard_insight_tags"  # type: ignore
 
     def setUpBeforeMigration(self, apps):
         Dashboard = apps.get_model("posthog", "Dashboard")

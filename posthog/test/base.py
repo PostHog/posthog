@@ -261,7 +261,7 @@ def snapshot_postgres_queries(fn):
 class TestMigrations(BaseTest):
     @property
     def app(self):
-        return apps.get_containing_app_config(type(self).__module__).name
+        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
     migrate_from = None
     migrate_to = None
@@ -269,9 +269,9 @@ class TestMigrations(BaseTest):
 
     def setUp(self):
         assert (
-            self.migrate_from and self.migrate_to
+            self.migrate_from and self.migrate_to  # type: ignore
         ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]
+        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
         self.migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
         old_apps = executor.loader.project_state(self.migrate_from).apps

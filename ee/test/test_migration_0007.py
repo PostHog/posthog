@@ -5,8 +5,8 @@ from posthog.test.base import TestMigrations
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0006_event_definition_verification"
-    migrate_to = "0007_migrate_definitions_tags"
+    migrate_from = "0006_event_definition_verification"  # type: ignore
+    migrate_to = "0007_migrate_definitions_tags"  # type: ignore
 
     def setUpBeforeMigration(self, apps):
         EnterpriseEventDefinition = apps.get_model("ee", "EnterpriseEventDefinition")
@@ -23,9 +23,9 @@ class TagsTestCase(TestMigrations):
         ).id
 
     def test_tags_migrated(self):
-        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")
-        EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")
-        EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")
+        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")  # type: ignore
+        EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")  # type: ignore
+        EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")  # type: ignore
         event_definition_type = ContentType.objects.get_for_model(EnterpriseEventDefinition)
         property_definition_type = ContentType.objects.get_for_model(EnterprisePropertyDefinition)
 
@@ -50,9 +50,9 @@ class TagsTestCase(TestMigrations):
         self.assertEqual(EnterpriseTaggedItem.objects.order_by("tag").values("tag").distinct().count(), 5)
 
     def tearDown(self):
-        EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")
+        EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")  # type: ignore
         EnterpriseEventDefinition.objects.filter(id=self.event_definition).delete()
-        EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")
+        EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")  # type: ignore
         EnterprisePropertyDefinition.objects.filter(
             id__in=[self.property_definition_with_tags, self.property_definition_without_tags]
         ).delete()
