@@ -348,11 +348,13 @@ export const getClampedStepRangeFilter = ({
     filters: FilterType
 }): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    const incomingFunnelFromStep = stepRange?.funnel_from_step || filters.funnel_from_step
+    const incomingFunnelToStep = stepRange?.funnel_to_step || filters.funnel_to_step
 
-    const hasFunnelFromStep = typeof (stepRange?.funnel_from_step || filters.funnel_from_step) === 'number'
-    const hasFunnelToStep = typeof (stepRange?.funnel_to_step || filters.funnel_to_step) === 'number'
+    const funnelFromStepIsSet = typeof incomingFunnelFromStep === 'number' && incomingFunnelFromStep !== 0
+    const funnelToStepIsSet = typeof incomingFunnelToStep === 'number' && incomingFunnelToStep !== maxStepIndex
 
-    if (hasFunnelFromStep || hasFunnelToStep) {
+    if (funnelFromStepIsSet || funnelToStepIsSet) {
         const funnel_from_step = clamp(stepRange?.funnel_from_step ?? filters.funnel_from_step ?? 0, 0, maxStepIndex)
         return {
             ...(stepRange as FunnelStepRangeEntityFilter),
@@ -364,7 +366,10 @@ export const getClampedStepRangeFilter = ({
             ),
         }
     }
-    return {}
+    return {
+        funnel_from_step: undefined,
+        funnel_to_step: undefined,
+    }
 }
 
 export function getMeanAndStandardDeviation(values?: number[]): number[] {
