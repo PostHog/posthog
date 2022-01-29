@@ -42,7 +42,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
     return (
         <Row className="funnel-options-inputs">
-            <span className="text-muted-alt">between</span>
+            <span className="text-muted-alt">from</span>
             <Select
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
@@ -55,7 +55,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
             >
                 {renderStepOptions(fromRange)}
             </Select>
-            <span className="text-muted-alt">and</span>
+            <span className="text-muted-alt">to</span>
             <Select
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
