@@ -265,6 +265,7 @@ class TestMigrations(BaseTest):
 
     migrate_from = None
     migrate_to = None
+    apps = None
 
     def setUp(self):
         assert (

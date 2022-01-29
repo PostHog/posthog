@@ -1,3 +1,5 @@
+from typing import List
+
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
@@ -48,6 +50,10 @@ class PropertyDefinition(UUIDModel):
     )  # Deprecated in #4480
 
     global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="property_definition")
+
+    @property
+    def global_tags_list(self) -> List[str]:
+        return list(self.global_tags.values_list("tag", flat=True))
 
     class Meta:
         unique_together = ("team", "name")

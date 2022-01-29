@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 import posthoganalytics
 import structlog
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from psycopg2 import sql
 
@@ -111,13 +112,20 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
             instance_usage_summary["persons_count_new_in_period"] += team_report["persons_count_new_in_period"]
 
+            # Global tags model
+            from posthog.models.tagged_item import EnterpriseTaggedItem
+
+            dashboard_type = ContentType.objects.get_for_model(Dashboard)
+
             # Dashboards
             team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)
             team_report["dashboards_count"] = team_dashboards.count()
             instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
             team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
-            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags=[]).count()
+            team_report["dashboards_tagged_count"] = EnterpriseTaggedItem.objects.filter(
+                content_type__pk=dashboard_type.id, object_id__in=list(team_dashboards.values_list("id", flat=True))
+            ).count()
 
             # Feature Flags
             feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)

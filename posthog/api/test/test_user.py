@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 
 
@@ -87,13 +88,14 @@ class TestUserAPI(APIBaseTest):
 
         from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
 
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        enterprise_event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user
         )
+        EnterpriseTaggedItem(content_object=enterprise_event, tag="deprecated", team=self.team).save()
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
-        EnterprisePropertyDefinition.objects.create(
+        timestamp_property = EnterprisePropertyDefinition.objects.create(
             team=self.team,
             name="a timestamp",
             property_type="DateTime",
@@ -101,6 +103,8 @@ class TestUserAPI(APIBaseTest):
             description="This is a cool timestamp.",
             tags=["test", "official"],
         )
+        EnterpriseTaggedItem(content_object=timestamp_property, tag="test", team=self.team).save()
+        EnterpriseTaggedItem(content_object=timestamp_property, tag="official", team=self.team).save()
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )

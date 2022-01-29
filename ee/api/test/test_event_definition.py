@@ -8,6 +8,7 @@ from rest_framework import status
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
 from posthog.models.event_definition import EventDefinition
+from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 
 
@@ -16,9 +17,8 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        event = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
-        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
+        EnterpriseTaggedItem(content_object=event, tag="deprecated", team=self.team).save()
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -49,12 +49,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        enterprise_property = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user
         )
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="regular event", owner=self.user, tags=["deprecated"]
-        )
+        EnterpriseTaggedItem(content_object=enterprise_property, tag="deprecated", team=self.team).save()
+        regular_event = EnterpriseEventDefinition.objects.create(team=self.team, name="regular event", owner=self.user)
+        EnterpriseTaggedItem(content_object=regular_event, tag="deprecated", team=self.team).save()
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

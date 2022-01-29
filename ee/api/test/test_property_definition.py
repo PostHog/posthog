@@ -9,6 +9,7 @@ from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.models import EventProperty
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 
 
@@ -49,9 +50,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="enterprise property", tags=["deprecated"]
-        )
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        EnterpriseTaggedItem(content_object=property, tag="deprecated", team=self.team).save()
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -77,15 +77,16 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         EventProperty.objects.create(team=self.team, event="$pageview", property="enterprise property")
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="enterprise property", description="", tags=["deprecated"]
+        enterprise_property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", description=""
         )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="other property", description="", tags=["deprecated"]
+        EnterpriseTaggedItem(content_object=enterprise_property, tag="deprecated", team=self.team).save()
+        other_property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="other property", description=""
         )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="$set", description="", tags=["hidden-system-property"]
-        )
+        EnterpriseTaggedItem(content_object=other_property, tag="deprecated", team=self.team).save()
+        set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
+        EnterpriseTaggedItem(content_object=set_property, tag="hidden-system-property", team=self.team).save()
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

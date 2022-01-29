@@ -25,9 +25,9 @@ class TagsTestCase(TestMigrations):
         )
 
     def test_tags_migrated(self):
-        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")
-        Dashboard = self.apps.get_model("posthog", "Dashboard")
-        Insight = self.apps.get_model("posthog", "Insight")
+        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")  # type: ignore
+        Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
+        Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
         dashboard_type = ContentType.objects.get_for_model(Dashboard)
         insight_type = ContentType.objects.get_for_model(Insight)
 
@@ -52,7 +52,7 @@ class TagsTestCase(TestMigrations):
         self.assertEqual(EnterpriseTaggedItem.objects.order_by("tag").values("tag").distinct().count(), 4)
 
     def tearDown(self):
-        Insight = self.apps.get_model("posthog", "Insight")
+        Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
         Insight.objects.filter(id__in=[self.insight_with_tags.id, self.insight_without_tags.id]).delete()
-        Dashboard = self.apps.get_model("posthog", "Dashboard")
+        Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.filter(id=self.dashboard.id).delete()
