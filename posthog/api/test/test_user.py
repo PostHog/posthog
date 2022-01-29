@@ -91,7 +91,7 @@ class TestUserAPI(APIBaseTest):
         enterprise_event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user
         )
-        EnterpriseTaggedItem(content_object=enterprise_event, tag="deprecated", team=self.team).save()
+        EnterpriseTaggedItem.objects.create(content_object=enterprise_event, tag="deprecated", team=self.team)
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
@@ -101,10 +101,9 @@ class TestUserAPI(APIBaseTest):
             property_type="DateTime",
             property_type_format="unix_timestamp",
             description="This is a cool timestamp.",
-            tags=["test", "official"],
         )
-        EnterpriseTaggedItem(content_object=timestamp_property, tag="test", team=self.team).save()
-        EnterpriseTaggedItem(content_object=timestamp_property, tag="official", team=self.team).save()
+        EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="test", team=self.team)
+        EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="official", team=self.team)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )

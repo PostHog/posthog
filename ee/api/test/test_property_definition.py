@@ -51,7 +51,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        EnterpriseTaggedItem(content_object=property, tag="deprecated", team=self.team).save()
+        EnterpriseTaggedItem.objects.create(content_object=property, tag="deprecated", team=self.team)
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -80,11 +80,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         enterprise_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="enterprise property", description=""
         )
-        EnterpriseTaggedItem(content_object=enterprise_property, tag="deprecated", team=self.team).save()
+        EnterpriseTaggedItem.objects.create(content_object=enterprise_property, tag="deprecated", team=self.team)
         other_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="other property", description=""
         )
-        EnterpriseTaggedItem(content_object=other_property, tag="deprecated", team=self.team).save()
+        EnterpriseTaggedItem.objects.create(content_object=other_property, tag="deprecated", team=self.team)
         set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
         EnterpriseTaggedItem(content_object=set_property, tag="hidden-system-property", team=self.team).save()
 
@@ -151,7 +151,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["tags"], ["official", "internal"])
 
         property.refresh_from_db()
-        self.assertEqual(property.tags, ["official", "internal"])
+        self.assertEqual(list(property.global_tags.values_list("tag", flat=True)), ["official", "internal"])
 
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
