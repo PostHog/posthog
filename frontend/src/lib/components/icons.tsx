@@ -337,6 +337,56 @@ export function IconSync(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
+/** Material Design Subtitles icon. */
+export function IconSubtitles(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m20 4h-16c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm0 14h-16v-12h16zm-14-8h2v2h-2zm0 4h8v2h-8zm10 0h2v2h-2zm-6-4h8v2h-8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Subtitles Off icon. */
+export function IconSubtitlesOff(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m20.0001 4h-13.17002l2 2h11.17002v11.17l1.76 1.76c.15-.28.24-.59.24-.93v-12c0-1.1-.9-2-2-2z" />
+                <path d="m18.0001 10h-5.17l2 2h3.17z" />
+                <path d="m1.04004 3.86922 1.2 1.2c-.15.28-.24.59-.24.93v11.99998c0 1.1.9 2 2 2h13.16996l2.96 2.96 1.41-1.41-19.08996-19.09998zm2.96 2.96 3.17 3.17h-1.17v1.99998h2v-1.17l3.16996 3.17h-5.16996v2h7.16996l2 2h-11.16996z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Calculate icon. */
+export function IconCalculate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m19 3h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z" />
+                <path d="m11.25 7.7207h-5v1.5h5z" />
+                <path d="m18 15.75h-5v1.5h5z" />
+                <path d="m18 13.25h-5v1.5h5z" />
+                <path d="m8 18h1.5v-2h2v-1.5h-2v-2h-1.5v2h-2v1.5h2z" />
+                <path d="m14.09 10.95 1.41-1.41 1.41 1.41 1.06-1.06-1.41-1.42 1.41-1.41-1.06-1.06-1.41 1.41-1.41-1.41-1.06 1.06 1.41 1.41-1.41 1.42z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Subdirectory Arrow Right icon. */
+export function IconSubdirectoryArrowRight(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
 export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>

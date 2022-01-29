@@ -669,17 +669,19 @@ export interface InsightModel {
     deleted: boolean
     saved: boolean
     created_at: string
+    created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
     last_refresh: string
     refreshing: boolean
-    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -995,7 +997,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties: PropertyFilter[]
+    properties?: PropertyFilter[]
     type: EntityType
 }
 

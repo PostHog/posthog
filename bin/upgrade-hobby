@@ -1,0 +1,29 @@
+set -e
+  
+echo "Upgrading PostHog. This will cause a few minutes of downtime."
+read -r -p "Do you want to upgarde PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+[[ -f ".env" ]] && source .env || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+
+docker-compose stop
+
+cd posthog
+git pull
+cd ../
+
+rm -f docker-compose.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
+rm docker-compose.yml.tmpl
+
+docker-compose pull
+
+sudo -E docker-compose up -d
+
+echo "PostHog upgraded successfully!"

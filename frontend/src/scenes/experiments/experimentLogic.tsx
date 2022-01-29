@@ -29,6 +29,7 @@ import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
@@ -203,6 +204,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
+                    response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
             } catch (error) {
                 errorToast(
@@ -281,9 +283,10 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
-                // loading a draft mode experiment
+                // loading a draft experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
@@ -291,14 +294,26 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.loadExperimentResults()
             }
         },
-        launchExperiment: () => {
-            actions.updateExperiment({ start_date: dayjs().format('YYYY-MM-DDTHH:mm') })
+        launchExperiment: async () => {
+            const startDate = dayjs()
+            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
-            actions.updateExperiment({ end_date: dayjs().format('YYYY-MM-DDTHH:mm') })
+            const endDate = dayjs()
+            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            const duration = endDate.diff(values.experimentData?.start_date, 'second')
+            values.experimentData &&
+                eventUsageLogic.actions.reportExperimentCompleted(
+                    values.experimentData,
+                    endDate,
+                    duration,
+                    values.areResultsSignificant
+                )
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
+            values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {

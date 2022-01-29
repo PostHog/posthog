@@ -21,7 +21,6 @@ interface PropertyFiltersProps {
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
-    greyBadges?: boolean
     eventNames?: string[]
 }
 
@@ -36,7 +35,6 @@ export function PropertyFilters({
     taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
-    greyBadges = false,
     eventNames = [],
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
@@ -67,7 +65,6 @@ export function PropertyFilters({
                             showNestedArrow={showNestedArrow}
                             label={'Add filter'}
                             onRemove={remove}
-                            greyBadges={greyBadges}
                             filterComponent={(onComplete) => (
                                 <TaxonomicPropertyFilter
                                     key={index}

@@ -9,6 +9,10 @@
     overflow: hidden;
     flex-basis: 100%;
 
+    &.wrap-filters {
+        flex-basis: auto;
+    }
+
     .property-filter-button-spacing {
         color: #c4c4c4;
         font-size: 18px;
@@ -21,15 +25,6 @@
         top: -4px;
         user-select: none;
     }
-
-    .property-filter-grey {
-        color: #2d2d2d;
-        border-color: $dark-grey;
-        background: $dark-grey;
-
-        text-shadow: none;
-        box-shadow: none;
-    }
 }
 
 .property-filters {
@@ -37,4 +32,17 @@
     flex-wrap: wrap;
     gap: 0.25rem;
     margin: 0.25rem 0 1rem;
+
+    .property-filter {
+        color: #2d2d2d;
+        border-color: $dark-grey;
+        background: $dark-grey;
+
+        text-shadow: none;
+        box-shadow: none;
+
+        .anticon-close {
+            color: #2d2d2d;
+        }
+    }
 }

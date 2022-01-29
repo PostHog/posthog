@@ -8,7 +8,7 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -93,11 +93,7 @@ export function LemonButtonWithPopup({
     const [popupVisible, setPopupVisible] = useState(false)
 
     if (buttonProps.children && !buttonProps.sideIcon) {
-        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? (
-            <IconChevronRight style={{ position: 'relative', left: '0.5rem' }} />
-        ) : (
-            <IconArrowDropDown />
-        )
+        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
     }
 
     if (!('visible' in popupProps)) {

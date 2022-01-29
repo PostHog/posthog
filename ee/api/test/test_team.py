@@ -51,7 +51,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.client.force_login(user)
 
         response = self.client.post("/api/projects/", {"name": "Test"})
-        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(
             response.json(),
             {

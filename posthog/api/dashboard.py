@@ -1,9 +1,9 @@
 import json
 import secrets
-from typing import Any, Dict, Sequence, Type, Union
+from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -18,8 +18,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ObjectExistsInOtherProject
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -187,7 +189,18 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
-        dashboard = get_object_or_404(queryset, pk=pk)
+        try:
+            dashboard = get_object_or_404(queryset, pk=pk)
+        except Http404 as e:
+            user = cast(User, request.user)
+            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams, pk=pk)
+            if alternative_team.exists():
+                raise ObjectExistsInOtherProject(
+                    alternative_team_id=alternative_team.first().team_id,  # type: ignore
+                    feature="Dashboard",
+                )
+            raise e
+
         dashboard.last_accessed_at = now()
         dashboard.save()
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})

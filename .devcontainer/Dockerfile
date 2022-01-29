@@ -21,14 +21,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add docker cli so we can do things like `docker logs`, and build images
-    "docker.io=20.10.5+dfsg1-1+b5" \
+    "docker.io=20.*" \
     # Add in useful db debugging tools
-    "postgresql-client=13+225" \
+    "postgresql-client=13+*" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
 RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get -y install --no-install-recommends "nodejs=14.18.2-deb-1nodesource1" \
+    && apt-get -y install --no-install-recommends "nodejs=14.*" \
     && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
