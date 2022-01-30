@@ -323,7 +323,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
-        self.assertEqual(insight.tags, ["official", "engineering"])
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):

@@ -1,8 +1,10 @@
+import pytest
 from django.contrib.contenttypes.models import ContentType
 
 from posthog.test.base import TestMigrations
 
 
+@pytest.mark.ee
 class TagsTestCase(TestMigrations):
 
     migrate_from = "0006_event_definition_verification"  # type: ignore

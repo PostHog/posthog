@@ -13,7 +13,9 @@ class TaggedItemSerializerMixin(serializers.Serializer):
     tags = WritableSerializerMethodField(required=False)
 
     def get_tags(self, obj):
-        if self.context["request"].user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        if not self.context["request"].user.is_anonymous and self.context[
+            "request"
+        ].user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 from ee.api.ee_tagged_item import EnterpriseTaggedItemSerializerMixin
             except ImportError:
@@ -31,4 +33,6 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             else:
                 EnterpriseTaggedItemSerializerMixin(self).set_global_tags(tags, obj)
                 return
-        raise EnterpriseFeatureException()
+        # Reject setting tags if non ee
+        if tags:
+            raise EnterpriseFeatureException()

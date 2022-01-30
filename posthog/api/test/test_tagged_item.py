@@ -44,7 +44,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
 
-    def test_empty_tags_allows_other_props_to_update(self):
+    def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         EnterpriseTaggedItem.objects.create(content_object=dashboard, tag="random", team=self.team)
 
@@ -56,3 +56,17 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "dashboard new name")
         self.assertEqual(response.json()["description"], "Internal system metrics.")
+
+    def test_empty_tags_does_not_delete_tags(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
+        EnterpriseTaggedItem.objects.create(content_object=dashboard, tag="random", team=self.team)
+
+        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"name": "dashboard new name", "description": "Internal system metrics.", "tags": []},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
