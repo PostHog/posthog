@@ -42,5 +42,8 @@ class EnterpriseTaggedItem(UUIDModel):
     object_id: models.CharField = models.CharField(max_length=400)
     content_object: GenericForeignKey = GenericForeignKey("content_type", "object_id")
 
+    class Meta:
+        unique_together = ("content_type", "object_id", "tag")
+
     def __str__(self):
         return self.tag
