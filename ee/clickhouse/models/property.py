@@ -239,16 +239,11 @@ def prop_filter_json_extract(
 
         # if we're comparing against a date with no time,
         # truncate the values in the DB which may have times
-        if re.match(r"^\d{4}.\d{2}.\d{2}$", prop.value):
-            query = f"""AND date_trunc('day', coalesce(
-                                        parseDateTimeBestEffortOrNull({property_expr}),
-                                        parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                                    )) = %({prop_value_param_key})s"""
-        else:
-            query = f"""AND coalesce(
-                            parseDateTimeBestEffortOrNull({property_expr}),
-                            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                        ) = %({prop_value_param_key})s"""
+        granularity = "day" if re.match(r"^\d{4}.\d{2}.\d{2}$", prop.value) else "second"
+        query = f"""AND date_trunc('{granularity}', coalesce(
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        )) = %({prop_value_param_key})s"""
 
         return (
             query,

@@ -638,6 +638,15 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
         ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're ignored in the query
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+        ),
     ]
 
 
@@ -650,12 +659,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 24),
+        range(1, 25),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 24),
+        range(2, 25),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -663,7 +672,7 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 24),
+        range(2, 25),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
@@ -771,6 +780,13 @@ TEST_PROPERTIES = [
         Property(key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31",),
         [22, 23],
         id="can match dates exactly against datetimes and unix timestamps",
+    ),
+    pytest.param(
+        Property(
+            key="date_exact_including_seconds_and_milliseconds", operator="is_date_exact", value="2021-03-31 18:12:12",
+        ),
+        [24],
+        id="can match date times exactly against datetimes with milliseconds",
     ),
     pytest.param(
         Property(key="date_only", operator="is_date_after", value="2021-04-01",),
