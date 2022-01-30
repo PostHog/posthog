@@ -297,7 +297,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
                 } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
                     let params
-                    console.log('filters', filters)
                     if (filters.funnel_viz_type === FunnelVizType.Trends) {
                         // funnel trends
                         const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
@@ -401,7 +400,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     url += '&include_recordings=true'
                 }
                 const people = await api.get(url)
-
                 return {
                     people: people?.results[0]?.people,
                     count: people?.results[0]?.count || 0,

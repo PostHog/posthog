@@ -23,8 +23,8 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps}  {self._get_matching_event_arrays(max_steps)} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps}  {self._get_matching_events(max_steps)}  FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps}{self._get_matching_event_arrays(max_steps)} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps}{self._get_matching_events(max_steps)} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -60,15 +60,13 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
-                for field in event_fields:
+                for field in self.extra_event_fields_and_properties:
                     cols.append(f'"{field}_{i}"')
             else:
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
-                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
-                for field in event_fields:
+                for field in self.extra_event_fields_and_properties:
                     cols.append(
                         f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
                     )

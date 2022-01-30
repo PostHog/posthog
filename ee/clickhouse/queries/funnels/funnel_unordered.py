@@ -56,8 +56,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps}  {self._get_matching_event_arrays(max_steps)} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_matching_events(max_steps)}  FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} {self._get_matching_event_arrays(max_steps)} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_matching_events(max_steps)} FROM (
                         {union_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -85,7 +85,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)}  {self._get_matching_events(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1
                     {'AND exclusion = 0' if exclusion_clause else ''}

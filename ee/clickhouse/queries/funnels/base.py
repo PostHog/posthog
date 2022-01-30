@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import (
     box_value,
@@ -26,6 +27,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
+from posthog.models.property import PropertyName
 from posthog.utils import relative_date_parse
 
 
@@ -34,6 +36,8 @@ class ClickhouseFunnelBase(ABC):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
+    _extra_event_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
 
     def __init__(
         self,
@@ -71,6 +75,12 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({OFFSET: self._filter.offset})
 
+        self._extra_event_fields: List[ColumnName] = []
+        self._extra_event_properties: List[PropertyName] = []
+        if self._filter.include_recordings:
+            self._extra_event_fields = ["uuid"]
+            self._extra_event_properties = ["$session_id", "$window_id"]
+
         self._update_filters()
 
     def run(self, *args, **kwargs):
@@ -94,6 +104,10 @@ class ClickhouseFunnelBase(ABC):
             "count": count,
             "type": step.type,
         }
+
+    @property
+    def extra_event_fields_and_properties(self):
+        return self._extra_event_fields + self._extra_event_properties
 
     def _update_filters(self):
         # format default dates
@@ -278,8 +292,7 @@ class ClickhouseFunnelBase(ABC):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
-                for field in event_fields:
+                for field in self.extra_event_fields_and_properties:
                     cols.append(f'"{field}_{i}"')
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
@@ -292,11 +305,10 @@ class ClickhouseFunnelBase(ABC):
                 ):
                     duplicate_event = 1
                 cols.append(
-                    f"last_value(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
 
-                event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
-                for field in event_fields:
+                for field in self.extra_event_fields_and_properties:
                     cols.append(
                         f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
                     )
@@ -305,7 +317,7 @@ class ClickhouseFunnelBase(ABC):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
-                            f"last_value(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
+                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
         return ", ".join(cols)
 
@@ -348,17 +360,11 @@ class ClickhouseFunnelBase(ABC):
     ) -> str:
         entities_to_use = entities or self._filter.entities
 
-        extra_fields = []
-        extra_event_properties = []
-        if self._filter.include_recordings:
-            extra_fields = ["uuid"]
-            extra_event_properties = ["$window_id", "$session_id"]
-
         event_query, params = FunnelEventQuery(
             filter=self._filter,
             team_id=self._team.pk,
-            extra_fields=extra_fields,
-            extra_event_properties=extra_event_properties,
+            extra_fields=self._extra_event_fields,
+            extra_event_properties=self._extra_event_properties,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -422,8 +428,7 @@ class ClickhouseFunnelBase(ABC):
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
 
-        event_fields = ["uuid", "$window_id", "$session_id"] if self._filter.include_recordings else []
-        for field in event_fields:
+        for field in self.extra_event_fields_and_properties:
             step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
 
         return step_cols
@@ -521,12 +526,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             events = []
             for i in range(0, max_steps):
-                event_fields = [
-                    "uuid",
-                    "latest",
-                    "$session_id",
-                    "$window_id",
-                ]
+                event_fields = ["latest"] + self.extra_event_fields_and_properties
                 event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(event_clause)
@@ -557,7 +557,6 @@ class ClickhouseFunnelBase(ABC):
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
 
-    # TODO: Do we need to handle inner_query here?
     def _get_matching_event_arrays(self, max_steps: int):
         select_clause = ""
         if self._filter.include_recordings:
