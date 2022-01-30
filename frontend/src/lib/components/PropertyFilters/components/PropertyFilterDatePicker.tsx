@@ -42,7 +42,7 @@ export function PropertyFilterDatePicker({
 
     const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
     const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
-    const [includeTimeInFilter, setIncludeTimeInFilter] = useState(value && !valueIsYYYYMMDD)
+    const [includeTimeInFilter, setIncludeTimeInFilter] = useState(!!value && !valueIsYYYYMMDD)
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
     useMemo(() => {
