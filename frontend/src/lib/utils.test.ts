@@ -28,6 +28,7 @@ import {
     stringOperatorMap,
     numericOperatorMap,
     chooseOperatorMap,
+    booleanOperatorMap,
 } from './utils'
 import { ActionFilter, ElementType, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -527,8 +528,8 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.String, allowDateTime: false, expected: stringOperatorMap },
             { propertyType: PropertyType.Numeric, allowDateTime: true, expected: numericOperatorMap },
             { propertyType: PropertyType.Numeric, allowDateTime: false, expected: numericOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: true, expected: genericOperatorMap },
-            { propertyType: PropertyType.Boolean, allowDateTime: false, expected: genericOperatorMap },
+            { propertyType: PropertyType.Boolean, allowDateTime: true, expected: booleanOperatorMap },
+            { propertyType: PropertyType.Boolean, allowDateTime: false, expected: booleanOperatorMap },
             { propertyType: undefined, allowDateTime: true, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
