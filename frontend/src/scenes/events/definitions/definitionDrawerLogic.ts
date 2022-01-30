@@ -43,7 +43,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 },
                 saveDefinition: async ({ definition, type }) => {
                     if (type === 'event') {
-                        definition.owner = definition.owner.user?.id || null
+                        definition.owner = definition.owner?.id || null
                         definition.description = values.description
                     }
                     if (type === 'property' && values.type === 'property') {
@@ -56,6 +56,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                     actions.saveDefinitionSuccess(updatedDefinition)
                     return updatedDefinition
                 },
+                closeDrawer: () => null,
             },
         ],
         eventsSnippet: [
