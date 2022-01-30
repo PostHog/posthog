@@ -10,6 +10,10 @@ class TagsTestCase(TestMigrations):
     migrate_from = "0006_event_definition_verification"  # type: ignore
     migrate_to = "0007_migrate_definitions_tags"  # type: ignore
 
+    @property
+    def app(self):
+        return "ee"
+
     def setUpBeforeMigration(self, apps):
         EnterpriseEventDefinition = apps.get_model("ee", "EnterpriseEventDefinition")
         EnterprisePropertyDefinition = apps.get_model("ee", "EnterprisePropertyDefinition")

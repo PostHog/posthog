@@ -266,7 +266,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
-    @snapshot_postgres_queries
     def test_insights_does_not_nplus1(self):
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
