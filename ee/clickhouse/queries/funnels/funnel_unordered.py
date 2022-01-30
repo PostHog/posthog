@@ -85,7 +85,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)}  {self._get_matching_events(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1
                     {'AND exclusion = 0' if exclusion_clause else ''}
