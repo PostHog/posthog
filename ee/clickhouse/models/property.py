@@ -230,6 +230,23 @@ def prop_filter_json_extract(
             ),
             params,
         )
+    elif operator == "is_date_exact":
+        # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        query = f"""AND coalesce(
+                        parseDateTimeBestEffortOrNull({property_expr}),
+                        parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                    ) = %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
     elif operator == "is_date_after":
         # introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)

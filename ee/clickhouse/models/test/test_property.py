@@ -624,6 +624,20 @@ def test_events(db, team) -> List[UUID]:
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
+        _create_event(
+            # matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
+        ),
+        _create_event(
+            # not matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+        ),
     ]
 
 
@@ -636,12 +650,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 22),
+        range(1, 24),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 22),
+        range(2, 24),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -649,7 +663,7 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 22),
+        range(2, 24),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
@@ -759,6 +773,19 @@ TEST_PROPERTIES = [
         Property(key="relative_dates", operator="is_date_before", value="-365",),
         [18],
         id="can parse relative dates and match before them",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_exact", value="2021-04-01",), [22], id="can match dates exactly",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_after", value="2021-04-01",),
+        [23],
+        id="can match after date only values",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_before", value="2021-04-02",),
+        [22],
+        id="can match before date only values",
     ),
 ]
 
