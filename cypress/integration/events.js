@@ -142,7 +142,7 @@ describe('Events', () => {
                 cy.get('tr.event-row').should((rows) => {
                     // test data setup is slightly random so...
                     expect(rows.length).to.be.greaterThan(5)
-                    expect(rows.length).to.be.lessThan(20)
+                    expect(rows.length).to.be.lessThan(50)
                 })
             })
         })
