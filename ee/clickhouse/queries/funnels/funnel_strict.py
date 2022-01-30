@@ -48,7 +48,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         """
 
         formatted_query = f"""
-            SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)}  {self._get_matching_events(max_steps)} FROM (
+            SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} FROM (
                     {inner_query}
                 ) WHERE step_0 = 1"""
 
