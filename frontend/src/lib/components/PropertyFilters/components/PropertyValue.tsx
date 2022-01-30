@@ -30,7 +30,7 @@ export interface PropertyValueProps {
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
-    operator?: PropertyOperator
+    operator: PropertyOperator
     outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
@@ -69,6 +69,8 @@ export function PropertyValue({
     allowCustom = true,
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
+    const isDateTimeProperty = operator && isOperatorDate(operator)
+
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
@@ -223,7 +225,7 @@ export function PropertyValue({
                         )
                     })}
                 </SelectGradientOverflow>
-            ) : operator && isOperatorDate(operator) ? (
+            ) : isDateTimeProperty ? (
                 <PropertyFilterDatePicker
                     autoFocus={autoFocus}
                     operator={operator}

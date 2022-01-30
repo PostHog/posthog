@@ -54,7 +54,7 @@ export function OperatorValueSelect({
         allowQueryingEventsByDateTime &&
         propertyDefinition?.property_type == PropertyType.DateTime &&
         (!operator || operator == PropertyOperator.Exact)
-            ? PropertyOperator.IsDateBefore
+            ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
