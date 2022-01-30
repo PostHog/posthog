@@ -4,7 +4,7 @@ describe('Dashboards Premium Features', () => {
         cy.location('pathname').should('include', '/dashboard')
     })
 
-    it('Tag dashboard', () => {
+    xit('Tag dashboard', () => {
         const newTag = `test-${Math.floor(Math.random() * 10000)}`
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=button-add-tag]').click()
@@ -19,7 +19,7 @@ describe('Dashboards Premium Features', () => {
         cy.get('.ant-tag').should('contain', newTag) // Tag is shown in dashboard list too
     })
 
-    it('Cannot add duplicate tags', () => {
+    xit('Cannot add duplicate tags', () => {
         const newTag = `test2-${Math.floor(Math.random() * 10000)}`
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=button-add-tag]').click()
