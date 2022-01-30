@@ -14,11 +14,16 @@ const dayJSMightParse = (
     candidateDateTimeValue: string | number | (string | number)[] | null | undefined
 ): candidateDateTimeValue is string | number | undefined => ['string', 'number'].includes(typeof candidateDateTimeValue)
 
+const narrowToString = (
+    candidateDateTimeValue: string | number | (string | number)[] | null | undefined
+): candidateDateTimeValue is string | null | undefined =>
+    candidateDateTimeValue == undefined || typeof candidateDateTimeValue === 'string'
+
 interface PropertyFilterDatePickerProps {
     autoFocus: boolean
     operator: PropertyOperator
     setValue: (newValue: PropertyValueProps['value']) => void
-    value: string
+    value: string | number | (string | number)[] | null | undefined
     style: Partial<React.CSSProperties>
 }
 
@@ -33,7 +38,7 @@ export function PropertyFilterDatePicker({
     style,
 }: PropertyFilterDatePickerProps): JSX.Element {
     // if ten characters then value is YYYY-MM-DD not YYYY-MM-DD HH:mm:ss
-    const valueIsYYYYMMDD = value?.length === 10
+    const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
 
     const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
     const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)

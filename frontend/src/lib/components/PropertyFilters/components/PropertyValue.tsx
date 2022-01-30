@@ -227,7 +227,7 @@ export function PropertyValue({
                 <PropertyFilterDatePicker
                     autoFocus={autoFocus}
                     operator={operator}
-                    value={String(value)} // only works with string values
+                    value={value}
                     setValue={setValue}
                     style={commonInputProps.style}
                 />
