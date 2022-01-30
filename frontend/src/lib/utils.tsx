@@ -372,10 +372,6 @@ export const genericOperatorMap: Record<string, string> = {
 }
 
 export const dateTimeOperatorMap: Record<string, string> = {
-    exact: '= equals',
-    is_not: "≠ doesn't equal",
-    regex: '∼ matches regex',
-    not_regex: "≁ doesn't match regex",
     is_date_before: '< before',
     is_date_after: '> after',
     is_set: '✓ is set',
@@ -928,8 +924,8 @@ export function sampleOne<T>(items: T[]): T {
     return items[Math.floor(Math.random() * items.length)]
 }
 
-/** Convert camelCase, PascalCase or snake_case to Sentence case. */
-export function identifierToHuman(identifier: string | number): string {
+/** Convert camelCase, PascalCase or snake_case to Sentence case or Title Case. */
+export function identifierToHuman(identifier: string | number, caseType: 'sentence' | 'title' = 'sentence'): string {
     const words: string[] = []
     let currentWord: string = ''
     String(identifier)
@@ -957,7 +953,9 @@ export function identifierToHuman(identifier: string | number): string {
     if (currentWord) {
         words.push(currentWord)
     }
-    return capitalizeFirstLetter(words.join(' '))
+    return capitalizeFirstLetter(
+        words.map((word) => (caseType === 'sentence' ? word : capitalizeFirstLetter(word))).join(' ')
+    )
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {

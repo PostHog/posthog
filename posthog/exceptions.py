@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from sentry_sdk import capture_exception
 
 
@@ -14,6 +14,7 @@ class RequestParsingError(Exception):
 
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "payment_required"
 
     def __init__(self, feature: Optional[str] = None) -> None:
         super().__init__(
@@ -22,10 +23,19 @@ class EnterpriseFeatureException(APIException):
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
                     if settings.MULTI_TENANCY
-                    else "To use it, contact us for a self-hosted license: https://posthog.com/pricing"
+                    else "To use it, get a self-hosted license: https://license.posthog.com"
                 )
             )
         )
+
+
+class ObjectExistsInOtherProject(ValidationError):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "object_exists_in_other_project"
+
+    def __init__(self, alternative_team_id: int, feature: Optional[str] = None) -> None:
+        super().__init__(f"{feature.capitalize() if feature else 'This object'} exists in a different project.")
+        self.extra = {"project_id": alternative_team_id}
 
 
 class EstimatedQueryExecutionTimeTooLong(APIException):

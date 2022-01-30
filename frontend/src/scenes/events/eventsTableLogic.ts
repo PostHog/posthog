@@ -112,6 +112,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             true,
             {
                 setPollingActive: (_, { pollingActive }) => pollingActive,
+                pollEventsSuccess: (state, { events }) => (events && events.length ? false : state),
+                prependNewEvents: () => true,
+                toggleAutomaticLoad: () => true,
             },
         ],
         properties: [
@@ -211,24 +214,23 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.afterParam,
+                selectors.miniumumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, after) =>
+            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after,
+                    after: miniumumQueryDate,
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
-        afterParam: [
-            () => [selectors.events, selectors.months],
-            (events, months) =>
-                events?.length > 0 && events[0].timestamp
-                    ? events[0].timestamp
-                    : now().subtract(months, 'months').toISOString(),
+        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        pollAfter: [
+            () => [selectors.events, selectors.miniumumQueryDate],
+            (events, miniumumQueryDate) =>
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : miniumumQueryDate,
         ],
     }),
 
@@ -267,9 +269,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -310,7 +311,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.afterParam,
+                    after: values.miniumumQueryDate,
                 }
 
                 let apiResponse = null
@@ -371,7 +372,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-                after: values.afterParam,
+                after: values.pollAfter,
             }
 
             const urlParams = toParams(params)

@@ -1,36 +1,7 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties } from 'react'
 import { ArrowUpOutlined } from '@ant-design/icons'
-
 import './icons.scss'
-
-export function IconText({ style }: { style?: CSSProperties }): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
-            <g clipPath="url(#clip0)">
-                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
-                <path d="M0 7.76876V3H21.2892V7.76876H13.5025V28.7966H7.78895V7.76876H0Z" fill="currentColor" />
-                <path
-                    d="M22.8694 18.382H26.7333V18.3797H32.0001V16.3069H17.6038V18.3797H22.8694V18.382Z"
-                    fill="currentColor"
-                />
-                <path
-                    d="M22.8694 23.632H26.7333V23.6297H32.0001V21.5569H17.6038V23.6297H22.8694V23.632Z"
-                    fill="currentColor"
-                />
-                <path
-                    d="M22.8694 28.8825H26.7333V28.8802H32.0001V26.8074H17.6038V28.8802H22.8694V28.8825Z"
-                    fill="currentColor"
-                />
-            </g>
-            <defs>
-                <clipPath id="clip0">
-                    <rect width="1em" height="1em" fill="white" />
-                </clipPath>
-            </defs>
-        </svg>
-    )
-}
 
 export function IllustrationDanger({ style }: { style?: CSSProperties }): JSX.Element {
     return (
@@ -362,6 +333,56 @@ export function IconSync(props: React.SVGProps<SVGSVGElement>): JSX.Element {
                 d="m12.5 4v-3l-4 4 4 4v-3c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46c.78-1.23 1.24-2.69 1.24-4.26 0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8l-1.46-1.46c-.78 1.23-1.24 2.69-1.24 4.26 0 4.42 3.58 8 8 8v3l4-4-4-4z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design Subtitles icon. */
+export function IconSubtitles(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m20 4h-16c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm0 14h-16v-12h16zm-14-8h2v2h-2zm0 4h8v2h-8zm10 0h2v2h-2zm-6-4h8v2h-8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Subtitles Off icon. */
+export function IconSubtitlesOff(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m20.0001 4h-13.17002l2 2h11.17002v11.17l1.76 1.76c.15-.28.24-.59.24-.93v-12c0-1.1-.9-2-2-2z" />
+                <path d="m18.0001 10h-5.17l2 2h3.17z" />
+                <path d="m1.04004 3.86922 1.2 1.2c-.15.28-.24.59-.24.93v11.99998c0 1.1.9 2 2 2h13.16996l2.96 2.96 1.41-1.41-19.08996-19.09998zm2.96 2.96 3.17 3.17h-1.17v1.99998h2v-1.17l3.16996 3.17h-5.16996v2h7.16996l2 2h-11.16996z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Calculate icon. */
+export function IconCalculate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path d="m19 3h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z" />
+                <path d="m11.25 7.7207h-5v1.5h5z" />
+                <path d="m18 15.75h-5v1.5h5z" />
+                <path d="m18 13.25h-5v1.5h5z" />
+                <path d="m8 18h1.5v-2h2v-1.5h-2v-2h-1.5v2h-2v1.5h2z" />
+                <path d="m14.09 10.95 1.41-1.41 1.41 1.41 1.06-1.06-1.41-1.42 1.41-1.41-1.06-1.06-1.41 1.41-1.41-1.41-1.06 1.06 1.41 1.41-1.41 1.42z" />
+            </g>
+        </svg>
+    )
+}
+
+/** Material Design Subdirectory Arrow Right icon. */
+export function IconSubdirectoryArrowRight(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
         </svg>
     )
 }
@@ -878,6 +899,30 @@ export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
+/** Material Design Edit / Create / Mode icon. */
+export function IconEdit(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m14.06 9.02.92.92-9.06 9.06h-.92v-.92zm3.6-6.02c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19-11.06 11.06v3.75h3.75l11.06-11.06z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Save icon. */
+export function IconSave(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m17 3h-12c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-12zm2 16h-14v-14h11.17l2.83 2.83zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm-6-6h9v4h-9z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Delete Forever icon. */
 export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -886,6 +931,39 @@ export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Ele
                 d="m14.12 10.47-2.12 2.12-2.13-2.12-1.41 1.41 2.13 2.12-2.12 2.12 1.41 1.41 2.12-2.12 2.12 2.12 1.41-1.41-2.12-2.12 2.12-2.12zm1.38-6.47-1-1h-5l-1 1h-3.5v2h14v-2zm-9.5 15c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-12h-12zm2-10h8v10h-8z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design Refresh icon. */
+export function IconRefresh(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m17.65 6.35c-1.45-1.45-3.44-2.35-5.65-2.35-4.41999 0-7.98999 3.58-7.98999 8s3.57 8 7.98999 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.30999 0-5.99999-2.69-5.99999-6s2.69-6 5.99999-6c1.66 0 3.14.69 4.22 1.78l-3.22 3.22h7v-7z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconPlay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="m10 8.64 5.27 3.36-5.27 3.36zm-2-3.64v14l11-7z" fill="currentColor" />{' '}
+        </svg>
+    )
+}
+
+/** Material Design Play icon. */
+export function IconReplay(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m12 5v-4l-5 5 5 5v-4c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+                fill="currentColor"
+            />{' '}
         </svg>
     )
 }

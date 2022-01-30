@@ -87,3 +87,12 @@
         transform: translateX(1rem) scale(1.1);
     }
 }
+
+.LemonSwitch__wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.LemonSwitch__label {
+    margin-right: 0.5rem;
+}

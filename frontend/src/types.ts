@@ -37,6 +37,7 @@ export enum AvailableFeature {
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
+    EXPERIMENTATION = 'experimentation',
 }
 
 export enum Realm {
@@ -314,6 +315,12 @@ export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+}
+
+export enum ExperimentsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -661,17 +668,19 @@ export interface InsightModel {
     deleted: boolean
     saved: boolean
     created_at: string
+    created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
     last_refresh: string
     refreshing: boolean
-    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -987,7 +996,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties: PropertyFilter[]
+    properties?: PropertyFilter[]
     type: EntityType
 }
 
@@ -1326,6 +1335,14 @@ export interface EventDefinition {
     updated_by?: UserBasicType | null
 }
 
+// TODO duplicated from plugin server. Follow-up to de-duplicate
+export enum PropertyType {
+    DateTime = 'DateTime',
+    String = 'String',
+    Numeric = 'Numeric',
+    Boolean = 'Boolean',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -1337,8 +1354,7 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
-    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
-    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
+    property_type?: PropertyType
 }
 
 export interface PersonProperty {
@@ -1363,14 +1379,21 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | null
+    id: number
     name: string
     description?: string
     feature_flag_key: string
     filters: FilterType
-    parameters: Record<string, any>
+    parameters: {
+        minimum_detectable_effect?: number
+        recommended_running_time?: number
+        recommended_sample_size?: number
+        feature_flag_variants?: MultivariateFlagVariant[]
+    }
     start_date?: string
     end_date?: string
+    archived?: boolean
+    secondary_metrics: FilterType[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1379,6 +1402,7 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    significant: boolean
     noData?: boolean
 }
 

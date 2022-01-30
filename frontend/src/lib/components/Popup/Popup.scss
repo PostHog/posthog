@@ -1,8 +1,21 @@
 @import '~/vars';
 
 .Popup {
+    perspective: 80rem;
+    perspective-origin: top;
     z-index: $z_popup;
-    box-shadow: $shadow_popup;
+    h5 {
+        margin: 0.25rem 0.5rem;
+    }
+    p:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.Popup__box {
+    transition: opacity 100ms ease, transform 100ms ease;
+    transform-origin: top;
+    box-shadow: var(--shadow-elevation);
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);
@@ -10,10 +23,29 @@
     max-width: calc(100vw - 1rem);
     max-height: calc(100vh - 6rem);
     overflow: auto;
-    &--actionable {
+    .Popup--actionable & {
         border-color: var(--primary);
     }
-    h5 {
-        margin: 0.25rem 0.5rem;
+    .Popup--enter &,
+    .Popup--exit.Popup--exit-active & {
+        opacity: 0;
+        transform: rotateX(-12deg);
+    }
+    .Popup--enter.Popup--enter-active &,
+    .Popup--exit & {
+        opacity: 1;
+        transform: rotateX(0);
+    }
+}
+
+.PopupHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.5rem;
+    h3 {
+        font-size: 1rem;
+        font-weight: 600;
     }
 }

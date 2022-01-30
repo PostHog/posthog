@@ -24,6 +24,7 @@ from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
+from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.emails import *
 from posthog.settings.feature_flags import *
 from posthog.settings.logging import *
@@ -34,7 +35,7 @@ from posthog.settings.statsd import *
 
 from posthog.settings.web import *
 
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
@@ -52,16 +53,18 @@ INSTANCE_PREFERENCES = {
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
 if DEBUG:
-    JS_URL = os.getenv("JS_URL", "http://localhost:8234/")
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:
     JS_URL = os.getenv("JS_URL", "")
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
-PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
-    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
-).split(",") if not DISABLE_MMDB else []
+PLUGINS_PREINSTALLED_URLS: List[str] = (
+    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip").split(",")
+    if not DISABLE_MMDB
+    else []
+)
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 PLUGINS_ALERT_CHANNEL = "plugins-alert"
