@@ -134,7 +134,9 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
+            filter_query, filter_params = method(
+                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+            )  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:
@@ -231,24 +233,29 @@ def prop_filter_json_extract(
             params,
         )
     elif operator == "is_date_exact":
-        # introducing duplication in these branches now rather than refactor too early
+        # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        query = f"""AND coalesce(
-                        parseDateTimeBestEffortOrNull({property_expr}),
-                        parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                    ) = %({prop_value_param_key})s"""
+        # if we're comparing against a date with no time,
+        # truncate the values in the DB which may have times
+        if re.match(r"^\d{4}.\d{2}.\d{2}$", prop.value):
+            query = f"""AND date_trunc('day', coalesce(
+                                        parseDateTimeBestEffortOrNull({property_expr}),
+                                        parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                                    )) = %({prop_value_param_key})s"""
+        else:
+            query = f"""AND coalesce(
+                            parseDateTimeBestEffortOrNull({property_expr}),
+                            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                        ) = %({prop_value_param_key})s"""
 
         return (
             query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator == "is_date_after":
-        # introducing duplication in these branches now rather than refactor too early
+        # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
@@ -259,13 +266,10 @@ def prop_filter_json_extract(
 
         return (
             query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator == "is_date_before":
-        # introducing duplication in these branches now rather than refactor too early
+        # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
         query = f"""AND coalesce(
@@ -275,10 +279,7 @@ def prop_filter_json_extract(
 
         return (
             query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
@@ -398,7 +399,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 

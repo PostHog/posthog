@@ -601,18 +601,6 @@ def test_events(db, team) -> List[UUID]:
             event="$pageview",
             team=team,
             distinct_id="whatever",
-            properties={"relative_dates": f"{datetime(2021, 3, 31):%d/%m/%Y %H:%M:%S}"},
-        ),
-        _create_event(
-            event="$pageview",
-            team=team,
-            distinct_id="whatever",
-            properties={"relative_dates": f"{datetime(2021, 4, 2):%d/%m/%Y %H:%M:%S}"},
-        ),
-        _create_event(
-            event="$pageview",
-            team=team,
-            distinct_id="whatever",
             # seven digit unix timestamp in seconds - 7840800
             # Clickhouse cannot parse this. It isn't matched in tests from TEST_PROPERTIES
             properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
@@ -637,6 +625,18 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
         ),
     ]
 
@@ -668,7 +668,7 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"),
-        [5, 6, 21],
+        [5, 6, 19],
         id="matching before a unix timestamp only querying by date",
     ),
     pytest.param(
@@ -678,7 +678,7 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"),
-        [5, 21],
+        [5, 19],
         id="matching before a unix timestamp querying by date and time",
     ),
     pytest.param(
@@ -765,26 +765,21 @@ TEST_PROPERTIES = [
         id="matching full format date with date parts increasing in size and separated by slashes after a given date",
     ),
     pytest.param(
-        Property(key="relative_dates", operator="is_date_after", value="-365",),
-        [19],
-        id="can parse relative dates and match after them",
+        Property(key="date_only", operator="is_date_exact", value="2021-04-01",), [20], id="can match dates exactly",
     ),
     pytest.param(
-        Property(key="relative_dates", operator="is_date_before", value="-365",),
-        [18],
-        id="can parse relative dates and match before them",
-    ),
-    pytest.param(
-        Property(key="date_only", operator="is_date_exact", value="2021-04-01",), [22], id="can match dates exactly",
+        Property(key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31",),
+        [22, 23],
+        id="can match dates exactly against datetimes and unix timestamps",
     ),
     pytest.param(
         Property(key="date_only", operator="is_date_after", value="2021-04-01",),
-        [23],
+        [21],
         id="can match after date only values",
     ),
     pytest.param(
         Property(key="date_only", operator="is_date_before", value="2021-04-02",),
-        [22],
+        [20],
         id="can match before date only values",
     ),
 ]
