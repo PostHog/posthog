@@ -18,6 +18,13 @@
     }
 }
 
+.LemonButton--tertiary {
+    color: var(--muted-alt);
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
 .LemonButton--secondary {
     border: 1px solid var(--border);
     background: #fff;
@@ -29,9 +36,6 @@
     }
     .LemonRow__icon {
         color: var(--muted-alt);
-        &:last-child {
-            margin-right: -0.5rem;
-        }
     }
 }
 

@@ -241,7 +241,6 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                className="mb"
                                 compactButtons
                                 isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
@@ -251,6 +250,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 onTagDelete={deleteTag}
                                 saving={dashboardLoading}
                                 tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                                className="insight-metadata-tags"
                             />
                         </>
                     }
