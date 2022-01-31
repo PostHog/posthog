@@ -15,6 +15,7 @@ export enum AsyncMigrationStatus {
     Errored = 3,
     RolledBack = 4,
     Starting = 5,
+    FailedAtStartup = 6,
 }
 
 export enum AsyncMigrationsTab {
@@ -29,6 +30,7 @@ export const migrationStatusNumberToMessage = {
     3: 'Error',
     4: 'Rolled back',
     5: 'Starting',
+    6: 'Failed at startup',
 }
 
 export interface AsyncMigrationError {
