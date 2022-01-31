@@ -56,7 +56,9 @@ class ClickhouseEventsViewSet(EventViewSet):
             },
             long_date_from,
         )
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, has_person_id_joined=False)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            team_id=team.id, filters=filter.properties, has_person_id_joined=False
+        )
 
         if request.GET.get("action_id"):
             try:

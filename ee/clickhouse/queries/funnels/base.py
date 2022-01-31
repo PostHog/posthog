@@ -428,7 +428,8 @@ class ClickhouseFunnelBase(ABC):
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties,
+            team_id=self._team.pk,
+            filters=entity.properties,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="aggregation_target",

@@ -50,7 +50,8 @@ def get_breakdown_prop_values(
 
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties + entity.properties,
+        team_id=team_id,
+        filters=filter.properties + entity.properties,
         table_name="e",
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.EXCLUDE,

@@ -23,7 +23,7 @@ from ee.clickhouse.models.cohort import (
     format_static_cohort_query,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query_without_substitution
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
@@ -35,6 +35,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_clauses(
+    team_id: Optional[int],
     filters: List[Property],
     prepend: str = "global",
     table_name: str = "",
@@ -80,9 +81,7 @@ def parse_prop_clauses(
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query,
-                            # TODO do all of the code paths calling this really have access to team_id for substitution
-                            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query_without_substitution(),
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
                         table_name=table_name,
                     )
@@ -140,8 +139,7 @@ def parse_prop_clauses(
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 # TODO do all of the code paths calling this really have access to team_id for substitution
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query,
-                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query_without_substitution(),
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"AND {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
