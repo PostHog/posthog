@@ -2,7 +2,6 @@ from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
-from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
@@ -203,6 +202,7 @@ UNION ALL
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
 """
 
+# TODO are these templated correctly now?
 EVENT_JOIN_PERSON_SQL = """
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
 """

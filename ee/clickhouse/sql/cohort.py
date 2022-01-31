@@ -2,6 +2,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 
 from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
+# TODO are these templated correctly now?
 CALCULATE_COHORT_PEOPLE_SQL = """
 SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
 """
@@ -48,6 +49,7 @@ FROM (
 )
 """
 
+# TODO are these templated correctly now?
 INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
     SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 as _sign

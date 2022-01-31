@@ -21,6 +21,21 @@ def get_team_distinct_ids_query(team_id: int) -> str:
         return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS, {"team_id": team_id})
 
 
+def get_team_distinct_ids_query_without_substitution() -> str:
+    """
+    Allows construction of a query that can substitute in a team_id parameter
+    but where the team id isn't available at the point in code where the person query is needed
+    """
+    global using_new_table
+
+    using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
+
+    if using_new_table:
+        return GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE
+    else:
+        return GET_TEAM_PERSON_DISTINCT_IDS
+
+
 is_ready = False
 
 # :TRICKY: Avoid overly eagerly checking whether the migration is complete.

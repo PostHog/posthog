@@ -256,7 +256,7 @@ GET_TEAM_PERSON_DISTINCT_IDS = """
 SELECT distinct_id, argMax(person_id, _timestamp) as person_id
 FROM (
     SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id2
+    FROM person_distinct_id
     WHERE team_id = %(team_id)s
     GROUP BY person_id, distinct_id, team_id
     HAVING max(is_deleted) = 0
@@ -273,6 +273,7 @@ GROUP BY distinct_id
 HAVING argMax(is_deleted, version) = 0
 """
 
+# TODO are these templated correctly now?
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -315,6 +316,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 )
 """
 
+# TODO are these templated correctly now?
 PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
@@ -325,6 +327,7 @@ GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s
 """
 
+# TODO are these templated correctly now?
 INSERT_COHORT_ALL_PEOPLE_SQL = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (
@@ -337,6 +340,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
 )
 """
 
+# TODO are these templated correctly now?
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id
 FROM (
@@ -356,6 +360,7 @@ WHERE person_id IN
 )
 """
 
+# TODO are these templated correctly now?
 GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})

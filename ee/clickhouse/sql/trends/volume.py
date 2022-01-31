@@ -19,6 +19,7 @@ SELECT counts as total, timestamp as day_start FROM (
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
 
+# TODO are these templated correctly now?
 PERSONS_ACTIVE_USER_SQL = """
 SELECT DISTINCT person_id FROM (
     SELECT d.timestamp, person_id FROM (
