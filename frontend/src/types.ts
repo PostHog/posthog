@@ -1203,6 +1203,7 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    tags?: string[]
 }
 
 export interface FeatureFlagOverrideType {

@@ -73,6 +73,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
+        saveNewTag: (tag: string) => ({ tag }),
+        deleteTag: (tag: string) => ({ tag }),
     },
     reducers: {
         featureFlagId: [
@@ -289,6 +291,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        saveNewTag: ({ tag }) => {
+            if (values.featureFlag?.tags?.includes(tag)) {
+                toast.error(
+                    // TODO: move to errorToast once #3561 is merged
+                    <div>
+                        <h1>Oops! Can't add that tag</h1>
+                        <p>Your feature flag already has that tag.</p>
+                    </div>
+                )
+                return
+            }
+            actions.setFeatureFlag({
+                ...values.featureFlag,
+                tags: [...(values.featureFlag?.tags || []), tag],
+            } as FeatureFlagType)
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.setFeatureFlag({
+                ...values.featureFlag,
+                tags: values.featureFlag?.tags?.filter((_tag) => _tag !== tag) || [],
+            } as FeatureFlagType)
         },
     }),
     selectors: {

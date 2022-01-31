@@ -40,6 +40,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -57,6 +58,7 @@ export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const {
         featureFlag,
+        featureFlagLoading,
         featureFlagId,
         multivariateEnabled,
         variants,
@@ -81,6 +83,8 @@ export function FeatureFlag(): JSX.Element {
         distributeVariantsEqually,
         setFeatureFlag,
         setAggregationGroupTypeIndex,
+        saveNewTag,
+        deleteTag,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
@@ -103,7 +107,12 @@ export function FeatureFlag(): JSX.Element {
                 <Form
                     layout="vertical"
                     form={form}
-                    initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
+                    initialValues={{
+                        name: featureFlag.name,
+                        key: featureFlag.key,
+                        active: featureFlag.active,
+                        tags: featureFlag.tags,
+                    }}
                     onValuesChange={(newValues) => {
                         if (featureFlagId !== 'new' && newValues.key) {
                             setHasKeyChanged(newValues.key !== featureFlag.key)
@@ -223,6 +232,13 @@ export function FeatureFlag(): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Form.Item>
+                            <ObjectTags
+                                tags={featureFlag.tags ?? []}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={featureFlagLoading}
+                                className="feature-flag-tags"
+                            />
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
