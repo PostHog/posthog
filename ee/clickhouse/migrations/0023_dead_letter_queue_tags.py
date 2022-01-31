@@ -7,3 +7,4 @@ operations = [
         f"ALTER TABLE events_dead_letter_queue ON CLUSTER {CLICKHOUSE_CLUSTER} ADD COLUMN IF NOT EXISTS tags Array(VARCHAR)"
     ),
 ]
+
