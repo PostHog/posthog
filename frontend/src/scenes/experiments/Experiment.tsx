@@ -51,6 +51,7 @@ import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -83,6 +84,7 @@ export function Experiment(): JSX.Element {
         setEditExperiment,
         endExperiment,
         addExperimentGroup,
+        updateExperiment,
         updateExperimentGroup,
         removeExperimentGroup,
         setExperimentInsightType,
@@ -505,8 +507,24 @@ export function Experiment(): JSX.Element {
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
                                 </Row>
-                                <span className="description">
-                                    {experimentData.description || 'There is no description for this experiment.'}
+                                <span className="exp-description">
+                                    {experimentData.start_date ? (
+                                        <EditableField
+                                            multiline
+                                            name="description"
+                                            value={experimentData.description || ''}
+                                            placeholder="Description (optional)"
+                                            onSave={(value) => updateExperiment({ description: value })}
+                                            maxLength={400} // Sync with Experiment model
+                                            data-attr="experiment-description"
+                                            compactButtons
+                                        />
+                                    ) : (
+                                        <>
+                                            {experimentData.description ||
+                                                'There is no description for this experiment.'}
+                                        </>
+                                    )}
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
