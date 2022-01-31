@@ -43,13 +43,15 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
+import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 
 export const scene: SceneExport = {
@@ -71,6 +73,7 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
+        parsedSecondaryMetrics,
         areResultsSignificant,
         experimentId,
         conversionRateForVariant,
@@ -85,9 +88,12 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperimentGroup,
         removeExperimentGroup,
+        setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
     } = useActions(experimentLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -475,6 +481,24 @@ export function Experiment(): JSX.Element {
                                         </Card>
                                     </Col>
                                 </Row>
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                    <Row>
+                                        <Col>
+                                            <div>
+                                                <b>Secondary metrics</b>
+                                                <span className="text-muted ml-05">(optional)</span>
+                                            </div>
+                                            <div className="text-muted">
+                                                Use secondary metrics to monitor metrics related to your experiment
+                                                goal. You can add up to three secondary metrics.{' '}
+                                            </div>
+                                        </Col>
+                                        <SecondaryMetrics
+                                            onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                            initialMetrics={parsedSecondaryMetrics}
+                                        />
+                                    </Row>
+                                )}
                             </BindLogic>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">

@@ -22,6 +22,7 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    SecondaryExperimentMetric,
     AvailableFeature,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
@@ -56,6 +57,7 @@ export const experimentLogic = kea<experimentLogicType>({
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
+        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -140,6 +142,13 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setSecondaryMetrics: (state, { secondaryMetrics }) => {
+                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, secondary_metrics: metrics },
                     }
                 },
                 resetNewExperiment: () => ({
@@ -401,6 +410,14 @@ export const experimentLogic = kea<experimentLogicType>({
                     experimentData?.parameters?.feature_flag_variants ||
                     []
                 )
+            },
+        ],
+        parsedSecondaryMetrics: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
+                const secondaryMetrics: Partial<FilterType>[] =
+                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics.map((metric) => ({ filters: metric }))
             },
         ],
         minimumDetectableChange: [
