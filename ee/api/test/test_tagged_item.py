@@ -8,9 +8,8 @@ from posthog.models import Dashboard
 from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 
-# Since tagged items are field level objects, there is no standalone API for tagged_items. Getting and setting
-# tag properties are already tested thoroughly in each model's respective viewset. Therefore this test only tests
-# the business logic for only requests routed through the enterprise path.
+# This serializer only tests the business logic of getting and setting of ee descriptions. It uses the dashboard model
+# as an example, since model specific functionality is already tested in their models' respective serializer tests.
 
 
 class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
