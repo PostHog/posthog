@@ -40,7 +40,6 @@ def create_clickhouse_tables(num_tables: int):
         PERSONS_TABLE_SQL(),
         PERSONS_DISTINCT_ID_TABLE_SQL(),
         PERSON_DISTINCT_ID2_TABLE_SQL(),
-        COMMENT_DISTINCT_ID_COLUMN_SQL(),
         PERSON_STATIC_COHORT_TABLE_SQL(),
         SESSION_RECORDING_EVENTS_TABLE_SQL(),
         PLUGIN_LOG_ENTRIES_TABLE_SQL(),
@@ -54,7 +53,9 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
 
-    for item in TABLES_TO_CREATE_DROP:
+    additional_setup_ops = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
+
+    for item in TABLES_TO_CREATE_DROP + additional_setup_ops:
         sync_execute(item)
 
 
