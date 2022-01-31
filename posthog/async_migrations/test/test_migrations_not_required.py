@@ -15,32 +15,6 @@ class TestAsyncMigrationsNotRequired(BaseTest):
     def test_async_migrations_not_required_on_fresh_instances(self):
         modules = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
-        test1 = sync_execute(
-            """
-            SELECT comment
-            FROM system.columns
-            WHERE database = %(database)s AND table = 'person_distinct_id' AND name = 'distinct_id'
-        """,
-            {"database": CLICKHOUSE_DATABASE},
-        )
-
-        test2 = sync_execute(
-            """
-            SELECT database, table, name, comment
-            FROM system.columns
-            WHERE table = 'person_distinct_id'
-        """,
-            {"database": CLICKHOUSE_DATABASE},
-        )
-
-        print("########")
-
-        print(CLICKHOUSE_DATABASE)
-        print(test1)
-        print(test2)
-
-        print("########")
-
         for module in modules.values():
             migration = module.Migration()
             is_migration_required = migration.is_required()

@@ -53,9 +53,7 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
 
-    additional_setup_ops = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
-
-    for item in TABLES_TO_CREATE_DROP + additional_setup_ops:
+    for item in TABLES_TO_CREATE_DROP:
         sync_execute(item)
 
 
@@ -94,6 +92,14 @@ def reset_clickhouse_tables():
         sync_execute(item)
 
 
+def run_additional_setup_ops():
+
+    ADDITIONAL_OPS = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
+
+    for item in ADDITIONAL_OPS:
+        sync_execute(item)
+
+
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
@@ -115,6 +121,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)
+    run_additional_setup_ops()
 
     yield
 
