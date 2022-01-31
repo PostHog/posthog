@@ -1,3 +1,153 @@
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = \n    Kafka () SETTINGS\n    kafka_broker_list = 'kafka',\n    kafka_topic_list = 'clickhouse_events_proto_test',\n    kafka_group_name = 'group1',\n    kafka_format = 'Protobuf',\n    kafka_schema = 'events:Event',\n    kafka_skip_broken_messages = 100\n    \n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  ) ENGINE = 
+      Kafka () SETTINGS
+      kafka_broker_list = 'test.kafka.broker:9092',
+      kafka_topic_list = 'clickhouse_events_proto_test',
+      kafka_group_name = 'group1',
+      kafka_format = 'Protobuf',
+      kafka_schema = 'events:Event',
+      kafka_skip_broken_messages = 100
+      
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog\n(\n    id UUID,\n    event_uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    distinct_id VARCHAR,\n    team_id Int64,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC'),\n    ip VARCHAR,\n    site_url VARCHAR,\n    now DateTime64(6, 'UTC'),\n    raw_payload VARCHAR,\n    error_timestamp DateTime64(6, 'UTC'),\n    error_location VARCHAR,\n    error VARCHAR\n    \n) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog
+  (
+      id UUID,
+      event_uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      distinct_id VARCHAR,
+      team_id Int64,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      ip VARCHAR,
+      site_url VARCHAR,
+      now DateTime64(6, 'UTC'),
+      raw_payload VARCHAR,
+      error_timestamp DateTime64(6, 'UTC'),
+      error_location VARCHAR,
+      error VARCHAR
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog\n(\n    group_type_index UInt8,\n    group_key VARCHAR,\n    created_at DateTime64,\n    team_id Int64,\n    group_properties VARCHAR\n    \n) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog
+  (
+      group_type_index UInt8,
+      group_key VARCHAR,
+      created_at DateTime64,
+      team_id Int64,
+      group_properties VARCHAR
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog\n(\n    id UUID,\n    created_at DateTime64,\n    team_id Int64,\n    properties VARCHAR,\n    is_identified Boolean,\n    is_deleted Boolean DEFAULT 0\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog
+  (
+      id UUID,
+      created_at DateTime64,
+      team_id Int64,
+      properties VARCHAR,
+      is_identified Boolean,
+      is_deleted Boolean DEFAULT 0
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Boolean,
+      version Int64 DEFAULT 1
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE kafka_person_distinct_id ON CLUSTER posthog\n(\n    distinct_id VARCHAR,\n    person_id UUID,\n    team_id Int64,\n    _sign Nullable(Int8),\n    is_deleted Nullable(Int8)\n) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE kafka_person_distinct_id ON CLUSTER posthog
+  (
+      distinct_id VARCHAR,
+      person_id UUID,
+      team_id Int64,
+      _sign Nullable(Int8),
+      is_deleted Nullable(Int8)
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[\nCREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER posthog\nTO posthog_test.events_dead_letter_queue\nAS SELECT\nid,\nevent_uuid,\nevent,\nproperties,\ndistinct_id,\nteam_id,\nelements_chain,\ncreated_at,\nip,\nsite_url,\nnow,\nraw_payload,\nerror_timestamp,\nerror_location,\nerror,\n_timestamp,\n_offset\nFROM posthog_test.kafka_events_dead_letter_queue\n]
   '
   
