@@ -254,10 +254,16 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        query = f"""AND coalesce(
-                parseDateTimeBestEffortOrNull({property_expr}),
-                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-            ) > %({prop_value_param_key})s"""
+        # if we're comparing against a date with no time,
+        # then instead of 2019-01-01 (implied 00:00:00)
+        # use 2019-01-01 23:59:59
+        is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
+        adjustment = 1 if is_date_only else 0
+        granularity = "day" if is_date_only else "second"
+        query = f"""AND date_trunc('{granularity}', subtractSeconds(addDays(coalesce(
+                    parseDateTimeBestEffortOrNull({property_expr}),
+                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+                ), {adjustment}), {adjustment})) > %({prop_value_param_key})s"""
 
         return (
             query,

@@ -93,7 +93,7 @@ export function PropertyFilterDatePicker({
                             setIncludeTimeInFilter(active)
                         }}
                     />
-                    <span>quick choices: </span>{' '}
+                    <span>Quick choices: </span>{' '}
                     <Select
                         bordered={true}
                         style={{ width: '100%', paddingBottom: '1rem' }}
