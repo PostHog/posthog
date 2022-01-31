@@ -1,35 +1,35 @@
 import React, { useEffect, useState } from 'react'
 import {
-    Input,
     Button,
-    Form,
-    Switch,
-    Slider,
     Card,
-    Row,
     Col,
     Collapse,
-    Radio,
+    Form,
+    Input,
     InputNumber,
     Popconfirm,
+    Radio,
+    Row,
     Select,
+    Slider,
+    Switch,
 } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
-    DeleteOutlined,
-    CopyOutlined,
-    SaveOutlined,
-    PlusOutlined,
     ApiFilled,
-    MergeCellsOutlined,
+    CopyOutlined,
+    DeleteOutlined,
     LockOutlined,
+    MergeCellsOutlined,
+    PlusOutlined,
+    SaveOutlined,
 } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconJavascript, IconOpenInNew, IconPython } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -232,13 +232,16 @@ export function FeatureFlag(): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Form.Item>
-                            <ObjectTags
-                                tags={featureFlag.tags ?? []}
-                                onTagSave={saveNewTag}
-                                onTagDelete={deleteTag}
-                                saving={featureFlagLoading}
-                                className="feature-flag-tags"
-                            />
+                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
+                                featureFlagId !== 'new' && (
+                                    <ObjectTags
+                                        tags={featureFlag.tags ?? []}
+                                        onTagSave={saveNewTag}
+                                        onTagDelete={deleteTag}
+                                        saving={featureFlagLoading}
+                                        className="feature-flag-tags"
+                                    />
+                                )}
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
