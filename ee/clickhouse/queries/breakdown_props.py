@@ -133,7 +133,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         props_to_filter = [*props_to_filter, *entity.properties]
 
     prop_filters, prop_filter_params = parse_prop_clauses(
-        props_to_filter, prepend="all_cohort_", table_name="all_events"
+        team_id=team_id, filters=props_to_filter, prepend="all_cohort_", table_name="all_events"
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
