@@ -91,6 +91,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "post_to_slack",
             "slack_message_format",
             "steps",
@@ -191,63 +192,13 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
-            try:
-                from ee.models.action import EnterpriseAction
-            except ImportError:
-                pass
-            else:
-                search = self.request.GET.get("search", None)
-                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
-                ee_actions = EnterpriseAction.objects.raw(
-                    f"""
-                    SELECT * 
-                    FROM ee_enterpriseaction
-                    FULL OUTER JOIN posthog_action ON posthog_action.id=ee_enterpriseaction.action_ptr_id
-                    WHERE team_id = %(team_id)s {search_query}
-                    ORDER BY last_calculated_at DESC NULLS LAST, name ASC
-                    """,
-                    params={"team_id": self.team_id, **search_kwargs},
-                )
-                return ee_actions
-
-        queryset = super().get_queryset()  # Action
+        queryset = super().get_queryset()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
-
-    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
-        serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
-            try:
-                from ee.api.ee_action import EnterpriseActionSerializer
-            except ImportError:
-                pass
-            else:
-                serializer_class = EnterpriseActionSerializer  # type: ignore
-        return serializer_class
-
-    def get_object(self):
-        # Sync action and enterprise actions table if ee feature is available
-        id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
-            try:
-                from ee.models.action import EnterpriseAction
-            except ImportError:
-                pass
-            else:
-                enterprise_action = EnterpriseAction.objects.filter(id=id).first()
-                if enterprise_action:
-                    return enterprise_action
-                non_enterprise_action = Action.objects.get(id=id)
-                new_enterprise_action = EnterpriseAction(action_ptr_id=non_enterprise_action.id, description="")
-                new_enterprise_action.__dict__.update(non_enterprise_action.__dict__)
-                new_enterprise_action.save()
-                return new_enterprise_action
-        return Action.objects.get(id=id)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
