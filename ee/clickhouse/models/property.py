@@ -231,9 +231,38 @@ def prop_filter_json_extract(
             params,
         )
     elif operator == "is_date_after":
-        return _choose_date_comparison_query(idx, prepend, prop, property_expr, ">")
+        # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        query = f"""AND coalesce(
+                parseDateTimeBestEffortOrNull({property_expr}),
+                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+            ) > %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
     elif operator == "is_date_before":
-        return _choose_date_comparison_query(idx, prepend, prop, property_expr, "<")
+        # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        query = f"""AND coalesce(
+                parseDateTimeBestEffortOrNull({property_expr}),
+                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+            ) < %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
@@ -264,28 +293,6 @@ def prop_filter_json_extract(
             clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
-
-
-def _choose_date_comparison_query(
-    idx: int, prepend: str, prop: Property, property_expr: str, operator: str
-) -> Tuple[str, Dict]:
-    assert isinstance(prop.value, str)
-
-    prop_value_param_key = "v{}_{}".format(prepend, idx)
-    if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
-        query = f"""AND {prop.key} {operator} %({prop_value_param_key})s"""
-    else:
-        query = f"""AND coalesce(
-                    parseDateTimeBestEffortOrNull({property_expr}),
-                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                ) {operator} %({prop_value_param_key})s"""
-    return (
-        query,
-        {
-            "k{}_{}".format(prepend, idx): prop.key,
-            prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-        },
-    )
 
 
 def property_table(property: Property) -> TableWithProperties:
@@ -334,21 +341,6 @@ def get_single_or_multi_property_string_expr(
     return f"{expression} AS {query_alias}"
 
 
-"""
-These are "metadata" of events (columns in the events table in ClickHouse
-    that users should be able to query as if they were in the properties JSON blob.
-
-They are separated by type to allow type-aware processing.
-
-For example: when using date queries ClickHouse's `parseDateTime...` functions are used. 
-These fail if given a DateTime value. So parsing can be skipped when an attribute is known to be a DateTime. 
-"""
-EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE: Dict[str, List[str]] = {
-    "DateTime": ["timestamp"],
-    "String": ["distinct_id"],
-}
-
-
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
@@ -362,8 +354,6 @@ def get_property_string_expr(
     :param table:
         the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
-        this is either a key expected to be found in a properties JSON blob, the name of a materialized column,
-        or a reserved property known to be a column on the events table
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
         If a flat value it should be escaped before being passed to this function
@@ -374,11 +364,6 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-
-    for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
-        if property_name in reserved_words:
-            return property_name, False
-
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias != None else ""
@@ -400,34 +385,14 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
-    property_string_expr, _ = get_property_string_expr("events", key, "%(key)s", "properties", True)
-
     if value:
         return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
-                property_string_expr=property_string_expr,
-                parsed_date_from=parsed_date_from,
-                parsed_date_to=parsed_date_to,
-            ),
+            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
-
-    if "FROM JSONExtractRaw" in property_string_expr:
-        # only include rows which have the desired key in the properties blob
-        existence_check = "AND JSONHas(properties, %(key)s)"
-    else:
-        # `property_string_expr` is either a table level column or a materialized column
-        # so only include rows where the value is present
-        existence_check = f"AND isNotNull(NULLIF({property_string_expr}, ''))"
-
     return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(
-            property_string_expr=property_string_expr,
-            existence_check=existence_check,
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-        ),
-        {"team_id": team.pk, "key": key,},
+        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+        {"team_id": team.pk, "key": key},
     )
 
 

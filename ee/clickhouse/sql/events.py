@@ -53,7 +53,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
+KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
@@ -114,11 +114,11 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT {property_string_expr} FROM events where team_id = %(team_id)s {existence_check} {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT {property_string_expr} FROM events where team_id = %(team_id)s AND {property_string_expr} ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
