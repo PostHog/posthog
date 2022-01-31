@@ -81,6 +81,11 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
         process_error(migration_instance, f"Migration precheck failed with error:{error}")
         return False
 
+    ok, error = run_migration_healthcheck(migration_instance)
+    if not ok:
+        process_error(migration_instance, f"Migration healthcheck failed with error:{error}")
+        return False
+
     mark_async_migration_as_running(migration_instance)
 
     return run_async_migration_operations(migration_name, migration_instance)
