@@ -499,9 +499,13 @@ class ClickhouseFunnelBase(ABC):
     def _get_funnel_person_step_events(self):
         if self._filter.include_recordings:
             step_num = self._filter.funnel_step
+            if step_num is None:
+                raise ValueError("Missing funnel_step filter property")
             if step_num >= 0:
+                # None drop off case
                 self.params.update({"matching_events_step_num": step_num - 1})
             else:
+                # Drop off case if negative number
                 self.params.update({"matching_events_step_num": abs(step_num) - 2})
             return ", step_%(matching_events_step_num)s_matching_events as matching_events"
         return ""
