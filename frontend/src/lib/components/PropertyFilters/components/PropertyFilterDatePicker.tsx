@@ -1,7 +1,7 @@
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs, now } from 'lib/dayjs'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { dateMapping, isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Select } from 'antd'
@@ -45,7 +45,7 @@ export function PropertyFilterDatePicker({
     const [includeTimeInFilter, setIncludeTimeInFilter] = useState(!!value && !valueIsYYYYMMDD)
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
-    useMemo(() => {
+    useEffect(() => {
         setDateFormat(includeTimeInFilter ? dateAndTimeFormat : onlyDateFormat)
     }, [includeTimeInFilter])
 
