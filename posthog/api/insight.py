@@ -1,3 +1,4 @@
+import json
 from re import I
 from typing import Any, Dict, Type
 
@@ -13,6 +14,20 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelBase,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+    ClickhouseFunnelUnordered,
+)
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
+from ee.clickhouse.queries.paths.paths import ClickhousePaths
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.documentation import extend_schema
 from posthog.api.insight_serializers import (
     FunnelSerializer,
@@ -30,7 +45,10 @@ from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_STICKINESS,
+    PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
+    FunnelOrderType,
+    FunnelVizType,
 )
 from posthog.decorators import CacheType, cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
@@ -79,6 +97,7 @@ class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Insight
@@ -98,15 +117,25 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "result",
             "created_at",
+            "created_by",
             "description",
             "updated_at",
             "tags",
             "favorited",
             "saved",
-            "created_by",
+            "last_modified_at",
+            "last_modified_by",
             "is_sample",
         ]
-        read_only_fields = ("created_by", "created_at", "short_id", "updated_at", "is_sample")
+        read_only_fields = (
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+            "short_id",
+            "updated_at",
+            "is_sample",
+        )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
@@ -114,12 +143,14 @@ class InsightSerializer(InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
-            dashboard_item = Insight.objects.create(team=team, created_by=request.user, **validated_data)
+            dashboard_item = Insight.objects.create(
+                team=team, created_by=request.user, last_modified_by=request.user, **validated_data
+            )
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = Insight.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
             return dashboard_item
         else:
@@ -128,6 +159,9 @@ class InsightSerializer(InsightBasicSerializer):
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
+        if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
+            instance.last_modified_at = now()
+            instance.last_modified_by = self.context["request"].user
         return super().update(instance, validated_data)
 
     def get_result(self, insight: Insight):
@@ -250,8 +284,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = TrendSerializer(data={**request.data, **request.GET})
         try:
+            serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
@@ -265,17 +299,17 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
+
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
+                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = stickiness.Stickiness().run(stickiness_filter, team)
+            result = ClickhouseStickiness().run(stickiness_filter, team)
         else:
-            result = trends.Trends().run(filter, team)
+            trends_query = ClickhouseTrends()
+            result = trends_query.run(filter, team)
 
         self._refresh_dashboard(request=request)
-
         return {"result": result}
 
     # ******************************************
@@ -300,8 +334,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = FunnelSerializer(data={**request.data, **request.GET})
         try:
+            serializer = FunnelSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
@@ -315,31 +349,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        refresh = should_refresh(request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
-        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
-        result = {"loading": True}
-
-        if refresh:
-            cache.delete(cache_key)
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
         else:
-            cached_result = get_safe_cache(cache_key)
-            if cached_result:
-                task_id = cached_result.get("task_id", None)
-                if not task_id:
-                    return {"result": cached_result["result"]}
-                else:
-                    return {"result": result}
-
-        payload = {"filter": filter.toJSON(), "team_id": team.pk}
-        task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
-        if not task.ready():
-            task_id = task.id
-            cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
-
-        self._refresh_dashboard(request=request)
-        return {"result": result}
+            funnel_order_class = get_funnel_order_class(filter)
+            return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -358,9 +376,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         data = {}
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request)
+        filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = retention.Retention(base_uri=base_uri).run(filter, team)
+        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************
@@ -378,8 +396,20 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={**request.data, "insight": INSIGHT_PATHS})
-        resp = paths.Paths().run(filter=filter, team=team)
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
+
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
+        if funnel_filter_data:
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
+
+        #  backwards compatibility
+        if filter.path_type:
+            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+
         return {"result": resp}
 
     # Checks if a dashboard id has been set and if so, update the refresh date

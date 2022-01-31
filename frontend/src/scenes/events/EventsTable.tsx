@@ -57,7 +57,7 @@ export function EventsTable({
     // Disables all interactivity and polling for filters
     disableActions,
     // How many months of data to fetch?
-    fetchMonths,
+    fetchMonths = 12,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({

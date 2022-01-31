@@ -583,7 +583,6 @@ export function FeatureFlag(): JSX.Element {
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         showConditionBadge
-                                        greyBadges
                                     />
                                     <LemonSpacer large />
 
