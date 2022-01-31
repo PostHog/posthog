@@ -358,7 +358,8 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={
