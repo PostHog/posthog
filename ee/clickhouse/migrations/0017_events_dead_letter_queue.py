@@ -8,6 +8,6 @@ from ee.clickhouse.sql.dead_letter_queue import (
 
 operations = [
     migrations.RunSQL(DEAD_LETTER_QUEUE_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
+    migrations.RunSQL(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL()),
     migrations.RunSQL(DEAD_LETTER_QUEUE_TABLE_MV_SQL),
 ]
