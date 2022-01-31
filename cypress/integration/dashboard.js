@@ -48,13 +48,14 @@ describe('Dashboard', () => {
 
         cy.get('[data-attr=dashboard-share-button]').click()
         cy.get('[data-attr=share-dashboard-switch]').click()
-        cy.get('[data-attr=share-dashboard-link]')
-            .invoke('val')
-            .then((link) => {
+        cy.get('button').contains('Copy shared dashboard link').click()
+        cy.window().then((win) => {
+            win.navigator.clipboard.readText().then((linkFromClipboard) => {
                 cy.wait(200)
-                cy.visit(link)
+                cy.visit(linlinkFromClipboardk)
                 cy.get('[data-attr=dashboard-item-title]').should('contain', 'App Analytics')
             })
+        })
     })
 
     it('Create an empty dashboard', () => {

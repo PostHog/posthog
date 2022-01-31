@@ -15,6 +15,7 @@ export interface LemonSwitchProps {
     style?: React.CSSProperties
     wrapperStyle?: React.CSSProperties
     disabled?: boolean
+    'data-attr'?: string
 }
 
 export function LemonSwitch({
@@ -28,6 +29,7 @@ export function LemonSwitch({
     style,
     wrapperStyle,
     disabled,
+    'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
 
@@ -50,6 +52,7 @@ export function LemonSwitch({
             onMouseOut={() => setIsActive(false)}
             style={style}
             disabled={disabled}
+            data-attr={dataAttr}
         >
             <div className="LemonSwitch__slider" />
             <div className="LemonSwitch__handle" />
