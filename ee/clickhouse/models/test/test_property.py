@@ -41,7 +41,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter) -> List:
-        query, params = parse_prop_clauses(filters=filter.properties, allow_denormalized_props=True)
+        query, params = parse_prop_clauses(
+            filters=filter.properties, allow_denormalized_props=True, team_id=self.team.pk
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -475,12 +477,13 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_clauses(filters=filter.properties, allow_denormalized_props=False) == snapshot
+    assert parse_prop_clauses(filters=filter.properties, allow_denormalized_props=False, team_id=1) == snapshot
     assert (
         parse_prop_clauses(
             filters=filter.properties,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
+            team_id=1,
         )
         == snapshot
     )
@@ -489,6 +492,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             filters=filter.properties,
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
             allow_denormalized_props=False,
+            team_id=1,
         )
         == snapshot
     )

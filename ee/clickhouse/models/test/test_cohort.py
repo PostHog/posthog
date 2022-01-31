@@ -263,8 +263,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_clauses(filters=filter.properties)
+        query, params = parse_prop_clauses(filters=filter.properties, team_id=self.team.pk)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 0)
 

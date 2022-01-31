@@ -19,7 +19,8 @@ from posthog.models.team import Team
 def _filter_events(
     filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None,
 ):
-    prop_filters, prop_filter_params = parse_prop_clauses(filters=filter.properties)
+    prop_filters, prop_filter_params = parse_prop_clauses(filters=filter.properties, team_id=team.pk)
+
     params = {"team_id": team.pk, **prop_filter_params}
 
     if order_by == "id":
@@ -218,7 +219,9 @@ class TestFiltering(
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
 
-        prop_clause, prop_clause_params = parse_prop_clauses(filters=filter.properties, has_person_id_joined=False)
+        prop_clause, prop_clause_params = parse_prop_clauses(
+            filters=filter.properties, has_person_id_joined=False, team_id=self.team.pk
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
@@ -230,7 +233,9 @@ class TestFiltering(
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        prop_clause, prop_clause_params = parse_prop_clauses(filters=filter.properties, has_person_id_joined=False)
+        prop_clause, prop_clause_params = parse_prop_clauses(
+            filters=filter.properties, has_person_id_joined=False, team_id=self.team.pk
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
