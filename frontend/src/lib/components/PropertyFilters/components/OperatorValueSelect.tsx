@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import { allOperatorsMapping, chooseOperatorMap, isMobile, isOperatorFlag, isOperatorMulti } from 'lib/utils'
@@ -53,7 +53,7 @@ export function OperatorValueSelect({
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
-    useMemo(() => {
+    useEffect(() => {
         const operatorMapping: Record<string, string> = chooseOperatorMap(
             propertyDefinition?.property_type,
             !!allowQueryingEventsByDateTime
