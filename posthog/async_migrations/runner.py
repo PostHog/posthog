@@ -85,7 +85,11 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
 
     ok, error = run_migration_healthcheck(migration_instance)
     if not ok:
-        process_error(migration_instance, f"Migration healthcheck failed with error:{error}")
+        process_error(
+            migration_instance,
+            f"Migration healthcheck failed with error:{error}",
+            status=MigrationStatus.FailedAtStartup,
+        )
         return False
 
     mark_async_migration_as_running(migration_instance)
