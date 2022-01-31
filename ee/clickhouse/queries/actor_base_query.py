@@ -132,7 +132,7 @@ class ActorBaseQuery:
                 event_session_id = event[2]
                 if event_session_id and event_session_id in session_ids_with_recordings:
                     recording_events_by_session_id.setdefault(event_session_id, []).append(
-                        EventInfoForRecording(uuid=event[0], timestamp=event[1], window_id=event[3])
+                        EventInfoForRecording(timestamp=event[0], uuid=event[1], window_id=event[3])
                     )
             recordings = [
                 MatchedRecording(session_id=session_id, events=events)

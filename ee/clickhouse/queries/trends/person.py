@@ -92,7 +92,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         ).get_query()
 
         matching_events_select_statement = (
-            ", groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events"
+            ", groupUniqArray(10)((timestamp, uuid, $session_id, $window_id)) as matching_events"
             if self._filter.include_recordings
             else ""
         )
