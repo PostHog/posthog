@@ -1,6 +1,7 @@
 import datetime
 import json
 
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -10,6 +11,7 @@ from django.utils import timezone
 from rest_hooks.signals import raw_hook_event
 from sentry_sdk import capture_exception
 
+from posthog.models.described_item import EnterpriseDescribedItem
 from posthog.redis import get_client
 
 
@@ -30,6 +32,7 @@ class Action(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+    global_description: GenericRelation = GenericRelation(EnterpriseDescribedItem, related_query_name="action")
 
     def calculate_events(self, start=None, end=None):
         recalculate_all = False

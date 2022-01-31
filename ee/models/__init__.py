@@ -1,4 +1,3 @@
-from .action import EnterpriseAction
 from .event_definition import EnterpriseEventDefinition
 from .explicit_team_membership import ExplicitTeamMembership
 from .hook import Hook
@@ -11,5 +10,4 @@ __all__ = [
     "Hook",
     "License",
     "EnterprisePropertyDefinition",
-    "EnterpriseAction",
 ]
