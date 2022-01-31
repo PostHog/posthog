@@ -96,7 +96,7 @@ export function PropertyFilterDatePicker({
                     <span>quick choices: </span>{' '}
                     <Select
                         bordered={true}
-                        style={{ width: '100%' }}
+                        style={{ width: '100%', paddingBottom: '1rem' }}
                         onSelect={(selectedRelativeRange) => {
                             const matchedMapping = dateMapping[String(selectedRelativeRange)]
                             const formattedForDateFilter =
