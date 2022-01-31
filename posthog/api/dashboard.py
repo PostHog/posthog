@@ -31,6 +31,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
+    effective_privilege_level = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -50,6 +51,8 @@ class DashboardSerializer(serializers.ModelSerializer):
             "use_dashboard",
             "filters",
             "tags",
+            "restriction_level",
+            "effective_privilege_level",
         ]
         read_only_fields = ("creation_mode",)
 
@@ -152,6 +155,9 @@ class DashboardSerializer(serializers.ModelSerializer):
                 item.filters["insight"] = INSIGHT_TRENDS
                 item.save()
         return InsightSerializer(items, many=True, context=self.context).data
+
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        return dashboard.get_effective_privilege_level(self.context["request"].user)
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
