@@ -53,6 +53,7 @@ import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -77,6 +78,7 @@ export function Experiment(): JSX.Element {
         areResultsSignificant,
         experimentId,
         conversionRateForVariant,
+        getIndexForVariant,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -86,6 +88,7 @@ export function Experiment(): JSX.Element {
         setEditExperiment,
         endExperiment,
         addExperimentGroup,
+        updateExperiment,
         updateExperimentGroup,
         removeExperimentGroup,
         setSecondaryMetrics,
@@ -529,8 +532,24 @@ export function Experiment(): JSX.Element {
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
                                 </Row>
-                                <span className="description">
-                                    {experimentData.description || 'There is no description for this experiment.'}
+                                <span className="exp-description">
+                                    {experimentData.start_date ? (
+                                        <EditableField
+                                            multiline
+                                            name="description"
+                                            value={experimentData.description || ''}
+                                            placeholder="Description (optional)"
+                                            onSave={(value) => updateExperiment({ description: value })}
+                                            maxLength={400} // Sync with Experiment model
+                                            data-attr="experiment-description"
+                                            compactButtons
+                                        />
+                                    ) : (
+                                        <>
+                                            {experimentData.description ||
+                                                'There is no description for this experiment.'}
+                                        </>
+                                    )}
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
@@ -576,6 +595,12 @@ export function Experiment(): JSX.Element {
                                 <Col span={19} style={{ color: '#f96132' }}>
                                     Your results are <b>not statistically significant</b>. We don't recommend ending
                                     this experiment yet.
+                                    <Tooltip
+                                        placement="right"
+                                        title="This can be because the number of people exposed to the experiment is less than 100, or the results are not statistically significant."
+                                    >
+                                        <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
+                                    </Tooltip>
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
@@ -638,51 +663,64 @@ export function Experiment(): JSX.Element {
                         {experimentResults ? (
                             <>
                                 <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                    {Object.keys(experimentResults.probability)
-                                        .reverse()
-                                        .map((variant, idx) => (
-                                            <Col key={idx} className="pr">
-                                                <div>
-                                                    <b>{capitalizeFirstLetter(variant)}</b>
-                                                </div>
-                                                {experimentInsightType === InsightType.TRENDS ? (
-                                                    <Row>
-                                                        <b style={{ paddingRight: 4 }}>
-                                                            <Row>
-                                                                {'action' in experimentResults.insight[0] && (
-                                                                    <EntityFilterInfo
-                                                                        filter={experimentResults.insight[0].action}
-                                                                    />
-                                                                )}
-                                                                <span style={{ paddingLeft: 4 }}>count:</span>
-                                                            </Row>
-                                                        </b>{' '}
-                                                        {countDataForVariant(variant)}{' '}
-                                                    </Row>
-                                                ) : (
-                                                    <Row>
-                                                        <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
-                                                        {conversionRateForVariant(variant)}%
-                                                    </Row>
-                                                )}
-                                                <Progress
-                                                    percent={Number(
-                                                        (experimentResults.probability[variant] * 100).toFixed(1)
+                                    {
+                                        //sort by decreasing probability
+                                        Object.keys(experimentResults.probability)
+                                            .sort(
+                                                (a, b) =>
+                                                    experimentResults.probability[b] - experimentResults.probability[a]
+                                            )
+                                            .map((variant, idx) => (
+                                                <Col key={idx} className="pr">
+                                                    <div>
+                                                        <b>{capitalizeFirstLetter(variant)}</b>
+                                                    </div>
+                                                    {experimentInsightType === InsightType.TRENDS ? (
+                                                        <Row>
+                                                            <b style={{ paddingRight: 4 }}>
+                                                                <Row>
+                                                                    {'action' in experimentResults.insight[0] && (
+                                                                        <EntityFilterInfo
+                                                                            filter={experimentResults.insight[0].action}
+                                                                        />
+                                                                    )}
+                                                                    <span style={{ paddingLeft: 4 }}>count:</span>
+                                                                </Row>
+                                                            </b>{' '}
+                                                            {countDataForVariant(variant)}{' '}
+                                                        </Row>
+                                                    ) : (
+                                                        <Row>
+                                                            <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
+                                                            {conversionRateForVariant(variant)}%
+                                                        </Row>
                                                     )}
-                                                    size="small"
-                                                    showInfo={false}
-                                                    strokeColor={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? getSeriesColor(idx + 1)
-                                                            : getChartColors('white')[idx]
-                                                    }
-                                                />
-                                                <div>
-                                                    Probability that this variant is the best:{' '}
-                                                    <b>{(experimentResults.probability[variant] * 100).toFixed(1)}%</b>
-                                                </div>
-                                            </Col>
-                                        ))}
+                                                    <Progress
+                                                        percent={Number(
+                                                            (experimentResults.probability[variant] * 100).toFixed(1)
+                                                        )}
+                                                        size="small"
+                                                        showInfo={false}
+                                                        strokeColor={
+                                                            experimentInsightType === InsightType.FUNNELS
+                                                                ? getSeriesColor(
+                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                          1
+                                                                  ) // baseline takes 0th index
+                                                                : getChartColors('white')[
+                                                                      getIndexForVariant(variant, InsightType.TRENDS)
+                                                                  ]
+                                                        }
+                                                    />
+                                                    <div>
+                                                        Probability that this variant is the best:{' '}
+                                                        <b>
+                                                            {(experimentResults.probability[variant] * 100).toFixed(1)}%
+                                                        </b>
+                                                    </div>
+                                                </Col>
+                                            ))
+                                    }
                                 </Row>
                             </>
                         ) : experimentResultsLoading ? (

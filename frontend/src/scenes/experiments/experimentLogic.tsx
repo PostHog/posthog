@@ -487,6 +487,35 @@ export const experimentLogic = kea<experimentLogicType>({
                     )
                 },
         ],
+        getIndexForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string, insightType: InsightType): number => {
+                    if (!experimentResults) {
+                        return 0
+                    }
+                    let index = -1
+
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults?.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults?.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+
+                    if (index === -1) {
+                        return 0
+                    }
+
+                    return index
+                },
+        ],
         countDataForVariant: [
             (s) => [s.experimentResults],
             (experimentResults) =>
