@@ -25,9 +25,10 @@ class EnterpriseTaggedItem(UUIDModel):
 
     Models that are taggable throughout the app:
     - models/dashboard.py
+    - models/insight.py
     - models/event_definition.py
     - models/property_definition.py
-    - models/insight.py
+    - models/action.py
 
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
     """

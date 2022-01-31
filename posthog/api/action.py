@@ -49,6 +49,7 @@ from posthog.queries import base, retention, stickiness, trends
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import PersonSerializer, get_person_name, paginated_result
+from .tagged_item import TaggedItemSerializerMixin
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -77,7 +78,7 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
         }
 
 
-class ActionSerializer(serializers.HyperlinkedModelSerializer):
+class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
@@ -87,6 +88,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         fields = [
             "id",
             "name",
+            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
             "post_to_slack",
             "slack_message_format",
             "steps",
