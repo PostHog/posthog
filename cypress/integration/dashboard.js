@@ -52,7 +52,7 @@ describe('Dashboard', () => {
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {
                 cy.wait(200)
-                cy.visit(linlinkFromClipboardk)
+                cy.visit(linkFromClipboard)
                 cy.get('[data-attr=dashboard-item-title]').should('contain', 'App Analytics')
             })
         })
