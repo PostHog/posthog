@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     raw_payload VARCHAR,
     error_timestamp DateTime64(6, 'UTC'),
     error_location VARCHAR,
-    error VARCHAR
+    error VARCHAR,
     tags Array(VARCHAR)
     {extra_fields}
 ) ENGINE = {engine}
