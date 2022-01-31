@@ -7,6 +7,7 @@ from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import APIBaseTest
@@ -21,7 +22,7 @@ def _create_person(**kwargs):
     return Person.objects.create(**kwargs)
 
 
-class TestPerson(APIBaseTest):
+class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_search(self) -> None:
         _create_person(
             team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
