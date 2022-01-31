@@ -3,7 +3,6 @@ from infi.clickhouse_orm.utils import import_submodules
 
 from ee.clickhouse.client import sync_execute
 from posthog.async_migrations.setup import ASYNC_MIGRATIONS_MODULE_PATH
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
 

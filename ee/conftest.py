@@ -53,9 +53,7 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
 
-    additional_setup_ops = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
-
-    for item in TABLES_TO_CREATE_DROP + additional_setup_ops:
+    for item in TABLES_TO_CREATE_DROP:
         sync_execute(item)
 
 
