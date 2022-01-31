@@ -116,7 +116,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -1788,8 +1787,7 @@
                 "is_demo": true,
                 "timezone": "Europe/Brussels",
                 "data_attributes": ["data-attr"],
-                "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null
+                "session_recording_opt_in": false
             },
             "currentTeamLoading": false,
             "teamBeingDeleted": null
@@ -4837,12 +4835,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true,
-                        "3": true
-                    },
                     "breakdownValuesLoading": false
                 },
                 "1228": {
@@ -5369,12 +5361,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true,
-                        "3": true
-                    },
                     "breakdownValuesLoading": false
                 },
                 "1470": {
@@ -5783,12 +5769,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true,
-                        "3": true
-                    },
                     "breakdownValuesLoading": false
                 },
                 "2100": {
@@ -5994,10 +5974,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true
-                    },
                     "breakdownValuesLoading": false
                 }
             },
@@ -6508,10 +6484,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -6529,10 +6501,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},
@@ -9805,16 +9773,6 @@
                         "query_usage_30_day": 0
                     },
                     {
-                        "id": "017989da-7571-0001-bc1f-c48306dd7a5e",
-                        "name": "is_clickhouse_enabled",
-                        "description": null,
-                        "tags": null,
-                        "is_numerical": false,
-                        "updated_at": null,
-                        "updated_by": null,
-                        "query_usage_30_day": null
-                    },
-                    {
                         "id": "01791516-32bb-0000-4094-b9829f5f9651",
                         "name": "is_demo_project",
                         "description": "",
@@ -10609,16 +10567,6 @@
                         "updated_at": null,
                         "updated_by": null,
                         "query_usage_30_day": null
-                    },
-                    {
-                        "id": "01791516-333c-0000-2135-66d218ae1e30",
-                        "name": "session_distribution",
-                        "description": null,
-                        "tags": null,
-                        "is_numerical": false,
-                        "updated_at": null,
-                        "updated_by": null,
-                        "query_usage_30_day": 0
                     },
                     {
                         "id": "0179c6ab-a3a6-0000-42fc-705aa20621ed",

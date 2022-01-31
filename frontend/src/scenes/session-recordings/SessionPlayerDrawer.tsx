@@ -19,6 +19,8 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             onClose={onClose}
             className="session-player-drawer-v2"
             closable={false}
+            // zIndex: 1061 ensures it opens above the insight person modal which is 1060
+            style={{ zIndex: 1061 }}
         >
             <Col style={{ height: '100vh' }}>
                 <Row

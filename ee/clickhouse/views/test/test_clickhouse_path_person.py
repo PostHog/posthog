@@ -1,4 +1,5 @@
 import json
+import urllib.parse
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -8,7 +9,9 @@ from rest_framework import status
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
+from posthog.models.cohort import Cohort
 from posthog.models.person import Person
+from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import APIBaseTest
 
 
@@ -67,6 +70,38 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(5, len(j["results"][0]["people"]))
         self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
         self.assertEqual(5, j["results"][0]["count"])
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_create_paths_cohort(self, _insert_cohort_from_insight_filter):
+        self._create_sample_data(5)
+
+        params = {
+            "insight": INSIGHT_PATHS,
+            "filter_test_accounts": "false",
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-10",
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
+            {"name": "test", "is_static": True},
+        ).json()
+
+        cohort_id = response["id"]
+
+        _insert_cohort_from_insight_filter.assert_called_once_with(
+            cohort_id,
+            {"insight": "PATHS", "filter_test_accounts": "false", "date_from": "2021-05-01", "date_to": "2021-05-10"},
+        )
+
+        insert_cohort_from_insight_filter(
+            cohort_id, params,
+        )
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        people = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(len(people), 5)
 
     def test_basic_format_with_path_start_key_constraints(self):
         self._create_sample_data(5)

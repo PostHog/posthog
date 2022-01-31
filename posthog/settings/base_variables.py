@@ -13,6 +13,7 @@ TEST = (
 E2E_TESTING = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool,
 )  # whether the app is currently running for E2E tests
+BENCHMARK = get_from_env("BENCHMARK", False, type_cast=str_to_bool)
 if E2E_TESTING:
     print_warning(
         ["️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests."]

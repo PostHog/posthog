@@ -2,10 +2,12 @@ import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
-import { Hub } from '../../../src/types'
+import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
+import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -22,11 +24,10 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({
-            EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: '2',
-        })
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         teamManager = hub.teamManager
+        Settings.defaultZoneName = 'utc'
     })
 
     afterEach(async () => {
@@ -177,14 +178,8 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: false,
                     name: 'property_name',
-                    query_usage_30_day: null,
-                    team_id: 2,
-                    volume_30_day: null,
-                },
-                {
-                    id: expect.any(String),
-                    is_numerical: true,
-                    name: 'numeric_prop',
+                    property_type: 'String',
+                    property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
@@ -193,6 +188,18 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: true,
                     name: 'number',
+                    property_type: 'Numeric',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: 'numeric_prop',
+                    property_type: 'Numeric',
+                    property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
@@ -200,39 +207,38 @@ describe('TeamManager()', () => {
             ])
         })
 
-        it('sets or updates lastSeenCache on event', async () => {
+        it('sets or updates eventLastSeenCache', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
-            // Existing event
+
+            expect(teamManager.eventLastSeenCache.length).toEqual(0)
             await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            expect(teamManager.eventLastSeenCache.length).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150404)
 
-            expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428120244000)
+            // Start tracking queries
+            const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
-            // New event
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T05:05:05.000Z').getTime())
+            // New event, 10 sec later (all caches should be hit)
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:14.000Z').getTime())
             await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
-            expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428123905000)
-        })
+            expect(postgresQuery).not.toHaveBeenCalled()
 
-        it('does not set lastSeenCache on new event', async () => {
-            // last_seen_at is set in the same INSERT statement, so we don't need to update it
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2018-01-01T12:12:12.000Z').getTime())
-            await teamManager.updateEventNamesAndProperties(2, 'this_is_new_3881', {})
-            expect(teamManager.eventLastSeenCache.size).toEqual(0)
-        })
-
-        it('does not update lastSeenCache if event timestamp is older', async () => {
-            jest.spyOn(hub.db, 'postgresQuery')
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2014-03-23T23:23:23.000Z').getTime())
+            // New event, 1 day later (all caches should be empty)
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-05T04:04:14.000Z').getTime())
             await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            expect(postgresQuery).toHaveBeenCalledWith(
+                'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
+                [DateTime.now(), 2, 'another_test_event'],
+                'updateEventLastSeenAt'
+            )
 
-            // Received event at an older time
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2014-03-23T23:23:00.000Z').getTime())
+            // Re-ingest, should add no queries
+            postgresQuery.mockClear()
             await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
+            expect(postgresQuery).not.toHaveBeenCalled()
 
-            expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get(JSON.stringify([2, 'another_test_event']))).toEqual(1395617003000)
+            expect(teamManager.eventLastSeenCache.length).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
         })
 
         // TODO: #7422 temporary test
@@ -242,14 +248,11 @@ describe('TeamManager()', () => {
                 EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
             })
             const newTeamManager = newHub.teamManager
-            newTeamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
             await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {})
             jest.spyOn(newHub.db, 'postgresQuery')
-            jest.spyOn(newTeamManager, 'flushLastSeenAtCache')
             await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}) // Called twice to test both insert and update
             expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
-            expect(newTeamManager.eventLastSeenCache.size).toBe(0)
-            expect(newTeamManager.flushLastSeenAtCache).toHaveBeenCalledTimes(0)
+            expect(newTeamManager.eventLastSeenCache.length).toBe(0)
             const eventDefinitions = await newHub.db.fetchEventDefinitions()
             for (const def of eventDefinitions) {
                 if (def.name === 'disabled-feature') {
@@ -258,90 +261,6 @@ describe('TeamManager()', () => {
             }
 
             await closeNewHub()
-        })
-
-        it('flushes lastSeenCache properly', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-01-01T00:00:00.000Z').getTime())
-
-            await teamManager.updateEventNamesAndProperties(2, 'new-event', {})
-            await hub.db.postgresQuery(
-                "UPDATE posthog_eventdefinition SET last_seen_at = to_timestamp(1497307499) WHERE team_id = 2 AND name = '$pageview'",
-                undefined,
-                'test'
-            )
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, '$pageview']), 1497307450000) // older than currently last_seen_at
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'new-event']), 1626129850000) // regular
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'another_test_event']), 1623537850000)
-            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 1528843450000) // inexistent team
-
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-03-03T03:03:03Z').getTime())
-            jest.spyOn(hub.db, 'postgresQuery')
-            await teamManager.flushLastSeenAtCache()
-            expect(teamManager.eventLastSeenCache.size).toBe(0)
-            expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-03-03T03:03:03Z').valueOf())
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // only a single query is fired
-            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::numeric))
-                FROM (VALUES ($1,$2,$3),($4,$5,$6),($7,$8,$9),($10,$11,$12)) AS t2(team_id, name, last_seen_at)
-                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
-                [
-                    2,
-                    '$pageview',
-                    1497307450,
-                    2,
-                    'new-event',
-                    1626129850,
-                    2,
-                    'another_test_event',
-                    1623537850,
-                    3,
-                    '$pageview',
-                    1528843450,
-                ],
-                'updateEventLastSeen'
-            )
-
-            const eventDefinitions = await hub.db.fetchEventDefinitions()
-            expect(eventDefinitions).toEqual([
-                {
-                    id: expect.any(String),
-                    name: '$pageview',
-                    query_usage_30_day: 2,
-                    team_id: 2,
-                    volume_30_day: 3,
-                    last_seen_at: '2017-06-12T22:44:59.000Z', // previously existing value
-                    created_at: expect.any(String),
-                },
-                {
-                    id: expect.any(String),
-                    name: 'new-event',
-                    query_usage_30_day: null,
-                    team_id: 2,
-                    volume_30_day: null,
-                    last_seen_at: '2021-07-12T22:44:10.000Z',
-                    created_at: expect.any(String),
-                },
-                {
-                    id: expect.any(String),
-                    name: 'another_test_event',
-                    query_usage_30_day: null,
-                    team_id: 2,
-                    volume_30_day: null,
-                    last_seen_at: '2021-06-12T22:44:10.000Z',
-                    created_at: expect.any(String),
-                },
-            ])
-        })
-
-        it('empty lastSeenCache does not query postgres', async () => {
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-04-04T04:04:04Z').getTime())
-            jest.spyOn(hub.db, 'postgresQuery')
-            await teamManager.flushLastSeenAtCache()
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
-
-            expect(teamManager.eventLastSeenCache.size).toBe(0)
-            // lastFlushAt does get updated
-            expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-04-04T04:04:04Z').valueOf())
         })
 
         it('does not capture event', async () => {
@@ -402,6 +321,365 @@ describe('TeamManager()', () => {
                         instance: 'unknown',
                     },
                 })
+            })
+        })
+
+        describe('auto-detection of property types', () => {
+            const insertPropertyDefinitionQuery = `
+INSERT INTO posthog_propertydefinition
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
+DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`
+            const teamId = 2
+
+            const randomInteger = () => Math.floor(Math.random() * 1000) + 1
+            const randomString = () => [...Array(10)].map(() => (~~(Math.random() * 36)).toString(36)).join('')
+
+            const expectMockQueryCallToMatch = (
+                expected: { query: string; tag: string; params: any[] },
+                postgresQuery: jest.SpyInstance,
+                callIndex?: number | undefined
+            ) => {
+                const [query, queryParams, queryTag] =
+                    postgresQuery.mock.calls[callIndex || postgresQuery.mock.calls.length - 1]
+                expect(queryTag).toEqual(expected.tag)
+                expect(queryParams).toEqual(expected.params)
+                expect(query).toEqual(expected.query)
+            }
+
+            let postgresQuery: jest.SpyInstance
+            beforeEach(() => {
+                postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+            })
+
+            it('adds no type for objects', async () => {
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    anObjectProperty: { anything: randomInteger() },
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('anObjectProperty')).toEqual(
+                    NULL_AFTER_PROPERTY_TYPE_DETECTION
+                )
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                    },
+                    postgresQuery
+                )
+            })
+
+            it('identifies a numeric type', async () => {
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_number: randomInteger(),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null],
+                    },
+                    postgresQuery
+                )
+            })
+
+            it('identifies a string type', async () => {
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_string: randomString(),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_string')).toEqual('String')
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'some_string', false, teamId, 'String', null],
+                    },
+                    postgresQuery
+                )
+            })
+
+            // there are several cases that can be identified as timestamps
+            // and each might match with time or timestamp in the property key
+            // but won't match if neither is in it
+            const unixTimestampTestCases = [
+                {
+                    propertyKey: 'unix timestamp with fractional seconds as a number',
+                    date: 1234567890.123,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with five decimal places of fractional seconds as a number',
+                    date: 1234567890.12345,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp as a number',
+                    date: 1234567890,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with fractional seconds as a string',
+                    date: '1234567890.123',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
+                    date: '1234567890.12345',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp as a string',
+                    date: '1234567890',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp in milliseconds as a number',
+                    date: 1234567890123,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp in milliseconds as a string',
+                    date: '1234567890123',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+            ].flatMap((testcase) => {
+                const toEdit = testcase
+
+                const toMatchWithJustTimeInName = {
+                    ...toEdit,
+                    propertyKey: testcase.propertyKey.replace('timestamp', 'time'),
+                }
+
+                const toNotMatch = {
+                    ...toEdit,
+                    propertyKey: toEdit.propertyKey.replace('timestamp', 'string'),
+                    expectedPropertyType: typeof toEdit.date === 'string' ? PropertyType.String : PropertyType.Numeric,
+                }
+
+                return [testcase, toMatchWithJustTimeInName, toNotMatch]
+            })
+
+            unixTimestampTestCases.forEach((testcase) => {
+                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyType}`, async () => {
+                    const properties: Record<string, string | number> = {}
+                    properties[testcase.propertyKey] = testcase.date
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [
+                                expect.any(String),
+                                testcase.propertyKey,
+                                typeof testcase.date === 'number',
+                                teamId,
+                                testcase.expectedPropertyType,
+                                null,
+                            ],
+                        },
+                        postgresQuery
+                    )
+                })
+            })
+
+            // most datetimes can be identified by replacing the date parts with numbers
+            // RFC 822 formatted dates as it has a short name for the month instead of a two-digit number
+            const dateTimeFormatTestCases: {
+                propertyKey: string
+                date: string
+            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternEnum: string) => {
+                const patternDescription: string =
+                    DateTimePropertyTypeFormat[patternEnum as keyof typeof DateTimePropertyTypeFormat]
+                if (patternDescription === 'rfc_822') {
+                    return {
+                        propertyKey: 'an_rfc_822_format_date',
+                        date: 'Wed, 02 Oct 2002 15:00:00 +0200',
+                    }
+                } else if (patternDescription === DateTimePropertyTypeFormat.ISO8601_DATE) {
+                    return [
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+00',
+                            date: '2022-01-15T11:18:49.233056+00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-00',
+                            date: '2022-01-15T11:18:49.233056-00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+04',
+                            date: '2022-01-15T11:18:49.233056+04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-04',
+                            date: '2022-01-15T11:18:49.233056-04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056z',
+                            date: '2022-01-15T11:18:49.233056z',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+00:00',
+                            date: '2022-01-15T11:18:49.233+00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-00:00',
+                            date: '2022-01-15T11:18:49.233-00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+04:00',
+                            date: '2022-01-15T11:18:49.233+04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-04:00',
+                            date: '2022-01-15T11:18:49.233-04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233z',
+                            date: '2022-01-15T11:18:49.233z',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+00:00',
+                            date: '2022-01-15T11:18:49+00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-00:00',
+                            date: '2022-01-15T11:18:49-00:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+04:00',
+                            date: '2022-01-15T11:18:49+04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-04:00',
+                            date: '2022-01-15T11:18:49-04:00',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49z',
+                            date: '2022-01-15T11:18:49z',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+11',
+                            date: '2022-01-15T11:18:49+11',
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+0530',
+                            date: '2022-01-15T11:18:49+0530',
+                        },
+                    ]
+                } else {
+                    const date = patternDescription
+                        .replace('YYYY', '2021')
+                        .replace('MM', '04')
+                        .replace('DD', '01')
+                        .replace('hh', '13')
+                        .replace('mm', '01')
+                        .replace('ss', '01')
+
+                    //iso timestamps can have fractional parts of seconds
+                    if (date.includes('T')) {
+                        return [
+                            { propertyKey: patternDescription, date },
+                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z') },
+                        ]
+                    } else {
+                        return { propertyKey: patternDescription, date }
+                    }
+                }
+            })
+
+            dateTimeFormatTestCases.forEach((testcase) => {
+                it(`matches ${testcase.date} as DateTime`, async () => {
+                    const properties: Record<string, string> = {}
+                    properties[testcase.propertyKey] = testcase.date
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [
+                                expect.any(String),
+                                testcase.propertyKey,
+                                false,
+                                teamId,
+                                PropertyType.DateTime,
+                                null,
+                            ],
+                        },
+                        postgresQuery
+                    )
+                })
+            })
+
+            it('does identify type if the property was previously saved with no type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_timestamp: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_timestamp'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: null })
+            })
+
+            it('does not replace property type if the property was previously saved with a different type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_prop_with_type: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_prop_with_type'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({
+                    property_type: PropertyType.DateTime,
+                    property_type_format: 'YYYY-MM-DD',
+                })
+            })
+
+            it('does not keep trying to set a property type when it cannot', async () => {
+                const properties = {
+                    a_prop_with_a_type_we_do_not_set: { a: 1234567890 },
+                }
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', properties)
+
+                // 7 calls to DB to set up team manager and updateEventNamesAndProperties
+                expect(postgresQuery.mock.calls).toHaveLength(7)
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', properties)
+
+                // no more calls to DB as everything is cached
+                expect(postgresQuery.mock.calls).toHaveLength(7)
             })
         })
     })

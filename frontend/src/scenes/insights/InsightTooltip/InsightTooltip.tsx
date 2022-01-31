@@ -1,60 +1,201 @@
-import { DateDisplay } from 'lib/components/DateDisplay'
-import { IconHandClick } from 'lib/components/icons'
-import React from 'react'
-import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
+import React from 'react'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import {
+    COL_CUTOFF,
+    ROW_CUTOFF,
+    getTooltipTitle,
+    InsightTooltipProps,
+    invertDataSource,
+    InvertedSeriesDatum,
+    SeriesDatum,
+    getFormattedDate,
+} from './insightTooltipUtils'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { IconHandClick } from 'lib/components/icons'
 
-export interface BodyLine {
-    id?: string | number
-    component: React.ReactNode
-}
-
-interface InsightTooltipProps {
-    altTitle?: string | JSX.Element | null // Alternate string to display as title (in case date reference is not available or not desired)
-    referenceDate?: string
-    interval?: IntervalType
-    bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
-    inspectPersonsLabel?: boolean
-    children?: React.ReactNode
-    preferAltTitle?: boolean // Whether `altTitle` should be prefered over the default DateDisplay to show as header of the tooltip
-    hideHeader?: boolean
+function ClickToInspectActors({
+    isTruncated,
+    groupTypeLabel,
+}: {
+    isTruncated: boolean
+    groupTypeLabel: string
+}): JSX.Element {
+    return (
+        <div className="table-subtext">
+            {isTruncated && (
+                <div className="table-subtext-truncated">
+                    For readability, <b>not all series are displayed</b>.<br />
+                </div>
+            )}
+            <div className="table-subtext-click-to-inspect">
+                <IconHandClick style={{ marginRight: 4, marginBottom: 2 }} />
+                Click to view {groupTypeLabel}
+            </div>
+        </div>
+    )
 }
 
 export function InsightTooltip({
+    date,
+    seriesData = [],
     altTitle,
-    referenceDate,
-    interval,
-    bodyLines = [],
-    inspectPersonsLabel,
-    children,
-    preferAltTitle,
-    hideHeader,
+    altRightTitle,
+    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
+        <>
+            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
+            {value}
+        </>
+    ),
+    hideColorCol = false,
+    forceEntitiesAsColumns = false,
+    rowCutoff = ROW_CUTOFF,
+    colCutoff = COL_CUTOFF,
+    showHeader = true,
+    groupTypeLabel = 'people',
 }: InsightTooltipProps): JSX.Element {
-    return (
-        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
-            {!hideHeader && (
-                <header>
-                    {referenceDate && interval && !preferAltTitle ? (
-                        <DateDisplay interval={interval} date={referenceDate} />
-                    ) : (
-                        altTitle
-                    )}
-                </header>
-            )}
-            {bodyLines?.length > 0 && (
-                <ul>
-                    {bodyLines.map((line, index) => (
-                        <li key={line.id ?? index}>{line.component}</li>
-                    ))}
-                </ul>
-            )}
-            {children}
-            {inspectPersonsLabel && (
-                <div className="inspect-persons-label">
-                    <IconHandClick />
-                    Click on data point to view persons or groups
-                </div>
-            )}
-        </div>
-    )
+    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
+    // If only a single entity exists, itemize entity counts as rows.
+    // Throw these rules out the window if `forceEntitiesAsColumns` is true
+    const itemizeEntitiesAsColumns =
+        forceEntitiesAsColumns ||
+        (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
+    const title =
+        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
+
+    const renderTable = (): JSX.Element => {
+        if (itemizeEntitiesAsColumns) {
+            const dataSource = invertDataSource(seriesData)
+            const columns: LemonTableColumns<InvertedSeriesDatum> = []
+            const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
+            const isTruncated = numDataPoints > colCutoff || dataSource.length > rowCutoff
+
+            columns.push({
+                key: 'datum',
+                className: 'datum-column',
+                title,
+                sticky: true,
+                render: function renderDatum(_, datum) {
+                    return <div>{datum.datumTitle}</div>
+                },
+            })
+
+            if (numDataPoints > 0) {
+                const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
+                const truncatedCols = dataSource?.[
+                    indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0
+                ].seriesData.slice(0, colCutoff)
+                truncatedCols.forEach((seriesColumn, colIdx) => {
+                    columns.push({
+                        key: `series-column-data-${colIdx}`,
+                        className: 'datum-counts-column',
+                        align: 'right',
+                        title:
+                            (colIdx === 0 ? rightTitle : undefined) ||
+                            (!altTitle &&
+                                renderSeries(
+                                    <InsightLabel
+                                        className="series-column-header"
+                                        action={seriesColumn.action}
+                                        fallbackName={seriesColumn.label}
+                                        hideBreakdown
+                                        showSingleName
+                                        hideCompare
+                                        hideIcon
+                                        allowWrap
+                                    />,
+                                    seriesColumn,
+                                    colIdx
+                                )),
+                        render: function renderSeriesColumnData(_, datum) {
+                            return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
+                        },
+                    })
+                })
+            }
+
+            return (
+                <>
+                    <LemonTable
+                        dataSource={dataSource.slice(0, rowCutoff)}
+                        columns={columns}
+                        rowKey="id"
+                        size="small"
+                        uppercaseHeader={false}
+                        showHeader={showHeader}
+                    />
+                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                </>
+            )
+        }
+
+        // Itemize tooltip entities as rows
+        const dataSource = [...seriesData]
+        const columns: LemonTableColumns<SeriesDatum> = []
+        const isTruncated = dataSource?.length > rowCutoff
+
+        if (!hideColorCol) {
+            columns.push({
+                key: 'color',
+                className: 'color-column',
+                sticky: true,
+                width: 6,
+                render: function renderColor(_, datum) {
+                    return <div className="color-cell" style={{ backgroundColor: datum.color }} />
+                },
+            })
+        }
+
+        columns.push({
+            key: 'datum',
+            className: 'datum-label-column',
+            width: 120,
+            title,
+            sticky: true,
+            render: function renderDatum(_, datum, rowIdx) {
+                return renderSeries(
+                    <InsightLabel
+                        action={datum.action}
+                        fallbackName={datum.label}
+                        hideBreakdown
+                        showSingleName
+                        hideCompare
+                        hideIcon
+                        allowWrap
+                    />,
+                    datum,
+                    rowIdx
+                )
+            },
+        })
+
+        columns.push({
+            key: 'counts',
+            className: 'datum-counts-column',
+            width: 50,
+            title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
+            align: 'right',
+            render: function renderDatum(_, datum) {
+                return <div className="series-data-cell">{datum.count ?? 0}</div>
+            },
+        })
+
+        return (
+            <>
+                <LemonTable
+                    dataSource={dataSource.slice(0, rowCutoff)}
+                    columns={columns}
+                    rowKey="id"
+                    size="small"
+                    uppercaseHeader={false}
+                    showHeader={showHeader}
+                />
+                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+            </>
+        )
+    }
+
+    return renderTable()
 }

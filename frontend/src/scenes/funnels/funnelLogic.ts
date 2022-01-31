@@ -1,6 +1,7 @@
 import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autoCaptureEventToDescription, average, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -35,8 +36,8 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FunnelLayout } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+
 import {
     aggregateBreakdownResult,
     formatDisplayPercentage,
@@ -63,6 +64,8 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CorrelationToast } from 'scenes/insights/InsightTabs/FunnelTab/FunnelCorrelationTable'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -106,7 +109,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'insightMode', 'isViewedOnDashboard'],
+            [
+                'filters',
+                'insight',
+                'insightLoading',
+                'insightMode',
+                'isViewedOnDashboard',
+                'hiddenLegendKeys',
+                'syncWithUrl',
+            ],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -118,7 +129,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -150,9 +161,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
-        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         toggleAdvancedMode: true,
 
         // Correlation related actions
@@ -476,11 +485,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             (filters, lastFilters): boolean => !equal(cleanFilters(filters), cleanFilters(lastFilters)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            // Controls auto-calculation of results and ability to break down values
-            (preflight): boolean => !!preflight?.is_clickhouse_enabled,
-        ],
         histogramGraphData: [
             () => [selectors.timeConversionResults],
             (timeConversionResults: FunnelsTimeConversionBins) => {
@@ -714,12 +718,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         nested_breakdown: nestedBreakdown,
                     }
                 })
-            },
-        ],
-        hiddenLegendKeys: [
-            () => [selectors.filters],
-            (filters) => {
-                return filters.hiddenLegendKeys ?? {}
             },
         ],
         visibleStepsWithConversionMetrics: [
@@ -1040,9 +1038,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
-            (hasAvailableFeature, clickhouseFeaturesEnabled): boolean =>
-                clickhouseFeaturesEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
@@ -1133,10 +1130,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return count
             },
         ],
-        isModalActive: [
-            (s) => [s.clickhouseFeaturesEnabled, s.isViewedOnDashboard],
-            (clickhouseFeaturesEnabled, isViewedOnDashboard) => clickhouseFeaturesEnabled && !isViewedOnDashboard,
-        ],
+        isModalActive: [(s) => [s.isViewedOnDashboard], (isViewedOnDashboard) => !isViewedOnDashboard],
         incompletenessOffsetFromEnd: [
             (s) => [s.steps, s.conversionWindow],
             (steps, conversionWindow) => {
@@ -1171,17 +1165,27 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     })
             })
 
-            // load the old people table
-            if (!values.clickhouseFeaturesEnabled) {
-                if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
-                    actions.loadPeople(values.stepsWithCount)
-                }
-            }
-
             // load correlation table after funnel. Maybe parallel?
-            if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
+            if (
+                values.correlationAnalysisAvailable &&
+                insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
+                values.steps?.length > 1 &&
+                values.syncWithUrl
+            ) {
+                // syncWithUrl implies correlations are loaded only on insight view page
+                // and not in Experiments or dashboards
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
+            }
+        },
+        loadCorrelationsSuccess: async () => {
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
+                toast(CorrelationToast(), {
+                    toastId: 'correlation', // id prevents duplicates
+                    onClick: () => {
+                        window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })
+                    },
+                })
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
@@ -1189,28 +1193,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 const key = getVisibilityIndex(step, breakdownValue)
                 const currentIsHidden = !!values.hiddenLegendKeys?.[key]
                 actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
-            })
-        },
-        toggleVisibility: ({ index }) => {
-            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-
-            actions.setFilters({
-                hiddenLegendKeys: {
-                    ...values.hiddenLegendKeys,
-                    [`${index}`]: currentIsHidden ? undefined : true,
-                },
-            })
-        },
-        setHiddenById: ({ entry }) => {
-            const nextEntries = Object.fromEntries(
-                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
-            )
-
-            actions.setFilters({
-                hiddenLegendKeys: {
-                    ...values.hiddenLegendKeys,
-                    ...nextEntries,
-                },
             })
         },
         setFilters: ({ filters, mergeWithExisting }) => {
@@ -1258,7 +1240,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return
             }
 
-            const funnelStep = converted ? step.order : -step.order
+            const funnelStep = converted ? step.order : -step.order - 1
             const breakdownValues = getBreakdownStepValues(step, funnelStep)
 
             personsModalLogic.actions.loadPeopleFromUrl({
@@ -1269,8 +1251,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 funnelStep: converted ? step.order : -step.order,
                 breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
-                // NOTE: session value copied from previous code, not clear that this should be the case
-                action: 'session',
+                seriesId: step.order,
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
@@ -1283,7 +1264,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
-                    action: 'session',
                     date_from: '',
                 })
 
@@ -1299,7 +1279,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
-                    action: 'session',
                     date_from: '',
                 })
 

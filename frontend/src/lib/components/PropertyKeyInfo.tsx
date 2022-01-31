@@ -375,8 +375,18 @@ export const keyMapping: KeyMappingInterface = {
             description: 'UTM term tag (first-touch).',
             examples: ['free goodies'],
         },
+        $performance_page_loaded: {
+            label: 'Page Loaded',
+            description: "The time taken until the browser's page load event in milliseconds.",
+        },
 
         // Hidden fields
+        $performance_raw: {
+            label: 'Browser Performance',
+            description:
+                'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
+            hide: true,
+        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',

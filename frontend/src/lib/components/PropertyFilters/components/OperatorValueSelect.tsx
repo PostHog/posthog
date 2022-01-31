@@ -1,9 +1,18 @@
 import React, { useState } from 'react'
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    dateTimeOperatorMap,
+    genericOperatorMap,
+    isMobile,
+    isOperatorFlag,
+    isOperatorMulti,
+} from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 interface OperatorValueSelectProps {
     type?: string
@@ -15,6 +24,7 @@ interface OperatorValueSelectProps {
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
+    allowQueryingEventsByDateTime?: string | boolean
 }
 
 interface OperatorSelectProps extends SelectProps<any> {
@@ -33,15 +43,33 @@ export function OperatorValueSelect({
     endpoint,
     onChange,
     operatorSelectProps,
+    allowQueryingEventsByDateTime,
 }: OperatorValueSelectProps): JSX.Element {
-    const [currentOperator, setCurrentOperator] = useState(operator)
+    const { propertyDefinitions } = useValues(propertyDefinitionsModel)
+
+    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
+
+    // DateTime properties should not default to Exact
+    const startingOperator =
+        allowQueryingEventsByDateTime &&
+        propertyDefinition?.property_type == PropertyType.DateTime &&
+        (!operator || operator == PropertyOperator.Exact)
+            ? PropertyOperator.IsDateBefore
+            : operator || PropertyOperator.Exact
+    const [currentOperator, setCurrentOperator] = useState(startingOperator)
+
+    const operatorMapping =
+        allowQueryingEventsByDateTime && propertyDefinition?.property_type == PropertyType.DateTime
+            ? dateTimeOperatorMap
+            : genericOperatorMap
+    const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
 
     return (
         <>
             <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
-                    operators={Object.keys(operatorMap) as Array<PropertyOperator>}
+                    operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
@@ -96,7 +124,7 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             labelInValue
             value={{
                 value: operator || '=',
-                label: operatorMap[operator || PropertyOperator.Exact],
+                label: allOperatorsMapping[operator || PropertyOperator.Exact],
             }}
             placeholder="Property key"
             onChange={(_value, op) => {
@@ -106,8 +134,8 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             {...props}
         >
             {operators.map((op) => (
-                <Select.Option key={op} value={op || PropertyOperator.Exact}>
-                    {operatorMap[op || PropertyOperator.Exact]}
+                <Select.Option key={op} value={op || PropertyOperator.Exact} className={'operator-value-option'}>
+                    {allOperatorsMapping[op || PropertyOperator.Exact]}
                 </Select.Option>
             ))}
         </Select>

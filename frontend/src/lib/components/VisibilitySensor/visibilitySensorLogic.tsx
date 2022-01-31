@@ -47,7 +47,11 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
                 if (!element) {
                     return false
                 }
-                const { top } = element.getBoundingClientRect()
+                const { top, bottom, left, right } = element.getBoundingClientRect()
+                // happens when switching tabs, element is gone, but sensorLogic is still mounted
+                if (top === 0 && bottom === 0 && left === 0 && right === 0) {
+                    return false
+                }
                 return top + offset >= 0 && top + offset <= windowHeight
             },
         ],

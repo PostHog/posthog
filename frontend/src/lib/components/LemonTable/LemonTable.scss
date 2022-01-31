@@ -59,7 +59,6 @@
         font-size: 0.75rem;
         font-weight: 600;
         letter-spacing: 0.03125rem;
-        text-transform: uppercase;
         > tr > th {
             text-align: left;
         }
@@ -70,6 +69,7 @@
                 border-top: 1px solid var(--border);
             }
             &.LemonTable__expansion {
+                position: relative;
                 background: var(--bg-side);
                 > td {
                     padding: 0; // Disable padding inside the expansion for better tailored placement of contents
@@ -105,11 +105,16 @@
 
 .LemonTable__scroll {
     width: 100%;
-    overflow: auto hidden;
+    height: 100%;
+    overflow: auto;
 }
 
 .LemonTable__content {
     min-width: fit-content;
+}
+
+.LemonTable__empty-state {
+    color: var(--muted-alt);
 }
 
 .LemonTable__overlay {

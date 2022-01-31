@@ -37,7 +37,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 {sample_by}
 {storage_policy}
 """
@@ -53,7 +53,7 @@ ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
+KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
@@ -118,7 +118,7 @@ SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM ev
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
@@ -170,7 +170,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timestamp), timestamp limit 1
+SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

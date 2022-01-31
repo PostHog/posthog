@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
@@ -16,18 +17,13 @@ class AvailableFeature(str, Enum):
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
+    EXPERIMENTATION = "experimentation"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
-
-SESSIONS_FILTER_RECORDING_TYPE = "recording"
-SESSIONS_FILTER_COHORT_TYPE = "cohort"
-SESSIONS_FILTER_PERSON_TYPE = "person"
-SESSIONS_FILTER_ACTION_TYPE = "action_type"
-SESSIONS_FILTER_EVENT_TYPE = "event_type"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -47,7 +43,6 @@ INSIGHT_STICKINESS = "STICKINESS"
 INSIGHT_LIFECYCLE = "LIFECYCLE"
 INSIGHT_FUNNELS = "FUNNELS"
 INSIGHT_PATHS = "PATHS"
-INSIGHT_SESSIONS = "SESSIONS"
 INSIGHT_RETENTION = "RETENTION"
 
 INSIGHT_TO_DISPLAY = {
@@ -56,16 +51,28 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_LIFECYCLE: TRENDS_LINEAR,
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_SESSIONS: TRENDS_LINEAR,
     INSIGHT_RETENTION: TRENDS_RETENTION,
+    # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
+    "SESSIONS": TRENDS_LINEAR,
 }
+
+DISPLAY_TYPES = Literal[
+    "ActionsLineGraphLinear",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPieChart",
+    "ActionsBarChart",
+    "ActionsBarValue",
+    "ActionsBarChartValue",
+]
+
+DEPRECATED_DISPLAY_TYPES = Literal[
+    "PathsViz", "FunnelViz",
+]
 
 
 TRENDS_STICKINESS = "Stickiness"
 TRENDS_LIFECYCLE = "Lifecycle"
-
-SESSION_AVG = "avg"
-SESSION_DIST = "dist"
 
 SCREEN_EVENT = "$screen"
 AUTOCAPTURE_EVENT = "$autocapture"
@@ -125,6 +132,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
@@ -157,6 +165,8 @@ PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
+
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group"]
 
 
 class FunnelOrderType(str, Enum):

@@ -21,7 +21,7 @@ export function ActionsPie({
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results } = useValues(logic)
+    const { results, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results]
@@ -47,14 +47,14 @@ export function ActionsPie({
                 borderWidth: 1,
             },
         ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
     }
 
     useEffect(() => {
         if (results) {
             updateData()
         }
-    }, [results, color])
+    }, [results, color, hiddenLegendKeys])
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -63,17 +63,19 @@ export function ActionsPie({
                     <LineGraph
                         data-attr="trend-pie-graph"
                         color={color}
+                        hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
                         datasets={data}
                         labels={data[0].labels}
+                        labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
                         insightId={insight.id}
                         onClick={
                             dashboardItemId || filtersParam.formula || !showPersonsModal
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index } = payload
-                                      const dataset = points.pointsIntersectingClick?.[0]?.dataset
+                                      const { points, index, seriesId } = payload
+                                      const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''
@@ -87,6 +89,7 @@ export function ActionsPie({
                                           date_from,
                                           date_to,
                                           filters: filtersParam,
+                                          seriesId,
                                           breakdown_value: breakdown_value ?? '',
                                       }
                                       if (dataset.persons_urls?.[index].url) {

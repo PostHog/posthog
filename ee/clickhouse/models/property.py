@@ -230,6 +230,39 @@ def prop_filter_json_extract(
             ),
             params,
         )
+    elif operator == "is_date_after":
+        # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        query = f"""AND coalesce(
+                parseDateTimeBestEffortOrNull({property_expr}),
+                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+            ) > %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+    elif operator == "is_date_before":
+        # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        query = f"""AND coalesce(
+                parseDateTimeBestEffortOrNull({property_expr}),
+                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+            ) < %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
@@ -314,10 +347,12 @@ def get_property_string_expr(
     var: str,
     column: str,
     allow_denormalized_props: bool = True,
+    table_alias: Optional[str] = None,
 ) -> Tuple[str, bool]:
     """
 
     :param table:
+        the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
@@ -325,14 +360,18 @@ def get_property_string_expr(
     :param column:
         the table column where JSON is stored or the name of a materialized column
     :param allow_denormalized_props:
+    :param table_alias:
+        (optional) alias of the table being queried
     :return:
     """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    if allow_denormalized_props and property_name in materialized_columns:
-        return materialized_columns[property_name], True
+    table_string = f"{table_alias}." if table_alias != None else ""
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({column}, {var}))", False
+    if allow_denormalized_props and property_name in materialized_columns:
+        return f"{table_string}{materialized_columns[property_name]}", True
+
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
@@ -459,7 +498,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += ".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += '{}="{}".*?'.format(key, value)
-        regex += r"([-_a-zA-Z0-9\.]*?)?($|;|:([^;^\s]*(;|$|\s)))"
+        regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += ".*"
     return regex

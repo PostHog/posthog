@@ -1,7 +1,12 @@
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries import person_distinct_id_query
 
 
-def test_person_distinct_id_query(settings, snapshot):
-    settings.PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = ["220"]
-    assert get_team_distinct_ids_query(2) == snapshot
-    assert get_team_distinct_ids_query(220) == snapshot
+def test_person_distinct_id_query(db, snapshot):
+    person_distinct_id_query.using_new_table = True
+    assert person_distinct_id_query.get_team_distinct_ids_query(2) == snapshot
+
+    person_distinct_id_query.using_new_table = False
+    assert person_distinct_id_query.get_team_distinct_ids_query(2) == snapshot
+
+    # Reset for other tests
+    person_distinct_id_query.using_new_table = True

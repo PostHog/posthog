@@ -1,5 +1,5 @@
 import { parseMetadataResponse, sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -9,6 +9,7 @@ import recordingEventsJson from './__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 jest.mock('lib/api')
 
@@ -22,15 +23,14 @@ const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/e
 describe('sessionRecordingLogic', () => {
     let logic: ReturnType<typeof sessionRecordingLogic.build>
 
-    mockAPI(async (url) => {
-        if (!!url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+    mockAPI(async ({ pathname }) => {
+        if (!!pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
             return { result: recordingSnapshotsJson }
-        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
+        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
             return { result: recordingMetaJson }
-        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
             return { results: recordingEventsJson }
         }
-        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({
@@ -54,13 +54,17 @@ describe('sessionRecordingLogic', () => {
             })
         })
         it('reads recording ids from the url', async () => {
-            router.actions.push('/recordings', {
-                sessionRecordingId: 'abc',
-            })
+            router.actions.push(
+                '/recordings',
+                {},
+                {
+                    sessionRecordingId: '1',
+                }
+            )
 
             await expectLogic(logic).toDispatchActions([
-                logic.actionCreators.loadRecordingMeta('abc'),
-                logic.actionCreators.loadRecordingSnapshots('abc'),
+                logic.actionCreators.loadRecordingMeta('1'),
+                logic.actionCreators.loadRecordingSnapshots('1'),
             ])
         })
     })
@@ -143,6 +147,7 @@ describe('sessionRecordingLogic', () => {
                     throw new Error('Oh no.')
                 }
             })
+            silenceKeaLoadersErrors()
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
             })
@@ -151,7 +156,7 @@ describe('sessionRecordingLogic', () => {
                     sessionPlayerData: null,
                 })
                 .toFinishAllListeners()
-
+            resumeKeaLoadersErrors()
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots('1')
             })
@@ -171,6 +176,7 @@ describe('sessionRecordingLogic', () => {
                 snapshotsByWindowId: {},
                 bufferedTo: null,
             }
+            silenceKeaLoadersErrors()
             api.get.mockImplementation(async (url: string) => {
                 if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
                     throw new Error('Oh no.')
@@ -194,6 +200,7 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: expected,
                 })
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -285,7 +292,7 @@ describe('sessionRecordingLogic', () => {
         })
         it('server error mid-fetch', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
-
+            silenceKeaLoadersErrors()
             api.get.mockClear()
             api.get
                 .mockImplementationOnce(async (url: string) => {
@@ -301,7 +308,6 @@ describe('sessionRecordingLogic', () => {
                 .mockImplementationOnce(async () => {
                     throw new Error('Error in third request')
                 })
-
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
             })
@@ -313,6 +319,7 @@ describe('sessionRecordingLogic', () => {
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsFailure'])
+            resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(3)
         })
         it('makes the events searchable', async () => {
@@ -421,7 +428,7 @@ describe('sessionRecordingLogic', () => {
 
             const snapshotUrl = createSnapshotEndpoint(1)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
-
+            silenceKeaLoadersErrors()
             api.get
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
@@ -447,6 +454,7 @@ describe('sessionRecordingLogic', () => {
                     logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
                     'loadRecordingSnapshotsFailure',
                 ])
+            resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(2)
         })
     })

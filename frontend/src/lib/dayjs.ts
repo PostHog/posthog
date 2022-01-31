@@ -1,4 +1,5 @@
-import dayjs from 'dayjs'
+// eslint-disable-next-line no-restricted-imports
+import dayjs, { Dayjs } from 'dayjs'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
@@ -14,4 +15,6 @@ dayjs.extend(isSameOrBefore)
 dayjs.extend(utc)
 dayjs.extend(timezone)
 
-export { dayjs }
+const now = (): Dayjs => dayjs()
+
+export { dayjs, now }

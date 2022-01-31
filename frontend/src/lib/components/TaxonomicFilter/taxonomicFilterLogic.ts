@@ -1,4 +1,4 @@
-import { BuiltLogic, kea } from 'kea'
+import { kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
@@ -18,7 +18,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { combineUrl } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -29,7 +31,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes'],
+            ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
@@ -90,9 +92,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
+        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
-            (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
+            (selectors) => [
+                selectors.currentTeamId,
+                selectors.groupAnalyticsTaxonomicGroups,
+                selectors.eventNames,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (teamId, groupAnalyticsTaxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     searchPlaceholder: 'events',
@@ -124,7 +132,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Event properties',
                     searchPlaceholder: 'event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
-                    endpoint: `api/projects/${teamId}/property_definitions`,
+                    endpoint: combineUrl(
+                        `api/projects/${teamId}/property_definitions`,
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
+                    ).url,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
                 },
@@ -203,24 +214,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (selectors) => [selectors.groupTypes, selectors.currentTeamId],
-            (groupTypes, teamId): TaxonomicFilterGroup[] =>
-                groupTypes.map((type, index) => ({
-                    name: capitalizeFirstLetter(type.group_type),
-                    searchPlaceholder: `${type.group_type} properties`,
-                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
+            (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
+            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
+                groupTypes.map((type) => ({
+                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
+                    searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
+                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
-                    value: `groupProperties_${index}`,
+                    value: `groupProperties_${type.group_type_index}`,
                     valuesEndpoint: (key) =>
-                        `api/projects/${teamId}/groups/property_values/?${toParams({ key, group_type_index: index })}`,
-                    getName: (group) => capitalizeFirstLetter(group.name),
+                        `api/projects/${teamId}/groups/property_values/?${toParams({
+                            key,
+                            group_type_index: type.group_type_index,
+                        })}`,
+                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
                     getValue: (group) => group.name,
-                    groupTypeIndex: index,
+                    groupTypeIndex: type.group_type_index,
                 })),
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
+            (taxonomicGroupTypes, props): Record<string, ReturnType<typeof infiniteListLogic.build>> =>
                 Object.fromEntries(
                     taxonomicGroupTypes.map((groupType) => [
                         groupType,

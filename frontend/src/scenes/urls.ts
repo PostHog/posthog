@@ -4,26 +4,29 @@ import { combineUrl } from 'kea-router'
 
 export const urls = {
     default: () => '/',
-    notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
+    sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
-    insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
+    insightNew: (filters?: Partial<FilterType>) =>
+        `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
     savedInsights: () => '/insights',
+    webPerformance: () => '/web-performance',
     sessionRecordings: () => '/recordings',
     person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
     groups: (groupTypeIndex: string) => `/groups/${groupTypeIndex}`,
+    // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true) =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}`,
     cohort: (id: string | number) => `/cohorts/${id}`,
@@ -39,6 +42,7 @@ export const urls = {
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
     organizationCreateFirst: () => '/organization/create',
+    toolbarLaunch: () => '/toolbar',
     // Onboarding / setup routes
     login: () => '/login',
     passwordReset: () => '/reset',

@@ -2,7 +2,7 @@ import React from 'react'
 import { Col, Row, Space, Tag, Typography } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
+import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import './InsightLabel.scss'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import clsx from 'clsx'
 import { groupsModel } from '~/models/groupsModel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export enum IconSize {
     Small = 'small',
@@ -26,6 +27,7 @@ interface InsightsLabelProps {
     breakdownValue?: BreakdownKeyType
     compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
+    hideCompare?: boolean // Whether to hide the compare detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
     iconStyle?: Record<string, any> // style on series color icon
@@ -34,11 +36,11 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
-    useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
-    hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
-    swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
     showEventName?: boolean // Override internally calculated to always show event name
+    showSingleName?: boolean // If label has default name and custom name, only show custom name. By default show both.
+    pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
+    pillMaxWidth?: number // Max width of each pill in px
 }
 
 interface MathTagProps {
@@ -49,7 +51,7 @@ interface MathTagProps {
 
 function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!math || math === 'total') {
         return <Tag>Total</Tag>
@@ -58,8 +60,7 @@ function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.
         return <Tag>Unique</Tag>
     }
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        const groupType = groupTypes[mathGroupTypeIndex]
-        return <Tag>Unique {groupType?.group_type || ''}(s)</Tag>
+        return <Tag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</Tag>
     }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
@@ -85,6 +86,7 @@ export function InsightLabel({
     breakdownValue,
     compareValue,
     hideBreakdown,
+    hideCompare,
     hideIcon,
     iconSize = IconSize.Large,
     iconStyle,
@@ -93,15 +95,18 @@ export function InsightLabel({
     hasMultipleSeries,
     showCountedByTag,
     allowWrap = false,
-    useCustomName = false,
     showEventName: _showEventName = false,
-    hideSeriesSubtitle,
     onLabelClick,
-    swapTitleAndSubtitle = false,
+    pillMidEllipsis = false,
+    pillMaxWidth,
+    showSingleName = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
+    const pillValues = [...(hideBreakdown ? [] : [breakdownValue].flat()), hideCompare ? null : compareValue].filter(
+        (pill) => !!pill
+    )
 
     return (
         <Row className={clsx('insights-label', className)} wrap={false}>
@@ -127,15 +132,14 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className={allowWrap ? '' : 'protect-width'} onClick={onLabelClick}>
+                <div className={clsx('label', allowWrap && 'wrap')} onClick={onLabelClick}>
                     {showEventName && (
                         <>
-                            {useCustomName && action ? (
+                            {action ? (
                                 <EntityFilterInfo
                                     filter={action}
-                                    showSubTitle={!hideSeriesSubtitle}
-                                    subTitles={[compareValue, ...[breakdownValue].flat()]}
-                                    swapTitleAndSubtitle={swapTitleAndSubtitle}
+                                    allowWrap={allowWrap}
+                                    showSingleName={showSingleName}
                                 />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
@@ -144,39 +148,38 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <span style={{ marginRight: 4 }}>
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </span>
                     )}
 
-                    {breakdownValue &&
-                        !hideBreakdown &&
-                        (Array.isArray(breakdownValue) ? (
-                            <Space direction={'horizontal'} wrap={true}>
-                                {breakdownValue.map((bv) => (
-                                    <Tag className="tag-pill" key={bv} closable={false}>
-                                        <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
-                                            {bv}
+                    {pillValues.length > 0 && (
+                        <Space direction={'horizontal'} wrap={true}>
+                            {pillValues.map((pill) => (
+                                <Tooltip title={pill} key={pill}>
+                                    <Tag className="tag-pill" closable={false}>
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: pill }}
+                                            style={{ maxWidth: pillMaxWidth }}
+                                        >
+                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
                                         </Typography.Text>
                                     </Tag>
-                                ))}
-                            </Space>
-                        ) : (
-                            <Space direction={'horizontal'} wrap={true}>
-                                <Tag className="tag-pill" key={breakdownValue} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: breakdownValue }} style={{ maxWidth: 165 }}>
-                                        {breakdownValue}
-                                    </Typography.Text>
-                                </Tag>
-                            </Space>
-                        ))}
+                                </Tooltip>
+                            ))}
+                        </Space>
+                    )}
                 </div>
             </Col>
-            <Col flex="none">
-                <span className="value">{value}</span>
-            </Col>
+            {value && (
+                <Col flex="none">
+                    <span className="value">{value}</span>
+                </Col>
+            )}
         </Row>
     )
 }

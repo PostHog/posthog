@@ -19,7 +19,7 @@ describe('Signup', () => {
     it('Cannot signup without required attributes', () => {
         cy.get('[data-attr=signup-submit]').click()
         cy.get('.ant-form-item-explain-error').should('contain', 'Please enter your email to continue')
-        cy.get('.ant-form-item-explain-error').should('contain', 'Please enter your first name')
+        cy.get('.ant-form-item-explain-error').should('contain', 'Please enter your name')
     })
 
     it('Cannot signup with invalid attributes', () => {

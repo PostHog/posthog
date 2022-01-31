@@ -15,14 +15,14 @@ flake8-import-order
 flake8-logging-format
 flake8-print
 pip-tools
-mypy>=0.910
+mypy>=0.930
 mypy-extensions
 djangorestframework-stubs
 django-stubs
 fakeredis
 freezegun
 packaging
-black
+black==19.10b0
 types-Markdown
 types-PyYAML
 types-freezegun
@@ -39,3 +39,4 @@ pytest-mock
 pytest-cov
 pytest-split
 syrupy
+numpy

@@ -1,22 +1,29 @@
 @import '~/vars';
 
+.insights-table.LemonTable--embedded {
+    border-top: 1px solid var(--border);
+}
+.dashboard .insights-table {
+    flex-grow: 1;
+    border-top: none;
+}
+
 .series-name-wrapper-col {
     display: flex;
     align-items: center;
 
     .edit-icon {
-        color: $primary;
+        color: var(--primary);
         cursor: pointer;
-        padding-right: 4px;
+        margin-left: 0.5rem;
     }
 
     .insights-label {
-        flex-grow: 1;
         &.editable {
             cursor: pointer;
             .ant-typography {
-                color: $primary;
-                font-weight: $medium;
+                color: var(--primary);
+                font-weight: 500;
             }
         }
     }

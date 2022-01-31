@@ -325,9 +325,7 @@ FROM (
 
 
 def get_interval(period: str) -> Union[timedelta, relativedelta]:
-    if period == "minute":
-        return timedelta(minutes=1)
-    elif period == "hour":
+    if period == "hour":
         return timedelta(hours=1)
     elif period == "day":
         return timedelta(days=1)
@@ -363,9 +361,7 @@ def get_time_diff(
 
 
 def get_trunc_func(period: str) -> Tuple[str, str]:
-    if period == "minute":
-        return "minute", "second"
-    elif period == "hour":
+    if period == "hour":
         return "hour", "minute"
     elif period == "day":
         return "day", "hour"
@@ -514,13 +510,13 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     counts = stats[1]
     labels = [
         ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")
         )
         for item in stats[0]
     ]
     days = [
         ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-            "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")
         )
         for item in stats[0]
     ]

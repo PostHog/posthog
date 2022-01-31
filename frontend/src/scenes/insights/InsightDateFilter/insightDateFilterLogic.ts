@@ -1,76 +1,36 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import { Dayjs } from 'dayjs'
-import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
-
-interface UrlParams {
-    date_from?: string
-    date_to?: string
-}
+import { InsightLogicProps } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
-    path: ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic'],
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic', key],
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters']],
+    }),
     actions: () => ({
-        setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
+        setDates: (dateFrom: string | undefined, dateTo: string | undefined) => ({
             dateFrom,
             dateTo,
         }),
-        dateAutomaticallyChanged: true,
-        endHighlightChange: true,
-        setInitialLoad: true,
     }),
-    reducers: () => ({
+    selectors: {
         dates: [
-            {
-                dateFrom: undefined as string | Dayjs | undefined,
-                dateTo: undefined as string | Dayjs | undefined,
-            },
-            {
-                setDates: (_, dates) => dates,
-            },
+            (s) => [s.filters],
+            (filters) => ({ dateFrom: filters?.date_from || null, dateTo: filters?.date_to || null }),
         ],
-        highlightDateChange: [
-            false,
-            {
-                dateAutomaticallyChanged: () => true,
-                endHighlightChange: () => false,
-            },
-        ],
-        initialLoad: [
-            true,
-            {
-                setInitialLoad: () => false,
-            },
-        ],
-    }),
-    listeners: ({ values, actions }) => ({
-        setDates: () => {
-            const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
-
-            searchParams.date_from = values.dates.dateFrom
-            searchParams.date_to = values.dates.dateTo
-
-            if (
-                (pathname.startsWith('/insights/') && !objectsEqual(date_from, values.dates.dateFrom)) ||
-                !objectsEqual(date_to, values.dates.dateTo)
-            ) {
-                router.actions.replace(pathname, searchParams, router.values.hashParams)
-            }
-        },
-        dateAutomaticallyChanged: async (_, breakpoint) => {
-            await breakpoint(2000)
-            actions.endHighlightChange()
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/edit)': (_: any, { date_from, date_to }: UrlParams) => {
-            if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
-                actions.dateAutomaticallyChanged()
-            }
-            actions.setDates(date_from, date_to)
-            actions.setInitialLoad()
+    },
+    listeners: ({ actions, values }) => ({
+        setDates: ({ dateFrom, dateTo }) => {
+            actions.setFilters({
+                ...values.filters,
+                date_from: dateFrom || null,
+                date_to: dateTo || null,
+            })
         },
     }),
 })

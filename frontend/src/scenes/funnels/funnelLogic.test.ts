@@ -1,8 +1,8 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
-import { api, defaultAPIMocks, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
+import { api, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initKeaTests } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,193 +24,205 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { mockInsight } from '~/test/mocks'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
 
 const Insight123 = '123' as InsightShortId
 
+const funnelResults = [
+    {
+        action_id: '$pageview',
+        count: 19,
+        name: '$pageview',
+        order: 0,
+        type: 'events',
+    },
+    {
+        action_id: '$pageview',
+        count: 7,
+        name: '$pageview',
+        order: 1,
+        type: 'events',
+    },
+    {
+        action_id: '$pageview',
+        count: 4,
+        name: '$pageview',
+        order: 2,
+        type: 'events',
+    },
+]
+
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
     let correlationConfig: TeamType['correlation_config'] = {}
 
-    mockAPI(async (url) => {
-        if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(url.pathname)) {
-            if (url.method === 'update') {
-                correlationConfig = {
-                    ...correlationConfig,
-                    excluded_person_property_names: url.data?.correlation_config?.excluded_person_property_names,
+    mockAPI(
+        async ({ pathname, method, data, searchParams }) => {
+            if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(pathname)) {
+                if (method === 'update') {
+                    correlationConfig = {
+                        ...correlationConfig,
+                        excluded_person_property_names: data?.correlation_config?.excluded_person_property_names,
+                    }
                 }
-            }
 
-            return {
-                ...MOCK_DEFAULT_TEAM,
-                correlation_config: correlationConfig,
-            }
-        } else if (url.pathname === '/some/people/url') {
-            return {
-                results: [{ people: [] }],
-            }
-        } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
-            return {
-                is_cached: true,
-                last_refresh: '2021-09-16T13:41:41.297295Z',
-                result: [
-                    {
-                        action_id: '$pageview',
-                        count: 19,
-                        name: '$pageview',
-                        order: 0,
-                        type: 'events',
+                return {
+                    ...MOCK_DEFAULT_TEAM,
+                    correlation_config: correlationConfig,
+                }
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/trend/`) {
+                return { results: ['trends result from api'] }
+            } else if (pathname === '/some/people/url') {
+                return {
+                    results: [{ people: [] }],
+                }
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
+                return {
+                    is_cached: true,
+                    last_refresh: '2021-09-16T13:41:41.297295Z',
+                    result: funnelResults,
+                    type: 'Funnel',
+                }
+            } else if (String(searchParams.short_id) === Insight123) {
+                return {
+                    results: funnelResults,
+                }
+            } else if (
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'properties'
+            ) {
+                const excludePropertyFromProjectNames = data?.funnel_correlation_exclude_names || []
+                const includePropertyNames = data?.funnel_correlation_names || []
+                return {
+                    is_cached: true,
+                    last_refresh: '2021-09-16T13:41:41.297295Z',
+                    result: {
+                        events: [
+                            {
+                                event: { event: 'some property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'success',
+                            },
+                            {
+                                event: { event: 'another property' },
+                                success_count: 1,
+                                failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'failure',
+                            },
+                        ]
+                            .filter(
+                                (correlation) =>
+                                    includePropertyNames.includes('$all') ||
+                                    includePropertyNames.includes(correlation.event.event)
+                            )
+                            .filter(
+                                (correlation) => !excludePropertyFromProjectNames.includes(correlation.event.event)
+                            ),
                     },
-                    {
-                        action_id: '$pageview',
-                        count: 7,
-                        name: '$pageview',
-                        order: 0,
-                        type: 'events',
+                    type: 'Funnel',
+                }
+            } else if (
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'events'
+            ) {
+                return {
+                    is_cached: true,
+                    last_refresh: '2021-09-16T13:41:41.297295Z',
+                    result: {
+                        events: [
+                            {
+                                event: { event: 'some event' },
+                                success_count: 1,
+                                failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'success',
+                            },
+                            {
+                                event: { event: 'another event' },
+                                success_count: 1,
+                                failure_count: 1,
+                                odds_ratio: 1,
+                                correlation_type: 'failure',
+                            },
+                        ],
                     },
-                    {
-                        action_id: '$pageview',
-                        count: 4,
-                        name: '$pageview',
-                        order: 0,
-                        type: 'events',
+                    type: 'Funnel',
+                }
+            } else if (
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'event_with_properties'
+            ) {
+                const targetEvent = data?.funnel_correlation_event_names[0]
+                const excludedProperties = data?.funnel_correlation_event_exclude_property_names
+                return {
+                    result: {
+                        events: [
+                            {
+                                success_count: 1,
+                                failure_count: 0,
+                                odds_ratio: 29,
+                                correlation_type: 'success',
+                                event: { event: `some event::name::Hester` },
+                            },
+                            {
+                                success_count: 1,
+                                failure_count: 0,
+                                odds_ratio: 29,
+                                correlation_type: 'success',
+                                event: { event: `some event::Another name::Alice` },
+                            },
+                            {
+                                success_count: 1,
+                                failure_count: 0,
+                                odds_ratio: 25,
+                                correlation_type: 'success',
+                                event: { event: `another event::name::Aloha` },
+                            },
+                            {
+                                success_count: 1,
+                                failure_count: 0,
+                                odds_ratio: 25,
+                                correlation_type: 'success',
+                                event: { event: `another event::Another name::Bob` },
+                            },
+                        ].filter(
+                            (record) =>
+                                record.event.event.split('::')[0] === targetEvent &&
+                                !excludedProperties.includes(record.event.event.split('::')[1])
+                        ),
+                        last_refresh: '2021-11-05T09:26:16.175923Z',
+                        is_cached: false,
                     },
-                ],
-                type: 'Funnel',
-            }
-        } else if (
-            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-            url.data?.funnel_correlation_type === 'properties'
-        ) {
-            const excludePropertyFromProjectNames = url.data?.funnel_correlation_exclude_names || []
-            const includePropertyNames = url.data?.funnel_correlation_names || []
-            return {
-                is_cached: true,
-                last_refresh: '2021-09-16T13:41:41.297295Z',
-                result: {
-                    events: [
-                        {
-                            event: { event: 'some property' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'success',
-                        },
-                        {
-                            event: { event: 'another property' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'failure',
-                        },
-                    ]
-                        .filter(
-                            (correlation) =>
-                                includePropertyNames.includes('$all') ||
-                                includePropertyNames.includes(correlation.event.event)
-                        )
-                        .filter((correlation) => !excludePropertyFromProjectNames.includes(correlation.event.event)),
-                },
-                type: 'Funnel',
-            }
-        } else if (
-            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-            url.data?.funnel_correlation_type === 'events'
-        ) {
-            return {
-                is_cached: true,
-                last_refresh: '2021-09-16T13:41:41.297295Z',
-                result: {
-                    events: [
-                        {
-                            event: { event: 'some event' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'success',
-                        },
-                        {
-                            event: { event: 'another event' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'failure',
-                        },
+                }
+            } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
+                return mockInsight
+            } else if (pathname === `api/person/properties`) {
+                return [
+                    { name: 'some property', count: 20 },
+                    { name: 'another property', count: 10 },
+                    { name: 'third property', count: 5 },
+                ]
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/groups/property_definitions`) {
+                return {
+                    '0': [
+                        { name: 'industry', count: 2 },
+                        { name: 'name', count: 1 },
                     ],
-                },
-                type: 'Funnel',
+                    '1': [{ name: 'name', count: 1 }],
+                }
+            } else if (pathname === `api/person/funnel/`) {
+                return { results: [], next: null }
             }
-        } else if (
-            url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-            url.data?.funnel_correlation_type === 'event_with_properties'
-        ) {
-            const targetEvent = url.data?.funnel_correlation_event_names[0]
-            const excludedProperties = url.data?.funnel_correlation_event_exclude_property_names
-            return {
-                result: {
-                    events: [
-                        {
-                            success_count: 1,
-                            failure_count: 0,
-                            odds_ratio: 29,
-                            correlation_type: 'success',
-                            event: { event: `some event::name::Hester` },
-                        },
-                        {
-                            success_count: 1,
-                            failure_count: 0,
-                            odds_ratio: 29,
-                            correlation_type: 'success',
-                            event: { event: `some event::Another name::Alice` },
-                        },
-                        {
-                            success_count: 1,
-                            failure_count: 0,
-                            odds_ratio: 25,
-                            correlation_type: 'success',
-                            event: { event: `another event::name::Aloha` },
-                        },
-                        {
-                            success_count: 1,
-                            failure_count: 0,
-                            odds_ratio: 25,
-                            correlation_type: 'success',
-                            event: { event: `another event::Another name::Bob` },
-                        },
-                    ].filter(
-                        (record) =>
-                            record.event.event.split('::')[0] === targetEvent &&
-                            !excludedProperties.includes(record.event.event.split('::')[1])
-                    ),
-                    last_refresh: '2021-11-05T09:26:16.175923Z',
-                    is_cached: false,
-                },
-            }
-        } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
-            return { results: [], next: null }
-        } else if (url.pathname === `api/person/properties`) {
-            return [
-                { name: 'some property', count: 20 },
-                { name: 'another property', count: 10 },
-                { name: 'third property', count: 5 },
-            ]
-        } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/groups/property_definitions`) {
-            return {
-                '0': [
-                    { name: 'industry', count: 2 },
-                    { name: 'name', count: 1 },
-                ],
-                '1': [{ name: 'name', count: 1 }],
-            }
-        } else if (url.pathname === `api/person/funnel/`) {
-            return { results: [], next: null }
-        }
-        return defaultAPIMocks(url, {
-            availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS],
-        })
-    })
+        },
+        undefined,
+        [AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS]
+    )
 
     initKeaTestLogic({
         logic: funnelLogic,
@@ -235,18 +247,6 @@ describe('funnelLogic', () => {
                 preflightLogic,
             ])
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-        })
-
-        it('has clickhouse enabled once preflight loads', async () => {
-            await expectLogic()
-                .toDispatchActions(preflightLogic, ['loadPreflight'])
-                .toMatchValues(logic, {
-                    clickhouseFeaturesEnabled: false,
-                })
-                .toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
-                .toMatchValues(logic, {
-                    clickhouseFeaturesEnabled: true,
-                })
         })
 
         it('sets filters after load if valid', async () => {
@@ -567,6 +567,12 @@ describe('funnelLogic', () => {
         })
     })
     describe('funnel correlation properties', () => {
+        const props = { dashboardItemId: Insight123, syncWithUrl: true }
+        initKeaTestLogic({
+            logic: funnelLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
         // NOTE: we need to, in some of these tests, explicitly push the
         // teamLogic to update the currentTeam, and also explicitly mount the
         // userLogic.
@@ -609,13 +615,20 @@ describe('funnelLogic', () => {
         })
 
         it('are updated when results are loaded, when steps visualisation set', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
-                })
-            })
-                .toFinishListeners()
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
                 .toMatchValues({
+                    steps: [
+                        { action_id: '$pageview', count: 19, name: '$pageview', order: 0, type: 'events' },
+                        { action_id: '$pageview', count: 7, name: '$pageview', order: 1, type: 'events' },
+                        { action_id: '$pageview', count: 4, name: '$pageview', order: 2, type: 'events' },
+                    ],
                     propertyCorrelations: {
                         events: [
                             {
@@ -638,7 +651,29 @@ describe('funnelLogic', () => {
                     },
                 })
         })
+        it('are not updated when results are loaded, when steps visualisation set, with one funnel step', async () => {
+            initKeaTests()
+            logic = funnelLogic({ dashboardItemId: Insight123, syncWithUrl: false })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                    result: [{ action_id: 'some event', order: 0 }],
+                })
+            })
+                .toFinishListeners()
+                .toMatchValues({
+                    steps: [{ action_id: 'some event', order: 0 }],
+                    propertyCorrelations: {
+                        events: [],
+                    },
+                    correlations: {
+                        events: [],
+                    },
+                })
+        })
         it('are not triggered when results are loaded, when trends visualisation set', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
@@ -762,11 +797,13 @@ describe('funnelLogic', () => {
                     },
                 })
 
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
-                })
-            })
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
+
+            await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
                     correlationValues: [
@@ -821,6 +858,12 @@ describe('funnelLogic', () => {
             })
             // FF set after mount, so groupPropertiesModel is empty. Hence, force reload these values.
             groupPropertiesModel.actions.loadAllGroupProperties()
+
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
                 .toFinishAllListeners()
@@ -924,11 +967,6 @@ describe('funnelLogic', () => {
     })
 
     describe('is modal active', () => {
-        it('modal is inactive when clickhouse is not enabled', async () => {
-            await expectLogic().toDispatchActions(preflightLogic, ['loadPreflight']).toMatchValues(logic, {
-                isModalActive: false,
-            })
-        })
         it('modal is inactive when viewed on dashboard', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await router.actions.push(urls.dashboard('1'))

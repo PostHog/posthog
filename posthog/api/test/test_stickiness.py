@@ -11,7 +11,6 @@ from freezegun import freeze_time
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.team import Team
-from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
 from posthog.utils import encode_get_request_params
@@ -67,7 +66,7 @@ class NormalizedTrendResult:
 
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
-    class TestStickiness(APIBaseTest, AbstractCompareTest):
+    class TestStickiness(APIBaseTest):
         def _create_multiple_people(self, period=timedelta(days=1), event_properties=lambda index: {}):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
@@ -186,33 +185,6 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][2], "3 days")
             self.assertEqual(response[0]["data"][2], 1)
             self.assertEqual(response[0]["labels"][6], "7 days")
-            self.assertEqual(response[0]["data"][6], 0)
-
-        def test_stickiness_minutes(self):
-            self._create_multiple_people(period=timedelta(minutes=1))
-
-            with freeze_time("2020-01-01T12:08:01Z"):
-                stickiness_response = get_stickiness_ok(
-                    client=self.client,
-                    team=self.team,
-                    request={
-                        "shown_as": "Stickiness",
-                        "date_from": "2020-01-01T12:00:00.00Z",
-                        "date_to": "2020-01-01T12:08:00.00Z",
-                        "events": [{"id": "watched movie"}],
-                        "interval": "minute",
-                    },
-                )
-                response = stickiness_response["result"]
-
-            self.assertEqual(response[0]["count"], 4)
-            self.assertEqual(response[0]["labels"][0], "1 minute")
-            self.assertEqual(response[0]["data"][0], 2)
-            self.assertEqual(response[0]["labels"][1], "2 minutes")
-            self.assertEqual(response[0]["data"][1], 1)
-            self.assertEqual(response[0]["labels"][2], "3 minutes")
-            self.assertEqual(response[0]["data"][2], 1)
-            self.assertEqual(response[0]["labels"][6], "7 minutes")
             self.assertEqual(response[0]["data"][6], 0)
 
         def test_stickiness_hours(self):
@@ -513,17 +485,3 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["data"][6], 0)
 
     return TestStickiness
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
-    action.calculate_events()
-    return action
-
-
-class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create, _create_action, Event.objects.earliest_timestamp)):  # type: ignore
-    pass

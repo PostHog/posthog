@@ -48,7 +48,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -306,11 +306,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 variantRolloutSum === 100,
         ],
         aggregationTargetName: [
-            (s) => [s.featureFlag, s.groupTypes],
-            (featureFlag, groupTypes): string => {
+            (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
+            (featureFlag, groupTypes, aggregationLabel): string => {
                 if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
-                    const groupType = groupTypes[featureFlag.filters.aggregation_group_type_index]
-                    return `${groupType.group_type}(s)`
+                    return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
                 return 'users'
             },
@@ -333,7 +332,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
                 {
-                    name: 'Feature flags',
+                    name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),

@@ -10,7 +10,7 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
@@ -85,9 +85,7 @@ function Bar({
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const { insightProps } = useValues(insightLogic)
-    const { clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
-    const cursorType = clickhouseFeaturesEnabled && !disabled ? 'pointer' : ''
+    const cursorType = !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
 
@@ -130,11 +128,11 @@ function Bar({
             trigger="hover"
             placement="right"
             content={
-                <InsightTooltip altTitle={popoverTitle}>
+                <LEGACY_InsightTooltip altTitle={popoverTitle}>
                     {popoverMetrics.map(({ title, value, visible }, index) =>
                         visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
                     )}
-                </InsightTooltip>
+                </LEGACY_InsightTooltip>
             }
         >
             <div
@@ -146,7 +144,7 @@ function Bar({
                     backgroundColor: getSeriesColor(breakdownIndex),
                 }}
                 onClick={() => {
-                    if (clickhouseFeaturesEnabled && !disabled && onBarClick) {
+                    if (!disabled && onBarClick) {
                         onBarClick()
                     }
                 }}
@@ -296,7 +294,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         visibleStepsWithConversionMetrics: steps,
         stepReference,
         barGraphLayout: layout,
-        clickhouseFeaturesEnabled,
         aggregationTargetLabel,
         isModalActive,
     } = useValues(logic)
@@ -361,8 +358,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
-                                {clickhouseFeaturesEnabled &&
-                                    filters.funnel_order_type !== StepOrderValue.UNORDERED &&
+                                {filters.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 <FunnelStepDropdown index={stepIndex} />
@@ -479,9 +475,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                                cursor: `${
-                                                    clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
-                                                }`,
+                                                cursor: `${!dashboardItemId ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -546,9 +540,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                                cursor: `${
-                                                    clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
-                                                }`,
+                                                cursor: `${!dashboardItemId ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>

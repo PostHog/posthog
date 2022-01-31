@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { cohortsModelType } from './cohortsModelType'
 import { CohortType } from '~/types'
+import { personsLogic } from 'scenes/persons/personsLogic'
 
 const POLL_TIMEOUT = 5000
 
@@ -17,8 +18,10 @@ export const cohortsModel = kea<cohortsModelType>({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
+                // TRICKY in tests this was returning undefined without calling list
                 const response = await api.cohorts.list()
-                return response.results
+                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
+                return response?.results || []
             },
         },
     }),

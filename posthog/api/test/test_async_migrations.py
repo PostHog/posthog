@@ -6,7 +6,8 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.async_migrations.definition import AsyncMigrationDefinition
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -17,7 +18,6 @@ def create_async_migration(
     posthog_min_version="1.0.0",
     posthog_max_version="100000.0.0",
     status=MigrationStatus.NotStarted,
-    last_error="",
 ):
     return AsyncMigration.objects.create(
         name=name,
@@ -25,7 +25,6 @@ def create_async_migration(
         posthog_min_version=posthog_min_version,
         posthog_max_version=posthog_max_version,
         status=status,
-        last_error=last_error,
     )
 
 
@@ -84,13 +83,15 @@ class TestAsyncMigration(APIBaseTest):
     def test_force_stop_endpoint(self, mock_run_async_migration):
         sm1 = create_async_migration(status=MigrationStatus.Running)
 
-        response = self.client.post(f"/api/async_migrations/{sm1.id}/force_stop").json()
+        response = self.client.post(f"/api/async_migrations/{sm1.id}/force_stop_without_rollback").json()
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
         self.assertEqual(response["success"], True)
         self.assertEqual(sm1.status, MigrationStatus.Errored)
-        self.assertEqual(sm1.last_error, "Force stopped by user")
+        errors = AsyncMigrationError.objects.filter(async_migration=sm1)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].description, "Force stopped by user")
 
     @patch("posthog.celery.app.control.revoke")
     def test_force_stop_endpoint_non_running_migration(self, mock_run_async_migration):
@@ -106,11 +107,14 @@ class TestAsyncMigration(APIBaseTest):
         # didn't change
         self.assertEqual(sm1.status, MigrationStatus.RolledBack)
 
-    def test_force_rollback_endpoint(self):
+    @patch("posthog.async_migrations.runner.get_async_migration_definition")
+    def test_force_rollback_endpoint(self, mock_get_migration_definition):
+        mock_get_migration_definition.return_value = AsyncMigrationDefinition()
         sm1 = create_async_migration(status=MigrationStatus.CompletedSuccessfully)
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
+        mock_get_migration_definition.assert_called_once()
         self.assertEqual(response["success"], True)
 
     def test_force_rollback_endpoint_migration_not_complete(self):

@@ -96,7 +96,6 @@
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
                 "session_recording_opt_in": true,
-                "session_recording_retention_period_days": null,
                 "effective_membership_level": 15,
                 "access_control": false
             },
@@ -204,7 +203,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": false,
                     "db_backend": "postgres",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -436,10 +434,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -457,10 +451,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},
@@ -1624,12 +1614,6 @@
                     {
                         "id": "017c49bd-c5bb-0000-03b8-c42fe71652c5",
                         "name": "interval",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
-                        "id": "017c49bd-c5b5-0000-2339-428a6a70e29a",
-                        "name": "is_clickhouse_enabled",
                         "is_numerical": false,
                         "query_usage_30_day": null
                     },

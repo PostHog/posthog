@@ -1,81 +1,118 @@
-@import '~/vars';
-
-.ph-graph-tooltip,
-.ant-popover {
+.ph-graph-tooltip {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid var(--border);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     font-size: 14px;
-    overflow-x: hidden;
-    z-index: $z_graph_tooltip;
+    z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
-}
-
-.ph-graph-tooltip {
     max-width: 480px;
-    padding: 8px 12px;
-    border: 1px solid $border;
-    border-radius: $radius;
+    border-radius: var(--radius);
     background: #fafafa;
-}
 
-.inner-tooltip {
-    &.multiple {
-        header {
-            padding-bottom: 8px;
-            border-bottom: 1px solid $border;
+    .LemonTable {
+        font-size: 0.75rem;
+        border: none;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        border-bottom: 1px solid var(--border);
+
+        .insights-label {
+            margin: 0;
         }
 
-        footer {
-            margin-top: 0 !important;
-            padding-top: 6px;
-            border-top: 1px solid $border;
+        .color-column {
+            padding: 0;
+            width: 6px;
+        }
+
+        .datum-column {
+            padding-left: 0.5rem;
+        }
+
+        .LemonTable__scroll {
+            width: 100%;
+            overflow: hidden;
+        }
+        .LemonTable__content > table > thead {
+            .datum-column {
+                .LemonTable__header-content {
+                    white-space: nowrap;
+                }
+            }
+
+            .datum-counts-column {
+                .ant-typography {
+                    text-align: left;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: 2; /* number of lines to show */
+                    line-height: 1rem; /* fallback */
+                    max-height: calc(1rem * 2); /* fallback */
+                }
+            }
+        }
+
+        .LemonTable__content > table > tbody {
+            .color-column {
+                position: relative;
+
+                .color-cell {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    width: 6px;
+                }
+            }
+            .datum-label-column {
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+
+                .ant-typography {
+                    text-align: left;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: 2; /* number of lines to show */
+                    line-height: 1rem; /* fallback */
+                    max-height: calc(1rem * 2); /* fallback */
+                }
+            }
+            .series-data-cell {
+                font-weight: 600;
+            }
+            .tag-pill {
+                background-color: rgba(0, 0, 0, 0.08);
+                margin-right: 0;
+                border: 0;
+                color: var(--bg-navy);
+                overflow: hidden;
+                vertical-align: middle;
+            }
         }
     }
 
-    header {
-        font-weight: bold;
-        margin-bottom: $default_spacing / 2;
-    }
+    .table-subtext {
+        font-size: 0.75rem;
+        text-align: center;
+        padding: 8px 16px;
+        color: var(--text-muted);
+        background-color: var(--bg-light);
 
-    footer {
-        margin-top: 0.5rem;
-        font-weight: bold;
-        font-size: 85%;
-        color: $text_muted;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        svg {
-            font-size: 1.4em;
-            margin-right: 4px;
+        .table-subtext-truncated {
+            margin-bottom: 4px;
         }
-    }
 
-    .series-container {
-        position: relative;
-    }
-
-    .inspect-persons-label {
-        display: flex;
-        align-items: center;
-        margin-top: 2px;
-        font-style: italic;
-        svg {
-            margin-left: 2px;
-            margin-right: 6px;
-        }
-    }
-
-    ul {
-        list-style-type: none;
-        padding: 0;
-        margin-bottom: 0;
-        max-height: 32vh;
-        overflow-y: hidden; // As the element has pointer-events: none to allow proper function, scrolling is not supported anyways
-
-        li {
+        .table-subtext-click-to-inspect {
             display: flex;
             align-items: center;
-            padding-bottom: 2px;
+            justify-content: center;
+            color: var(--text-default);
+            font-weight: 600;
         }
     }
 }

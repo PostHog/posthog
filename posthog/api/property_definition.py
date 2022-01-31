@@ -1,3 +1,4 @@
+import json
 from typing import Any, Type
 
 from rest_framework import mixins, permissions, serializers, viewsets
@@ -35,6 +36,10 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "is_numerical",
             "query_usage_30_day",
+            "property_type",
+            "property_type_format",
+            # This is a calculated property, used only when "event_names" is passed to the API.
+            "is_event_property",
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
@@ -56,42 +61,66 @@ class PropertyDefinitionViewSet(
     search_fields = ["name"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        use_entreprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
+        if use_entreprise_taxonomy:
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
-                pass
-            else:
-                properties_to_filter = self.request.GET.get("properties", None)
-                if properties_to_filter:
-                    names = tuple(properties_to_filter.split(","))
-                    name_filter = "AND name IN %(names)s"
-                else:
-                    names = ()
-                    name_filter = ""
+                use_entreprise_taxonomy = False
 
-                search = self.request.GET.get("search", None)
-                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
-                ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
-                    f"""
-                    SELECT *
-                    FROM ee_enterprisepropertydefinition
-                    FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                    ORDER BY query_usage_30_day DESC NULLS LAST, name ASC
-                    """,
-                    params={
-                        "names": names,
-                        "team_id": self.team_id,
-                        "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
-                        **search_kwargs,
-                    },
-                )
-                return ee_property_definitions
+        properties_to_filter = self.request.GET.get("properties", None)
+        if properties_to_filter:
+            names = tuple(properties_to_filter.split(","))
+            name_filter = "AND name IN %(names)s"
+        else:
+            names = ()
+            name_filter = ""
 
-        return self.filter_queryset_by_parents_lookups(
-            PropertyDefinition.objects.exclude(name__in=HIDDEN_PROPERTY_DEFINITIONS)
-        ).order_by(self.ordering)
+        # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
+        event_names = self.request.GET.get("event_names", None)
+        if event_names:
+            event_names = json.loads(event_names)
+
+        if event_names and len(event_names) > 0:
+            event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
+        else:
+            event_property_field = "NULL"
+
+        search = self.request.GET.get("search", None)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+
+        params = {
+            "event_names": tuple(event_names or []),
+            "names": names,
+            "team_id": self.team_id,
+            "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
+            **search_kwargs,
+        }
+
+        if use_entreprise_taxonomy:
+            return EnterprisePropertyDefinition.objects.raw(
+                f"""
+                SELECT posthog_propertydefinition.*,
+                       ee_enterprisepropertydefinition.*, 
+                       {event_property_field} AS is_event_property
+                FROM posthog_propertydefinition
+                LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
+                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                """,
+                params=params,
+            )
+        else:
+            return PropertyDefinition.objects.raw(
+                f"""
+                SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
+                FROM posthog_propertydefinition
+                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                """,
+                params=params,
+            )
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

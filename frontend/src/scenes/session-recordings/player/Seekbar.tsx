@@ -3,12 +3,14 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { RecordingEventType } from '~/types'
+import { RecordingEventType, RecordingSegment } from '~/types'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function Tick({ event }: { event: RecordingEventType }): JSX.Element {
     const [hovering, setHovering] = useState(false)
     const { handleTickClick } = useActions(seekbarLogic)
+    const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     return (
         <div
             className="tick-hover-box"
@@ -22,6 +24,7 @@ function Tick({ event }: { event: RecordingEventType }): JSX.Element {
             onMouseEnter={(e) => {
                 e.stopPropagation()
                 setHovering(true)
+                reportRecordingPlayerSeekbarEventHovered()
             }}
             onMouseLeave={(e) => {
                 e.stopPropagation()
@@ -39,7 +42,7 @@ export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic)
-    const { eventsToShow } = useValues(sessionRecordingLogic)
+    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingLogic)
     const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
@@ -54,6 +57,19 @@ export function Seekbar(): JSX.Element {
     return (
         <div className="rrweb-controller-slider">
             <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
+                <div className="inactivity-bar">
+                    {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
+                        <div
+                            key={`${segment.windowId}-${segment.startTimeEpochMs}`}
+                            className={clsx('activity-section', !segment.isActive && 'inactive-section')}
+                            style={{
+                                width: `${
+                                    (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
+                                }%`,
+                            }}
+                        />
+                    ))}
+                </div>
                 <div className="slider-bar" />
                 <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
                 <div className="current-bar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />

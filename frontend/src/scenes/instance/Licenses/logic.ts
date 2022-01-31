@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
 import { APIErrorType, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/logic'
+import { isLicenseExpired } from '.'
 
 export const licenseLogic = kea<licenseLogicType>({
     path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
@@ -45,6 +46,15 @@ export const licenseLogic = kea<licenseLogicType>({
             null as null | APIErrorType,
             {
                 setError: (_, { error }) => error,
+            },
+        ],
+    },
+    selectors: {
+        relevantLicense: [
+            (s) => [s.licenses],
+            (licenses): LicenseType | undefined => {
+                // We determine the most relevant license to be the one that's still active OR the one addded last
+                return licenses.find((license) => !isLicenseExpired(license)) || licenses[licenses.length - 1]
             },
         ],
     },

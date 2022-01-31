@@ -10,6 +10,8 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
+import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
+import { PropertyDefinitionsCache } from './property-definitions-cache'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
@@ -18,35 +20,38 @@ export class TeamManager {
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
-    eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: timestamp (in ms)
-    lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
-    propertyDefinitionsCache: Map<TeamId, Set<string>>
+    eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
+    propertyDefinitionsCache: PropertyDefinitionsCache
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
-    propertyCounterTeams: Set<number>
+    experimentalEventPropertyTrackerEnabled: boolean
     statsd?: StatsD
+    private readonly lruCacheSize: number
 
     constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
         this.teamCache = new Map()
         this.eventDefinitionsCache = new Map()
+        this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
         this.eventPropertiesCache = new LRU({
-            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
-            maxAge: ONE_HOUR, // and each for up to 1 hour
+            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
+            maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.eventLastSeenCache = new Map()
-        this.propertyDefinitionsCache = new Map()
+        this.eventLastSeenCache = new LRU({
+            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
+            maxAge: ONE_HOUR * 24, // cache up to 24h
+            updateAgeOnGet: true,
+        })
+        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
-        this.lastFlushAt = DateTime.now()
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
-        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS
         this.experimentalLastSeenAtEnabled = serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED ?? false
-        this.propertyCounterTeams = new Set(
-            (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS || '').split(',').map(parseInt)
-        )
+
+        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED
+        this.experimentalEventPropertyTrackerEnabled = serverConfig.EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED ?? false
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -63,47 +68,6 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
-    }
-
-    async flushLastSeenAtCache(): Promise<void> {
-        const valuesStatements = []
-        const params: (string | number)[] = []
-
-        const startTime = DateTime.now()
-        const cacheSize = this.eventLastSeenCache.size
-
-        const lastFlushedSecondsAgo = DateTime.now().diff(this.lastFlushAt).as('seconds')
-        status.info(
-            `🚽 Starting flushLastSeenAtCache. Cache size: ${cacheSize} items. Last flushed: ${lastFlushedSecondsAgo} seconds ago.`
-        )
-
-        const events = this.eventLastSeenCache
-        this.eventLastSeenCache = new Map()
-
-        for (const [key, timestamp] of events) {
-            const [teamId, eventName] = JSON.parse(key)
-            if (teamId && eventName && timestamp) {
-                valuesStatements.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3})`)
-                params.push(teamId, eventName, timestamp / 1000)
-            }
-        }
-
-        this.lastFlushAt = DateTime.now()
-
-        if (params.length) {
-            await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::numeric))
-                FROM (VALUES ${valuesStatements.join(',')}) AS t2(team_id, name, last_seen_at)
-                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
-                params,
-                'updateEventLastSeen'
-            )
-        }
-        const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
-        this.statsd?.set('flushLastSeenAtCache.Size', cacheSize)
-        this.statsd?.set('flushLastSeenAtCache.QuerySize', params.length)
-        this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
-        status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
@@ -134,23 +98,25 @@ export class TeamManager {
     }
 
     private async syncEventDefinitions(team: Team, event: string) {
+        const cacheKey = JSON.stringify([team.id, event])
+        const cacheTime = parseInt(DateTime.now().toFormat('yyyyMMdd', { timeZone: 'UTC' }))
+
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
                 status.info('Inserting new event definition with last_seen_at')
+                this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
-                        ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
-                        ` DO UPDATE SET last_seen_at=$4`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
+VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
                     [new UUIDT().toString(), event, team.id, DateTime.now()],
                     'insertEventDefinition'
                 )
             } else {
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, NOW())` +
-                        ` ON CONFLICT DO NOTHING`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
+VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                     [new UUIDT().toString(), event, team.id],
                     'insertEventDefinition'
                 )
@@ -159,23 +125,20 @@ export class TeamManager {
         } else {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
-                const eventCacheKey = JSON.stringify([team.id, event])
-                const timestamp = DateTime.now().valueOf()
-                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < timestamp) {
-                    this.eventLastSeenCache.set(eventCacheKey, timestamp)
-                }
-                // TODO: Allow configuring this via env vars
-                // We flush here every 2 mins (as a failsafe) because the main thread flushes every minute
-                if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).as('seconds') > 120) {
-                    // to not run out of memory
-                    await this.flushLastSeenAtCache()
+                if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
+                    this.eventLastSeenCache.set(cacheKey, cacheTime)
+                    await this.db.postgresQuery(
+                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
+                        [DateTime.now(), team.id, event],
+                        'updateEventLastSeenAt'
+                    )
                 }
             }
         }
     }
 
     private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
-        if (!this.propertyCounterTeams.has(team.id)) {
+        if (!this.experimentalEventPropertyTrackerEnabled) {
             return
         }
         const key = JSON.stringify([team.id, event])
@@ -198,13 +161,21 @@ export class TeamManager {
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
-            if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
+            if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
+                const isNumerical = typeof value === 'number'
+                const propertyType = detectPropertyDefinitionTypes(value, key)
+
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, NULL, NULL, $4) ON CONFLICT DO NOTHING`,
-                    [new UUIDT().toString(), key, typeof value === 'number', team.id],
+                    `
+INSERT INTO posthog_propertydefinition
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
+DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
+                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, null],
                     'insertPropertyDefinition'
                 )
-                this.propertyDefinitionsCache.get(team.id)?.add(key)
+                this.propertyDefinitionsCache.set(team.id, key, propertyType)
             }
         }
     }
@@ -253,19 +224,18 @@ export class TeamManager {
             this.eventDefinitionsCache.set(teamId, eventDefinitionsCache)
         }
 
-        let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
-        if (!propertyDefinitionsCache) {
+        if (!this.propertyDefinitionsCache.has(teamId)) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
+                'SELECT name, property_type FROM posthog_propertydefinition WHERE team_id = $1',
                 [teamId],
                 'fetchPropertyDefinitions'
             )
-            propertyDefinitionsCache = new Set(eventProperties.rows.map((r) => r.name))
-            this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
+
+            this.propertyDefinitionsCache.initialize(teamId, eventProperties.rows)
         }
 
         // Run only if the feature is enabled for this team
-        if (this.propertyCounterTeams.has(teamId)) {
+        if (this.experimentalEventPropertyTrackerEnabled) {
             const cacheKey = JSON.stringify([teamId, event])
             let properties = this.eventPropertiesCache.get(cacheKey)
             if (!properties) {
@@ -280,7 +250,7 @@ export class TeamManager {
                 // All-in-all, not the end of the world, but a slight nuisance.
 
                 const eventProperties = await this.db.postgresQuery(
-                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 and event = $2',
+                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 AND event = $2',
                     [teamId, event],
                     'fetchEventProperties'
                 )

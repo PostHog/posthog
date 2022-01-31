@@ -38,7 +38,6 @@
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -47,6 +46,7 @@
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
          "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -118,7 +118,9 @@
          "posthog_dashboarditem"."updated_at",
          "posthog_dashboarditem"."tags",
          "posthog_dashboarditem"."favorited",
-         "posthog_dashboarditem"."refresh_attempt"
+         "posthog_dashboarditem"."refresh_attempt",
+         "posthog_dashboarditem"."last_modified_at",
+         "posthog_dashboarditem"."last_modified_by_id"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."team_id" = 2
          AND NOT "posthog_dashboarditem"."deleted")

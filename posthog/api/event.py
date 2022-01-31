@@ -95,12 +95,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # Return at most this number of events in CSV export
-    CSV_EXPORT_DEFAULT_LIMIT = 10_000
+    CSV_EXPORT_DEFAULT_LIMIT = 3_500
     CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
-        if self.action == "list" or self.action == "sessions" or self.action == "actions":
+        if self.action == "list" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
         order_by = self._parse_order_by(self.request)
         return queryset.order_by(*order_by)
@@ -243,7 +243,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             return [{"name": value["event"]} for value in event_names]
 
         if request.GET.get("value"):
-            where = " AND properties ->> %s LIKE %s"
+            where = " AND properties ->> %s ILIKE %s"
             params.append(key)
             params.append("%{}%".format(request.GET["value"]))
         else:

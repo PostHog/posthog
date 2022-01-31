@@ -1,7 +1,7 @@
 import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
 import { Button, Col } from 'antd'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
@@ -9,7 +9,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -17,6 +16,10 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -26,6 +29,7 @@ export function TaxonomicPropertyFilter({
     onComplete,
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
+    eventNames,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -43,12 +47,17 @@ export function TaxonomicPropertyFilter({
             onComplete?.()
         }
     }
+    const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
+        propertyFilterLogic: builtPropertyFilterLogic,
         filterIndex: index,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
+        eventNames,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -66,11 +75,18 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
+            eventNames={eventNames}
         />
     )
 
     return (
-        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown large' : ' row-on-page'}`}>
+        <div
+            className={clsx(
+                'taxonomic-property-filter',
+                disablePopover && 'row-on-page',
+                !disablePopover && ' in-dropdown large'
+            )}
+        >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
@@ -113,6 +129,7 @@ export function TaxonomicPropertyFilter({
 
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
+                            allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}

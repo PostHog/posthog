@@ -1,4 +1,4 @@
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -12,19 +12,21 @@ const Insight123 = '123' as InsightShortId
 describe('pathsLogic', () => {
     let logic: ReturnType<typeof pathsLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
+    mockAPI(async ({ pathname, searchParams }) => {
         if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights/path`,
                 `api/projects/${MOCK_TEAM_ID}/insights/paths/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/123`,
-                `api/projects/${MOCK_TEAM_ID}/insights`,
+                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
             ].includes(pathname)
         ) {
             return { result: ['result from api'] }
+        } else if (
+            String(searchParams.short_id) === Insight123 ||
+            [`api/projects/${MOCK_TEAM_ID}/insights`].includes(pathname)
+        ) {
+            return { results: ['result from api'] }
         }
-        return defaultAPIMocks(url)
     })
 
     describe('syncs with insightLogic', () => {

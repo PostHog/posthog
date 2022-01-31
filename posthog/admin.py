@@ -133,7 +133,6 @@ class OrganizationTeamInline(admin.TabularInline):
         "completed_snippet_onboarding",
         "ingested_event",
         "session_recording_opt_in",
-        "session_recording_retention_period_days",
         "signup_token",
         "is_demo",
         "access_control",

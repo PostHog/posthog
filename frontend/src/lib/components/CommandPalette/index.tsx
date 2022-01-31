@@ -27,7 +27,7 @@ export function CommandPalette(): JSX.Element | null {
             if (activeFlow) {
                 backFlow()
             }
-            // If no flw, erase input
+            // If no flow, erase input
             else if (input) {
                 setInput('')
             }

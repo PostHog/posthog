@@ -226,6 +226,12 @@ export const sceneLogic = kea<sceneLogicType>({
                 return
             }
 
+            if (scene === Scene.Login && preflight?.demo) {
+                // In the demo environment, there's only passwordless "login" via the signup scene
+                router.actions.replace(urls.signup())
+                return
+            }
+
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {

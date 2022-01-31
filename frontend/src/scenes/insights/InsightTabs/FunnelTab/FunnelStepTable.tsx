@@ -136,6 +136,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 iconStyle={{ marginRight: 12 }}
                                 allowWrap
                                 hideIcon
+                                pillMaxWidth={165}
                             />,
                             renderColumnTitle('Breakdown'),
                             showLabels,
@@ -443,12 +444,12 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ? step.breakdown_value
                                 : undefined
                         }
+                        pillMaxWidth={165}
                         hideBreakdown={step.isBreakdownParent}
                         iconSize={IconSize.Small}
                         iconStyle={{ marginRight: 12 }}
                         hideIcon
                         allowWrap
-                        useCustomName
                         showEventName={step.isBreakdownParent}
                     />
                 )

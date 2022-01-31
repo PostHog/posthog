@@ -30,7 +30,7 @@ export function InsightLegendButton(): JSX.Element | null {
     return (
         <Button className="insight-legend-button" onClick={toggleInsightLegend}>
             <IconLegend />
-            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} legend</span>
+            <span className="insight-legend-button-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
         </Button>
     )
 }
@@ -38,7 +38,7 @@ export function InsightLegendButton(): JSX.Element | null {
 export function InsightLegend(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { indexedResults, visibilityMap } = useValues(logic)
+    const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
     const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
 
@@ -49,30 +49,33 @@ export function InsightLegend(): JSX.Element {
                     indexedResults.map((item) => {
                         return (
                             <Row key={item.id} className="insight-legend-menu-item" wrap={false}>
-                                <Col>
-                                    <PHCheckbox
-                                        color={colorList[item.id]}
-                                        checked={visibilityMap[item.id]}
-                                        onChange={() => toggleVisibility(item.id)}
-                                    />
-                                </Col>
-                                <Col>
-                                    <InsightLabel
-                                        key={item.id}
-                                        seriesColor={colorList[item.id]}
-                                        action={item.action}
-                                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                        hasMultipleSeries={indexedResults.length > 1}
-                                        breakdownValue={
-                                            item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
-                                        }
-                                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                                        hideIcon
-                                        useCustomName
-                                        hideSeriesSubtitle={false}
-                                        swapTitleAndSubtitle={!!filters.breakdown || !!filters.compare}
-                                    />
-                                </Col>
+                                <div
+                                    className="insight-legend-menu-item-inner"
+                                    onClick={() => toggleVisibility(item.id)}
+                                >
+                                    <Col>
+                                        <PHCheckbox
+                                            color={colorList[item.id]}
+                                            checked={!hiddenLegendKeys[item.id]}
+                                            onChange={() => {}}
+                                        />
+                                    </Col>
+                                    <Col>
+                                        <InsightLabel
+                                            key={item.id}
+                                            seriesColor={colorList[item.id]}
+                                            action={item.action}
+                                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                            hasMultipleSeries={indexedResults.length > 1}
+                                            breakdownValue={
+                                                item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
+                                            }
+                                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                            hideIcon
+                                        />
+                                    </Col>
+                                </div>
                             </Row>
                         )
                     })}

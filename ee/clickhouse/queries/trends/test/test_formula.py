@@ -8,7 +8,6 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.test.base import APIBaseTest
 
 
@@ -17,7 +16,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFormula(AbstractIntervalTest, APIBaseTest):
+class TestFormula(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
@@ -82,11 +81,6 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
                 self.team,
             )
         return action_response
-
-    def test_minute_interval(self):
-        data = self._run({"date_from": "-1h", "interval": "minute"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
-        self.assertEqual(data[-2], 1000.0)
-        self.assertEqual(data[-5], 800.0)
 
     def test_hour_interval(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]

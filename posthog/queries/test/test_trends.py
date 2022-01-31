@@ -21,17 +21,14 @@ from posthog.models import (
     Organization,
     Person,
 )
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
-from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends, breakdown_label
-from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 from posthog.utils import generate_cache_key, relative_date_parse
 
 
 # parameterize tests to reuse in EE
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
-    class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
+    class TestTrends(APIBaseTest):
         maxDiff = None
 
         def _get_trend_people(self, filter: Filter, entity: Entity):
@@ -100,8 +97,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             no_events = action_factory(team=self.team, name="no events")
             sign_up_action = action_factory(team=self.team, name="sign up")
-
-            calculate_actions_from_last_calculation()
 
             return sign_up_action, person
 
@@ -542,13 +537,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             with freeze_time("2020-01-04T13:00:01Z"):
                 response = trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
 
-            self.assertEqual(response[0]["label"], "sign up - current")
+            self.assertEqual(response[0]["label"], "sign up")
             self.assertEqual(response[0]["labels"][4], "day 4")
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "day 5")
             self.assertEqual(response[0]["data"][5], 1.0)
 
-            self.assertEqual(response[1]["label"], "sign up - previous")
+            self.assertEqual(response[1]["label"], "sign up")
             self.assertEqual(response[1]["labels"][4], "day 4")
             self.assertEqual(response[1]["data"][4], 1.0)
             self.assertEqual(response[1]["labels"][5], "day 5")
@@ -585,58 +580,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(result[0]["data"], response[0]["data"])
             self.assertEqual(result[0]["labels"], response[0]["labels"])
             self.assertEqual(result[0]["days"], response[0]["days"])
-
-        def test_minute_interval(self):
-            self._test_events_with_dates(
-                dates=["2020-11-01 10:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
-                interval="minute",
-                date_from="2020-11-01 10:20:00",
-                date_to="2020-11-01 10:30:00",
-                result=[
-                    {
-                        "action": {
-                            "id": "event_name",
-                            "type": "events",
-                            "order": None,
-                            "name": "event_name",
-                            "custom_name": None,
-                            "math": None,
-                            "math_property": None,
-                            "math_group_type_index": None,
-                            "properties": [],
-                        },
-                        "label": "event_name",
-                        "count": 3.0,
-                        "data": [1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                        "labels": [
-                            "1-Nov-2020 10:20",
-                            "1-Nov-2020 10:21",
-                            "1-Nov-2020 10:22",
-                            "1-Nov-2020 10:23",
-                            "1-Nov-2020 10:24",
-                            "1-Nov-2020 10:25",
-                            "1-Nov-2020 10:26",
-                            "1-Nov-2020 10:27",
-                            "1-Nov-2020 10:28",
-                            "1-Nov-2020 10:29",
-                            "1-Nov-2020 10:30",
-                        ],
-                        "days": [
-                            "2020-11-01 10:20:00",
-                            "2020-11-01 10:21:00",
-                            "2020-11-01 10:22:00",
-                            "2020-11-01 10:23:00",
-                            "2020-11-01 10:24:00",
-                            "2020-11-01 10:25:00",
-                            "2020-11-01 10:26:00",
-                            "2020-11-01 10:27:00",
-                            "2020-11-01 10:28:00",
-                            "2020-11-01 10:29:00",
-                            "2020-11-01 10:30:00",
-                        ],
-                    }
-                ],
-            )
 
         def test_hour_interval(self):
             self._test_events_with_dates(
@@ -869,7 +812,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self._test_events_with_dates(
                 dates=["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
                 date_from="-1d",
-                date_to="dStart",
+                date_to="-1d",
                 query_time="2020-11-02 10:20:00",
                 result=[
                     {
@@ -886,9 +829,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 3.0,
-                        "data": [3.0, 0.0],
-                        "labels": ["1-Nov-2020", "2-Nov-2020"],
-                        "days": ["2020-11-01", "2020-11-02"],
+                        "data": [3.0],
+                        "labels": ["1-Nov-2020"],
+                        "days": ["2020-11-01"],
                     }
                 ],
             )
@@ -1372,15 +1315,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def test_interval_filtering(self):
             self._create_events(use_time=True)
 
-            # test minute
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
-                    self.team,
-                )
-            self.assertEqual(response[0]["labels"][6], "1-Jan-2020 00:06")
-            self.assertEqual(response[0]["data"][6], 3.0)
-
             # test hour
             with freeze_time("2020-01-02"):
                 response = trends().run(
@@ -1707,7 +1641,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": value}
                 )
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
-            calculate_actions_from_last_calculation()
             return sign_up_action
 
         def _test_math_property_aggregation(self, math_property, values, expected_value):
@@ -1767,7 +1700,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
-            calculate_actions_from_last_calculation()
             action_response = trends().run(
                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
                 self.team,
@@ -1997,24 +1929,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 team=self.team,
                 groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
             )
-
-            # test minute
-            with freeze_time("2020-01-02"):
-                response = trends().run(
-                    Filter(
-                        data={
-                            "date_from": "2020-01-01",
-                            "interval": "minute",
-                            "events": [{"id": "sign up"}],
-                            "breakdown": json.dumps([cohort.pk]),
-                            "breakdown_type": "cohort",
-                        }
-                    ),
-                    self.team,
-                )
-
-            self.assertEqual(response[0]["labels"][6], "1-Jan-2020 00:06")
-            self.assertEqual(response[0]["data"][6], 3.0)
 
             # test hour
             with freeze_time("2020-01-02"):
@@ -2435,25 +2349,3 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             )
 
     return TestTrends
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    action.calculate_events()
-    return action
-
-
-def _create_cohort(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    groups = kwargs.pop("groups")
-    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
-    cohort.calculate_people()
-    return cohort
-
-
-class TestDjangoTrends(trend_test_factory(Trends, Event.objects.create, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
-    pass

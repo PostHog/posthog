@@ -23,9 +23,8 @@ import {
 } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { pluralize } from 'lib/utils'
+import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './index.scss'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -35,6 +34,9 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { actionsModel } from '~/models/actionsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -139,7 +141,10 @@ export function ActionFilterRow({
         duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
+    const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -384,6 +389,7 @@ export function ActionFilterRow({
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 properties={numericalPropertyNames}
                                                 horizontalUI={horizontalUI}
+                                                exposeWebPerformance={!!featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE]}
                                             />
                                         </Col>
                                     </>
@@ -392,7 +398,7 @@ export function ActionFilterRow({
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && <Col>{duplicateRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
@@ -435,6 +441,13 @@ export function ActionFilterRow({
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        eventNames={
+                            filter.type === TaxonomicFilterGroupType.Events && filter.id
+                                ? [String(filter.id)]
+                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
+                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                : []
+                        }
                     />
                 </div>
             )}
@@ -462,14 +475,9 @@ function MathSelector({
     const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
-    const { preflight } = useValues(preflightLogic)
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
-    let math_entries = eventMathEntries
-
-    if (!preflight?.is_clickhouse_enabled) {
-        math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
-    }
+    const math_entries = eventMathEntries
 
     return (
         <Select
@@ -554,6 +562,7 @@ interface MathPropertySelectorProps {
     onMathPropertySelect: (index: number, value: string) => any
     properties: SelectOption[]
     horizontalUI?: boolean
+    exposeWebPerformance?: boolean
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
@@ -561,12 +570,16 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
 
     function isPropertyApplicable(value: PropertyFilter['value']): boolean {
         const includedProperties = ['$time']
+        if (props.exposeWebPerformance) {
+            includedProperties.push('$performance_page_loaded')
+        }
         const excludedProperties = ['distinct_id', 'token']
         if (typeof value !== 'string' || !value || excludedProperties.includes(value)) {
             return false
         }
         return value[0] !== '$' || includedProperties.includes(value)
     }
+
     const applicableProperties = props.properties
         .filter(({ value }) => isPropertyApplicable(value))
         .sort((a, b) => (a.value + '').localeCompare(b.value + ''))

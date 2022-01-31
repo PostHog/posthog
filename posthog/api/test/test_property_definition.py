@@ -1,10 +1,11 @@
 import random
 from typing import Dict
 
+import structlog
 from rest_framework import status
 
 from posthog.demo import create_demo_team
-from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models import EventProperty, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -32,6 +33,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         calculate_event_property_usage_for_team(cls.demo_team.pk)
         cls.user.current_team = cls.demo_team
         cls.user.save()
+        EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
+
+    def test_individual_property_formats(self):
+        property = PropertyDefinition.objects.create(
+            team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
+        )
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.json()["property_type"] == "DateTime"
+        assert response.json()["property_type_format"] == "unix_timestamp"
 
     def test_list_property_definitions(self):
 
@@ -102,6 +113,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["is_event_property"], None)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
 
@@ -111,6 +123,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["$current_url"])
+
+        # Shows properties belonging to queried event names
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["name"], "$browser")
+        self.assertEqual(response.json()["results"][0]["is_event_property"], True)
+        self.assertEqual(response.json()["results"][1]["name"], "$current_url")
+        self.assertEqual(response.json()["results"][1]["is_event_property"], False)
 
         # Fuzzy search 2
         response = self.client.get("/api/projects/@current/property_definitions/?search=hase%20")

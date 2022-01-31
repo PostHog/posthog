@@ -4,7 +4,8 @@ from typing import Callable, Optional, Union
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
-from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, IntervalMixin
+from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -63,9 +64,7 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 
         _num_intervals = 0
         _total_seconds = (self.date_to - self.date_from).total_seconds()
-        if self.interval == "minute":
-            _num_intervals = int(divmod(_total_seconds, 60)[0])
-        elif self.interval == "hour":
+        if self.interval == "hour":
             _num_intervals = int(divmod(_total_seconds, 3600)[0])
         elif self.interval == "day":
             _num_intervals = int(divmod(_total_seconds, 86400)[0])

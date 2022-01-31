@@ -21,7 +21,6 @@ from posthog.utils import (
     get_celery_heartbeat,
     get_instance_realm,
     is_celery_alive,
-    is_clickhouse_enabled,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
@@ -82,7 +81,6 @@ def robots_txt(request):
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-
     response = {
         "django": True,
         "redis": is_redis_alive() or settings.TEST,
@@ -91,6 +89,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
         "cloud": settings.MULTI_TENANCY,
+        "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_available_social_auth_providers(),
         "can_create_org": get_can_create_org(),
@@ -100,8 +99,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "ee_available": settings.EE_AVAILABLE,
-            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),

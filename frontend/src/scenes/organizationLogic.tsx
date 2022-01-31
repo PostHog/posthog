@@ -6,6 +6,7 @@ import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { OrganizationMembershipLevel } from '../lib/constants'
+import { isUserLoggedIn } from 'lib/utils'
 
 export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
@@ -51,6 +52,10 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             null as OrganizationType | null,
             {
                 loadCurrentOrganization: async () => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return null
+                    }
                     try {
                         return await api.get('api/organizations/@current')
                     } catch {

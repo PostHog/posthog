@@ -1,7 +1,7 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
-import { Empty, Skeleton, Tag } from 'antd'
+import { Empty, Row, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
@@ -25,7 +25,8 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { definitionPanelLogic } from 'lib/components/DefinitionPanel/definitionPanelLogic'
 
 enum ListTooltip {
     None = 0,
@@ -60,19 +61,57 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
+const unusedIndicator = (eventNames: string[]): JSX.Element => {
+    return (
+        <Tooltip
+            title={
+                <>
+                    This property has not been seen on{' '}
+                    {eventNames ? (
+                        <>
+                            the event{eventNames.length > 1 ? 's' : ''}{' '}
+                            {eventNames.map((e, index) => (
+                                <>
+                                    {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
+                                    <strong>"{e}"</strong>
+                                </>
+                            ))}
+                        </>
+                    ) : (
+                        'this event'
+                    )}
+                    , but has been seen on other events.
+                </>
+            }
+        >
+            <Tag className="lemonade-tag">Not seen</Tag>
+        </Tooltip>
+    )
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
-    featureFlagEnabled,
+    featureFlags,
+    eventNames,
 }: {
-    item: EventDefinition | CohortType
+    item: EventDefinition | PropertyDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
-    featureFlagEnabled: boolean
+    featureFlags: FeatureFlagsSet
+    eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
+            listGroupType === TaxonomicFilterGroupType.Events &&
+            !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+
+    const isUnusedEventProperty =
+        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
+        listGroupType === TaxonomicFilterGroupType.EventProperties &&
+        (item as PropertyDefinition).is_event_property !== null &&
+        !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
@@ -84,6 +123,7 @@ const renderItemContents = ({
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
+            {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -93,6 +133,88 @@ const renderItemContents = ({
 }
 
 const renderItemPopup = (
+    item: EventDefinition | PropertyDefinition | CohortType | ActionType,
+    listGroupType: TaxonomicFilterGroupType,
+    group: TaxonomicFilterGroup,
+    onItemEdit?: () => void
+): React.ReactNode => {
+    const width = 265
+    let data: KeyMapping | null = null
+    const value = group.getValue(item)
+
+    if (value) {
+        if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
+            return (
+                <div style={{ width, overflowWrap: 'break-word' }}>
+                    <Row align="middle" justify="space-between">
+                        <span>
+                            <AimOutlined /> Actions
+                        </span>
+                        <a
+                            tabIndex={-1}
+                            onClick={() => {
+                                onItemEdit?.()
+                            }}
+                        >
+                            edit
+                        </a>
+                    </Row>
+                    <br />
+                    <h3>
+                        <PropertyKeyInfo value={item.name ?? ''} />
+                    </h3>
+                    {item && <ActionSelectInfo entity={item as ActionType} />}
+                </div>
+            )
+        }
+
+        if (
+            // NB: also update "selectedItemHasPopup" below
+            listGroupType === TaxonomicFilterGroupType.Events ||
+            listGroupType === TaxonomicFilterGroupType.EventProperties ||
+            listGroupType === TaxonomicFilterGroupType.PersonProperties
+        ) {
+            data = getKeyMapping(value.toString(), 'event')
+        } else if (listGroupType === TaxonomicFilterGroupType.Elements) {
+            data = getKeyMapping(value.toString(), 'element')
+        }
+
+        if (data) {
+            return (
+                <div style={{ width, overflowWrap: 'break-word' }}>
+                    <Row align="middle" justify="space-between">
+                        <PropertyKeyTitle data={data} />
+                        <a
+                            tabIndex={-1}
+                            onClick={() => {
+                                onItemEdit?.()
+                            }}
+                        >
+                            edit
+                        </a>
+                    </Row>
+                    {data.description ? <hr /> : null}
+                    <PropertyKeyDescription data={data} value={value.toString()} />
+
+                    {'volume_30_day' in item && (item.volume_30_day || 0) > 0 ? (
+                        <p>
+                            Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                        </p>
+                    ) : null}
+                    {'query_usage_30_day' in item && (item.query_usage_30_day || 0) > 0 ? (
+                        <p>
+                            Used in <strong>{item.query_usage_30_day}</strong> queries.
+                        </p>
+                    ) : null}
+                </div>
+            )
+        }
+    }
+
+    return item.name ?? ''
+}
+
+const renderItemPopupWithoutTaxonomy = (
     item: PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
     group: TaxonomicFilterGroup
@@ -176,13 +298,15 @@ const selectedItemHasPopup = (
 }
 
 export function InfiniteList(): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
+    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
+        useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
     const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
+    const { openDrawer } = useActions(definitionPanelLogic)
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalCount === 0 && !isLoading
@@ -221,7 +345,8 @@ export function InfiniteList(): JSX.Element {
                 {renderItemContents({
                     item,
                     listGroupType,
-                    featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                    featureFlags,
+                    eventNames,
                 })}
             </div>
         ) : (
@@ -277,12 +402,18 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block Popup"
+                          className="popper-tooltip click-outside-block Popup Popup__box"
                           ref={setPopperElement}
-                          style={styles.popper}
+                          style={{ ...styles.popper, transition: 'none' }}
                           {...attributes.popper}
                       >
-                          {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
+                          {selectedItem && group
+                              ? featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                                  ? renderItemPopup(selectedItem, listGroupType, group, () => {
+                                        openDrawer(selectedItem.id, listGroupType)
+                                    })
+                                  : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
+                              : null}
                       </div>,
                       document.querySelector('body') as HTMLElement
                   )

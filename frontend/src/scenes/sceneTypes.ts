@@ -38,6 +38,7 @@ export enum Scene {
     BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
     SavedInsights = 'SavedInsights',
+    ToolbarLaunch = 'ToolbarLaunch',
     // Authentication & onboarding routes
     Login = 'Login',
     Signup = 'Signup',
@@ -48,6 +49,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OnboardingSetup = 'OnboardingSetup',
     Personalization = 'Personalization',
+    WebPerformance = 'WebPerformance',
 }
 
 export type SceneProps = Record<string, any>

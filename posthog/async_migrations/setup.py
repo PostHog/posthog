@@ -1,13 +1,13 @@
 from typing import Dict, Optional
 
+from constance import config
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
-from posthog.settings import AUTO_START_ASYNC_MIGRATIONS, TEST
-from posthog.utils import is_clickhouse_enabled
+from posthog.settings import TEST
 from posthog.version import VERSION
 
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
@@ -23,11 +23,10 @@ POSTHOG_VERSION = Version(VERSION)
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
-if is_clickhouse_enabled():
-    all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
+all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
-    for name, module in all_migrations.items():
-        ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+for name, module in all_migrations.items():
+    ALL_ASYNC_MIGRATIONS[name] = module.Migration()
 
 
 def setup_async_migrations(ignore_posthog_version: bool = False):
@@ -45,12 +44,13 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
 
-        AsyncMigration.objects.get_or_create(
-            name=migration_name,
-            description=migration.description,
-            posthog_max_version=migration.posthog_max_version,
-            posthog_min_version=migration.posthog_min_version,
-        )
+        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+        sm.description = migration.description
+        sm.posthog_max_version = migration.posthog_max_version
+        sm.posthog_min_version = migration.posthog_min_version
+
+        sm.save()
 
         dependency = migration.depends_on
 
@@ -74,7 +74,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
         DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
 
-    if AUTO_START_ASYNC_MIGRATIONS and first_migration:
+    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS") and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 

@@ -4,10 +4,10 @@ import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { DownOutlined, SlackSquareOutlined, ReadOutlined } from '@ant-design/icons'
-import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
+import { DownOutlined, SlackSquareOutlined, ReadOutlined, UserAddOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 const { Text } = Typography
 
@@ -18,6 +18,7 @@ export function VerificationPanel(): JSX.Element {
     const { index, totalSteps } = useValues(ingestionLogic)
     const [isPopConfirmShowing, setPopConfirmShowing] = useState(false)
     const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
+    const { showInviteModal } = useActions(inviteLogic)
 
     useInterval(() => {
         if (!currentTeam?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
@@ -30,22 +31,21 @@ export function VerificationPanel(): JSX.Element {
             const menu = (
                 <Menu selectable>
                     <Menu.Item key="0" data-attr="ingestion-help-item-docs">
-                        <a
-                            href="https://posthog.com/docs/integrate/ingest-live-data"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
+                        <a href="https://posthog.com/docs/integrate/ingest-live-data" target="_blank">
                             <Button type="link">
                                 <ReadOutlined />
-                                Read the docs
+                                Read the ingestion docs
                             </Button>
                         </a>
                     </Menu.Item>
                     <Menu.Item key="1" data-attr="ingestion-help-item-invite">
-                        <CreateInviteModalWithButton type="link" />
+                        <Button type="link" onClick={showInviteModal}>
+                            <UserAddOutlined />
+                            Invite team member
+                        </Button>
                     </Menu.Item>
                     <Menu.Item key="2" data-attr="ingestion-help-item-slack">
-                        <a href="https://posthog.com/slack?s=app" target="_blank" rel="noopener noreferrer">
+                        <a href="https://posthog.com/slack?s=app" target="_blank">
                             <Button type="link">
                                 <SlackSquareOutlined />
                                 Ask us in Slack

@@ -4,7 +4,7 @@ from sentry_sdk.integrations import celery
 
 from posthog.async_migrations.runner import (
     is_current_operation_resumable,
-    run_async_migration_next_op,
+    run_async_migration_operations,
     run_migration_healthcheck,
     start_async_migration,
     update_migration_progress,
@@ -17,14 +17,14 @@ from posthog.celery import app
 # 1. spawning a thread within the worker
 # 2. suggesting users scale celery when running async migrations
 # 3. ...
-@app.task(ignore_result=False, max_retries=0)
+@app.task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
         start_async_migration(migration_name)
         return
 
     # Resumable operations
-    run_async_migration_next_op(migration_name)
+    run_async_migration_operations(migration_name)
 
 
 # This task:
@@ -34,8 +34,9 @@ def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
 def check_async_migration_health() -> None:
     from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
-    migration_instance: AsyncMigration = AsyncMigration.objects.get(status=MigrationStatus.Running)
-    if not migration_instance:
+    try:
+        migration_instance: AsyncMigration = AsyncMigration.objects.get(status=MigrationStatus.Running)
+    except AsyncMigration.DoesNotExist:
         return
 
     migration_task_celery_state = AsyncResult(migration_instance.celery_task_id).state
@@ -52,8 +53,9 @@ def check_async_migration_health() -> None:
 
     active_task_ids = []
 
-    for _, tasks in active_tasks_per_node.items():
-        active_task_ids += [task["id"] for task in tasks]
+    if active_tasks_per_node:
+        for _, tasks in active_tasks_per_node.items():
+            active_task_ids += [task["id"] for task in tasks]
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:

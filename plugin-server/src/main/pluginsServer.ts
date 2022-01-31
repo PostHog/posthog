@@ -1,6 +1,7 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
+import { Server } from 'http'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -11,9 +12,10 @@ import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { statusReport } from '../utils/status-report'
-import { delay, getPiscinaStats } from '../utils/utils'
+import { delay, determineNodeEnv, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
+import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
 
@@ -46,7 +48,6 @@ export async function startPluginsServer(
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
-    let flushLastSeenAtCacheJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
@@ -56,6 +57,7 @@ export async function startPluginsServer(
     let scheduleControl: ScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
+    let httpServer: Server | undefined
 
     let shutdownStatus = 0
 
@@ -81,7 +83,6 @@ export async function startPluginsServer(
         statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
-        flushLastSeenAtCacheJob && schedule.cancelJob(flushLastSeenAtCacheJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -100,6 +101,8 @@ export async function startPluginsServer(
             await stopPiscina(piscina)
         }
         await closeHub?.()
+        httpServer?.close()
+
         status.info('👋', 'Over and out!')
         // wait an extra second for any misc async task to finish
         await delay(1000)
@@ -164,7 +167,10 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
             'drop-action': async (message) =>
                 await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+            'plugins-alert': async (message) =>
+                await piscina?.run({ task: 'handleAlert', args: { alert: JSON.parse(message) } }),
         })
+
         await pubSub.start()
 
         if (hub.jobQueueManager) {
@@ -199,32 +205,26 @@ export async function startPluginsServer(
             })
         }
 
-        // every 10 seconds past the minute flush lastSeenAt cache
-        if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
-            flushLastSeenAtCacheJob = schedule.scheduleJob('10 * * * * *', async () => {
-                await piscina!.broadcastTask({ task: 'flushLastSeenAtCache' })
-            })
-        }
-
         pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
+
             let lastFoundActivity: number
             lastActivityCheck = setInterval(() => {
+                const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
+
                 if (
                     hub?.lastActivity &&
-                    new Date().valueOf() - hub?.lastActivity > serverConfig.STALENESS_RESTART_SECONDS * 1000 &&
+                    stalenessCheckResult.isServerStale &&
                     lastFoundActivity !== hub?.lastActivity
                 ) {
                     lastFoundActivity = hub?.lastActivity
                     const extra = {
-                        instanceId: hub.instanceId.toString(),
-                        lastActivity: hub.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
-                        lastActivityType: hub.lastActivityType,
                         piscina: piscina ? JSON.stringify(getPiscinaStats(piscina)) : null,
+                        ...stalenessCheckResult,
                     }
                     Sentry.captureMessage(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
@@ -236,7 +236,7 @@ export async function startPluginsServer(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
                         extra
                     )
-                    hub.statsd?.increment(`alerts.stale_plugin_server_restarted`)
+                    hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
 
                     killProcess()
                 }
@@ -246,6 +246,9 @@ export async function startPluginsServer(
         serverInstance.piscina = piscina
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
+
+        // start http server used for the healthcheck
+        httpServer = createHttpServer(hub, serverConfig)
 
         status.info('🚀', 'All systems go')
 
@@ -266,10 +269,6 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     // Wait *up to* 5 seconds to shut down VMs.
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
-    await Promise.all([
-        piscina.broadcastTask({ task: 'flushKafkaMessages' }),
-        piscina.broadcastTask({ task: 'flushLastSeenAtCache' }),
-        delay(2000),
-    ])
+    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     await piscina.destroy()
 }

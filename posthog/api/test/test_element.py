@@ -92,7 +92,3 @@ def factory_test_element(create_event: Callable) -> Callable:
             self.assertEqual(len(response), 1)
 
     return TestElement
-
-
-class TestElement(factory_test_element(Event.objects.create)):  # type: ignore
-    pass

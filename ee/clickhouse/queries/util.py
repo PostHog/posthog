@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, Union
+from functools import lru_cache
+from math import lgamma
+from typing import Any, Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -9,14 +11,13 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.filters.sessions_filter import SessionEventsFilter
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
+EARLIEST_TIMESTAMP = "2015-01-01"
 
-def parse_timestamps(
-    filter: Union[FilterType, SessionEventsFilter], team_id: int, table: str = ""
-) -> Tuple[str, str, dict]:
+
+def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}
@@ -42,17 +43,16 @@ def parse_timestamps(
 
 
 def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
-    is_hour_or_min = (
+    is_hour = (
         (filter.interval and filter.interval.lower() == "hour")
-        or (filter.interval and filter.interval.lower() == "minute")
         or (filter._date_from == "-24h")
         or (filter._date_from == "-48h")
     )
-    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour else default_hour_min))
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
-    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})
+    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP})
     if len(results) > 0:
         return results[0][0]
     else:
@@ -87,7 +87,6 @@ def get_time_diff(
 
 
 PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
-    "minute": "toStartOfMinute",
     "hour": "toStartOfHour",
     "week": "toStartOfWeek",
     "day": "toStartOfDay",
@@ -105,7 +104,6 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
 
 
 PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
-    "minute": "toIntervalMinute",
     "hour": "toIntervalHour",
     "week": "toIntervalWeek",
     "day": "toIntervalDay",

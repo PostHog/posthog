@@ -31,7 +31,10 @@ class ClickhouseRetention:
 
         actor_query = build_actor_activity_query(filter=filter, team=team)
 
-        result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
+        result = sync_execute(
+            RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,),
+            settings={"timeout_before_checking_execution_speed": 60},
+        )
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {

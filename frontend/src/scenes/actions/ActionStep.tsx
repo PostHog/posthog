@@ -95,6 +95,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 <PropertyFilters
                                     propertyFilters={step.properties}
                                     pageKey={identifier}
+                                    eventNames={step.event ? [step.event] : []}
                                     onChange={(properties) => {
                                         sendStep({
                                             ...step,

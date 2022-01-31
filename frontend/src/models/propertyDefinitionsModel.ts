@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, SelectOption } from '~/types'
+import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
+import { dayjs } from 'lib/dayjs'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -13,8 +14,26 @@ interface PropertyDefinitionStorage {
     results: PropertyDefinition[]
 }
 
+const normaliseToArray = (
+    valueToFormat: Exclude<PropertyFilterValue, null>
+): {
+    valueWasReceivedAsArray: boolean
+    arrayOfPropertyValues: (string | number)[]
+} => {
+    if (Array.isArray(valueToFormat)) {
+        return { arrayOfPropertyValues: valueToFormat, valueWasReceivedAsArray: true }
+    } else {
+        return { arrayOfPropertyValues: [valueToFormat], valueWasReceivedAsArray: false }
+    }
+}
+
+type FormatForDisplayFunction = (
+    propertyName: string | undefined,
+    valueToFormat: PropertyFilterValue | undefined
+) => string | string[] | null
+
 export const propertyDefinitionsModel = kea<
-    propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
+    propertyDefinitionsModelType<FormatForDisplayFunction, PropertyDefinitionStorage, PropertySelectOption>
 >({
     path: ['models', 'propertyDefinitionsModel'],
     actions: () => ({
@@ -95,6 +114,60 @@ export const propertyDefinitionsModel = kea<
             (s) => [s.transformedPropertyDefinitions],
             (transformedPropertyDefinitions): PropertySelectOption[] =>
                 transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
+        ],
+        describeProperty: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
+                (propertyName: string) => {
+                    // if the model hasn't already cached this definition, will fall back to original display type
+                    const match = propertyDefinitions.find((pd) => pd.name === propertyName)
+                    return match?.property_type ?? null
+                },
+        ],
+        formatForDisplay: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {
+                return (propertyName: string | undefined, valueToFormat: PropertyFilterValue | undefined) => {
+                    if (valueToFormat === null || valueToFormat === undefined) {
+                        return null
+                    }
+
+                    const propertyDefinition = propertyName
+                        ? propertyDefinitions.find((pd) => pd.name === propertyName)
+                        : undefined
+
+                    const { arrayOfPropertyValues, valueWasReceivedAsArray } = normaliseToArray(valueToFormat)
+
+                    const formattedValues = arrayOfPropertyValues.map((_propertyValue) => {
+                        const propertyValue: string | null = String(_propertyValue)
+
+                        if (propertyDefinition?.property_type === 'DateTime') {
+                            const unixTimestampMilliseconds = /^\d{13}$/
+                            const unixTimestampSeconds = /^\d{10}(\.\d*)?$/
+
+                            // dayjs parses unix timestamps differently
+                            // depending on if they're in seconds or milliseconds
+                            if (propertyValue?.match(unixTimestampSeconds)) {
+                                const numericalTimestamp = Number.parseFloat(propertyValue)
+                                return dayjs.unix(numericalTimestamp).tz().format('YYYY-MM-DD hh:mm:ss')
+                            } else if (propertyValue?.match(unixTimestampMilliseconds)) {
+                                const numericalTimestamp = Number.parseInt(propertyValue)
+                                return dayjs(numericalTimestamp).tz().format('YYYY-MM-DD hh:mm:ss')
+                            }
+                        }
+
+                        return propertyValue
+                    })
+
+                    // formattedValues is always an array after normalising above
+                    // but if the caller sent a single value we should return one
+                    if (valueWasReceivedAsArray) {
+                        return formattedValues
+                    } else {
+                        return formattedValues[0]
+                    }
+                }
+            },
         ],
     },
 })

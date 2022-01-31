@@ -27,6 +27,10 @@
         }
     }
 
+    form {
+        margin-top: 1rem;
+    }
+
     .ant-form-item-explain {
         &:not(.ant-form-item-explain-error) {
             .anticon-exclamation-circle {

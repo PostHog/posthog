@@ -1,25 +1,23 @@
-from typing import cast
+from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, ClickhouseFunnelTrends
-from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person import Person
 
 
 class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
     _filter: Filter
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
-    def actor_query(self):
+    def actor_query(self, limit_actors: Optional[bool] = True):
         drop_off = self._filter.drop_off
         if drop_off is None:
             raise ValidationError(f"Filter parameter {DROP_OFF} must be provided and a bool for funnel trends persons!")
@@ -40,11 +38,11 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
 
         return (
             FUNNEL_PERSONS_BY_STEP_SQL.format(
-                offset=self._filter.offset,
                 steps_per_person_query=step_counts_query,
                 persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
                 extra_fields="",
-                limit="" if self._no_person_limit else "LIMIT %(limit)s",
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             self.params,
         )

@@ -2,7 +2,6 @@ from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.contrib import admin
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
@@ -52,11 +51,10 @@ def authorize_and_redirect(request):
 
 # Try to include EE endpoints
 ee_urlpatterns: List[Any] = []
-if settings.EE_AVAILABLE:
-    from ee.urls import extend_api_router
-    from ee.urls import urlpatterns as ee_urlpatterns
+from ee.urls import extend_api_router
+from ee.urls import urlpatterns as ee_urlpatterns
 
-    extend_api_router(router, projects_router=projects_router)
+extend_api_router(router, projects_router=projects_router)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
@@ -65,14 +63,17 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
     return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
 urlpatterns = [
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    # Optional UI:
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     # internals
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    # admin
-    path("admin/", include("loginas.urls")),
-    path("admin/", admin.site.urls),
     # ee
     *ee_urlpatterns,
     # api

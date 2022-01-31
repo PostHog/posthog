@@ -130,6 +130,7 @@ export function DateFilter({
                             onClickOutside={onClickOutside}
                             rangeDateFrom={rangeDateFrom}
                             rangeDateTo={rangeDateTo}
+                            disableBeforeYear={2015}
                         />
                     )
                 } else {
@@ -152,7 +153,7 @@ export function DateFilter({
 
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
-                            {key} {isDateFormatted && key !== 'All time' ? `(${dateValue})` : ''}
+                            {key}
                         </Select.Option>
                     )
                 }),

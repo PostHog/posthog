@@ -30,6 +30,8 @@ import {
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
+import { isLicenseExpired } from 'scenes/instance/Licenses'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -89,7 +91,8 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 function InviteMembersButton(): JSX.Element {
-    const { closeSitePopover, showInviteModal } = useActions(navigationLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     return (
         <LemonButton
@@ -106,22 +109,28 @@ function InviteMembersButton(): JSX.Element {
     )
 }
 
-function License(): JSX.Element {
+function License({
+    license,
+    expired,
+}: {
+    license: LicenseType | undefined
+    expired: boolean | undefined
+}): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { licenses } = useValues(licenseLogic)
-
-    const relevantLicense = licenses[0] as LicenseType | undefined
 
     return (
-        <LemonRow icon={<Lettermark name={relevantLicense ? relevantLicense.plan : '–'} />} fullWidth>
+        <LemonRow icon={<Lettermark name={license ? license.plan : '–'} />} fullWidth>
             <>
                 <div className="SitePopover__main-info">
-                    <div>{relevantLicense ? `${identifierToHuman(relevantLicense.plan)} plan` : 'Free plan'}</div>
-                    {relevantLicense && (
-                        <div className="supplement">
-                            Valid until {dayjs(relevantLicense.valid_until).format('D MMM YYYY')}
-                        </div>
-                    )}
+                    <div>{license ? `${identifierToHuman(license.plan)} plan` : 'Free plan'}</div>
+                    {license &&
+                        (!expired ? (
+                            <div className="supplement">
+                                Valid until {dayjs(license.valid_until).format('D MMM YYYY')}
+                            </div>
+                        ) : (
+                            <div className="supplement supplement--danger">Expired!</div>
+                        ))}
                 </div>
                 <Link
                     to={urls.instanceLicenses()}
@@ -216,7 +225,10 @@ export function SitePopover(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
+    const { relevantLicense } = useValues(licenseLogic)
     useMountedLogic(licenseLogic)
+
+    const expired = relevantLicense && isLicenseExpired(relevantLicense)
 
     return (
         <Popup
@@ -251,9 +263,9 @@ export function SitePopover(): JSX.Element {
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
                     )}
-                    {(!preflight?.cloud || user?.is_staff) && (
+                    {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog status">
-                            {!preflight?.cloud && <License />}
+                            {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                         </SitePopoverSection>
@@ -267,10 +279,10 @@ export function SitePopover(): JSX.Element {
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div
                     className="SitePopover__profile-picture"
-                    title={systemStatus ? undefined : 'Potential system issue'}
+                    title={!systemStatus ? 'Potential system issue' : expired ? 'License expired' : undefined}
                 >
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                    {(!systemStatus || expired) && <IconExclamation className="SitePopover__danger" />}
                 </div>
                 <IconArrowDropDown />
             </div>

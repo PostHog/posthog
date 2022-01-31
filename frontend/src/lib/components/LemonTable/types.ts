@@ -1,4 +1,4 @@
-import { HTMLProps } from 'react'
+import { HTMLProps, ReactNode } from 'react'
 
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
@@ -30,7 +30,15 @@ export interface TableCellRepresentation {
     props?: HTMLProps<HTMLTableCellElement>
 }
 
-export type TableCellRenderResult = TableCellRepresentation | JSX.Element | string | number | false | null | undefined
+export type TableCellRenderResult =
+    | TableCellRepresentation
+    | ReactNode
+    | JSX.Element
+    | string
+    | number
+    | false
+    | null
+    | undefined
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
@@ -59,4 +67,6 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      * A negative value (like -1) means that the row isn't expandable and that also the expand button cell is skipped.
      */
     rowExpandable?: (record: T) => boolean | number
+    /** Called when row is expanded */
+    onRowExpand?: (record: T) => void
 }

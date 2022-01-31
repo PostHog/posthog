@@ -1,24 +1,21 @@
-import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import _dashboardJson from './__mocks__/dashboard.json'
-import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightModel, DashboardType } from '~/types'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 const dashboardJson = _dashboardJson as any as DashboardType
-
 jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
-    let logic: BuiltLogic<dashboardLogicType<DashboardLogicProps>>
+    let logic: ReturnType<typeof dashboardLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
+    mockAPI(async ({ pathname }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {
             return dashboardJson
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/6/`) {
@@ -38,12 +35,11 @@ describe('dashboardLogic', () => {
                 ...dashboardJson,
                 items: [{ id: 1001, short_id: '1001' }],
             }
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/1001`) {
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/1001/`) {
             throw new Error('💣')
         } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
             return dashboardJson.items.find(({ id }: any) => String(id) === pathname.split('/')[4])
         }
-        return defaultAPIMocks(url)
     })
 
     describe('when there is no props id', () => {
@@ -61,6 +57,9 @@ describe('dashboardLogic', () => {
     })
 
     describe('when the dashboard API errors', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         initKeaTestLogic({
             logic: dashboardLogic,
             props: {

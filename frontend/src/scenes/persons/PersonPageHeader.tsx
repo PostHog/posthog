@@ -10,7 +10,7 @@ export function PersonPageHeader({ hideGroupTabs }: { hideGroupTabs?: boolean })
     return (
         <>
             <PageHeader
-                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+                title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                 caption={`A catalog of your product's end users${showGroupsOptions ? ' and groups' : ''}.`}
             />
             {!hideGroupTabs && showGroupsOptions && <GroupsTabs />}

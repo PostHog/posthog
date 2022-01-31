@@ -9,13 +9,14 @@ from posthog.models.filters.mixins.common import (
     DateMixin,
     EntitiesMixin,
     FilterTestAccountsMixin,
+    IncludeRecordingsMixin,
     InsightMixin,
-    IntervalMixin,
     LimitMixin,
     OffsetMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,
@@ -63,6 +64,7 @@ class PathFilter(
     GroupsAggregationMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
     SimplifyFilterMixin,
+    IncludeRecordingsMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):

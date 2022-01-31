@@ -24,8 +24,7 @@ from posthog.queries.stickiness import (
     stickiness_format_intervals,
     stickiness_process_entity_type,
 )
-from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_ch, calculate_cohort_from_list
-from posthog.utils import is_clickhouse_enabled
+from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -75,10 +74,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            if is_clickhouse_enabled():
-                calculate_cohort_ch.delay(cohort.id)
-            else:
-                calculate_cohort.delay(cohort.id)
+            calculate_cohort_ch.delay(cohort.id)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -90,7 +86,7 @@ class CohortSerializer(serializers.ModelSerializer):
             try:
                 filter = Filter(request=request)
                 team = cast(User, request.user).team
-                target_entity = get_target_entity(request)
+                target_entity = get_target_entity(filter)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(
                         request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
@@ -146,10 +142,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                if is_clickhouse_enabled():
-                    calculate_cohort_ch.delay(cohort.id)
-                else:
-                    calculate_cohort.delay(cohort.id)
+                calculate_cohort_ch.delay(cohort.id)
 
         report_user_action(
             request.user,
@@ -176,7 +169,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))
-        return queryset.select_related("created_by").order_by("id")
+        return queryset.prefetch_related("created_by").order_by("-created_at")
 
 
 class LegacyCohortViewSet(CohortViewSet):

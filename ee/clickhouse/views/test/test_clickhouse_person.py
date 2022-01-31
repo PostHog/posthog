@@ -44,3 +44,9 @@ class ClickhouseTestPersonApi(
             {"team_id": self.team.pk},
         )
         self.assertCountEqual(pdis, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+        pdis2 = sync_execute(
+            "SELECT person_id, distinct_id FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )
+        self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])

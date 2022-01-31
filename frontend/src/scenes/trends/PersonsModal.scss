@@ -49,4 +49,13 @@
     .person-row-container {
         padding: 0.5rem 1rem;
     }
+
+    .data-point-selector {
+        padding: $default_spacing / 2 $default_spacing;
+        border-bottom: 1px solid var(--border);
+        .ant-select {
+            display: block;
+            width: 100%;
+        }
+    }
 }

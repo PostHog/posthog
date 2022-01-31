@@ -6,7 +6,6 @@ import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
-import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
 import { EllipsisOutlined, SaveOutlined } from '@ant-design/icons'
@@ -37,6 +36,7 @@ import {
     FunnelSingleStepState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightDeprecatedState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -47,6 +47,7 @@ import { DiveIcon } from 'lib/components/icons'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
+import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
 
 interface DashboardItemProps {
     item: InsightModel
@@ -72,15 +73,13 @@ interface DashboardItemProps {
     doNotLoad?: boolean
 }
 
-export type DisplayedType = ChartDisplayType | 'RetentionContainer'
-
 interface DisplayProps {
     className: string
     element: (props: any) => JSX.Element | null
     viewText: string
 }
 
-// const insightLink = ({ filters, short_id, dashboard, name }: InsightModel): string =>
+export type DisplayedType = ChartDisplayType | 'RetentionContainer'
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
@@ -105,7 +104,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     ActionsTable: {
         className: 'table',
-        element: ActionsTable,
+        element: DashboardInsightsTable,
         viewText: 'View table',
     },
     ActionsPie: {
@@ -185,8 +184,6 @@ export function DashboardItem({
             ? 'Paths'
             : item.filters.insight === InsightType.FUNNELS
             ? 'Funnel'
-            : item.filters.insight === InsightType.SESSIONS
-            ? 'Sessions'
             : item.filters.insight === InsightType.STICKINESS
             ? 'Stickiness'
             : 'Trends'
@@ -253,6 +250,11 @@ export function DashboardItem({
         }
         if (showTimeoutMessage) {
             return <InsightTimeoutState isLoading={isLoading} />
+        }
+
+        // Deprecated insights
+        if ((item.filters.insight as string) === 'SESSIONS') {
+            return <InsightDeprecatedState deleteCallback={loadDashboardItems} itemId={item.id} itemName={item.name} />
         }
 
         return null

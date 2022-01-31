@@ -6,8 +6,8 @@ export function EventPageHeader({ activeTab, hideTabs }: { activeTab: EventsTab;
     return (
         <>
             <PageHeader
-                title="Events &amp; actions"
-                caption="See events being sent to this project and manage custom actions."
+                title="Events & Actions"
+                caption="See events being sent to this project and manage custom actions. Event history is limited to the last twelve months."
                 tabbedPage
             />
             {!hideTabs && <EventsTabs tab={activeTab} />}

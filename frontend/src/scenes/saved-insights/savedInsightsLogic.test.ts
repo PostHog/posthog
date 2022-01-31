@@ -3,7 +3,7 @@ import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
-import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
@@ -41,11 +41,7 @@ const createSavedInsights = (string = 'hello'): InsightsResult => ({
 describe('savedInsightsLogic', () => {
     let logic: ReturnType<typeof savedInsightsLogic.build>
 
-    mockAPI(async (url) => {
-        const {
-            pathname,
-            searchParams: { search },
-        } = url
+    mockAPI(async ({ pathname, searchParams: { search } }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
             return createSavedInsights(search)
         }
@@ -55,7 +51,6 @@ describe('savedInsightsLogic', () => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/123`) {
             return createInsight(123)
         }
-        return defaultAPIMocks(url)
     })
 
     beforeEach(() => {
@@ -155,7 +150,7 @@ describe('savedInsightsLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightView(Insight42) }),
-                    searchParams: partial({ insight: InsightType.TRENDS }),
+                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
                 })
         })
 
@@ -167,7 +162,7 @@ describe('savedInsightsLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    searchParams: partial({ insight: InsightType.TRENDS }),
+                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
                 })
         })
 
@@ -175,7 +170,7 @@ describe('savedInsightsLogic', () => {
             router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
             await expectLogic(router).toMatchValues({
                 location: partial({ pathname: urls.insightNew() }),
-                searchParams: partial({ insight: InsightType.FUNNELS }),
+                hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
             })
         })
     })

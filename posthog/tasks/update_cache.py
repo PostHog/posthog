@@ -1,26 +1,26 @@
 import json
-import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+import structlog
 from celery import group
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
-from django.db.models.expressions import F, Subquery
+from django.db.models.expressions import F
 from django.utils import timezone
+from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     TRENDS_STICKINESS,
-    FunnelOrderType,
     FunnelVizType,
 )
 from posthog.decorators import CacheType
@@ -28,57 +28,35 @@ from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key, is_clickhouse_enabled
+from posthog.utils import generate_cache_key
 
 PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
-if is_clickhouse_enabled():
-    from ee.clickhouse.queries.funnels import (
-        ClickhouseFunnel,
-        ClickhouseFunnelBase,
-        ClickhouseFunnelStrict,
-        ClickhouseFunnelTimeToConvert,
-        ClickhouseFunnelTrends,
-        ClickhouseFunnelUnordered,
-    )
-    from ee.clickhouse.queries.paths import ClickhousePaths
-    from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-    from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
-    from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-    from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
+from ee.clickhouse.queries.paths import ClickhousePaths
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
-    CACHE_TYPE_TO_INSIGHT_CLASS = {
-        CacheType.TRENDS: ClickhouseTrends,
-        CacheType.SESSION: ClickhouseSessions,
-        CacheType.STICKINESS: ClickhouseStickiness,
-        CacheType.RETENTION: ClickhouseRetention,
-        CacheType.PATHS: ClickhousePaths,
-    }
-else:
-    from posthog.queries.funnel import Funnel
-    from posthog.queries.paths import Paths
-    from posthog.queries.retention import Retention
-    from posthog.queries.sessions.sessions import Sessions
-    from posthog.queries.stickiness import Stickiness
-    from posthog.queries.trends import Trends
-
-    CACHE_TYPE_TO_INSIGHT_CLASS = {
-        CacheType.TRENDS: Trends,
-        CacheType.SESSION: Sessions,
-        CacheType.STICKINESS: Stickiness,
-        CacheType.RETENTION: Retention,
-        CacheType.PATHS: Paths,
-    }
+CACHE_TYPE_TO_INSIGHT_CLASS = {
+    CacheType.TRENDS: ClickhouseTrends,
+    CacheType.STICKINESS: ClickhouseStickiness,
+    CacheType.RETENTION: ClickhouseRetention,
+    CacheType.PATHS: ClickhousePaths,
+}
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+    timer = statsd.timer("update_cache_item_timer").start()
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     filter = get_filter(data=filter_dict, team=Team(pk=team_id))
 
+    # Doing the filtering like this means we'll update _all_ Insights with the same filters hash
     dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
@@ -91,10 +69,14 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
             key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
         )
     except Exception as e:
+        timer.stop()
+        statsd.incr("update_cache_item_error")
         dashboard_items.filter(refresh_attempt=None).update(refresh_attempt=0)
         dashboard_items.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
         raise e
 
+    timer.stop()
+    statsd.incr("update_cache_item_success")
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     return result
 
@@ -109,8 +91,6 @@ def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Das
 def get_cache_type(filter: FilterType) -> CacheType:
     if filter.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif filter.insight == INSIGHT_SESSIONS:
-        return CacheType.SESSION
     elif filter.insight == INSIGHT_PATHS:
         return CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:
@@ -136,18 +116,25 @@ def update_cached_items() -> None:
         .exclude(refreshing=True)
         .exclude(deleted=True)
         .exclude(refresh_attempt__gt=2)
-        .distinct("filters_hash")
+        .exclude(filters={})
+        .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    for item in Insight.objects.filter(
-        pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
-    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_INSIGHT_CACHE]:
-        cache_key, cache_type, payload = dashboard_item_update_task_params(item)
-        tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+    for item in items[0:PARALLEL_INSIGHT_CACHE]:
+        try:
+            cache_key, cache_type, payload = dashboard_item_update_task_params(item)
+            if item.filters_hash != cache_key:
+                item.save()  # force update if the saved key is different from the cache key
+            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        except Exception as e:
+            item.refresh_attempt = (item.refresh_attempt or 0) + 1
+            item.save()
+            capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
     taskset.apply_async()
+    statsd.gauge("update_cache_queue_depth", items.count())
 
 
 def dashboard_item_update_task_params(
@@ -175,22 +162,12 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
     team = Team(pk=team_id)
 
-    if is_clickhouse_enabled():
-        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
-            funnel_order_class = ClickhouseFunnelUnordered
-        elif filter.funnel_order_type == FunnelOrderType.STRICT:
-            funnel_order_class = ClickhouseFunnelStrict
-
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            result = ClickhouseFunnelTimeToConvert(
-                team=team, filter=filter, funnel_order_class=funnel_order_class
-            ).run()
-        else:
-            result = funnel_order_class(team=team, filter=filter).run()
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+        result = ClickhouseFunnelTrends(team=team, filter=filter).run()
+    elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+        result = ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()
     else:
-        result = Funnel(filter=filter, team=team).run()
+        funnel_order_class = get_funnel_order_class(filter)
+        result = funnel_order_class(team=team, filter=filter).run()
 
     return result

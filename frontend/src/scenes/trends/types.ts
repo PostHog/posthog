@@ -1,4 +1,4 @@
-import { ActionFilter, ActorType, FilterType, TrendResult } from '~/types'
+import { ActionFilter, ActorType, FilterType, GraphDataset, TrendResult } from '~/types'
 
 export interface TrendResponse {
     result: TrendResult[]
@@ -11,14 +11,16 @@ export interface IndexedTrendResult extends TrendResult {
 }
 
 export interface TrendActors {
+    seriesId?: number // The series identifier for this particular point (i.e. index of series)
     people: ActorType[]
     count: number
     day: string | number
     label: string
-    action: ActionFilter | 'session'
+    action?: ActionFilter
     breakdown_value?: string | number
     next?: string
     loadingMore?: boolean
     funnelStep?: number
     pathsDropoff?: boolean
+    crossDataset?: GraphDataset[]
 }

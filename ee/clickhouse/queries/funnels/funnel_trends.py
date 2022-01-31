@@ -1,11 +1,11 @@
 from datetime import date, datetime
 from itertools import groupby
-from typing import List, Optional, Tuple, Type, Union, cast
+from typing import List, Optional, Tuple, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.util import (
     format_ch_timestamp,
     get_earliest_timestamp,
@@ -54,13 +54,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
-    def __init__(
-        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-    ) -> None:
+    def __init__(self, filter: Filter, team: Team) -> None:
 
         super().__init__(filter, team)
 
-        self.funnel_order = funnel_order_class(filter, team)
+        self.funnel_order = get_funnel_order_class(filter)(filter, team)
 
     def _exec_query(self):
         return self._summarize_data(super()._exec_query())
@@ -207,7 +205,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         for row in summary:
             timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
-            hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
+            hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
         return {

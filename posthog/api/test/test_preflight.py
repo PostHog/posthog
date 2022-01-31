@@ -24,7 +24,7 @@ class TestPreflight(APIBaseTest):
         For security purposes, the information contained in an unauthenticated preflight request is minimal.
         """
         self.client.logout()
-        with self.settings(MULTI_TENANCY=False):
+        with self.settings(PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, MULTI_TENANCY=False):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -38,7 +38,8 @@ class TestPreflight(APIBaseTest):
                 "db": True,
                 "initiated": True,
                 "cloud": False,
-                "realm": "hosted",
+                "demo": False,
+                "realm": "hosted-clickhouse",
                 "available_social_auth_providers": {
                     "google-oauth2": False,
                     "github": False,
@@ -51,7 +52,11 @@ class TestPreflight(APIBaseTest):
         )
 
     def test_preflight_request(self):
-        with self.settings(MULTI_TENANCY=False, INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True)):
+        with self.settings(
+            PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE,
+            MULTI_TENANCY=False,
+            INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
+        ):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -67,10 +72,9 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": False,
-                    "realm": "hosted",
-                    "ee_available": settings.EE_AVAILABLE,
-                    "is_clickhouse_enabled": False,
-                    "db_backend": "postgres",
+                    "demo": False,
+                    "realm": "hosted-clickhouse",
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
                         "github": False,
@@ -81,7 +85,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": False,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": False,
@@ -109,6 +113,7 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": True,
+                    "demo": False,
                     "realm": "cloud",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -139,9 +144,8 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": True,
+                    "demo": False,
                     "realm": "cloud",
-                    "ee_available": True,
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -153,7 +157,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": False,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "https://app.posthog.com",
                     "can_create_org": True,
@@ -187,9 +191,8 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": True,
+                    "demo": False,
                     "realm": "cloud",
-                    "ee_available": True,
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": True,
@@ -201,7 +204,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": True,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": True,
@@ -209,6 +212,37 @@ class TestPreflight(APIBaseTest):
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_demo(self):
+        self.client.logout()  # make sure it works anonymously
+
+        with self.settings(PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, DEMO=True):
+            response = self.client.get("/_preflight/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "django": True,
+                "redis": True,
+                "plugins": True,
+                "celery": True,
+                "db": True,
+                "initiated": True,
+                "cloud": False,
+                "demo": True,
+                "realm": "demo",
+                "available_social_auth_providers": {
+                    "google-oauth2": False,
+                    "github": False,
+                    "gitlab": False,
+                    "saml": False,
+                },
+                "can_create_org": True,
+                "email_service_available": False,
+            },
+        )
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
@@ -236,6 +270,7 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": False,
+                    "demo": False,
                     "realm": "hosted-clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -275,7 +310,6 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
-
         # First with no license
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get("/_preflight/")

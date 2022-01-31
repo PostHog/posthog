@@ -6,7 +6,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
-    IconArrowDropDown,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -31,14 +30,16 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { InsightType } from '~/types'
+import { AvailableFeature, InsightType } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
-import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { CoffeeOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -71,7 +72,7 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'p
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
-    title?: string
+    title?: React.ReactNode
     highlight?: 'beta' | 'new'
 }
 
@@ -126,10 +127,12 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { showToolbarModal, hideSideBarMobile } = useActions(navigationLogic)
+    const { hideSideBarMobile } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -151,7 +154,6 @@ function Pages(): JSX.Element {
                 identifier={Scene.Dashboards}
                 to={urls.dashboards()}
                 sideAction={{
-                    icon: <IconArrowDropDown />,
                     identifier: 'pinned-dashboards',
                     tooltip: 'Pinned dashboards',
                     onClick: () => setArePinnedDashboardsShown((state) => !state),
@@ -167,7 +169,7 @@ function Pages(): JSX.Element {
                                     pinnedDashboards.map((dashboard) => (
                                         <PageButton
                                             key={dashboard.id}
-                                            title={dashboard.name}
+                                            title={dashboard.name || <i>Untitled</i>}
                                             identifier={dashboard.id}
                                             onClick={() => setArePinnedDashboardsShown(false)}
                                             to={urls.dashboard(dashboard.id)}
@@ -201,8 +203,18 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
-                <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] &&
+                (hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                    !preflight?.instance_preferences?.disable_paid_fs) && (
+                    <PageButton
+                        icon={<IconExperiment />}
+                        identifier={Scene.Experiments}
+                        to={urls.experiments()}
+                        highlight="beta"
+                    />
+                )}
+            {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
@@ -210,7 +222,7 @@ function Pages(): JSX.Element {
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
                 to={urls.persons()}
-                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+                title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
             />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
@@ -218,7 +230,7 @@ function Pages(): JSX.Element {
             {canViewPlugins(currentOrganization) && (
                 <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
-            <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
+            <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
             <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
         </div>
     )
@@ -226,8 +238,8 @@ function Pages(): JSX.Element {
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { isSideBarShown, isToolbarModalShown } = useValues(navigationLogic)
-    const { hideSideBarMobile, hideToolbarModal } = useActions(navigationLogic)
+    const { isSideBarShown } = useValues(navigationLogic)
+    const { hideSideBarMobile } = useActions(navigationLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
@@ -244,7 +256,6 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
-            <ToolbarModal visible={isToolbarModalShown} onCancel={hideToolbarModal} />
         </div>
     )
 }

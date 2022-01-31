@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import filtersJson from './__mocks__/filters.json'
 import { EntityFilter } from '~/types'
 import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { initKeaTests } from '~/test/init'
 
@@ -13,9 +13,7 @@ describe('renameModalLogic', () => {
     let logic: ReturnType<typeof renameModalLogic.build>
     let relevantEntityFilterLogic: ReturnType<typeof entityFilterLogic.build>
 
-    mockAPI(async (url) => {
-        return defaultAPIMocks(url)
-    })
+    mockAPI()
 
     beforeEach(() => {
         initKeaTests()

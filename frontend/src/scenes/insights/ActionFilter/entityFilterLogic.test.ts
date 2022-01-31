@@ -1,27 +1,18 @@
-import { BuiltLogic } from 'kea'
-import { entityFilterLogicType } from 'scenes/insights/ActionFilter/entityFilterLogicType'
-import {
-    BareEntity,
-    entityFilterLogic,
-    EntityFilterProps,
-    LocalFilter,
-    toLocalFilters,
-} from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 
 jest.mock('lib/api')
 
 describe('entityFilterLogic', () => {
-    let logic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
+    let logic: ReturnType<typeof entityFilterLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
+    mockAPI(async ({ pathname }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/actions/`) {
             return {
                 results: filtersJson.actions,
@@ -29,7 +20,6 @@ describe('entityFilterLogic', () => {
         } else if (pathname.endsWith('/event_definitions/')) {
             return eventDefinitionsJson
         }
-        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

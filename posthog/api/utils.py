@@ -18,10 +18,14 @@ from statshog.defaults.django import statsd
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
+from posthog.models.action import Action
 from posthog.models.entity import MATH_TYPE
+from posthog.models.event import Event
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.utils import cors_response, is_clickhouse_enabled, load_data_from_request
+from posthog.utils import cors_response, load_data_from_request
 
 
 class PaginationMode(Enum):
@@ -29,28 +33,26 @@ class PaginationMode(Enum):
     previous = auto()
 
 
-def get_target_entity(request: request.Request) -> Entity:
-    entity_id: Optional[str] = request.GET.get(ENTITY_ID)
-    events = request.GET.get("events", "[]")
-    actions = request.GET.get("actions", "[]")
-    entity_type = request.GET.get(ENTITY_TYPE)
-    entity_math = cast(MATH_TYPE, request.GET.get(ENTITY_MATH, "total"))
-
-    if not entity_id:
+def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
+    if not filter.target_entity_id:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
-    possible_entity = retrieve_entity_from(entity_id, entity_type, entity_math, json.loads(events), json.loads(actions))
+    entity_math = filter.target_entity_math or "total"  # make math explicit
+
+    possible_entity = retrieve_entity_from(
+        filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
+    )
     if possible_entity:
-        return Entity(data=possible_entity)
-    elif entity_type:
-        return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
+        return possible_entity
+    elif filter.target_entity_type:
+        return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
 def retrieve_entity_from(
-    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Dict], actions: List[Dict]
-) -> Optional[Dict]:
+    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Entity], actions: List[Entity]
+) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
 
@@ -67,11 +69,11 @@ def retrieve_entity_from(
 
     if entity_type == "actions":
         for action in actions:
-            if str(action.get("id")) == entity_id and action.get("math", "total") == entity_math:
+            if action.id == entity_id and (action.math or "total") == entity_math:
                 return action
     else:
         for event in events:
-            if event.get("id") == entity_id and event.get("math", "total") == entity_math:
+            if event.id == entity_id and (event.math or "total") == entity_math:
                 return event
     return None
 
@@ -176,18 +178,6 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
         statsd.incr("capture_endpoint_fetch_team_fail")
 
         db_error = getattr(e, "message", repr(e))
-
-        if not is_clickhouse_enabled():
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to fetch team from database.",
-                    type="server_error",
-                    code="fetch_team_fail",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
 
         return None, db_error, error_response
 

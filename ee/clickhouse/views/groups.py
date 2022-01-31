@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Dict, List, cast
 
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -17,13 +18,24 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["group_type", "group_type_index"]
+        fields = ["group_type", "group_type_index", "name_singular", "name_plural"]
+        read_only_fields = ["group_type", "group_type_index"]
 
 
 class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
+
+    @action(detail=False, methods=["PATCH"], name="Update group types metadata")
+    def update_metadata(self, request: request.Request, *args, **kwargs):
+        for row in cast(List[Dict], request.data):
+            instance = GroupTypeMapping.objects.get(team=self.team, group_type_index=row["group_type_index"])
+            serializer = self.get_serializer(instance, data=row)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+        return self.list(request, *args, **kwargs)
 
 
 class GroupCursorPagination(CursorPagination):

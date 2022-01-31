@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-
+import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
 import { InsightLogicProps, FilterType, InsightType, TrendResult } from '~/types'
@@ -15,22 +15,30 @@ export const trendsLogic = kea<trendsLogicType>({
     path: (key) => ['scenes', 'trends', 'trendsLogic', key],
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], groupsModel, ['aggregationLabel']],
-        actions: [insightLogic(props), ['loadResultsSuccess'], personsModalLogic, ['loadPeople', 'loadPeopleFromUrl']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys'],
+            groupsModel,
+            ['aggregationLabel'],
+        ],
+        actions: [
+            insightLogic(props),
+            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById'],
+            personsModalLogic,
+            ['loadPeople', 'loadPeopleFromUrl'],
+        ],
     }),
 
     actions: () => ({
         setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-        toggleVisibility: (index: number) => ({ index }),
-        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
         setTargetAction: (action: Record<string, any>) => ({ action }),
     }),
 
-    reducers: ({ props }) => ({
+    reducers: () => ({
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -46,40 +54,6 @@ export const trendsLogic = kea<trendsLogicType>({
             {} as Record<string, any>,
             {
                 setTargetAction: (_, { action }) => action,
-            },
-        ],
-        visibilityMap: [
-            () =>
-                (Array.isArray(props.cachedResults)
-                    ? Object.fromEntries(props.cachedResults.map((__, i) => [i, true]))
-                    : {}) as Record<number, any>,
-            {
-                setVisibilityById: (
-                    state: Record<number, any>,
-                    {
-                        entry,
-                    }: {
-                        entry: Record<number, any>
-                    }
-                ) => ({
-                    ...state,
-                    ...entry,
-                }),
-                toggleVisibility: (
-                    state: Record<number, any>,
-                    {
-                        index,
-                    }: {
-                        index: number
-                    }
-                ) => ({
-                    ...state,
-                    [`${index}`]: !state[index],
-                }),
-                loadResultsSuccess: (state, { insight }) =>
-                    Array.isArray(insight.result)
-                        ? Object.fromEntries(insight.result.map((__, i) => [i, true]))
-                        : state,
             },
         ],
         breakdownValuesLoading: [
@@ -116,9 +90,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
-                return results
-                    .sort((a, b) => a.label.localeCompare(b.label))
-                    .map((result, index) => ({ ...result, id: index }))
+                return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
         showModalActions: [
@@ -144,6 +116,34 @@ export const trendsLogic = kea<trendsLogicType>({
                 plural: string
             } => {
                 return aggregationLabel(targetAction.math_group_type_index)
+            },
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.filters, s.insight],
+            (filters, insight) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (insight?.result?.[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = dayjs().startOf(filters.interval ?? 'd')
+                const startIndex = insight.result[0].days.findIndex((day: string) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - insight.result[0].days.length
+                } else {
+                    return 0
+                }
+            },
+        ],
+        labelGroupType: [
+            (s) => [s.filters],
+            (filters): 'people' | 'none' | number => {
+                // Find the commonly shared aggregation group index if there is one.
+                const eventsAndActions = [...(filters.events ?? []), ...(filters.actions ?? [])]
+                const firstAggregationGroupTypeIndex = eventsAndActions?.[0]?.math_group_type_index
+                return eventsAndActions.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
+                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
+                    : 'none' // mixed group types
             },
         ],
     },

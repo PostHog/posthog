@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Button } from 'antd'
-
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
+
 import { dayjs } from 'lib/dayjs'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
@@ -16,6 +16,7 @@ export function DateFilterRange(props: {
     rangeDateFrom?: string | dayjs.Dayjs
     rangeDateTo?: string | dayjs.Dayjs
     getPopupContainer?: (props: any) => HTMLElement
+    disableBeforeYear?: number
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
     const [calendarOpen, setCalendarOpen] = useState(false)
@@ -99,6 +100,7 @@ export function DateFilterRange(props: {
                         }
                     }}
                     popupStyle={{ zIndex: 999999 }}
+                    disabledDate={(date) => !!props.disableBeforeYear && date.year() < props.disableBeforeYear}
                 />
                 <br />
                 <Button

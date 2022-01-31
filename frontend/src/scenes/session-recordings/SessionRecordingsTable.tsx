@@ -10,12 +10,11 @@ import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -73,8 +72,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDateRange,
         setDurationFilter,
         enableFilter,
+        reportRecordingsListFilterAdded,
     } = useActions(sessionRecordingsTableLogicInstance)
-    const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -128,6 +127,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             fullWidth={true}
                             filters={entityFilters}
                             setFilters={(payload) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                                 setEntityFilters(payload)
                             }}
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
@@ -151,7 +151,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             ]}
                         />
                     </div>
-                    {!isPersonPage && preflight?.is_clickhouse_enabled && (
+                    {!isPersonPage && (
                         <div className="mt-2">
                             <Typography.Text strong>
                                 {`Filter by persons and cohorts `}
@@ -168,6 +168,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 ]}
                                 propertyFilters={propertyFilters}
                                 onChange={(properties) => {
+                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
                                     setPropertyFilters(properties)
                                 }}
                             />
@@ -203,6 +204,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
                                 setDateRange(changedDateFrom, changedDateTo)
                             }}
                             dateOptions={{
@@ -217,6 +219,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         <Typography.Text className="filter-label">Duration</Typography.Text>
                         <DurationFilter
                             onChange={(newFilter) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
                                 setDurationFilter(newFilter)
                             }}
                             initialFilter={durationFilter}
@@ -240,6 +243,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 })}
                 rowClassName="cursor-pointer"
                 data-attr="session-recording-table"
+                emptyState="No matching recordings found"
             />
             {(hasPrev || hasNext) && (
                 <Row className="pagination-control">

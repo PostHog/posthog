@@ -20,7 +20,18 @@ PropertyType = Literal["event", "person", "cohort", "element", "static-cohort", 
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
-    "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    "regex",
+    "not_regex",
+    "gt",
+    "lt",
+    "is_set",
+    "is_not_set",
+    "is_date_after",
+    "is_date_before",
 ]
 
 GroupTypeName = str
@@ -58,14 +69,11 @@ class Property:
         return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {
-            "key": self.key,
-            "value": self.value,
-            "operator": self.operator,
-            "type": self.type,
-        }
+        result = {"key": self.key, "value": self.value, "operator": self.operator, "type": self.type}
+
         if self.group_type_index is not None:
             result["group_type_index"] = self.group_type_index
+
         return result
 
     def _parse_value(self, value: ValueT) -> Any:

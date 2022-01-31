@@ -1,13 +1,9 @@
 import {
     sessionRecordingsTableLogic,
-    PersonUUID,
-    SessionRecordingId,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
-import { BuiltLogic } from 'kea'
-import { mockAPI, defaultAPIMocks, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
@@ -17,10 +13,9 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>
+    let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname, searchParams } = url
+    mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings`) {
             if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
                 return {
@@ -47,7 +42,6 @@ describe('sessionRecordingsTableLogic', () => {
                 results: ['List of recordings from server'],
             }
         }
-        return defaultAPIMocks(url)
     })
 
     describe('global logic', () => {
@@ -74,15 +68,15 @@ describe('sessionRecordingsTableLogic', () => {
                 ).toMatchValues({
                     sessionRecordingId: 'abc',
                 })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ sessionRecordingId: null })
-                expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId')
+                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
 
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/recordings', { sessionRecordingId: 'recording1212' })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+                router.actions.push('/recordings', {}, { sessionRecordingId: 'recording1212' })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
                 await expectLogic(logic)
                     .toDispatchActions(['openSessionPlayer'])
@@ -286,8 +280,8 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         it('reads sessionRecordingId from the URL on the person page', async () => {
-            router.actions.push('/person/123', { sessionRecordingId: 'recording1212' })
-            expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+            router.actions.push('/person/123', {}, { sessionRecordingId: 'recording1212' })
+            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])

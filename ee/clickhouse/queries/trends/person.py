@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -30,29 +30,29 @@ def _handle_date_interval(filter: Filter) -> Filter:
         data.update({"date_to": date_from})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
-    elif filter.interval == "minute":
-        data.update({"date_to": date_from + timedelta(minutes=1)})
     return filter.with_data(data)
 
 
-class TrendsPersonQuery(ActorBaseQuery):
+class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
-        super().__init__(team, filter, entity)
+        super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self.entity.math == "unique_group"
+    def aggregation_group_type_index(self):
+        if self.entity.math == "unique_group":
+            return self.entity.math_group_type_index
+        return None
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
@@ -77,17 +77,34 @@ class TrendsPersonQuery(ActorBaseQuery):
 
             self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
 
+        extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
+        if self._filter.include_recordings:
+            extra_fields += ["uuid"]
+
         events_query, params = TrendsEventQuery(
             filter=self._filter,
             team_id=self._team.pk,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
             should_join_persons=not self.is_aggregating_by_groups,
-            extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
+            extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
+            extra_fields=extra_fields,
         ).get_query()
 
+        matching_events_select_statement = (
+            ", groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events"
+            if self._filter.include_recordings
+            else ""
+        )
+
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
+            GET_ACTORS_FROM_EVENT_QUERY.format(
+                id_field=self._aggregation_actor_field,
+                matching_events_select_statement=matching_events_select_statement,
+                events_query=events_query,
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
+            ),
             {**params, "offset": self._filter.offset, "limit": 200},
         )
 

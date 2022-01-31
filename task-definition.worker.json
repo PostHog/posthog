@@ -101,8 +101,8 @@
                     "value": "True"
                 },
                 {
-                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
-                    "value": "1"
+                    "name": "EVENT_PROPERTY_USAGE_INTERVAL_SECONDS",
+                    "value": "3600"
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
@@ -123,6 +123,10 @@
                 {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
+                },
+                {
+                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
                 }
             ],
             "secrets": [

@@ -143,7 +143,7 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 title="Feature Flags"
-                caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
+                caption="Feature Flags are a way of turning functionality in your app on or off, based on user properties."
             />
             <div>
                 <Input.Search
@@ -173,7 +173,7 @@ export function FeatureFlags(): JSX.Element {
                 rowKey="key"
                 loading={featureFlagsLoading}
                 defaultSorting={{ columnKey: 'key', order: 1 }}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
             />
@@ -198,11 +198,11 @@ function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
             return (
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                     <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} greyBadges />
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} />
                 </div>
             )
         } else if (properties?.length > 0) {
-            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} greyBadges />
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} />
         } else if (rollout_percentage !== null) {
             return `${rollout_percentage}% of all users`
         } else {

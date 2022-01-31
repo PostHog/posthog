@@ -96,11 +96,12 @@ describe('ActionMatcher', () => {
             team_id: 2,
             properties: {},
             properties_last_updated_at: {},
-            properties_last_operation: null,
+            properties_last_operation: {},
             is_user_id: 0,
             is_identified: true,
             uuid: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
             created_at: DateTime.fromSeconds(18000000),
+            version: 0,
             ...overrides,
         }
     }
@@ -721,7 +722,12 @@ describe('ActionMatcher', () => {
         })
 
         it('returns a match in case of cohort match', async () => {
-            const testCohort = await hub.db.createCohort({ name: 'Test', created_by_id: commonUserId, team_id: 2 })
+            const testCohort = await hub.db.createCohort({
+                name: 'Test',
+                description: 'Test',
+                created_by_id: commonUserId,
+                team_id: 2,
+            })
 
             const actionDefinition: Action = await createTestAction([
                 {
@@ -736,6 +742,8 @@ describe('ActionMatcher', () => {
 
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
+                {},
+                {},
                 {},
                 actionDefinition.team_id,
                 null,
@@ -782,6 +790,7 @@ describe('ActionMatcher', () => {
             // Static cohorts are stored in their own ClickHouse table, hence this path has its own test
             const testCohortStatic = await hub.db.createCohort({
                 name: 'Test',
+                description: 'Test',
                 created_by_id: commonUserId,
                 team_id: 2,
                 is_static: true,
@@ -800,6 +809,8 @@ describe('ActionMatcher', () => {
 
             await hub.db.createPerson(
                 DateTime.local(),
+                {},
+                {},
                 {},
                 actionDefinition.team_id,
                 null,

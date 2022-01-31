@@ -84,7 +84,7 @@
             position: relative;
 
             &::after {
-                @extend .mixin-gradient-overlay;
+                @extend %mixin-gradient-overlay;
                 width: calc(100% - 16px); // .ant-row gutter
                 left: 8px;
                 height: 150px;
@@ -183,4 +183,9 @@
 #auto-refresh-check {
     padding: 5px 12px;
     cursor: pointer;
+}
+
+.ShareButton__overlay {
+    width: 26rem;
+    padding: 0.5rem;
 }

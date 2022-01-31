@@ -35,7 +35,7 @@ export async function debugCHQueries(): Promise<void> {
                     ]}
                     dataSource={results}
                     size="small"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    pagination={false}
                 />
             </>
         ),

@@ -27,6 +27,7 @@ $tick_hover_size: 5px;
             background-color: $brand_red;
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
+            transition: transform 50ms;
         }
 
         .slider-bar,
@@ -63,6 +64,22 @@ $tick_hover_size: 5px;
             top: ($slider-height - 2px) / 2;
             left: 1px;
             width: 0; // starting point
+        }
+
+        .inactivity-bar {
+            z-index: 4;
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 100%;
+            .activity-section {
+                float: left;
+                height: 100%;
+            }
+            .inactive-section {
+                background: repeating-linear-gradient(325deg, transparent, transparent 2px, #fff 2px, #fff 4px);
+            }
         }
     }
 

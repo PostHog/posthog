@@ -1,6 +1,8 @@
 import json
-from typing import Any, Dict, List, Union, cast
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union, cast
 
+from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
@@ -15,6 +17,10 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from rest_hooks.signals import raw_hook_event
 
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
+from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
@@ -34,15 +40,15 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.cohort import Cohort
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import base, retention, stickiness, trends
-from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
-from .person import PersonSerializer, paginated_result
+from .person import PersonSerializer, get_person_name, paginated_result
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -74,6 +80,7 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
+    is_calculating = serializers.SerializerMethodField()
 
     class Meta:
         model = Action
@@ -91,6 +98,9 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "team_id",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
+
+    def get_is_calculating(self, action: Action) -> bool:
+        return False
 
     def validate(self, attrs):
         instance = cast(Action, self.instance)
@@ -125,7 +135,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        calculate_action.delay(action_id=instance.pk)
         report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
 
         return instance
@@ -152,7 +161,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                     )
 
         instance = super().update(instance, validated_data)
-        calculate_action.delay(action_id=instance.pk)
         instance.refresh_from_db()
         report_user_action(
             self.context["request"].user,
@@ -193,9 +201,72 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
-        if request.GET.get("include_count", False):
-            actions_list.sort(key=lambda action: action.get("count", action["id"]), reverse=True)
         return Response({"results": actions_list})
+
+    @action(methods=["GET"], detail=False)
+    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+        entity = get_target_entity(filter)
+
+        actors, serialized_actors = ClickhouseTrendsActors(team, entity, filter).get_actors()
+
+        current_url = request.get_full_path()
+        next_url: Optional[str] = request.get_full_path()
+        offset = filter.offset
+        if len(actors) > 100 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
+
+        if request.accepted_renderer.format == "csv":
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
+            content = [
+                {
+                    "Name": get_person_name(person),
+                    "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
+                    "Internal ID": str(person.uuid),
+                    "Email": person.properties.get("email"),
+                    "Properties": person.properties,
+                }
+                for person in actors
+                if isinstance(person, Person)
+            ]
+            return Response(content)
+
+        return Response(
+            {
+                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "next": next_url,
+                "previous": current_url[1:],
+            }
+        )
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: request.Request, **kwargs) -> Response:
+        action = self.get_object()
+        query, params = format_action_filter(action)
+        if query == "":
+            return Response({"count": 0})
+
+        results = sync_execute(
+            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND timestamp < %(before)s AND timestamp > %(after)s AND {}".format(
+                query
+            ),
+            {
+                "team_id": action.team_id,
+                "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                **params,
+            },
+        )
+        return Response({"count": results[0][0]})
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -274,48 +345,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
 
         return Response(result)
-
-    @action(methods=["GET"], detail=False)
-    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.get_people(request)
-        return Response(result)
-
-    def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
-        team = self.team
-        filter = Filter(request=request, team=self.team)
-        entity = get_target_entity(request)
-
-        events = filter_by_type(entity=entity, team=team, filter=filter)
-        people = calculate_people(team=team, events=events, filter=filter, request=request)
-        serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
-
-        current_url = request.get_full_path()
-        next_url = paginated_result(serialized_people, request, filter.offset)
-
-        if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
-            content = [
-                {
-                    "Name": person.get("properties", {}).get("name"),
-                    "Distinct ID": person.get("distinct_ids", [""])[0],
-                    "Internal ID": person["uuid"],
-                    "Email": person.get("properties", {}).get("email"),
-                    "Properties": person.get("properties", {}),
-                }
-                for person in serialized_people
-            ]
-            return content
-
-        return {
-            "results": [{"people": serialized_people, "count": len(serialized_people)}],
-            "next": next_url,
-            "previous": current_url[1:],
-        }
-
-    @action(methods=["GET"], detail=True)
-    def count(self, request: request.Request, **kwargs) -> Response:
-        count = self.get_queryset().first().count
-        return Response({"count": count})
 
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:

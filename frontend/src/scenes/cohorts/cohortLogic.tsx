@@ -8,6 +8,7 @@ import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { cohortLogicType } from './cohortLogicType'
 import { CohortGroupType, CohortType, MatchType } from '~/types'
 import { errorToast } from 'lib/utils'
+import { personsLogic } from 'scenes/persons/personsLogic'
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -192,6 +193,7 @@ export const cohortLogic = kea<cohortLogicType>({
                 actions.setLastSavedAt(new Date().toISOString())
                 actions.setCohort(cohort)
                 cohortsModel.actions.updateCohort(cohort)
+                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)

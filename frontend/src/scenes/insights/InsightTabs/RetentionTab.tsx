@@ -1,11 +1,9 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
@@ -24,7 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps, clickhouseFeaturesEnabled } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -48,7 +46,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
@@ -75,7 +73,7 @@ export function RetentionTab(): JSX.Element {
                                                 }
                                             />
                                         ) : (
-                                            <b>unique users</b>
+                                            <b>Unique users</b>
                                         )}{' '}
                                         who did
                                     </>
@@ -121,7 +119,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
@@ -161,6 +159,8 @@ export function RetentionTab(): JSX.Element {
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
                     <PropertyFilters
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => setFilters({ properties })}
                         pageKey="insight-retention"
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
@@ -169,11 +169,11 @@ export function RetentionTab(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 
-                    {clickhouseFeaturesEnabled &&
-                    featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+                    {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
                         <>
                             <hr />

@@ -1,16 +1,56 @@
 #!/bin/bash
 set -e
 
-dropdb --if-exists posthog_e2e_test
-createdb posthog_e2e_test
-DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate &&
-DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py setup_dev &
-yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
 
-NO_RESTART_LOOP=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test ./bin/plugin-server &
+export DEBUG=1
+export NO_RESTART_LOOP=1 
+export CYPRESS_BASE_URL=http://localhost:8080
+export OPT_OUT_CAPTURE=1
+export SECURE_COOKIES=0
+export PRIMARY_DB=clickhouse
+export SKIP_SERVICE_VERSION_REQUIREMENTS=1
+export KAFKA_URL=kafka://kafka:9092
+export CLICKHOUSE_DATABASE=posthog_test
+export TEST=1 # Plugin server and kafka revert to 'default' Clickhouse database if TEST is not set
+export CLICKHOUSE_SECURE=0
+export E2E_TESTING=1
+export SECRET_KEY=e2e_test
+export EMAIL_HOST=email.test.posthog.net
+export SITE_URL=test.posthog.net 
+export REDIS_URL=redis://localhost/
+DATABASE="posthog_e2e_test"
+export PGHOST="${PGHOST:=localhost}"
+export PGUSER="${PGUSER:=posthog}"
+export PGPASSWORD="${PGPASSWORD:=posthog}"
+export PGPORT="${PGPORT:=5432}"
+export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
+
+nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
+wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
+
+
+trap "trap - SIGTERM && yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor && kill -- -$$" SIGINT SIGTERM EXIT
+
+dropdb --if-exists $DATABASE
+createdb $DATABASE
+
+# Delete and recreate clickhouse database
+echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+python manage.py migrate
+python manage.py migrate_clickhouse
+
+## parallel block
+python manage.py setup_dev &
+yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 & wait
+
+## parallel block
+./bin/plugin-server &
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
+npx cypress open --config-file cypress.e2e.json &
+python manage.py runserver 8080
 
-CYPRESS_BASE_URL=http://localhost:8080 npx cypress open --config-file cypress.e2e.json &
-OPT_OUT_CAPTURE=1 SECURE_COOKIES=0 DEBUG=0 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test EMAIL_HOST=email.test.posthog.net SITE_URL=test.posthog.net python manage.py runserver 8080
+## Will be called once killed
 yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor

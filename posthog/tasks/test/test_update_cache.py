@@ -109,51 +109,22 @@ class TestUpdateCache(APIBaseTest):
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         dashboard_item = self._create_dashboard(filter)
 
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.TRENDS,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-
-        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
-        self.assertEqual(updated_dashboard_item.refreshing, False)
-        self.assertEqual(updated_dashboard_item.last_refresh, now())
-
-    @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.Funnel")
-    def test_update_cache_item_calls_right_funnel_class(self, funnel_mock: MagicMock) -> None:
-        #  basic funnel
-        filter = Filter(
-            data={
-                "insight": "FUNNELS",
-                "events": [
-                    {"id": "$pageview", "order": 0, "type": "events"},
-                    {"id": "$pageview", "order": 1, "type": "events"},
-                ],
-            }
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.TRENDS,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        dashboard_item = self._create_dashboard(filter)
-
-        funnel_mock.return_value.run.return_value = {}
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
-        funnel_mock.assert_called_once()
 
     @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelUnordered", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelStrict", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelUnordered", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelStrict", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTimeToConvert", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTrends", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnel", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnel", create=True)
     def test_update_cache_item_calls_right_funnel_class_clickhouse(
         self,
         funnel_mock: MagicMock,
@@ -173,7 +144,7 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(EE_AVAILABLE=True, PRIMARY_DB="clickhouse"):
+        with self.settings(PRIMARY_DB="clickhouse"):
             filter = base_filter
             funnel_mock.return_value.run.return_value = {}
             update_cache_item(
@@ -191,25 +162,9 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_trends_mock.assert_called_once()
-            self.assertEqual(funnel_trends_mock.call_args[1]["funnel_order_class"], funnel_mock)
-            funnel_trends_mock.reset_mock()
 
-            # trends unordered funnel
-            filter = base_filter.with_data({"funnel_viz_type": "trends", "funnel_order_type": "unordered"})
-            funnel_trends_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-
-            funnel_trends_mock.assert_called_once()
-            self.assertEqual(funnel_trends_mock.call_args[1]["funnel_order_class"], funnel_unordered_mock)
-            funnel_trends_mock.reset_mock()
-
-            # time to convert strict funnel
+            # time to convert funnel
             filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
             funnel_time_to_convert_mock.return_value.run.return_value = {}
             update_cache_item(
@@ -217,10 +172,7 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_time_to_convert_mock.assert_called_once()
-            self.assertEqual(funnel_time_to_convert_mock.call_args[1]["funnel_order_class"], funnel_strict_mock)
-            funnel_time_to_convert_mock.reset_mock()
 
             # strict funnel
             filter = base_filter.with_data({"funnel_order_type": "strict"})
@@ -230,8 +182,17 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_strict_mock.assert_called_once()
+
+            # unordered funnel
+            filter = base_filter.with_data({"funnel_order_type": "unordered"})
+            funnel_unordered_mock.return_value.run.return_value = {}
+            update_cache_item(
+                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+                CacheType.FUNNEL,
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
+            )
+            funnel_unordered_mock.assert_called_once()
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
@@ -355,3 +316,74 @@ class TestUpdateCache(APIBaseTest):
         patch_calculate_by_filter.side_effect = None
         data = self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_filters_multiple_dashboard(self) -> None:
+        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we woul donly update one of those
+        dashboard1 = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
+        dashboard2 = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
+        dashboard3 = Dashboard.objects.create(team=self.team, is_shared=True)
+
+        filter = {"events": [{"id": "$pageview"}]}
+
+        item1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        item2 = Insight.objects.create(dashboard=dashboard2, filters=filter, team=self.team)
+        item3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+
+        update_cached_items()
+
+        insights = Insight.objects.all().order_by("id")
+
+        self.assertEqual(len(get_safe_cache(insights[0].filters_hash)["result"][0]["data"]), 15)
+        self.assertEqual(len(get_safe_cache(insights[1].filters_hash)["result"][0]["data"]), 31)
+        self.assertEqual(len(get_safe_cache(insights[2].filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(insights[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        self.assertEqual(insights[1].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        self.assertEqual(insights[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+
+        # TODO: assert each items cache has the right number of days and the right filters hash
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_insights_old_filter(self) -> None:
+        # Some filters hashes are wrong (likely due to changes in our filters models) and previously we would not save changes to those insights and constantly retry them.
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(
+            dashboard=dashboard, filters=filter, filters_hash="cache_thisiswrong", team=self.team
+        )
+        Insight.objects.all().update(filters_hash="cache_thisiswrong")
+        self.assertEquals(Insight.objects.get().filters_hash, "cache_thisiswrong")
+
+        update_cached_items()
+
+        self.assertEquals(
+            Insight.objects.get().filters_hash,
+            generate_cache_key("{}_{}".format(Filter(data=filter).toJSON(), self.team.pk)),
+        )
+        self.assertEquals(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        # sometimes we have broken insights, add a test to catch
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        item = Insight.objects.create(dashboard=dashboard, filters={}, team=self.team)
+
+        update_cached_items()
+
+        self.assertEqual(dashboard_item_update_task_params.call_count, 0)
+
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        dashboard_item_update_task_params.side_effect = Exception()
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(dashboard=dashboard, filters=filter, team=self.team)
+
+        update_cached_items()
+
+        self.assertEquals(Insight.objects.get().refresh_attempt, 1)

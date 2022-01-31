@@ -5,9 +5,19 @@ import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { identifierToHuman, resolveWebhookService } from 'lib/utils'
+import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
+
+const parseUpdatedAttributeName = (attr: string | null): string => {
+    if (attr === 'slack_incoming_webhook') {
+        return 'Webhook'
+    }
+    if (attr === 'app_urls') {
+        return 'Authorized URLs'
+    }
+    return attr ? identifierToHuman(attr) : 'Project'
+}
 
 export const teamLogic = kea<teamLogicType>({
     path: ['scenes', 'teamLogic'],
@@ -31,6 +41,10 @@ export const teamLogic = kea<teamLogicType>({
             null as TeamType | null,
             {
                 loadCurrentTeam: async () => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return null
+                    }
                     try {
                         return await api.get('api/projects/@current')
                     } catch {
@@ -60,14 +74,7 @@ export const teamLogic = kea<teamLogicType>({
                     toast.dismiss('updateCurrentTeam')
                     toast.success(
                         <div>
-                            <h1>
-                                {updatedAttribute
-                                    ? updatedAttribute === 'slack_incoming_webhook'
-                                        ? 'Webhook'
-                                        : identifierToHuman(updatedAttribute)
-                                    : 'Project'}{' '}
-                                updated successfully!
-                            </h1>
+                            <h1>{parseUpdatedAttributeName(updatedAttribute)} updated successfully!</h1>
                             <p>{description}</p>
                         </div>,
                         {

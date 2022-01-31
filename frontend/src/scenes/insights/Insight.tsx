@@ -1,9 +1,9 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Card, Button, Popconfirm, Alert } from 'antd'
+import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from '~/types'
@@ -22,9 +22,10 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
-import posthog from 'posthog-js'
-import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 import { userLogic } from 'scenes/userLogic'
+import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LastModified } from 'lib/components/InsightCard/LastModified'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -33,11 +34,10 @@ export const scene: SceneExport = {
 }
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
-    useMountedLogic(insightCommandLogic)
-
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const { insightProps, activeView, filters, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
+    const { insightProps, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
+    useMountedLogic(insightCommandLogic(insightProps))
     const {
         setActiveView,
         setInsightMode,
@@ -51,13 +51,12 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
+    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
-    const { showHelp } = useActions(helpButtonLogic)
 
-    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
-    const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
+    const verticalLayout =
+        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] !== 'test' // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -71,9 +70,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         f: {
             action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
         },
-        o: {
-            action: () => handleHotkeyNavigation(InsightType.SESSIONS, 'o'),
-        },
         r: {
             action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
         },
@@ -86,11 +82,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         l: {
             action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
         },
-        escape: {
-            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-            action: () => setInsightMode(ItemMode.View, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.Edit,
-        },
         e: {
             action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
             disabled: insightMode !== ItemMode.View,
@@ -102,7 +93,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
         [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
         [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-        [`${InsightType.SESSIONS}`]: <SessionTab />,
         [`${InsightType.FUNNELS}`]: <FunnelTab />,
         [`${InsightType.RETENTION}`]: <RetentionTab />,
         [`${InsightType.PATHS}`]: <PathTab />,
@@ -110,24 +100,20 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
 
     const insightScene = (
         <div className="insights-page">
-            <div className="insight-metadata">
-                <Row justify="space-between" align="top" style={{ marginTop: 24 }}>
-                    <Col xs={{ span: 24, order: 2 }} sm={{ order: 1 }} style={{ flex: 1 }}>
-                        <EditableField
-                            name="name"
-                            value={insight.name || ''}
-                            placeholder={UNNAMED_INSIGHT_NAME}
-                            onChange={(value) => setInsightMetadata({ name: value })}
-                            className="insight-metadata-name"
-                            dataAttr="insight-name"
-                        />
-                    </Col>
-                    <Col
-                        className="insights-tab-actions"
-                        xs={{ span: 24, order: 1 }}
-                        sm={{ order: 2 }}
-                        style={{ flex: 0 }}
-                    >
+            <PageHeader
+                title={
+                    <EditableField
+                        name="name"
+                        value={insight.name || ''}
+                        placeholder={UNNAMED_INSIGHT_NAME}
+                        onSave={(value) => setInsightMetadata({ name: value })}
+                        minLength={1}
+                        maxLength={400} // Sync with Insight model
+                        data-attr="insight-name"
+                    />
+                }
+                buttons={
+                    <div className="insights-tab-actions">
                         {filtersChanged ? (
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
@@ -155,31 +141,38 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         ) : (
                             <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
-                    </Col>
-                </Row>
-                <EditableField
-                    multiline
-                    name="description"
-                    value={insight.description || ''}
-                    placeholder={`Description (optional)`}
-                    onChange={(value) => setInsightMetadata({ description: value })}
-                    className={'insight-metadata-description'}
-                    dataAttr={'insight-description'}
-                    locked={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                />
-                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                    <div className={'insight-metadata-tags'} data-attr="insight-tags">
-                        <ObjectTags
-                            tags={insight.tags ?? []}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
-                            saving={tagLoading}
-                            tagsAvailable={[]}
-                        />
                     </div>
-                ) : null}
-            </div>
-
+                }
+                caption={
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            value={insight.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(value) => setInsightMetadata({ description: value })}
+                            maxLength={400} // Sync with Insight model
+                            data-attr="insight-description"
+                            compactButtons
+                            paywall
+                        />
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                            <ObjectTags
+                                tags={insight.tags ?? []}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={tagLoading}
+                                tagsAvailable={[]}
+                                className="insight-metadata-tags"
+                                data-attr="insight-tags"
+                            />
+                        )}
+                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
+                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        )}
+                    </>
+                }
+            />
             {insightMode === ItemMode.View ? (
                 <Row style={{ marginTop: 16 }}>
                     <Col span={24}>
@@ -192,45 +185,9 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         <InsightsNav />
                     </Row>
 
-                    {activeView === InsightType.SESSIONS && featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && (
-                        <Alert
-                            style={{ marginBottom: 16 }}
-                            type="warning"
-                            showIcon
-                            message={
-                                <div>
-                                    We're deprecating and removing this feature soon as session-based analytics is not
-                                    fully supported in PostHog.{' '}
-                                    <a
-                                        href="https://posthog.com/blog/sessions-removal?utm_campaign=sessions-insight-deprecation&utm_medium=in-product"
-                                        target="_blank"
-                                        rel="noopener"
-                                    >
-                                        Read more
-                                    </a>{' '}
-                                    about this change in our docs.
-                                    <div>
-                                        <b>Still interested in this feature?</b>{' '}
-                                        <Button
-                                            type="link"
-                                            onClick={() => {
-                                                showHelp()
-                                                posthog.capture('session removal still interested')
-                                            }}
-                                            style={{ paddingLeft: 0, paddingRight: 0 }}
-                                        >
-                                            Share your feedback
-                                        </Button>
-                                        .
-                                    </div>
-                                </div>
-                            }
-                        />
-                    )}
-
                     <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                            {verticalLayout ? (
                                 insightTab
                             ) : (
                                 <Card className="insight-controls">
@@ -246,15 +203,15 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         </Col>
                     </Row>
                     <NPSPrompt />
+                    <FeedbackCallCTA />
                 </>
             )}
 
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    saveCohortWithFilters(title, filters)
+                    saveCohortWithUrl(title)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

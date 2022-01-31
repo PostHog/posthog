@@ -1,19 +1,23 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 import { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
+    Demo = 'Demo',
     CloudFlag = 'CloudFlag',
-    GroupAnalytics = 'GroupAnalytics',
+    NewFeature = 'NewFeature',
 }
+
+// Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
+const ShowNewFeatureAnnouncement = false
 
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags'], groupsAccessLogic, ['showGroupsAnnouncementBanner']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
     actions: {
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -40,22 +44,32 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
         ],
     },
     selectors: {
+        closable: [
+            (s) => [s.relevantAnnouncementType],
+            // The demo announcement is persistent
+            (relevantAnnouncementType): boolean => relevantAnnouncementType !== AnnouncementType.Demo,
+        ],
         shownAnnouncementType: [
-            (s) => [s.relevantAnnouncementType, s.closed, s.persistedClosedAnnouncements],
-            (relevantAnnouncementType, closed, persistedClosedAnnouncements): AnnouncementType | null => {
-                if (closed || (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType])) {
+            (s) => [s.relevantAnnouncementType, s.closable, s.closed, s.persistedClosedAnnouncements],
+            (relevantAnnouncementType, closable, closed, persistedClosedAnnouncements): AnnouncementType | null => {
+                if (
+                    closable &&
+                    (closed || (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))
+                ) {
                     return null
                 }
                 return relevantAnnouncementType
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.showGroupsAnnouncementBanner],
-            (cloudAnnouncement, showGroupsAnnouncementBanner): AnnouncementType | null => {
-                if (cloudAnnouncement) {
+            (s) => [s.cloudAnnouncement, s.preflight],
+            (cloudAnnouncement, preflight): AnnouncementType | null => {
+                if (preflight?.demo) {
+                    return AnnouncementType.Demo
+                } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
-                } else if (showGroupsAnnouncementBanner) {
-                    return AnnouncementType.GroupAnalytics
+                } else if (ShowNewFeatureAnnouncement) {
+                    return AnnouncementType.NewFeature
                 }
                 return null
             },

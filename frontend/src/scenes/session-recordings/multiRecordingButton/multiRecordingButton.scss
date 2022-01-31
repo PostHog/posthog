@@ -1,0 +1,38 @@
+@import '~/vars';
+
+.session-recordings-popup {
+    z-index: 1061; // >1060 to be above the person modal and <1070 to be under the recording
+
+    .anticon-play-circle {
+        color: $primary;
+    }
+
+    .session-recordings-popup-row {
+        display: flex;
+        align-items: center;
+
+        padding: $default_spacing/2;
+
+        font-weight: $medium;
+        color: $text_default;
+
+        &:hover {
+            color: $primary;
+        }
+
+        .anticon {
+            font-size: 1.25rem;
+            margin-right: 0.5rem;
+        }
+    }
+}
+
+.session-recordings-button {
+    .anticon-play-circle {
+        color: $primary;
+    }
+    .session-recordings-button__indicator {
+        font-size: 12px;
+        color: $text-muted;
+    }
+}

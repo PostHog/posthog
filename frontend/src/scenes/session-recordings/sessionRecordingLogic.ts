@@ -393,16 +393,18 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         const urlToAction = (
             _: any,
             params: {
-                sessionRecordingId?: SessionRecordingId
                 source?: string
+            },
+            hashParams: {
+                sessionRecordingId?: SessionRecordingId
             }
         ): void => {
-            const { sessionRecordingId, source } = params
+            const { source } = params
+            const { sessionRecordingId } = hashParams
             if (source && (Object.values(RecordingWatchedSource) as string[]).includes(source)) {
                 actions.setSource(source as RecordingWatchedSource)
             }
-            if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
-                // Load meta first. Snapshots are loaded once Replayer ref is mounted in sessionRecordingPlayerLogic
+            if (values && sessionRecordingId && sessionRecordingId !== values.sessionRecordingId) {
                 cache.startTime = performance.now()
                 actions.loadRecordingMeta(sessionRecordingId)
                 actions.loadRecordingSnapshots(sessionRecordingId)
@@ -410,9 +412,9 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         }
 
         return {
-            '/sessions': urlToAction,
             '/recordings': urlToAction,
             '/person/*': urlToAction,
+            '/insights/*': urlToAction,
         }
     },
 })

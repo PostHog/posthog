@@ -50,8 +50,7 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
             {
                 "labels": labels,
                 "days": entity["days"],
-                "label": "{} - {}".format(entity["label"], label),
-                "chartLabel": "{} - {}".format(entity["label"], label),
+                "label": entity["label"],
                 "compare_label": label,
                 "compare": True,
             }
@@ -84,7 +83,6 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
 
 
 TIME_IN_SECONDS: Dict[str, Any] = {
-    "minute": 60,
     "hour": 3600,
     "day": 3600 * 24,
     "week": 3600 * 24 * 7,
@@ -106,8 +104,6 @@ def filter_events(
 
     if filter.interval == "hour":
         relativity = relativedelta(hours=1)
-    elif filter.interval == "minute":
-        relativity = relativedelta(minutes=1)
     elif filter.interval == "week":
         relativity = relativedelta(weeks=1)
         date_from = filter.date_from - relativedelta(days=filter.date_from.weekday() + 1)

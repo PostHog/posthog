@@ -1,10 +1,8 @@
-import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { InsightShortId, TrendResult } from '~/types'
+import { InsightShortId } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
@@ -12,22 +10,18 @@ jest.mock('lib/api')
 const Insight123 = '123' as InsightShortId
 
 describe('trendsLogic', () => {
-    let logic: BuiltLogic<trendsLogicType>
+    let logic: ReturnType<typeof trendsLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
-            return { results: [] }
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights` || String(searchParams.short_id) === Insight123) {
+            return { results: ['result from api'] }
         } else if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights/123`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
-            ].includes(pathname)
+            [`api/projects/${MOCK_TEAM_ID}/insights/123`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(
+                pathname
+            )
         ) {
             return { result: ['result from api'] }
         }
-        return defaultAPIMocks(url)
     })
 
     describe('core assumptions', () => {
@@ -49,27 +43,6 @@ describe('trendsLogic', () => {
             logic: trendsLogic,
             props: { dashboardItemId: undefined },
             onLogic: (l) => (logic = l),
-        })
-
-        it('visibilityMap', async () => {
-            const r = {} as TrendResult
-
-            expectLogic(logic, () => {
-                logic.actions.setVisibilityById({ '0': true, '2': false })
-                logic.actions.setVisibilityById({ '8': true, '2': true })
-            }).toMatchValues({ visibilityMap: { 0: true, 2: true, 8: true } })
-
-            expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({ result: [r, r], filters: {} })
-            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ visibilityMap: { 0: true, 1: false } })
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
         })
     })
 
