@@ -105,46 +105,11 @@ class CohortSerializer(serializers.ModelSerializer):
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
 
-    def _handle_static(self, cohort: Cohort, request: Request):
-        if request.FILES.get("csv"):
-            self._calculate_static_by_csv(request.FILES["csv"], cohort)
-        else:
-            try:
-                filter = Filter(request=request)
-                team = cast(User, request.user).team
-                target_entity = get_target_entity(filter)
-                if filter.shown_as == TRENDS_STICKINESS:
-                    stickiness_filter = StickinessFilter(
-                        request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
-                    )
-                    self._handle_stickiness_people(target_entity, cohort, stickiness_filter)
-                else:
-                    self._handle_trend_people(target_entity, cohort, filter, request)
-            except Exception as e:
-                capture_exception(e)
-                raise ValueError("This cohort has no conditions")
-
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
-
-    def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
-        calculate_cohort_from_list.delay(cohort.pk, people)
-
-    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: StickinessFilter) -> None:
-        events = stickiness_process_entity_type(target_entity, cohort.team, filter)
-        events = stickiness_format_intervals(events, filter)
-        people = stickiness_fetch_people(events, cohort.team, filter)
-        ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
-        self._calculate_static_by_people(ids, cohort)
-
-    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter, request: Request) -> None:
-        events = filter_by_type(entity=target_entity, team=cohort.team, filter=filter)
-        people = calculate_people(team=cohort.team, events=events, filter=filter, request=request)
-        ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
-        self._calculate_static_by_people(ids, cohort)
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
