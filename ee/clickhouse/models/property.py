@@ -35,8 +35,8 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_clauses(
-    team_id: Optional[int],
     filters: List[Property],
+    team_id: Optional[int] = None,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -78,6 +78,7 @@ def parse_prop_clauses(
                 final.append(filter_query)
                 params.update(filter_params)
             else:
+                assert isinstance(team_id, int)
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
@@ -137,7 +138,7 @@ def parse_prop_clauses(
                 final.append(f" AND {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                # TODO do all of the code paths calling this really have access to team_id for substitution
+                assert isinstance(team_id, int)
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
