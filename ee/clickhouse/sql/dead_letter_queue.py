@@ -70,6 +70,7 @@ raw_payload,
 error_timestamp,
 error_location,
 error,
+tags,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
