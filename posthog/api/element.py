@@ -45,7 +45,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     include_in_docs = False
 
     @action(methods=["GET"], detail=False)
-    def stats(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
+    def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request, team=self.team)
 
         date_from, date_to, date_params = parse_timestamps(filter, team_id=self.team.pk)
@@ -67,7 +67,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
+    def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
         select_regex = '[:|"]{}="(.*?)"'.format(key)
