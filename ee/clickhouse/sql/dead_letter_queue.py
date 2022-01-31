@@ -97,6 +97,7 @@ SELECT
 %(error_timestamp)s,
 %(error_location)s,
 %(error)s,
+['some_tag'],
 0,
 now()
 """
