@@ -1,0 +1,19 @@
+.LemonModal {
+    .ant-modal-body {
+        padding: 1rem;
+        > *:not(:first-child) {
+            margin-top: 0.5rem;
+        }
+    }
+    .ant-modal-close-x {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        height: 1.5rem;
+        width: 1.5rem;
+    }
+    h5 {
+        line-height: 1.5rem;
+        color: var(--muted);
+    }
+}

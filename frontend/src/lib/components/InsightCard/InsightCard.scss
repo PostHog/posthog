@@ -53,7 +53,7 @@
     width: 100%;
     max-height: calc(100% - 2rem);
     background: #fff;
-    z-index: 5; // Elevate above viz
+    z-index: 101; // Elevate above viz
     overflow: hidden;
     h5 {
         color: var(--text-muted);
