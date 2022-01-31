@@ -118,7 +118,8 @@ export function AsyncMigrations(): JSX.Element {
                 const status = asyncMigration.status
                 return (
                     <div>
-                        {status === AsyncMigrationStatus.NotStarted ? (
+                        {status === AsyncMigrationStatus.NotStarted ||
+                        status === AsyncMigrationStatus.FailedAtStartup ? (
                             <Tooltip title="Start">
                                 <LemonButton
                                     type="stealth"
