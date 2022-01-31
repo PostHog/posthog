@@ -38,6 +38,8 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
         createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        showModal: true,
+        hideModal: false,
     },
     loaders: ({ values }) => ({
         experiments: [
@@ -76,6 +78,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                 updateMetricFilters: (metrics, { metricId, filters }) => {
                     return metrics.map((metric, index) => (index === metricId ? { ...metric, filters } : metric))
                 },
+            },
+        ],
+        modalVisible: [
+            false,
+            {
+                showModal: () => true,
+                hideModal: () => false,
             },
         ],
     }),

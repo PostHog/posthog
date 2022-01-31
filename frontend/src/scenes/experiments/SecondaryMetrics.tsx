@@ -13,9 +13,9 @@ import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetrics
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
-    const { previewInsightId, metrics } = useValues(logic)
+    const { previewInsightId, metrics, modalVisible } = useValues(logic)
 
-    const { createNewMetric, updateMetricFilters, setFilters } = useActions(logic)
+    const { createNewMetric, updateMetricFilters, setFilters, showModal } = useActions(logic)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -32,7 +32,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
 
     return (
         <>
-            <Modal visible={true}>
+            <Modal title="Add secondary metric" visible={modalVisible}>
                 <div>hi!</div>
             </Modal>
             <Row style={{ width: '100%' }}>
@@ -90,7 +90,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         typeKey={`trend-preview-${metricId}`}
                                         buttonCopy="Add graph series"
                                         showSeriesIndicator
-                                        singleFilter={true}
+                                        // singleFilter={true}
                                         hideMathSelector={false}
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
@@ -108,7 +108,8 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             <Button
                                 style={{ color: 'var(--primary)', minWidth: 240 }}
                                 icon={<PlusOutlined />}
-                                onClick={() => createNewMetric(InsightType.TRENDS)}
+                                onClick={showModal}
+                                // onClick={() => createNewMetric(InsightType.TRENDS)}
                             >
                                 Add trend metric
                             </Button>
