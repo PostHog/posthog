@@ -48,7 +48,7 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
+            rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -82,7 +82,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
+            sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
             rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation.simple_op(
