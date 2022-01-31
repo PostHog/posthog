@@ -1,7 +1,7 @@
 import pytest
 from infi.clickhouse_orm.utils import import_submodules
 
-from ee.clickhouse.client import sync_execute
+from ee.conftest import run_additional_setup_ops
 from posthog.async_migrations.setup import ASYNC_MIGRATIONS_MODULE_PATH
 from posthog.test.base import BaseTest
 
@@ -12,6 +12,9 @@ from posthog.test.base import BaseTest
 @pytest.mark.ee
 class TestAsyncMigrationsNotRequired(BaseTest):
     def test_async_migrations_not_required_on_fresh_instances(self):
+
+        run_additional_setup_ops()
+
         modules = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
         for module in modules.values():
