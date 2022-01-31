@@ -107,13 +107,15 @@ from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
 from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
-from posthog.api.event import EventViewSet
+from posthog.api.event import EventViewSet, LegacyEventViewSet
 from posthog.api.insight import InsightViewSet
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
 router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
 router.register(r"cohort", LegacyClickhouseCohortViewSet, basename="cohort")
+router.register(r"event", LegacyEventViewSet, basename="event")
+
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
