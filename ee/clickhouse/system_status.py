@@ -98,23 +98,25 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": dead_letter_queue_size,
     }
 
-    dead_letter_queue_events_today = sync_execute(
-        "SELECT count(*) FROM events_dead_letter_queue WHERE toDate(_timestamp) >= toDate(now())"
+    dead_letter_queue_events_last_day = sync_execute(
+        "SELECT count(*) FROM events_dead_letter_queue WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
 
     yield {
-        "key": "dead_letter_queue_events_today",
-        "metric": "Events sent to dead letter queue today",
-        "value": dead_letter_queue_events_today,
+        "key": "dead_letter_queue_events_last_day",
+        "metric": "Events sent to dead letter queue in the last 24h",
+        "value": dead_letter_queue_events_last_day,
     }
 
-    total_events_ingested_today = sync_execute(
-        "SELECT count(*) as b from events WHERE toDate(_timestamp) >= toDate(now())"
+    total_events_ingested_last_day = sync_execute(
+        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_today / total_events_ingested_today
+    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / total_events_ingested_last_day
 
     # if the dead letter queue has as many events today as ingestion, issue an alert
-    dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 0.5 and dead_letter_queue_events_today > 10000
+    dead_letter_queue_events_high = (
+        dead_letter_queue_ingestion_ratio >= 0.5 and dead_letter_queue_events_last_day > 10000
+    )
 
     yield {
         "key": "dead_letter_queue_ratio_ok",
