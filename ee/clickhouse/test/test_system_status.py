@@ -14,7 +14,7 @@ def test_system_status(db):
         "clickhouse_system_metrics",
         "last_event_ingested_timestamp",
         "dead_letter_queue_size",
-        "dead_letter_queue_events_today",
+        "dead_letter_queue_events_last_day",
         "dead_letter_queue_ratio_ok",
     ]
     assert len(results[6]["subrows"]["rows"]) > 0
