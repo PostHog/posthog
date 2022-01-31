@@ -45,7 +45,7 @@ PERSONS_TABLE_SQL = lambda: (
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
+KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
 )
 
@@ -122,7 +122,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda: """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     distinct_id VARCHAR,
@@ -185,7 +185,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
