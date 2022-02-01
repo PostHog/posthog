@@ -432,7 +432,7 @@ export function chooseOperatorMap(
     let choice = genericOperatorMap
     if (propertyType) {
         choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        if (choice == dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
+        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
             choice = genericOperatorMap
         }
     }
