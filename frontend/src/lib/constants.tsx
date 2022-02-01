@@ -95,6 +95,7 @@ export const FEATURE_FLAGS = {
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
+    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
