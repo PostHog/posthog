@@ -87,7 +87,7 @@
                     "value": "https://app.posthog.com"
                 },
                 {
-                    "name": "JS_URL",
+                    "name": "CDN_URL",
                     "value": "https://app-static.posthog.com"
                 },
                 {

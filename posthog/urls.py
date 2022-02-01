@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
+from django.views.generic import RedirectView
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.api import (
@@ -106,6 +107,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("login", login_view),
 ]
+
+if settings.IS_CDN_CONFIGURED:
+    urlpatterns.append(re_path(r"^static/(?P<path>.*)$", RedirectView.as_view(url=settings.CDN_URL+'/static/%(path)s', permanent=True)))
 
 if settings.TEST:
 
