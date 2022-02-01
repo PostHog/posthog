@@ -25,11 +25,11 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
         self.client.force_login(user)
 
         team.test_account_filters = [
-            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
+            {"key": "email_prop_1", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
         ]
         team.save()
 
-        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk, properties={"email": "posthog.com"})
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk, properties={"email_prop_1": "posthog.com"})
         update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
         update_or_create_person(distinct_ids=["person 3"], team_id=team.pk)
 
