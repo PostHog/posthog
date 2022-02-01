@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0201_dashboard_permissions"),
+        ("posthog", "0202_dashboard_permissions"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("ee", "0006_event_definition_verification"),
     ]

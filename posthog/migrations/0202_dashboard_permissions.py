@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0200_insight_last_modified"),
+        ("posthog", "0201_remove_property_type_format_constraint"),
     ]
 
     operations = [
