@@ -30,6 +30,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_PASSWORD: null,
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: false,
         KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
@@ -95,6 +96,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_PASSWORD: 'ClickHouse password',
         CLICKHOUSE_CA: 'ClickHouse CA certs',
         CLICKHOUSE_SECURE: 'whether to secure ClickHouse connection',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS:
+            'whether to disallow external schemas like protobuf for clickhouse kafka engine',
         REDIS_URL: 'Redis store URL',
         BASE_DIR: 'base path for resolving local plugins',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
