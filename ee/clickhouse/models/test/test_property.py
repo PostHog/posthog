@@ -654,6 +654,15 @@ def test_events(db, team) -> List[UUID]:
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
         ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're don't cause a date to be included in an after filter
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+        ),
     ]
 
 
@@ -666,12 +675,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 26),
+        range(1, 27),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 26),
+        range(2, 27),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -679,7 +688,7 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 26),
+        range(2, 27),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
@@ -688,7 +697,7 @@ TEST_PROPERTIES = [
         id="matching before a unix timestamp only querying by date",
     ),
     pytest.param(
-        Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"),
+        Property(key="unix_timestamp", operator="is_date_after", value="2021-03-31"),
         [5, 6],
         id="matching after a unix timestamp only querying by date",
     ),
@@ -703,7 +712,11 @@ TEST_PROPERTIES = [
         id="matching after a unix timestamp querying by date and time",
     ),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
-    pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
+    pytest.param(
+        Property(key="long_date", operator="is_date_after", value="2021-03-31"),
+        [7, 8],
+        id="match after date only value against date and time formatted property",
+    ),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
     pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01 18:30:00"), [8]),
     pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-05"), [9]),
@@ -796,6 +809,11 @@ TEST_PROPERTIES = [
         ),
         [25],
         id="can match date times exactly against datetimes with milliseconds",
+    ),
+    pytest.param(
+        Property(key="date_exact_including_seconds_and_milliseconds", operator="is_date_after", value="2021-03-31",),
+        [],
+        id="can match date only filter after against datetime with milliseconds",
     ),
     pytest.param(
         Property(key="date_only", operator="is_date_after", value="2021-04-01",),
