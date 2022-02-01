@@ -239,7 +239,7 @@ def get_ingest_context(request, data, token) -> Tuple[Optional[IngestContext], O
             request,
             generate_exception_response(
                 "capture",
-                "No ingest_context found for API Key",
+                "No team found for API Key",
                 type="authentication_error",
                 code="invalid_personal_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

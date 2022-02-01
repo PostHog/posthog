@@ -231,7 +231,7 @@ def get_event(request):
                 data,
                 event["event"],
                 kafka_event,
-                f"Unable to fetch ingest_context from Postgres. Error: {db_error}",
+                f"Unable to fetch team from Postgres. Error: {db_error}",
                 "django_server_capture_endpoint",
             )
             continue
