@@ -1,3 +1,4 @@
+from ctypes import cast
 from typing import TYPE_CHECKING, Any, Dict
 
 from django.contrib.postgres.fields import ArrayField
@@ -38,10 +39,12 @@ class Dashboard(models.Model):
 
     def get_effective_privilege_level(self, user: "User") -> RestrictionLevel:
         if (
-            # If we're on the lowest restriction level, there's no need for further checks
-            self.restriction_level == self.RestrictionLevel.INHERENT_VIEW_AND_EDIT
-            # Otherwise there is a need for further checks IF dashboard permissioning is available to this org
-            or not self.team.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+            # There is a need for  checks IF dashboard permissioning is available to this org
+            not self.team.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+            # Checks can be skipped if the dashboard in on the lowest restriction level
+            or self.restriction_level == self.RestrictionLevel.INHERENT_VIEW_AND_EDIT
+            # Users with inherent restriction rights can do anything
+            or self.does_user_have_inherent_restriction_rights(user)
         ):
             # Returning the highest access level if no checks needed
             return self.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT
@@ -52,6 +55,21 @@ class Dashboard(models.Model):
         except DashboardPrivilege.DoesNotExist:
             # Returning the lowest access level if there's no explicit privilege for this user
             return self.RestrictionLevel.INHERENT_VIEW_AND_EDIT
+
+    def can_user_edit(self, user: "User") -> bool:
+        if self.restriction_level < self.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT:
+            return True
+        return self.get_effective_privilege_level(user) >= self.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT
+
+    def does_user_have_inherent_restriction_rights(self, user: "User") -> bool:
+        from posthog.models.organization import OrganizationMembership
+
+        return (
+            # The owner (aka creator) has full permissions
+            user.id == self.created_by_id
+            # Project admins get full permissions as well
+            or self.team.get_effective_membership_level(user) >= OrganizationMembership.Level.ADMIN
+        )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """

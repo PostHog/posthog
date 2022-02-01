@@ -685,6 +685,11 @@ export interface InsightModel {
     next?: string
 }
 
+export enum DashboardRestrictionLevel {
+    InherentViewAndEdit = 21,
+    InherentViewButExplicitEdit = 37,
+}
+
 export interface DashboardType {
     id: number
     name: string
@@ -698,6 +703,8 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardRestrictionLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean

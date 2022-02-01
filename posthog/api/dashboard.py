@@ -7,7 +7,7 @@ from django.http import Http404, HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import exceptions, mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
 from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
@@ -119,6 +119,18 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
+        user = cast(User, self.context["request"].user)
+        does_user_have_inherent_restriction_rights = instance.does_user_have_inherent_restriction_rights(user)
+        can_user_edit = does_user_have_inherent_restriction_rights or instance.can_user_edit(user)
+        if not can_user_edit:
+            raise exceptions.PermissionDenied(
+                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
+            )
+        if "restriction_level" in validated_data and not does_user_have_inherent_restriction_rights:
+            raise exceptions.PermissionDenied(
+                "Only the dashboard owner and project admins have the inherent restriction rights required to change the dashboard's restriction level."
+            )
+
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
@@ -126,7 +138,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if "request" in self.context:
-            report_user_action(self.context["request"].user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
 
