@@ -15,7 +15,7 @@ class EnterpriseTaggedItemSerializerMixin(serializers.Serializer):
 
     def set_tags(self, tags, obj):
         if not obj:
-            # Object hasn't been created yet. Create tags in create.
+            # If the object hasn't been created yet, this method will be called again on the create method.
             return
 
         # Create new tags
