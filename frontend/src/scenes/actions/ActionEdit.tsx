@@ -77,7 +77,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         }}
                         minLength={1}
                         maxLength={400} // Sync with action model
-                        data-attr="action-name"
+                        data-attr={`action-name-${id ? 'edit' : 'create'}`}
                         saveButtonText="Set"
                     />
                 }
