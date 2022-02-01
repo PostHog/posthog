@@ -14,39 +14,15 @@
     }
 }
 
-.code-container {
-    position: relative;
-    .action-icon-container {
-        position: absolute;
-        top: 1em;
-        right: 1em;
-    }
-    .action-icon {
-        margin-left: 0.5em;
-        padding: 2px;
-        color: white;
-        background-color: inherit;
-        cursor: pointer;
-        &:hover {
-            transition: all 0.2s ease;
-            transform: scale(1.2);
-        }
-    }
-}
-
 pre.code {
     white-space: pre-wrap;
     word-break: break-all;
-    background: rgb(51, 51, 51);
-    padding: 20px;
-    border-radius: 3px;
+    background: var(--bg-depth);
+    padding: 0.75rem;
+    border-radius: var(--radius);
     color: white;
     margin-top: 1rem;
-    font-size: 15px;
-    &.scrolling-code {
-        white-space: pre;
-        overflow: scroll;
-    }
+    font-size: 0.875rem;
 }
 
 .text-overflow {

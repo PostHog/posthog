@@ -1,5 +1,21 @@
 # Changelog
 
+### 1.32.0 - Monday 31 January 2022
+- Redesigned Persons & Groups pages.
+- Short link sharing.
+- Improved insight experience.
+- Funnels vertical breakdown.
+- Significant performance improvements to the Actions page. When viewing an action, we'll now show you the most recent events (~6 months ago) without constant polling. This should make it easy and faster to debug actions.
+- When your users are in multiple tabs, we'll now properly separate recordings so you can see what users were doing on each tab. Previously this could lead with a botched experience when playing back recordings.
+- To improve query performance, the "All time" filter will now only consider events from 2015 onwards. We realized some instances had events with incorrect timestamps (frequently UNIX epoch [Jan 1, 1970]), which would lead to performance issues and hard to parse graphs.
+- Fixed a bug when if a user joined an organization with private projects, they would get a broken experience (from being assigned to a project to which they don't have access).
+- Improved performance and increase execution size for complex retention queries.
+- Newly design Preflight page to update with our latest brand.
+- Fixed a bug in which a lot of failing requests would be made when opening a shared dashboard unauthenticated.
+- Fixed a bug in which filtering insights by "Yesterday" and "Daily" would lead to two data points instead of one.
+- Plus 330+ improvements & fixes. More details on [the Array blog post](https://posthog.com/blog/the-posthog-array-1-32-0).
+
+
 ### 1.31.1 - Friday 17 December 2021
 - Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
 

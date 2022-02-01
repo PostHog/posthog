@@ -74,7 +74,7 @@ export function AsyncMigrations(): JSX.Element {
                 const type: LemonTagPropsType =
                     status === AsyncMigrationStatus.Running
                         ? 'success'
-                        : status === AsyncMigrationStatus.Errored
+                        : status === AsyncMigrationStatus.Errored || AsyncMigrationStatus.FailedAtStartup
                         ? 'danger'
                         : status === AsyncMigrationStatus.Starting
                         ? 'warning'
@@ -118,7 +118,8 @@ export function AsyncMigrations(): JSX.Element {
                 const status = asyncMigration.status
                 return (
                     <div>
-                        {status === AsyncMigrationStatus.NotStarted ? (
+                        {status === AsyncMigrationStatus.NotStarted ||
+                        status === AsyncMigrationStatus.FailedAtStartup ? (
                             <Tooltip title="Start">
                                 <LemonButton
                                     type="stealth"
