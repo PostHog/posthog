@@ -28,7 +28,7 @@ import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { Provider } from 'react-redux'
-import { renderItemPopup } from 'lib/components/TaxonomicFilter/DefinitionPopup'
+import { renderItemPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 
 enum ListTooltip {
     None = 0,

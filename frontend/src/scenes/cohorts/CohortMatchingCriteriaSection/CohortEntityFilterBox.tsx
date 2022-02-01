@@ -1,89 +1,58 @@
 import React from 'react'
-import { AimOutlined, ContainerOutlined } from '@ant-design/icons'
-import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
-import { useValues } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
-import { ActionType } from '~/types'
-import { EntityTypes } from '~/types'
-import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterDropdown'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { DownOutlined } from '@ant-design/icons'
+import { ActionFilter, EntityFilter } from '~/types'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Button } from 'antd'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { Popup } from 'lib/components/Popup/Popup'
 
 export function CohortEntityFilterBox({
     open = false,
     onSelect,
+    onOpen,
+    onClose,
+    filter,
 }: {
     open: boolean
-    onSelect: (type: any, id: string | number, name: string) => void
+    onSelect: (type: TaxonomicFilterGroupType, id: string | number, name: string) => void
+    onOpen: () => void
+    onClose: () => void
+    filter: Partial<EntityFilter> | Partial<ActionFilter>
 }): JSX.Element | null {
-    const { eventDefinitions } = useValues(eventDefinitionsModel)
-    const { actions } = useValues(actionsModel)
-
-    if (!open) {
-        return null
-    }
-
-    const groups: Array<SelectBoxItem> = [
-        {
-            key: 'actions',
-            name: 'Actions',
-            header: function actionHeader(label) {
-                return (
-                    <>
-                        <AimOutlined /> {label}
-                    </>
-                )
-            },
-            dataSource: actions.map((action: ActionType) => ({
-                key: EntityTypes.ACTIONS + action.id,
-                name: action.name,
-                volume: action.count,
-                id: action.id,
-                action,
-            })),
-            renderInfo: ActionInfo,
-            type: 'action_type',
-            getValue: (item: SelectedItem) => item.action?.id || '',
-            getLabel: (item: SelectedItem) => item.action?.name || '',
-        },
-        {
-            key: 'events',
-            name: 'Events',
-            header: function eventHeader(label) {
-                return (
-                    <>
-                        <ContainerOutlined /> {label}
-                    </>
-                )
-            },
-            dataSource:
-                eventDefinitions.map((definition) => ({
-                    key: EntityTypes.EVENTS + definition.name,
-                    ...definition,
-                })) || [],
-            renderInfo: function events({ item }) {
-                return (
-                    <>
-                        <ContainerOutlined /> Events
-                        <br />
-                        <h3>{item.name}</h3>
-                        {item?.volume_30_day && (
-                            <>
-                                Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                            </>
-                        )}
-                        {item?.query_usage_30_day && (
-                            <>
-                                Used in <strong>{item.query_usage_30_day}</strong> queries.
-                            </>
-                        )}
-                    </>
-                )
-            },
-            type: 'event_type',
-            getValue: (item: SelectedItem) => item.name,
-            getLabel: (item: SelectedItem) => item.name,
-        },
-    ]
-
-    return <SelectBox selectedItemKey={undefined} onDismiss={() => {}} onSelect={onSelect} items={groups} />
+    return (
+        <Popup
+            overlay={
+                <TaxonomicFilter
+                    value={filter.name ?? undefined}
+                    onChange={(taxonomicGroup, changedValue, item) => {
+                        onSelect(taxonomicGroup.type, changedValue, item?.name)
+                    }}
+                    onClose={onClose}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                />
+            }
+            visible={open}
+            onClickOutside={onClose}
+        >
+            {({ setRef }) => (
+                <Button
+                    data-attr="edit-cohort-entity-filter"
+                    onClick={onOpen}
+                    ref={setRef}
+                    className="full-width"
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                    }}
+                >
+                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                        <EntityFilterInfo filter={filter as EntityFilter | ActionFilter} />
+                    </span>
+                    <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+            )}
+        </Popup>
+    )
 }

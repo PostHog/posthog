@@ -19,6 +19,12 @@
                 text-transform: uppercase;
                 color: var(--text-muted);
             }
+
+            .definition-popup-header-row-buttons {
+                display: flex;
+                flex-direction: row;
+                font-size: 14px;
+            }
         }
 
         .definition-popup-title {
@@ -31,6 +37,18 @@
 
             svg {
                 margin-right: 8px;
+
+                &.taxonomy-icon-muted {
+                    path {
+                        fill: var(--primary-alt);
+                    }
+                }
+
+                &.taxonomy-icon-verified {
+                    path {
+                        fill: var(--success);
+                    }
+                }
             }
 
             // Override property key inside popup
@@ -82,36 +100,59 @@
 
     .definition-popup-divider {
         width: 100%;
-        height: 1px;
-        background-color: #dcdee0;
         margin-top: 16px;
         margin-bottom: 16px;
+        align-items: flex-start;
+        text-transform: uppercase;
+        font-size: 11px;
+    }
+
+    .definition-popup-grid {
+        display: grid;
+        grid-gap: 8px;
+
+        .definition-popup-grid-card {
+            display: flex;
+            flex-direction: column;
+
+            .definition-popup-grid-card-title {
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--text-muted);
+                margin-bottom: 4px;
+            }
+
+            .definition-popup-grid-card-content {
+                ul {
+                    padding-inline-start: 1rem;
+                    margin-bottom: 0;
+
+                    > li {
+                        span {
+                            display: flex;
+                            flex-wrap: wrap;
+                            align-items: center;
+                        }
+                        pre {
+                            background-color: var(--bg-mid);
+                            padding: 0 4px;
+                            font-size: 12px;
+                            margin-left: 0.25rem;
+                            margin-bottom: 1px;
+                            margin-top: 1px;
+                            border-radius: 4px;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     &.edit {
     }
 
     &.view {
-        .definition-popup-grid {
-            display: grid;
-            grid-gap: 8px;
-
-            .definition-popup-grid-card {
-                display: flex;
-                flex-direction: column;
-
-                .definition-popup-grid-card-title {
-                    font-size: 11px;
-                    font-weight: 600;
-                    letter-spacing: 0.5px;
-                    text-transform: uppercase;
-                    color: var(--text-muted);
-                    margin-bottom: 4px;
-                }
-
-                .definition-popup-grid-card-content {
-                }
-            }
-        }
     }
 }

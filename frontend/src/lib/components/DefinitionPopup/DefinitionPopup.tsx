@@ -1,7 +1,7 @@
 import './DefinitionPopup.scss'
 import React from 'react'
 import clsx from 'clsx'
-import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/TaxonomicFilter/definitionPopupLogic'
+import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -19,11 +19,14 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { Divider, DividerProps } from 'antd'
+import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 
 interface HeaderProps {
     title: React.ReactNode
     headerTitle: React.ReactNode
     icon: React.ReactNode
+    editText?: string
+    viewText?: string
 }
 
 interface DefinitionPopupProps {
@@ -31,17 +34,24 @@ interface DefinitionPopupProps {
 }
 
 // Wrapper
-function DefinitionPopup({ title, icon, headerTitle, children }: DefinitionPopupProps & HeaderProps): JSX.Element {
+function DefinitionPopup({
+    title,
+    icon,
+    headerTitle,
+    children,
+    editText,
+    viewText,
+}: DefinitionPopupProps & HeaderProps): JSX.Element {
     const { state } = useValues(definitionPopupLogic)
     return (
         <div className={clsx('definition-popup', state)}>
-            <Header title={title} headerTitle={headerTitle} icon={icon} />
+            <Header title={title} headerTitle={headerTitle} icon={icon} editText={editText} viewText={viewText} />
             {children}
         </div>
     )
 }
 
-function Header({ title, headerTitle, icon }: HeaderProps): JSX.Element {
+function Header({ title, headerTitle, icon, editText = 'Edit', viewText = 'View' }: HeaderProps): JSX.Element {
     const { state } = useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
     const isEdit = state === DefinitionPopupState.Edit
@@ -53,13 +63,17 @@ function Header({ title, headerTitle, icon }: HeaderProps): JSX.Element {
                     <div className="definition-popup-title">
                         {icon} {title}
                     </div>
-                    <a onClick={() => setPopupState(DefinitionPopupState.View)}>Edit</a>
+                    <div className="definition-popup-header-row-buttons">
+                        <a onClick={() => setPopupState(DefinitionPopupState.View)}>{editText}</a>
+                    </div>
                 </div>
             ) : (
                 <>
                     <div className="definition-popup-header-row">
                         <div className="definition-popup-header-row-title">{headerTitle}</div>
-                        <a onClick={() => setPopupState(DefinitionPopupState.Edit)}>View</a>
+                        <div className="definition-popup-header-row-buttons">
+                            <a onClick={() => setPopupState(DefinitionPopupState.Edit)}>{viewText}</a>
+                        </div>
                     </div>
                     <div className="definition-popup-title">
                         {icon} {title}
@@ -176,8 +190,12 @@ function TimeMeta({
     return <></>
 }
 
-function HorizontalLine(props: DividerProps): JSX.Element {
-    return <Divider className="definition-popup-divider" {...props} />
+function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
+    return (
+        <Divider className="definition-popup-divider" {...props}>
+            {children}
+        </Divider>
+    )
 }
 
 interface GridProps {
@@ -221,8 +239,8 @@ DefinitionPopup.Card = Card
 // X TaxonomicFilterGroupType.CustomEvents,
 // X TaxonomicFilterGroupType.EventProperties,
 // X TaxonomicFilterGroupType.PersonProperties,
-// TaxonomicFilterGroupType.Cohorts,
-// TaxonomicFilterGroupType.CohortsWithAllUsers,
+// X TaxonomicFilterGroupType.Cohorts,
+// X TaxonomicFilterGroupType.CohortsWithAllUsers,
 
 const formatTimeFromNow = (day?: string): string => (day ? dayjs.utc(day).fromNow() : '-')
 
@@ -254,28 +272,17 @@ const renderRestOfDefinition = (
         const _item = item as ActionType
         return (
             <>
+                <ActionPopupInfo entity={_item} />
+                <HorizontalLine />
                 <Grid cols={2}>
                     <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
-                    {/*<Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)}/>*/}
-                    {/*<Card title="30 day volume" value={_item.volume_30_day ?? '-'}/>*/}
-                    {/*<Card title="30 day queries" value={_item.query_usage_30_day ?? '-'}/>*/}
                 </Grid>
-                <HorizontalLine />
-                <Section>
-                    <Card
-                        title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
-                    />
-                </Section>
             </>
         )
     }
     if (
-        [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.GroupsPrefix,
-        ].includes(listGroupType)
+        [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties].includes(listGroupType) ||
+        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
     ) {
         const _item = item as PropertyDefinition
         return (
@@ -293,6 +300,21 @@ const renderRestOfDefinition = (
                         value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
                     />
                 </Section>
+            </>
+        )
+    }
+    if ([TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers].includes(listGroupType)) {
+        const _item = item as CohortType
+        console.log('ITEM', _item)
+        return (
+            <>
+                <Grid cols={2}>
+                    <Card title="Persons" value={_item.count ?? 0} />
+                </Grid>
+                <HorizontalLine />
+                <Grid cols={2}>
+                    <Card title="Last calculated" value={formatTimeFromNow(_item.last_calculation)} />
+                </Grid>
             </>
         )
     }
@@ -325,9 +347,10 @@ export const renderItemPopup = (
                 title={<PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon={!!icon} />}
                 headerTitle={group.getPopupHeader(item)}
                 icon={icon}
+                editText={listGroupType === TaxonomicFilterGroupType.Actions ? 'Quick edit' : undefined}
             >
                 {'description' in item &&
-                    (item.description ? (
+                    (hasTaxonomyFeatures && item.description ? (
                         <DefinitionPopup.Description description={item.description} />
                     ) : (
                         <DefinitionPopup.DescriptionEmpty />

@@ -1,10 +1,8 @@
 import React, { useState } from 'react'
-import { Button, Col, Input, Row, Select } from 'antd'
+import { Col, Input, Row, Select } from 'antd'
 import { CohortEntityFilterBox } from './CohortEntityFilterBox'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { CohortGroupType, MatchType } from '~/types'
-import { ACTION_TYPE, ENTITY_MATCH_TYPE, EVENT_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -144,10 +142,10 @@ function EntityCriteriaRow({
         onEntityCriteriaChange({ count: newCount })
     }
 
-    const onEntityChange = (type: any, id: string | number, newLabel: string): void => {
-        if (type === EVENT_TYPE && typeof id === 'string') {
+    const onEntityChange = (type: TaxonomicFilterGroupType, id: string | number, newLabel: string): void => {
+        if (type === TaxonomicFilterGroupType.Events && typeof id === 'string') {
             onEntityCriteriaChange({ event_id: id, label: newLabel })
-        } else if (type === ACTION_TYPE && typeof id === 'number') {
+        } else if (type === TaxonomicFilterGroupType.Actions && typeof id === 'number') {
             onEntityCriteriaChange({ action_id: id, label: newLabel })
         }
         setOpen(false)
@@ -157,20 +155,17 @@ function EntityCriteriaRow({
         <div style={{ marginTop: 16, width: '100%' }}>
             <Row gutter={8}>
                 <Col flex="auto">
-                    <Button
-                        onClick={() => setOpen(!open)}
-                        className="full-width"
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
+                    <CohortEntityFilterBox
+                        filter={{ name: label ?? null }}
+                        open={open}
+                        onSelect={onEntityChange}
+                        onOpen={() => {
+                            setOpen(true)
                         }}
-                        data-attr="edit-cohort-entity-filter"
-                    >
-                        <PropertyKeyInfo value={label || 'Select an event'} />
-                        <SelectDownIcon className="text-muted" />
-                    </Button>
-                    <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
+                        onClose={() => {
+                            setOpen(false)
+                        }}
+                    />
                 </Col>
                 <Col span={4}>
                     <OperatorSelect value={count_operator} onChange={onOperatorChange} />
