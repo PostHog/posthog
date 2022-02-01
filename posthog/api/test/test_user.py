@@ -90,20 +90,20 @@ class TestUserAPI(APIBaseTest):
         enterprise_event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user
         )
-        enterprise_event.tags.create(tag="deprecated", team_id=self.team.id)
+        enterprise_event.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
         timestamp_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
         )
-        timestamp_property.tags.create(tag="test", team_id=self.team.id)
-        timestamp_property.tags.create(tag="official", team_id=self.team.id)
+        timestamp_property.tags.create(tag="test", team_id=self.team.id)  # type: ignore
+        timestamp_property.tags.create(tag="official", team_id=self.team.id)  # type: ignore
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
-        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property", tags=[""])
-        tagged_property.tags.create(tag="test2", team_id=self.team.id)
+        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
+        tagged_property.tags.create(tag="test2", team_id=self.team.id)  # type: ignore
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="some_prop",  # I shouldn't be counted
         )

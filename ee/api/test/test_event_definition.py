@@ -17,7 +17,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
-        event.tags.create(tag="deprecated", team_id=self.team.id)
+        event.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -51,9 +51,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         enterprise_property = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user
         )
-        enterprise_property.tags.create(tag="deprecated", team_id=self.team.id)
+        enterprise_property.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         regular_event = EnterpriseEventDefinition.objects.create(team=self.team, name="regular event", owner=self.user)
-        regular_event.tags.create(tag="deprecated", team_id=self.team.id)
+        regular_event.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -96,7 +96,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(list(event.tags.values_list("tag", flat=True)), ["official", "internal"])
+        self.assertEqual(list(event.tags.values_list("tag", flat=True)), ["official", "internal"])  # type: ignore
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")

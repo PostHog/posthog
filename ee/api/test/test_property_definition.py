@@ -37,7 +37,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        property.tags.create(tag="deprecated", team_id=self.team.id)
+        property.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -66,13 +66,13 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         enterprise_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="enterprise property", description=""
         )
-        enterprise_property.tags.create(tag="deprecated", team_id=self.team.id)
+        enterprise_property.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         other_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="other property", description=""
         )
-        other_property.tags.create(tag="deprecated", team_id=self.team.id)
+        other_property.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
         set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
-        set_property.tags.create(tag="deprecated", team_id=self.team.id)
+        set_property.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -137,7 +137,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["tags"], ["official", "internal"])
 
         property.refresh_from_db()
-        self.assertEqual(list(property.tags.values_list("tag", flat=True)), ["official", "internal"])
+        self.assertEqual(list(property.tags.values_list("tag", flat=True)), ["official", "internal"])  # type: ignore
 
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")

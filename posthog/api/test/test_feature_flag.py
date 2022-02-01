@@ -367,7 +367,7 @@ class TestFeatureFlag(APIBaseTest):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
-        instance.tags.create(tag="hello", team_id=self.team.id)
+        instance.tags.create(tag="hello", team_id=self.team.id)  # type: ignore
         self.client.force_login(new_user)
 
         self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)

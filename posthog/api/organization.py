@@ -156,10 +156,10 @@ class OrganizationSerializer(serializers.ModelSerializer):
             return output
 
         output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
-            description="", tags__isnull=True
+            description="", tags__isnull=True  # type: ignore
         ).count()
         output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-            description="", tags__isnull=True
+            description="", tags__isnull=True  # type: ignore
         ).count()
         return output
 
