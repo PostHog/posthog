@@ -52,9 +52,6 @@ INSTANCE_PREFERENCES = {
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
-CDN_URL = os.getenv("CDN_URL", "").rstrip("/")
-IS_CDN_CONFIGURED = bool(CDN_URL)
-
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:

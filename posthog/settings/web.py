@@ -4,7 +4,7 @@ import os
 from datetime import timedelta
 from typing import List
 
-from posthog.settings import IS_CDN_CONFIGURED
+from posthog.settings.base_variables import IS_CDN_CONFIGURED 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, str_to_bool
@@ -228,6 +228,6 @@ def add_recorder_js_headers(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
-if not IS_CDN_CONFIGURED:
+if not settings.IS_CDN_CONFIGURED:
     # Don't serve static files from app on posthog cloud
     INSTALLED_APPS.append("django.contrib.staticfiles")

@@ -29,3 +29,7 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
+
+# CDN settings (optional)
+CDN_URL = os.getenv("CDN_URL", "").rstrip("/")
+IS_CDN_CONFIGURED = bool(CDN_URL)
