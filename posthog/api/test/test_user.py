@@ -7,7 +7,6 @@ from rest_framework import status
 
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 
 
@@ -91,20 +90,20 @@ class TestUserAPI(APIBaseTest):
         enterprise_event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user
         )
-        EnterpriseTaggedItem.objects.create(content_object=enterprise_event, tag="deprecated", team=self.team)
+        enterprise_event.tags.create(tag="deprecated", team_id=self.team.id)
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
         timestamp_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
         )
-        EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="test", team=self.team)
-        EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="official", team=self.team)
+        timestamp_property.tags.create(tag="test", team_id=self.team.id)
+        timestamp_property.tags.create(tag="official", team_id=self.team.id)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
-        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
-        EnterpriseTaggedItem.objects.create(content_object=tagged_property, tag="test2", team=self.team)
+        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property", tags=[""])
+        tagged_property.tags.create(tag="test2", team_id=self.team.id)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="some_prop",  # I shouldn't be counted
         )

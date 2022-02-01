@@ -22,7 +22,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        EnterpriseTaggedItem.objects.create(content_object=dashboard, tag="random", team=self.team)
+        dashboard.tags.create(tag="random", team_id=self.team.id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
@@ -38,8 +38,8 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        EnterpriseTaggedItem.objects.create(content_object=dashboard, tag="a", team=self.team)
-        EnterpriseTaggedItem.objects.create(content_object=dashboard, tag="b", team=self.team)
+        dashboard.tags.create(tag="a", team_id=self.team.id)
+        dashboard.tags.create(tag="b", team_id=self.team.id)
 
         self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 2)
 

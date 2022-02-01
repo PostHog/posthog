@@ -8,7 +8,6 @@ from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
 from posthog.models.organization import Organization
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -18,7 +17,6 @@ class TestDashboard(APIBaseTest):
 
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        EnterpriseTaggedItem.objects.create(content_object=dashboard, team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
