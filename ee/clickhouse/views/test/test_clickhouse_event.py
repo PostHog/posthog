@@ -163,7 +163,6 @@ class ClickhouseTestEventApi(
                             "operator": "is_date_before",
                             "type": "event",
                             "property_type": "DateTime",
-                            "property_type_format": "unix_timestamp",
                         }
                     ]
                 )
