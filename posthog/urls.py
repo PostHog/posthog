@@ -46,7 +46,10 @@ def authorize_and_redirect(request):
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": urlparse(url).hostname, "redirect_url": url,},
+        context={
+            "domain": urlparse(url).hostname,
+            "redirect_url": url,
+        },
     )
 
 
@@ -109,7 +112,11 @@ urlpatterns = [
 ]
 
 if settings.IS_CDN_CONFIGURED:
-    urlpatterns.append(re_path(r"^static/(?P<path>.*)$", RedirectView.as_view(url=settings.CDN_URL+'/static/%(path)s', permanent=True)))
+    urlpatterns.append(
+        re_path(
+            r"^static/(?P<path>.*)$", RedirectView.as_view(url=settings.CDN_URL + "/static/%(path)s", permanent=True)
+        )
+    )
 
 if settings.TEST:
 

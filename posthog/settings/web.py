@@ -154,7 +154,9 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
 ]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
@@ -226,5 +228,5 @@ def add_recorder_js_headers(headers, path, url):
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if not settings.IS_CDN_CONFIGURED:
-    # Don't serve static files from app on posthog cloud 
+    # Don't serve static files from app on posthog cloud
     INSTALLED_APPS.append("django.contrib.staticfiles")
