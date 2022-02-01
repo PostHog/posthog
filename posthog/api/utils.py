@@ -250,6 +250,10 @@ def get_ingest_context(request, data, token) -> Tuple[Optional[IngestContext], O
 
 
 def get_team_ingest_context_from_token(token: str) -> Optional[IngestContext]:
+    """
+    Based on a token associated with a Team, retrieve the context that is
+    required to ingest events.
+    """
     try:
         team_values = Team.objects.values("id", "anonymize_ips").get(api_token=token)
         return IngestContext(team_id=team_values["id"], anonymize_ips=team_values["anonymize_ips"])
