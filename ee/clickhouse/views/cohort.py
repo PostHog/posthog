@@ -15,8 +15,8 @@ from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickin
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from ee.clickhouse.views.person import get_funnel_actor_class
 from posthog.api.cohort import CohortSerializer, CohortViewSet
+from posthog.api.person import get_funnel_actor_class
 from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.models.cohort import Cohort

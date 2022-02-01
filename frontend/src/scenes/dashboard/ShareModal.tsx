@@ -29,7 +29,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 onChange={(active) => {
                     setIsSharedDashboard(dashboard.id, active)
                 }}
-                block
+                outlinedBlock
             />
             {dashboard.is_shared ? (
                 <>
