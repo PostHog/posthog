@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("contenttypes", "0002_remove_content_type_name"),
-        ("posthog", "0200_insight_last_modified"),
+        ("posthog", "0201_remove_property_type_format_constraint"),
     ]
 
     operations = [

@@ -96,11 +96,7 @@ class TestUserAPI(APIBaseTest):
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
         timestamp_property = EnterprisePropertyDefinition.objects.create(
-            team=self.team,
-            name="a timestamp",
-            property_type="DateTime",
-            property_type_format="unix_timestamp",
-            description="This is a cool timestamp.",
+            team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
         )
         EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="test", team=self.team)
         EnterpriseTaggedItem.objects.create(content_object=timestamp_property, tag="official", team=self.team)

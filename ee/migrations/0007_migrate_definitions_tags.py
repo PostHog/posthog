@@ -40,7 +40,7 @@ def reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
-    dependencies = [("ee", "0006_event_definition_verification"), ("posthog", "0201_global_tags_setup")]
+    dependencies = [("ee", "0006_event_definition_verification"), ("posthog", "0202_global_tags_setup")]
 
     operations = [
         migrations.RunPython(forwards, reverse),
