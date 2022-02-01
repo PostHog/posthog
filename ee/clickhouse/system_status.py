@@ -111,7 +111,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     total_events_ingested_last_day = sync_execute(
         "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / total_events_ingested_last_day or 1
+    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(total_events_ingested_last_day, 1)
 
     # if the dead letter queue has as many events today as ingestion, issue an alert
     dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 1 and dead_letter_queue_events_last_day > 10000
