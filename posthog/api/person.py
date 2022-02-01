@@ -32,7 +32,6 @@ from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFun
 from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
@@ -55,6 +54,7 @@ from posthog.queries.base import filter_persons
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
+from posthog.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
