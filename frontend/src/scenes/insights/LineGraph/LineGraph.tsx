@@ -358,7 +358,8 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={
@@ -427,8 +428,6 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
 
                 if (onClick && point.length) {
                     target.style.cursor = 'pointer'
-                } else {
-                    target.style.cursor = 'default'
                 }
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {

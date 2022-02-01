@@ -93,6 +93,7 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
+    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
 }
 
