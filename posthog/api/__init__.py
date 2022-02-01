@@ -103,15 +103,15 @@ from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouse
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
 from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
 from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
 from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
 from posthog.api.insight import InsightViewSet
+from posthog.api.person import LegacyPersonViewSet, PersonViewSet
 
 # Legacy endpoints CH (to be removed eventually)
-router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
+router.register(r"person", LegacyPersonViewSet, basename="person")
 router.register(r"element", LegacyElementViewSet, basename="element")
 router.register(r"cohort", LegacyClickhouseCohortViewSet, basename="cohort")
 router.register(r"event", LegacyEventViewSet, basename="event")
@@ -122,7 +122,7 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
 projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
-projects_router.register(r"persons", ClickhousePersonViewSet, "project_persons", ["team_id"])
+projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
