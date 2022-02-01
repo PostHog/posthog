@@ -7,7 +7,7 @@ from django.http.response import JsonResponse
 from django.test.client import RequestFactory
 from rest_framework import status
 
-from posthog.api.test.test_capture import mocked_get_ingest_context
+from posthog.api.test.test_capture import mocked_get_ingest_context_from_token
 from posthog.api.utils import (
     IngestContext,
     PaginationMode,
@@ -52,7 +52,7 @@ class TestUtils(BaseTest):
         self.assertEqual(error_response, None)
 
         get_team_from_token_patcher = patch(
-            "posthog.api.utils.get_team_ingest_context_from_token", side_effect=mocked_get_ingest_context
+            "posthog.api.utils.get_team_ingest_context_from_token", side_effect=mocked_get_ingest_context_from_token
         )
         get_team_from_token_patcher.start()
 
