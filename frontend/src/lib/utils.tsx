@@ -1277,14 +1277,3 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
-
-export function formatNumberWithSeparator(n: string | number, separator: string = ','): string {
-    const res = String(n).split('').reverse()
-    const len = res.length
-
-    for (let i = 3; i < len; i += 4) {
-        res.splice(i, 0, separator)
-    }
-
-    return res.reverse().join('')
-}

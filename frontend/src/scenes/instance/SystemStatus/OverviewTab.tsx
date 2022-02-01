@@ -6,7 +6,7 @@ import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
-import { formatNumberWithSeparator, humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
 interface MetricRow {
     metric: string
@@ -35,7 +35,7 @@ function RenderValue(metricRow: MetricRow): JSX.Element | string {
     }
 
     if (typeof value === 'number') {
-        return formatNumberWithSeparator(value)
+        return value.toLocaleString('en-US')
     }
 
     if (value === null || value === undefined || value === '') {
