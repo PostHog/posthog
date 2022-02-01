@@ -22,6 +22,7 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    SecondaryExperimentMetric,
     AvailableFeature,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
@@ -56,6 +57,7 @@ export const experimentLogic = kea<experimentLogicType>({
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
+        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -140,6 +142,13 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setSecondaryMetrics: (state, { secondaryMetrics }) => {
+                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, secondary_metrics: metrics },
                     }
                 },
                 resetNewExperiment: () => ({
@@ -403,6 +412,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 )
             },
         ],
+        parsedSecondaryMetrics: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
+                const secondaryMetrics: Partial<FilterType>[] =
+                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics.map((metric) => ({ filters: metric }))
+            },
+        ],
         minimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
@@ -468,6 +485,35 @@ export const experimentLogic = kea<experimentLogicType>({
                     return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
                         1
                     )
+                },
+        ],
+        getIndexForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string, insightType: InsightType): number => {
+                    if (!experimentResults) {
+                        return 0
+                    }
+                    let index = -1
+
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults?.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults?.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+
+                    if (index === -1) {
+                        return 0
+                    }
+
+                    return index
                 },
         ],
         countDataForVariant: [
