@@ -32,8 +32,8 @@ class TestUtils(BaseTest):
         self.assertEqual(ingest_context, None)
         self.assertEqual(db_error, None)
         self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)
+        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
+        self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)  # type: ignore
 
         # project_id exists but is invalid: should look for a personal API key and fail
         ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {"project_id": 438483483}, "")
@@ -41,8 +41,8 @@ class TestUtils(BaseTest):
         self.assertEqual(ingest_context, None)
         self.assertEqual(db_error, None)
         self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")
+        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
+        self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")  # type: ignore
 
         # Correct token
         ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {}, self.team.api_token)
@@ -75,7 +75,7 @@ class TestUtils(BaseTest):
         # Valid request with event
         request = HttpRequest()
         request.method = "POST"
-        request.POST = {"data": json.dumps({"event": "some event"})}
+        request.POST = {"data": json.dumps({"event": "some event"})}  # type: ignore
         data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
