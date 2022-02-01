@@ -116,9 +116,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     )
 
     # if the dead letter queue has as many events today as ingestion, issue an alert
-    dead_letter_queue_events_high = (
-        dead_letter_queue_ingestion_ratio >= 0.2 and dead_letter_queue_events_last_day > 10000
-    )
+    dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 0.2
 
     yield {
         "key": "dead_letter_queue_ratio_ok",
