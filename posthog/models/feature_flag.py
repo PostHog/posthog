@@ -2,7 +2,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -25,8 +24,6 @@ from .filters import Filter
 from .person import Person, PersonDistinctId
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
-
-from .tagged_item import EnterpriseTaggedItem
 
 
 @dataclass

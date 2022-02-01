@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models

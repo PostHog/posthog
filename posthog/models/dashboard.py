@@ -1,11 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django_deprecate_fields import deprecate_field
-
-from posthog.models.tagged_item import EnterpriseTaggedItem
 
 
 class Dashboard(models.Model):
