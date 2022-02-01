@@ -66,6 +66,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                     return [
                         ...metrics,
                         {
+                            name: 'secondary metrics test',
                             filters: {
                                 insight: metricType,
                                 events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
@@ -85,6 +86,16 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             {
                 showModal: () => true,
                 hideModal: () => false,
+            },
+        ],
+        metric: [
+            {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                    events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                    layout: FunnelLayout.horizontal,
+                    display: ChartDisplayType.ActionsLineGraphCumulative,
+                },
             },
         ],
     }),

@@ -466,6 +466,24 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                         </Row>
+                                        {/* {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && ( */}
+                                        <Row className="mt">
+                                            <Col>
+                                                <div>
+                                                    <b>Secondary metrics</b>
+                                                    <span className="text-muted ml-05">(optional)</span>
+                                                </div>
+                                                <div className="text-muted" style={{ marginTop: 4 }}>
+                                                    Use secondary metrics to monitor metrics related to your experiment
+                                                    goal. You can add up to three secondary metrics.{' '}
+                                                </div>
+                                            </Col>
+                                            <SecondaryMetrics
+                                                onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                initialMetrics={parsedSecondaryMetrics}
+                                            />
+                                        </Row>
+                                        {/* )} */}
                                     </Col>
                                     <Col span={12}>
                                         <Card className="experiment-preview">
@@ -484,24 +502,6 @@ export function Experiment(): JSX.Element {
                                         </Card>
                                     </Col>
                                 </Row>
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                    <Row>
-                                        <Col>
-                                            <div>
-                                                <b>Secondary metrics</b>
-                                                <span className="text-muted ml-05">(optional)</span>
-                                            </div>
-                                            <div className="text-muted">
-                                                Use secondary metrics to monitor metrics related to your experiment
-                                                goal. You can add up to three secondary metrics.{' '}
-                                            </div>
-                                        </Col>
-                                        <SecondaryMetrics
-                                            onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                            initialMetrics={parsedSecondaryMetrics}
-                                        />
-                                    </Row>
-                                )}
                             </BindLogic>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
@@ -704,12 +704,12 @@ export function Experiment(): JSX.Element {
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
+                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                    1
+                                                                ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
+                                                                getIndexForVariant(variant, InsightType.TRENDS)
+                                                                ]
                                                         }
                                                     />
                                                     <div>
