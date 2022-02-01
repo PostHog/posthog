@@ -39,7 +39,7 @@ from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: ClickhouseTrends,

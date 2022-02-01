@@ -1,4 +1,4 @@
-# name: TestClickhouseTrends.test_breakdown_by_group_props
+# name: TestClickhouseTrendsGroups.test_breakdown_by_group_props
   '
   
   SELECT groupArray(value)
@@ -24,7 +24,7 @@
      OFFSET 0)
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_by_group_props.1
+# name: TestClickhouseTrendsGroups.test_breakdown_by_group_props.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -78,7 +78,7 @@
   GROUP BY breakdown_value
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_by_group_props.2
+# name: TestClickhouseTrendsGroups.test_breakdown_by_group_props.2
   '
   
   SELECT person_id AS actor_id
@@ -119,7 +119,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter
+# name: TestClickhouseTrendsGroups.test_breakdown_by_group_props_with_person_filter
   '
   
   SELECT groupArray(value)
@@ -160,7 +160,7 @@
      OFFSET 0)
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter.1
+# name: TestClickhouseTrendsGroups.test_breakdown_by_group_props_with_person_filter.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -229,7 +229,7 @@
   GROUP BY breakdown_value
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_with_filter_groups
+# name: TestClickhouseTrendsGroups.test_breakdown_with_filter_groups
   '
   
   SELECT groupArray(value)
@@ -257,7 +257,7 @@
      OFFSET 0)
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_with_filter_groups.1
+# name: TestClickhouseTrendsGroups.test_breakdown_with_filter_groups.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -313,7 +313,7 @@
   GROUP BY breakdown_value
   '
 ---
-# name: TestClickhouseTrends.test_filtering_with_group_props
+# name: TestClickhouseTrendsGroups.test_filtering_with_group_props
   '
   
   SELECT groupArray(day_start) as date,

@@ -6,7 +6,6 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
@@ -15,6 +14,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.queries.trends.trend_event_query import TrendsEventQuery
 from posthog.test.base import APIBaseTest
 
 

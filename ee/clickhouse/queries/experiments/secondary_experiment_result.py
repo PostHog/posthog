@@ -5,11 +5,11 @@ from typing import Dict, List, Optional, Tuple, Type, Union
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
 
 
 class ClickhouseSecondaryExperimentResult:

@@ -19,7 +19,6 @@ from rest_hooks.signals import raw_hook_event
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -46,6 +45,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import base, retention, stickiness, trends
+from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
+from posthog.queries.trends.person import ClickhouseTrendsActors
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import PersonSerializer, get_person_name, paginated_result
@@ -284,7 +285,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
             result = stickiness.Stickiness().run(stickiness_filter, team)
         else:
-            result = trends.Trends().run(filter, team)
+            result = ClickhouseTrends().run(filter, team)
 
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:

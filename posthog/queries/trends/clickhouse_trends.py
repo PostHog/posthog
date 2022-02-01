@@ -1,15 +1,11 @@
+import copy
+from itertools import accumulate
 from typing import Any, Callable, Dict, List, Tuple
 
-from django.conf import settings
 from django.db.models.query import Prefetch
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
-from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -17,11 +13,14 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
-from posthog.queries.trends import Trends
+from posthog.queries.trends.breakdown import ClickhouseTrendsBreakdown
+from posthog.queries.trends.formula import ClickhouseTrendsFormula
+from posthog.queries.trends.lifecycle import ClickhouseLifecycle
+from posthog.queries.trends.total_volume import ClickhouseTrendsTotalVolume
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula, Trends):
+class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
     def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         data = {}
         if not filter._date_from:
@@ -41,6 +40,30 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             sql, params, parse_function = self._total_volume_query(entity, filter, team_id)
 
         return sql, params, parse_function
+
+    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+        serialized_data = []
+
+        serialized: Dict[str, Any] = {
+            "action": entity.to_dict(),
+            "label": entity.name,
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [],
+        }
+
+        for queried_metric in result:
+            serialized_copy = copy.deepcopy(serialized)
+            serialized_copy.update(queried_metric)
+            serialized_data.append(serialized_copy)
+
+        return serialized_data
+
+    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
+        for metrics in entity_metrics:
+            metrics.update(data=list(accumulate(metrics["data"])))
+        return entity_metrics
 
     def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
         sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)

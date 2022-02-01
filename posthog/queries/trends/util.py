@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -7,6 +7,7 @@ from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
@@ -99,3 +100,20 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
         time_range.append(date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")))
         date_from += delta
     return time_range
+
+
+def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
+    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+    if not value or not isinstance(value, str) or "cohort_" not in value:
+        label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
+        ret_dict["label"] = f"{entity.name} - {label}"
+        ret_dict["breakdown_value"] = label
+    else:
+        if value == "cohort_all":
+            ret_dict["label"] = f"{entity.name} - all users"
+            ret_dict["breakdown_value"] = "all"
+        else:
+            cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
+            ret_dict["label"] = f"{entity.name} - {cohort.name}"
+            ret_dict["breakdown_value"] = cohort.pk
+    return ret_dict

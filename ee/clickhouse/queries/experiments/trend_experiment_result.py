@@ -12,11 +12,11 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import ACTIONS, EVENTS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
 
 Probability = float
 

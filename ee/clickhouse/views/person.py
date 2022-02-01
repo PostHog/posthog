@@ -17,7 +17,6 @@ from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFun
 from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
 from posthog.constants import (
@@ -31,6 +30,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 from posthog.models.filters.path_filter import PathFilter
+from posthog.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.utils import format_query_params_absolute_url
 
 

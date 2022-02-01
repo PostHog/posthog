@@ -3,8 +3,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple, Union
 
-from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
-from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
 from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.volume import (
@@ -17,6 +15,8 @@ from ee.clickhouse.sql.trends.volume import (
 from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
 from posthog.utils import encode_get_request_params
 
 

@@ -26,7 +26,6 @@ from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.documentation import extend_schema
 from posthog.api.insight_serializers import (
@@ -58,6 +57,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
+from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 

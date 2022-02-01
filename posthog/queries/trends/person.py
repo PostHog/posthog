@@ -5,7 +5,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
@@ -14,6 +13,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.queries.trends.trend_event_query import TrendsEventQuery
 
 
 def _handle_date_interval(filter: Filter) -> Filter:

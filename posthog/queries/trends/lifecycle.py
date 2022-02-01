@@ -10,13 +10,13 @@ from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_earliest_timestamp, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.lifecycle import LifecycleTrend
+from posthog.queries.trends.util import parse_response
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #

@@ -4,10 +4,10 @@ from typing import Any, Dict, List
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
-from ee.clickhouse.queries.trends.util import parse_response
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.queries.trends.util import parse_response
 
 
 class ClickhouseTrendsFormula:
