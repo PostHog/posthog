@@ -6,6 +6,12 @@ import { userLogic } from 'scenes/userLogic'
 import { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
 export type TabName = 'overview' | 'internal_metrics'
 
+export enum DeadLetterQueueTab {
+    Metrics = 'metrics',
+    Management = 'management',
+    Settings = 'settings',
+}
+
 export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
     path: ['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic'],
 
@@ -15,7 +21,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
 
     reducers: () => ({
         activeTab: [
-            'dlq_size',
+            DeadLetterQueueTab.Metrics,
             {
                 setActiveTab: (_, { tabKey }) => tabKey,
             },
@@ -35,14 +41,6 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
             },
         ],
     }),
-
-    selectors: () => ({
-        currentMetric: [
-            (s) => [s.activeTab, s.deadLetterQueueMetrics],
-            (activeTab, deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((row) => row.key === activeTab)[0],
-        ],
-    }),
-
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadDeadLetterQueueMetrics()
