@@ -235,3 +235,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
         return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
+
+
+class LegacyEventViewSet(EventViewSet):
+    legacy_team_compatibility = True
