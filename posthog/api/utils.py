@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import (
     Any,
@@ -166,13 +167,25 @@ def get_data(request):
     return data, None
 
 
-def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optional[Any]]:
+@dataclass
+class IngestContext:
+    """
+    Specifies the data needed to process inbound `Event`s. Specifically we need
+    to know which team_id to attach to an event, and if we should exclude ip
+    address information.
+    """
+
+    team_id: int
+    anonymize_ips: bool
+
+
+def get_ingest_context(request, data, token) -> Tuple[Optional[IngestContext], Optional[str], Optional[Any]]:
     db_error = None
-    team = None
+    ingest_context = None
     error_response = None
 
     try:
-        team = Team.objects.get_team_from_token(token)
+        ingest_context = get_team_ingest_context_from_token(token)
     except Exception as e:
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")
@@ -181,7 +194,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
 
         return None, db_error, error_response
 
-    if team is None:
+    if ingest_context is None:
         try:
             project_id = get_project_id(data, request)
         except ValueError:
@@ -206,8 +219,8 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
             )
             return None, db_error, error_response
 
-        user = User.objects.get_from_personal_api_key(token)
-        if user is None:
+        ingest_context = get_ingest_context_for_personal_api_key(personal_api_key=token, project_id=project_id)
+        if ingest_context is None:
             error_response = cors_response(
                 request,
                 generate_exception_response(
@@ -220,19 +233,42 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
             )
             return None, db_error, error_response
 
-        team = user.teams.get(id=project_id)
-
-    # if we still haven't found a team, return an error to the client
-    if not team:
+    # if we still haven't found a ingest_context, return an error to the client
+    if not ingest_context:
         error_response = cors_response(
             request,
             generate_exception_response(
                 "capture",
-                "No team found for API Key",
+                "No ingest_context found for API Key",
                 type="authentication_error",
                 code="invalid_personal_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
 
-    return team, db_error, error_response
+    return ingest_context, db_error, error_response
+
+
+def get_team_ingest_context_from_token(token: str) -> Optional[IngestContext]:
+    try:
+        team_values = Team.objects.values("id", "anonymize_ips").get(api_token=token)
+        return IngestContext(team_id=team_values["id"], anonymize_ips=team_values["anonymize_ips"])
+    except Team.DoesNotExist:
+        return None
+
+
+def get_ingest_context_for_personal_api_key(personal_api_key: str, project_id: int) -> Optional[IngestContext]:
+    """
+    Some events use the personal_api_key on a `User` for authentication, along
+    with a `project_id`.
+    """
+    user = User.objects.get_from_personal_api_key(personal_api_key)
+
+    if user is None:
+        return None
+
+    try:
+        team_values = user.teams.values("id", "anonymize_ips").get(id=project_id)
+        return IngestContext(team_id=team_values["id"], anonymize_ips=team_values["anonymize_ips"])
+    except Team.DoesNotExist:
+        return None
