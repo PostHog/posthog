@@ -73,5 +73,5 @@ def get_dead_letter_queue_events_per_location() -> List[Union[str, int]]:
 
 def get_dead_letter_queue_events_per_day() -> List[Union[str, int]]:
     return sync_execute(
-        "SELECT toDate(_timestamp) as day, count(*) AS c FROM events_dead_letter_queue GROUP BY day ORDER BY c DESC"
+        "SELECT toDate(error_timestamp) as day, count(*) AS c FROM events_dead_letter_queue GROUP BY day ORDER BY c DESC"
     )
