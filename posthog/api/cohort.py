@@ -16,7 +16,6 @@ from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class
@@ -30,6 +29,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.trends.person import ClickhouseTrendsActors
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
