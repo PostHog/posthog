@@ -99,7 +99,6 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 
 
-from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
 from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
 from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
@@ -108,13 +107,14 @@ from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhouse
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
+from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.insight import InsightViewSet
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
 router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
-router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
+router.register(r"element", LegacyElementViewSet, basename="element")
 # Nested endpoints CH
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"events", ClickhouseEventsViewSet, "project_events", ["team_id"])
@@ -122,8 +122,8 @@ projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["te
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
 projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
 projects_router.register(r"persons", ClickhousePersonViewSet, "project_persons", ["team_id"])
-projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
 projects_router.register(
     r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
