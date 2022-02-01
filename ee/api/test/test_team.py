@@ -389,12 +389,10 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         with self.assertNumQueries(9):
             projects_response = self.client.get(f"/api/projects/")
 
-        # 9 (above) + 4 below:
+        # 9 (above) + 2 below:
         # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...
-        # Used to fetch event definition tags:  SELECT COUNT(*) AS "__count" FROM "posthog_enterprisetaggeditem" WHERE ...
         # Used for `metadata`.`taxonomy_set_properties_count`: SELECT COUNT(*) FROM "ee_enterprisepropertydefinition" WHERE ...
-        # Used to fetch property definition tags: SELECT COUNT(*) AS "__count" FROM "posthog_enterprisetaggeditem" WHERE ...
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(11):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)
