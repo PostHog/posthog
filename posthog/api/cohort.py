@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.db.models import Count, QuerySet
@@ -19,25 +19,17 @@ from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickin
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from ee.clickhouse.views.person import get_funnel_actor_class
-from posthog.api.action import calculate_people, filter_by_type
+from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS, TRENDS_STICKINESS
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort, Entity
-from posthog.models.event import Event
+from posthog.models import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.stickiness import (
-    stickiness_fetch_people,
-    stickiness_format_intervals,
-    stickiness_process_entity_type,
-)
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
