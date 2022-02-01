@@ -121,7 +121,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "created_by",
             "description",
             "updated_at",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
             "favorited",
             "saved",
             "last_modified_at",

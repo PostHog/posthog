@@ -88,7 +88,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         fields = [
             "id",
             "name",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
             "post_to_slack",
             "slack_message_format",
             "steps",

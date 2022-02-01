@@ -1,10 +1,6 @@
-from typing import List
-
-from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
@@ -51,8 +47,6 @@ class PropertyDefinition(UUIDModel):
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Deprecated in #4480
-
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="property_definition")
 
     class Meta:
         unique_together = ("team", "name")

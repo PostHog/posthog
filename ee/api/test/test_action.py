@@ -35,3 +35,17 @@ class TestActionApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
+
+    def test_create_action_with_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "user signed up", "tags": ["nightly", "is", "a", "good", "girl"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], ["nightly", "is", "a", "good", "girl"])

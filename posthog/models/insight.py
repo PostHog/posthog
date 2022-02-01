@@ -2,7 +2,6 @@ import secrets
 import string
 from typing import Optional
 
-from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
@@ -12,7 +11,6 @@ from django_deprecate_fields import deprecate_field
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.utils import generate_cache_key
 
 
@@ -58,7 +56,6 @@ class Insight(models.Model):
     last_modified_by: models.ForeignKey = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
     )
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="insight")
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 
@@ -68,13 +65,13 @@ class Insight(models.Model):
     # Deprecated as we don't store funnels as a separate model any more
     funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
 
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list, db_column="tags"), return_instead=[]
+    )
+
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
-
-    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
-    )
 
     class Meta:
         db_table = "posthog_dashboarditem"

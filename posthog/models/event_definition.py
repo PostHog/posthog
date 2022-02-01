@@ -1,9 +1,7 @@
-from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
@@ -21,7 +19,6 @@ class EventDefinition(UUIDModel):
     query_usage_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="event_definition")
 
     class Meta:
         unique_together = ("team", "name")

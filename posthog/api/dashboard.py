@@ -50,7 +50,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "use_template",
             "use_dashboard",
             "filters",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
         ]
         read_only_fields = ("creation_mode",)
 

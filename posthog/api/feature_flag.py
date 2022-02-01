@@ -32,7 +32,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "id",
             "name",
             "key",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
             "filters",
             "deleted",
             "active",

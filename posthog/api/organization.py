@@ -155,21 +155,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
         except ImportError:
             return output
 
-        events_with_descriptions = list(
-            EnterpriseEventDefinition.objects.exclude(description="").values_list("id", flat=True)
-        )
-        event_definition_type = ContentType.objects.get_for_model(EnterpriseEventDefinition)
-        output["taxonomy_set_events_count"] = EnterpriseTaggedItem.objects.filter(
-            Q(content_type__pk=event_definition_type.id) & ~Q(object_id__in=events_with_descriptions)
-        ).count() + len(events_with_descriptions)
-
-        properties_with_descriptions = list(
-            EnterprisePropertyDefinition.objects.exclude(description="").values_list("id", flat=True)
-        )
-        property_definition_type = ContentType.objects.get_for_model(EnterprisePropertyDefinition)
-        output["taxonomy_set_properties_count"] = EnterpriseTaggedItem.objects.filter(
-            Q(content_type__pk=property_definition_type.id) & ~Q(object_id__in=properties_with_descriptions)
-        ).count() + len(properties_with_descriptions)
+        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
+            description="", tags__isnull=True
+        ).count()
+        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
+            description="", tags__isnull=True
+        ).count()
         return output
 
 

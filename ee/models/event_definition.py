@@ -17,6 +17,7 @@ class EnterpriseEventDefinition(EventDefinition):
     )
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list), return_instead=[]
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list, db_column="tags"),
+        return_instead=[],
     )

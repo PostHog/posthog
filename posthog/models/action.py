@@ -32,7 +32,6 @@ class Action(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="action")
 
     def calculate_events(self, start=None, end=None):
         recalculate_all = False

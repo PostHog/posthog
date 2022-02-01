@@ -1,8 +1,25 @@
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
+from typing import List, Tuple, Union
+
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
+
+RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
+
+
+def build_check():
+    # All object fields can be null
+    built_check_list: List[Union[Q, Q]] = [
+        Q(*[(f"{o_field}__isnull", True) for o_field in RELATED_OBJECTS], _connector="AND")
+    ]
+    # Only one object field can be populated
+    for o_field in RELATED_OBJECTS:
+        built_check_list.append(
+            Q(*[(f"{_o_field}__isnull", _o_field != o_field) for _o_field in RELATED_OBJECTS], _connector="AND")
+        )
+    return Q(*built_check_list, _connector="OR")
 
 
 class EnterpriseTaggedItem(UUIDModel):
@@ -23,12 +40,7 @@ class EnterpriseTaggedItem(UUIDModel):
     - models/dashboard.py
     - models/insight.py
 
-    Models that are taggable throughout the app:
-    - models/dashboard.py
-    - models/insight.py
-    - models/event_definition.py
-    - models/property_definition.py
-    - models/action.py
+    Models that are taggable throughout the app are listed as separate fields below.
 
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
     """
@@ -37,14 +49,37 @@ class EnterpriseTaggedItem(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
-    content_type: models.ForeignKey = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    # Primary key value of related model. Query by this to get all tags for specific model. This is a charfield because
-    # there we don't have a standard way of storing objects. Some models use positive integer ids and others use UUID's.
-    object_id: models.CharField = models.CharField(max_length=400)
-    content_object: GenericForeignKey = GenericForeignKey("content_type", "object_id")
+    # A column is created to hold the foreign keys of each model that is taggable. At most one of the columns below
+    # can be populated at any time.
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
+    insight: models.ForeignKey = models.ForeignKey(
+        "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
+    event_definition: models.ForeignKey = models.ForeignKey(
+        "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
+    property_definition: models.ForeignKey = models.ForeignKey(
+        "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
+    action: models.ForeignKey = models.ForeignKey(
+        "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
+    feature_flag: models.ForeignKey = models.ForeignKey(
+        "FeatureFlag", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    )
 
     class Meta:
-        unique_together = ("content_type", "object_id", "tag")
+        # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
+        unique_together = ("tag",) + RELATED_OBJECTS
+        constraints = [models.CheckConstraint(check=build_check(), name="at_most_one_related_object",)]
+
+    def clean(self):
+        super().clean()
+        """Ensure that only one of object columns can be set."""
+        if sum(map(bool, [getattr(self, o_field) for o_field in RELATED_OBJECTS])) > 1:
+            raise ValidationError("At most one object field must be set.")
 
     def __str__(self):
         return self.tag

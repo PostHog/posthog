@@ -51,7 +51,6 @@ class FeatureFlag(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="feature_flag")
 
     def matches(self, *args, **kwargs) -> Optional[FeatureFlagMatch]:
         return FeatureFlagMatcher(self, *args, **kwargs).get_match()

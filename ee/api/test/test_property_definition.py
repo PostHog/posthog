@@ -138,7 +138,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["tags"], ["official", "internal"])
 
         property.refresh_from_db()
-        self.assertEqual(list(property.global_tags.values_list("tag", flat=True)), ["official", "internal"])
+        self.assertEqual(list(property.tags.values_list("tag", flat=True)), ["official", "internal"])
 
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")

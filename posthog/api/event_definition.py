@@ -22,7 +22,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "query_usage_30_day",
             "created_at",
             "last_seen_at",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
@@ -52,9 +52,10 @@ class EventDefinitionViewSet(
             else:
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+                # Select all columns except `tags` so that queryset doesn't try to fetch one-to-many tags
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
-                    SELECT *
+                    SELECT eventdefinition_ptr_id, description, updated_at, owner_id, updated_by_id, verified, verified_at, verified_by_id, id, name, volume_30_day, query_usage_30_day, team_id, created_at, last_seen_at
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s {search_query}

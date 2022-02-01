@@ -38,7 +38,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "is_numerical",
             "query_usage_30_day",
             "property_type",
-            "tags",  # resolved into "global_tags" in TaggedItemSerializerMixin
+            "tags",
             # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
         )
@@ -99,15 +99,14 @@ class PropertyDefinitionViewSet(
         }
 
         if use_entreprise_taxonomy:
+            # Select all columns except `tags` specifically so that queryset doesn't try to fetch one-to-many tags
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
-                SELECT posthog_propertydefinition.*,
-                       ee_enterprisepropertydefinition.*, 
+                SELECT propertydefinition_ptr_id, description, updated_at, updated_by_id, id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format,
                        {event_property_field} AS is_event_property
-                FROM posthog_propertydefinition
-                LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                FROM ee_enterprisepropertydefinition
+                FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
@@ -115,9 +114,9 @@ class PropertyDefinitionViewSet(
         else:
             return PropertyDefinition.objects.raw(
                 f"""
-                SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
+                SELECT *, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,

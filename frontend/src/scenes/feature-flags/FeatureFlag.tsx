@@ -232,16 +232,15 @@ export function FeatureFlag(): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Form.Item>
-                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
-                                featureFlagId !== 'new' && (
-                                    <ObjectTags
-                                        tags={featureFlag.tags ?? []}
-                                        onTagSave={saveNewTag}
-                                        onTagDelete={deleteTag}
-                                        saving={featureFlagLoading}
-                                        className="feature-flag-tags"
-                                    />
-                                )}
+                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                                <ObjectTags
+                                    tags={featureFlag.tags ?? []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={featureFlagLoading}
+                                    className="feature-flag-tags"
+                                />
+                            )}
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>

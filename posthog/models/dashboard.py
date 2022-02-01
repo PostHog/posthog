@@ -28,11 +28,9 @@ class Dashboard(models.Model):
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CREATION_MODE_CHOICES)
 
-    global_tags: GenericRelation = GenericRelation(EnterpriseTaggedItem, related_query_name="dashboard")
-
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list, db_column="tags"), return_instead=[]
     )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
@@ -45,5 +43,5 @@ class Dashboard(models.Model):
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
-            "tags_count": len(self.tags),
+            "tags_count": self.tags.count(),
         }
