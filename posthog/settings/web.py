@@ -221,14 +221,10 @@ def add_recorder_js_headers(headers, path, url):
         headers["Cache-Control"] = "max-age=31536000, public"
 
 
-# What deployed environment are we in?
-DEPLOYMENT = os.getenv("DEPLOYMENT", "unknown")
-IS_POSTHOG_CLOUD = DEPLOYMENT == "Posthog Cloud"
-
 # Static file configs
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
-if not IS_POSTHOG_CLOUD:
+if not settings.IS_CDN_CONFIGURED:
     # Don't serve static files from app on posthog cloud 
     INSTALLED_APPS.append("django.contrib.staticfiles")
