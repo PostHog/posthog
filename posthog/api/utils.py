@@ -255,8 +255,12 @@ def get_team_ingest_context_from_token(token: str) -> Optional[IngestContext]:
     required to ingest events.
     """
     try:
-        team_values = Team.objects.values("id", "anonymize_ips").get(api_token=token)
-        return IngestContext(team_id=team_values["id"], anonymize_ips=team_values["anonymize_ips"])
+        team_id, anonymize_ips = Team.objects.values_list("id", "anonymize_ips").get(api_token=token)
+        # NOTE: Not sure why, but I needed to do this cast otherwise I got
+        # `Optional[bool]` instead of `bool` from mypy, even though
+        # anonymize_ips is non-null in the model
+        anonymize_ips = cast(bool, anonymize_ips)
+        return IngestContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
 
@@ -272,7 +276,7 @@ def get_ingest_context_for_personal_api_key(personal_api_key: str, project_id: i
         return None
 
     try:
-        team_values = user.teams.values("id", "anonymize_ips").get(id=project_id)
-        return IngestContext(team_id=team_values["id"], anonymize_ips=team_values["anonymize_ips"])
+        team_id, anonymize_ips = user.teams.values_list("id", "anonymize_ips").get(id=project_id)
+        return IngestContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
