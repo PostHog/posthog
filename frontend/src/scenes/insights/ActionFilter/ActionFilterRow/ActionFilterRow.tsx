@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Col, Row, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -8,20 +8,17 @@ import {
     EntityType,
     EntityTypes,
     FunnelStepRangeEntityFilter,
-    PropertyFilter,
     PropertyFilterValue,
-    SelectOption,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     CloseSquareOutlined,
+    CopyOutlined,
     DeleteOutlined,
     DownOutlined,
     EditOutlined,
     FilterOutlined,
-    CopyOutlined,
 } from '@ant-design/icons'
-import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
@@ -37,6 +34,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { actionsModel } from '~/models/actionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -387,7 +385,6 @@ export function ActionFilterRow({
                                                 mathProperty={mathProperty}
                                                 index={index}
                                                 onMathPropertySelect={onMathPropertySelect}
-                                                properties={numericalPropertyNames}
                                                 horizontalUI={horizontalUI}
                                                 exposeWebPerformance={!!featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE]}
                                             />
@@ -560,65 +557,58 @@ interface MathPropertySelectorProps {
     mathProperty?: string
     index: number
     onMathPropertySelect: (index: number, value: string) => any
-    properties: SelectOption[]
     horizontalUI?: boolean
     exposeWebPerformance?: boolean
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
-    const { mathDefinitions } = useValues(mathsLogic)
-
-    function isPropertyApplicable(value: PropertyFilter['value']): boolean {
-        const includedProperties = ['$time']
-        if (props.exposeWebPerformance) {
-            includedProperties.push('$performance_page_loaded')
-        }
-        const excludedProperties = ['distinct_id', 'token']
-        if (typeof value !== 'string' || !value || excludedProperties.includes(value)) {
-            return false
-        }
-        return value[0] !== '$' || includedProperties.includes(value)
-    }
-
-    const applicableProperties = props.properties
-        .filter(({ value }) => isPropertyApplicable(value))
-        .sort((a, b) => (a.value + '').localeCompare(b.value + ''))
+    const [visible, setVisible] = useState(false)
 
     return (
-        <SelectGradientOverflow
-            showSearch
-            className={`property-select ${props.horizontalUI ? 'horizontal-ui' : ''}`}
-            onChange={(_: string, payload) => {
-                props.onMathPropertySelect(props.index, (payload as SelectOption)?.value)
-            }}
-            value={props.mathProperty}
-            data-attr="math-property-select"
-            dropdownMatchSelectWidth={350}
-            placeholder={'Select property'}
+        <Popup
+            overlay={
+                <TaxonomicFilter
+                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                    value={props.mathProperty}
+                    onChange={(_, payload) => {
+                        props.onMathPropertySelect(props.index, String(payload))
+                        setVisible(false)
+                    }}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}
+                    eventNames={[]}
+                />
+            }
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
         >
-            {applicableProperties.map(({ value, label }) => (
-                <Select.Option
-                    key={`math-property-${value}-${props.index}`}
-                    value={value}
-                    data-attr={`math-property-${value}-${props.index}`}
+            {({ setRef }) => (
+                <Button
+                    data-attr="math-property-select"
+                    onClick={() => setVisible(true)}
+                    ref={setRef}
+                    style={{
+                        maxWidth: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                    }}
                 >
-                    <Tooltip
-                        title={
-                            <>
-                                Calculate {mathDefinitions[props.math ?? ''].name.toLowerCase()} from property{' '}
-                                <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
-                                is set with a numeric value will be taken into account.
-                            </>
-                        }
-                        placement="right"
-                        overlayStyle={{ zIndex: 9999999999 }}
-                    >
-                        {label}
-                    </Tooltip>
-                </Select.Option>
-            ))}
-        </SelectGradientOverflow>
+                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                        {props.mathProperty ? <PropertyKeyInfo value={props.mathProperty} /> : <em>Please Select</em>}
+                    </span>
+                    <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+            )}
+        </Popup>
     )
+    // TODO: put this back
+    // title={
+    //     <>
+    //         Calculate {mathDefinitions[props.math ?? ''].name.toLowerCase()} from property{' '}
+    //         <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
+    //         is set with a numeric value will be taken into account.
+    //     </>
+    // }
 }
 
 const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {

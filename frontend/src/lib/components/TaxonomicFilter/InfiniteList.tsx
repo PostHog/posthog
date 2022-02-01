@@ -114,6 +114,7 @@ const renderItemContents = ({
         !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
+        listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
