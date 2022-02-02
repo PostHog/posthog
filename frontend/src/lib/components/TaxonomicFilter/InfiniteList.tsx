@@ -243,7 +243,7 @@ export function InfiniteList(): JSX.Element {
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -251,9 +251,7 @@ export function InfiniteList(): JSX.Element {
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalCount === 0 && !isLoading
-    const showNewTaxonomyFeature =
-        !!user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY) &&
-        !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+    const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -342,7 +340,7 @@ export function InfiniteList(): JSX.Element {
             )}
             {isActiveTab &&
             selectedItemInView &&
-            selectedItemHasPopup(selectedItem, listGroupType, group, showNewTaxonomyFeature) &&
+            selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <Provider store={getContext().store}>
@@ -353,14 +351,12 @@ export function InfiniteList(): JSX.Element {
                               {...attributes.popper}
                           >
                               {selectedItem && group
-                                  ? showNewTaxonomyFeature
+                                  ? showNewPopups
                                       ? renderItemPopup(
                                             selectedItem,
                                             listGroupType,
                                             group,
-                                            !!user?.organization?.available_features?.includes(
-                                                AvailableFeature.INGESTION_TAXONOMY
-                                            )
+                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
                                         )
                                       : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
                                   : null}

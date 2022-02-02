@@ -21,6 +21,9 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { Divider, DividerProps } from 'antd'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
+import { LockOutlined } from '@ant-design/icons'
+import { Link } from 'lib/components/Link'
+import { IconOpenInNew } from 'lib/components/icons'
 
 interface HeaderProps {
     title: React.ReactNode
@@ -236,20 +239,63 @@ DefinitionPopup.Card = Card
 
 const formatTimeFromNow = (day?: string): string => (day ? dayjs.utc(day).fromNow() : '-')
 
+function TaxonomyIntroductionSection(): JSX.Element {
+    const Lock = (): JSX.Element => (
+        <div
+            style={{
+                height: '100%',
+                width: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: 'var(--text-muted)',
+            }}
+        >
+            <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
+        </div>
+    )
+
+    return (
+        <>
+            <Grid cols={2}>
+                <Card title="First seen" value={<Lock />} />
+                <Card title="Last seen" value={<Lock />} />
+                <Card title="30 day volume" value={<Lock />} />
+                <Card title="30 day queries" value={<Lock />} />
+            </Grid>
+            <Section>
+                <Link
+                    to="https://posthog.com/docs/user-guides"
+                    target="_blank"
+                    data-attr="taxonomy-learn-more"
+                    style={{ fontWeight: 600, marginTop: 8 }}
+                >
+                    Learn more about Taxonomy
+                    <IconOpenInNew style={{ marginLeft: 8 }} />
+                </Link>
+            </Section>
+        </>
+    )
+}
+
 const renderRestOfDefinition = (
     item: EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty,
-    listGroupType: TaxonomicFilterGroupType
+    listGroupType: TaxonomicFilterGroupType,
+    hasTaxonomyFeatures: boolean = false
 ): JSX.Element => {
     if ([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents].includes(listGroupType)) {
         const _item = item as EventDefinition
         return (
             <>
-                <Grid cols={2}>
-                    <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
-                    <Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)} />
-                    <Card title="30 day volume" value={_item.volume_30_day ?? '-'} />
-                    <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
-                </Grid>
+                {hasTaxonomyFeatures ? (
+                    <Grid cols={2}>
+                        <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
+                        <Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)} />
+                        <Card title="30 day volume" value={_item.volume_30_day ?? '-'} />
+                        <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
+                    </Grid>
+                ) : (
+                    <TaxonomyIntroductionSection />
+                )}
                 <HorizontalLine />
                 <Section>
                     <Card
@@ -372,7 +418,8 @@ export const renderItemPopup = (
                 icon={icon}
                 editText={listGroupType === TaxonomicFilterGroupType.Actions ? 'Quick edit' : undefined}
             >
-                {'description' in item &&
+                {hasTaxonomyFeatures &&
+                    'description' in item &&
                     (hasTaxonomyFeatures && item.description ? (
                         <DefinitionPopup.Description description={item.description} />
                     ) : (
@@ -393,7 +440,7 @@ export const renderItemPopup = (
                 />
                 <DefinitionPopup.HorizontalLine />
                 {/* Things start to get different here */}
-                {renderRestOfDefinition(item, listGroupType)}
+                {renderRestOfDefinition(item, listGroupType, hasTaxonomyFeatures)}
             </DefinitionPopup>
         </BindLogic>
     )
