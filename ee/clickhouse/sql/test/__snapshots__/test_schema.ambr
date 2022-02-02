@@ -1,3 +1,22 @@
+# name: test_create_kafka_events_with_disabled_protobuf
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = \n    Kafka () SETTINGS\n    kafka_broker_list = 'kafka',\n    kafka_topic_list = 'clickhouse_events_proto_test',\n    kafka_group_name = 'group1',\n    kafka_format = 'Protobuf',\n    kafka_schema = 'events:Event',\n    kafka_skip_broken_messages = 100\n    \n]
   '
   
