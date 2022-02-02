@@ -20,7 +20,7 @@ from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
-from ee.clickhouse.sql.cohort import GET_COHORT_SIZE_SQL
+from ee.clickhouse.sql.cohort import GET_COHORT_SIZE_SQL, GET_COHORT_SQL
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -157,8 +157,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         offset = request.GET.get("offset", 0)
         limit = request.GET.get("limit", 100)
         raw_result = sync_execute(
-            "SELECT * FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s LIMIT %(limit)s OFFSET %(offset)s",
-            {"team_id": cohort.team_id, "cohort_id": cohort.pk, "offset": offset, "limit": limit + 1},
+            GET_COHORT_SQL, {"team_id": cohort.team_id, "cohort_id": cohort.pk, "offset": offset, "limit": limit + 1},
         )
         actor_ids = []
         if raw_result and len(raw_result):
