@@ -8,6 +8,6 @@ class TestStaticUrls(APIBaseTest):
         self.assertEqual(response.content, b"")
 
     def test_cdn_static_site_serving(self):
-        with self.settings(CDN_URL="https://cdn.example.com")):
+        with self.settings(CDN_URL="https://cdn.example.com"):
             response = self.client.get("/static/array.js", follow=True)
             self.assertRedirects(response, "https://cdn.example.com/static/array.js")
