@@ -164,10 +164,7 @@ class ClickhouseFunnelExperimentResult:
             test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
         )
 
-        expected_loss = calculate_expected_loss(
-            best_test_variant,
-            [control_variant, *[variant for variant in test_variants if variant != best_test_variant]],
-        )
+        expected_loss = calculate_expected_loss(best_test_variant, [control_variant],)
 
         if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
             return ExperimentSignificanceCode.HIGH_LOSS

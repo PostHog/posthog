@@ -302,15 +302,12 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
 
-        self.assertAlmostEqual(
-            calculate_expected_loss(variant_test_3, [variant_control, variant_test_1, variant_test_2]), 0.026, places=2
-        )
+        self.assertAlmostEqual(calculate_expected_loss(variant_test_3, [variant_control]), 0, places=2)
 
-        # TODO: Open Question: Should significance distinguish between test variants, or only against control?
         significant = ClickhouseFunnelExperimentResult.are_results_significant(
             variant_control, [variant_test_1, variant_test_2, variant_test_3], probabilities
         )
-        self.assertEqual(significant, ExperimentSignificanceCode.HIGH_LOSS)
+        self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
