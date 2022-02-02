@@ -19,7 +19,6 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-# override tests from test facotry if intervals are different
 class TestClickhouseTrendsGroups(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
