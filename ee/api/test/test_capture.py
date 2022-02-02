@@ -8,7 +8,7 @@ from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.api.utils import get_ingest_context
+from posthog.api.utils import get_event_ingestion_context
 from posthog.test.base import APIBaseTest
 
 
@@ -126,7 +126,7 @@ class TestCaptureAPI(APIBaseTest):
     # unit test the underlying util that handles the DB being down
     @patch("posthog.api.utils.get_team_ingest_context_from_token", side_effect=mocked_get_ingest_context_from_token)
     def test_determine_team_from_request_data_ch(self, _):
-        team, db_error, _ = get_ingest_context(HttpRequest(), {}, "")
+        team, db_error, _ = get_event_ingestion_context(HttpRequest(), {}, "")
 
         self.assertEqual(team, None)
         self.assertEqual(db_error, "Exception('test exception')")

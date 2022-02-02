@@ -9,11 +9,11 @@ from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_ingest_context_from_token
 from posthog.api.utils import (
-    IngestContext,
+    EventIngestionContext,
     PaginationMode,
     format_paginated_url,
     get_data,
-    get_ingest_context,
+    get_event_ingestion_context,
     get_target_entity,
 )
 from posthog.models.filters.filter import Filter
@@ -27,27 +27,31 @@ def return_true():
 class TestUtils(BaseTest):
     def test_get_team(self):
         # No data at all
-        ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {}, "")
+        ingestion_context, db_error, error_response = get_event_ingestion_context(HttpRequest(), {}, "")
 
-        self.assertEqual(ingest_context, None)
+        self.assertEqual(ingestion_context, None)
         self.assertEqual(db_error, None)
         self.assertEqual(type(error_response), JsonResponse)
         self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
         self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)  # type: ignore
 
         # project_id exists but is invalid: should look for a personal API key and fail
-        ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {"project_id": 438483483}, "")
+        ingestion_context, db_error, error_response = get_event_ingestion_context(
+            HttpRequest(), {"project_id": 438483483}, ""
+        )
 
-        self.assertEqual(ingest_context, None)
+        self.assertEqual(ingestion_context, None)
         self.assertEqual(db_error, None)
         self.assertEqual(type(error_response), JsonResponse)
         self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
         self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")  # type: ignore
 
         # Correct token
-        ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {}, self.team.api_token)
+        ingestion_context, db_error, error_response = get_event_ingestion_context(
+            HttpRequest(), {}, self.team.api_token
+        )
 
-        self.assertEqual(ingest_context, IngestContext(team_id=self.team.pk, anonymize_ips=False))
+        self.assertEqual(ingestion_context, EventIngestionContext(team_id=self.team.pk, anonymize_ips=False))
         self.assertEqual(db_error, None)
         self.assertEqual(error_response, None)
 
@@ -57,9 +61,11 @@ class TestUtils(BaseTest):
         get_team_from_token_patcher.start()
 
         # Postgres fetch team error
-        ingest_context, db_error, error_response = get_ingest_context(HttpRequest(), {}, self.team.api_token)
+        ingestion_context, db_error, error_response = get_event_ingestion_context(
+            HttpRequest(), {}, self.team.api_token
+        )
 
-        self.assertEqual(ingest_context, None)
+        self.assertEqual(ingestion_context, None)
         self.assertEqual(db_error, "Exception('test exception')")
         self.assertEqual(error_response, None)
 
