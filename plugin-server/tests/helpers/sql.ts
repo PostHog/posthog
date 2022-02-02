@@ -80,6 +80,7 @@ export async function resetTestDatabase(
             id: teamIdToCreate + 67,
             team_id: teamIdToCreate,
             name: 'Test Action',
+            description: '',
             created_at: new Date().toISOString(),
             created_by_id: commonUserId,
             deleted: false,

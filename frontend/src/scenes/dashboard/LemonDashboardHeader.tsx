@@ -10,10 +10,11 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardMode } from '~/types'
+import { AvailableFeature, DashboardMode } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { ShareModal } from './ShareModal'
+import { userLogic } from 'scenes/userLogic'
 
 export function LemonDashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode } = useValues(dashboardLogic)
@@ -22,6 +23,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
 
@@ -175,7 +177,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 placeholder="Description (optional)"
                                 onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
                                 compactButtons
-                                paywall
+                                isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
                             <ObjectTags
                                 tags={dashboard.tags}

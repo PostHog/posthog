@@ -221,7 +221,8 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
-    name: string
+    name: string | null
+    description?: string
     post_to_slack?: boolean
     slack_message_format?: string
     steps?: ActionStepType[]
