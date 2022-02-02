@@ -140,7 +140,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             ): {
                 [x: string]: ActionFilter[] | BareEntity[]
             } => ({
-                [EntityTypes.ACTIONS]: actions,
+                [EntityTypes.ACTIONS]: actions.map((action) => ({ ...action, name: action.name || '' })),
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
         ],
