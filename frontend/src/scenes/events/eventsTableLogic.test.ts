@@ -503,30 +503,40 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        it('writes properties to the URL', async () => {
-            const value = randomString()
-            const propertyFilter = makePropertyFilter(value)
-            logic.actions.setProperties([propertyFilter])
-            expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
-        })
-
-        it('does not write empty properties to the URL', async () => {
-            logic.actions.setProperties([])
-            expect(router.values.searchParams).not.toHaveProperty('properties')
-        })
-
-        it('reads properties from the URL', async () => {
-            const propertyFilter = makePropertyFilter()
-            router.actions.push(urls.events(), { properties: [propertyFilter] })
-            await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
-        })
-
-        it('writes event filter to the URL', async () => {
-            const eventFilter = randomString()
-            await expectLogic(logic, () => {
-                logic.actions.setEventFilter(eventFilter)
+        describe('url handling', () => {
+            it('writes properties to the URL', async () => {
+                const value = randomString()
+                const propertyFilter = makePropertyFilter(value)
+                logic.actions.setProperties([propertyFilter])
+                expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
             })
-            expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+
+            it('does not write empty properties to the URL', async () => {
+                logic.actions.setProperties([])
+                expect(router.values.searchParams).not.toHaveProperty('properties')
+            })
+
+            it('reads properties from the URL', async () => {
+                const propertyFilter = makePropertyFilter()
+                router.actions.push(urls.events(), { properties: [propertyFilter] })
+                await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
+            })
+
+            it('writes event filter to the URL', async () => {
+                const eventFilter = randomString()
+                await expectLogic(logic, () => {
+                    logic.actions.setEventFilter(eventFilter)
+                })
+                expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+            })
+
+            it('fires two actions to change state, but just one API.get', async () => {
+                await expectLogic(logic, () => {
+                    const propertyFilter = makePropertyFilter()
+                    router.actions.push(urls.events(), { properties: [propertyFilter], eventFilter: 'new event' })
+                }).toDispatchActions(['setProperties', 'fetchEvents', 'setEventFilter', 'fetchEvents'])
+                expect(api.get).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe('polling for events', () => {
