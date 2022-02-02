@@ -529,10 +529,13 @@ describe('eventsTableLogic', () => {
         it('writes properties to the URL', async () => {
             const value = randomString()
             const propertyFilter = makePropertyFilter(value)
-            await expectLogic(logic, () => {
-                logic.actions.setProperties([propertyFilter])
-            })
+            logic.actions.setProperties([propertyFilter])
             expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
+        })
+
+        it('does not write empty properties to the URL', async () => {
+            logic.actions.setProperties([])
+            expect(router.values.searchParams).not.toHaveProperty('properties')
         })
 
         it('reads properties from the URL', async () => {

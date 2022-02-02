@@ -240,7 +240,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    properties: values.properties,
+                    properties: values.properties.length === 0 ? undefined : values.properties,
                 },
                 router.values.hashParams,
                 { replace: true },
