@@ -41,6 +41,20 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
             },
         ],
     }),
+
+    selectors: () => ({
+        singleValueMetrics: [
+            (s) => [s.deadLetterQueueMetrics],
+            // The demo announcement is persistent
+            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !metric.subrows),
+        ],
+        tableMetrics: [
+            (s) => [s.deadLetterQueueMetrics],
+            // The demo announcement is persistent
+            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !!metric.subrows),
+        ],
+    }),
+
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadDeadLetterQueueMetrics()

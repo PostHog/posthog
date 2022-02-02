@@ -936,7 +936,7 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string
+    value: string | number
     key?: string
     description?: string
     subrows?: SystemStatusSubrows

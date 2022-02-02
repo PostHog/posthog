@@ -26,6 +26,14 @@ class DeadLetterQueueViewSet(viewsets.ViewSet):
 
         metrics.append(
             {
+                "key": "dlq_events_last_24h",
+                "metric": "Events sent to dead letter queue in the last 24h",
+                "value": get_dead_letter_queue_size(),
+            }
+        )
+
+        metrics.append(
+            {
                 "key": "dlq_events_per_error",
                 "metric": "Total events per error",
                 "value": "",
@@ -59,6 +67,12 @@ class DeadLetterQueueViewSet(viewsets.ViewSet):
 
 def get_dead_letter_queue_size() -> int:
     return sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]
+
+
+def get_dead_letter_queue_events_last_day() -> int:
+    return sync_execute("SELECT count(*) FROM events_dead_letter_queue WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)")[
+        0
+    ][0]
 
 
 def get_dead_letter_queue_events_per_error() -> List[Union[str, int]]:
