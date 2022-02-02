@@ -4,7 +4,7 @@ const createAction = (actionName) => {
     cy.get('[data-attr=new-action-pageview]').click()
     cy.get('[data-attr=action-name-create]').should('exist')
 
-    cy.get('[data-attr=edit-action-input]').type(actionName)
+    cy.get('[data-attr=action-name-create]').type(actionName)
     cy.get('.ant-radio-group > :nth-child(3)').click()
     cy.get('[data-attr=edit-action-url-input]').type(Cypress.config().baseUrl)
     cy.wait(300)
