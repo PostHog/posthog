@@ -307,6 +307,7 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
 }
@@ -1404,6 +1405,10 @@ export interface ExperimentResults {
     itemID: string
     significant: boolean
     noData?: boolean
+}
+
+export interface SecondaryExperimentMetric {
+    filters: Partial<FilterType>
 }
 
 export interface SelectOption {

@@ -5,7 +5,7 @@ import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
-const HTTP_SERVER_PORT = 5000
+const HTTP_SERVER_PORT = 6738
 
 export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
