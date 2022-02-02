@@ -1,12 +1,14 @@
 import React from 'react'
 import { ActionType } from '~/types'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-
-function eventToHumanName(event: string): string {
-    return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event
-}
+import {
+    eventToHumanName,
+    genericOperatorToHumanName,
+    propertyValueToHumanName,
+} from 'lib/components/DefinitionPopup/utils'
 
 export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element | null {
+    console.log('ACTION', entity)
     if (!entity) {
         return null
     }
@@ -60,11 +62,20 @@ export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element
                                             </span>
                                         </li>
                                     )}
+                                    {step.properties &&
+                                        step.properties.map((property, propIndex) => (
+                                            <li key={propIndex}>
+                                                <span>
+                                                    <pre>{eventToHumanName(property.key)}</pre>
+                                                    {genericOperatorToHumanName(property.operator)}
+                                                    <pre>{propertyValueToHumanName(property.value)}</pre>
+                                                </span>
+                                            </li>
+                                        ))}
                                 </ul>
                             }
                         />
                         {entity.steps && index < entity.steps.length - 1 && (
-                            // <Divider>or</Divider>
                             <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                 OR
                             </DefinitionPopup.HorizontalLine>

@@ -199,6 +199,13 @@ function OperatorSelect({ onChange, value }: { onChange: (operator: string) => v
     )
 }
 
+export const COHORT_MATCHING_DAYS = {
+    '1': 'day',
+    '7': 'week',
+    '14': '2 weeks',
+    '30': 'month',
+}
+
 function DateIntervalSelect({
     onChange,
     value,
@@ -206,20 +213,13 @@ function DateIntervalSelect({
     onChange: (dateInterval: string) => void
     value?: string
 }): JSX.Element {
-    const PRESET_OPTIONS = {
-        '1': 'day',
-        '7': 'week',
-        '14': '2 weeks',
-        '30': 'month',
-    }
-
     const valueOrDefault = value ?? '1'
 
     return (
         <Select value={valueOrDefault} style={{ width: '100%' }} onChange={onChange}>
-            {Object.keys(PRESET_OPTIONS).map((key) => (
+            {Object.keys(COHORT_MATCHING_DAYS).map((key) => (
                 <Option value={key} key={key}>
-                    {PRESET_OPTIONS[key as '1' | '7' | '14' | '30']}
+                    {COHORT_MATCHING_DAYS[key as '1' | '7' | '14' | '30']}
                 </Option>
             ))}
         </Select>
