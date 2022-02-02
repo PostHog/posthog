@@ -315,7 +315,6 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 )
 """
 
-# TODO are these templated correctly now?
 INSERT_COHORT_ALL_PEOPLE_SQL = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (
@@ -328,7 +327,6 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
 )
 """
 
-# TODO are these templated correctly now?
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
 SELECT distinct_id
 FROM (
@@ -348,7 +346,6 @@ WHERE person_id IN
 )
 """
 
-# TODO are these templated correctly now?
 GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
