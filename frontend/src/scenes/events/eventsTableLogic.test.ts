@@ -432,13 +432,6 @@ describe('eventsTableLogic', () => {
                     }).toMatchValues({ isLoading: false })
                 })
 
-                it('set delayed loading sets isloading to true', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.fetchOrPollFailure({})
-                        logic.actions.setDelayedLoading()
-                    }).toMatchValues({ isLoading: true })
-                })
-
                 it('Fetch Events sets isLoading to true', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
