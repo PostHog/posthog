@@ -152,7 +152,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     type: TaxonomicFilterGroupType.Actions,
                     logic: actionsModel,
                     value: 'actions',
-                    getName: (action: ActionType): string => action.name,
+                    getName: (action: ActionType): string => action.name || '',
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
                     getPopupHeader: (): string => 'Action',
                     getIcon: function _getIcon(): JSX.Element {

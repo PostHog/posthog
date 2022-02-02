@@ -221,7 +221,8 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
-    name: string
+    name: string | null
+    description?: string
     post_to_slack?: boolean
     slack_message_format?: string
     steps?: ActionStepType[]
@@ -308,6 +309,7 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
 }
@@ -686,6 +688,18 @@ export interface InsightModel {
     next?: string
 }
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+}
+
 export interface DashboardType {
     id: number
     name: string
@@ -699,6 +713,8 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean

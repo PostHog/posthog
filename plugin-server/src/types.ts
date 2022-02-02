@@ -716,6 +716,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean

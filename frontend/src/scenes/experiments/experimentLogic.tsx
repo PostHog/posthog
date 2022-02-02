@@ -463,9 +463,9 @@ export const experimentLogic = kea<experimentLogicType>({
         expectedRunningTime: [
             () => [],
             () =>
-                (entrants: number, sampleSize: number): number => {
+                (entrants: number, sampleSize: number, duration: number = DEFAULT_DURATION): number => {
                     // recommended people / (actual people / day) = expected days
-                    return parseFloat((sampleSize / (entrants / DEFAULT_DURATION)).toFixed(1))
+                    return parseFloat((sampleSize / (entrants / duration)).toFixed(1))
                 },
         ],
         conversionRateForVariant: [
