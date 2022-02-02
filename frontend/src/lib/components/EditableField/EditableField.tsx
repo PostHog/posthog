@@ -13,7 +13,7 @@ interface EditableFieldProps {
     name: string
     value: string
     onChange?: (value: string) => void
-    onSave: (value: string) => void
+    onSave?: (value: string) => void
     placeholder?: string
     minLength?: number
     maxLength?: number
@@ -21,6 +21,8 @@ interface EditableFieldProps {
     compactButtons?: boolean
     /** Whether this field should be shown or hidden (gated). */
     isGated?: boolean
+    /** Whether the editable field should always be in edit mode. Hides state changing buttons and doesn't call onSave anywhere */
+    persistEditMode?: boolean
     className?: string
     'data-attr'?: string
     saveButtonText?: string
@@ -37,11 +39,12 @@ export function EditableField({
     multiline = false,
     compactButtons = false,
     isGated = false,
+    persistEditMode = false,
     className,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
 }: EditableFieldProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(false)
+    const [isEditing, setIsEditing] = useState(persistEditMode)
     const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
@@ -61,7 +64,7 @@ export function EditableField({
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
-        if (isEditing) {
+        if (!persistEditMode && isEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
                 save() // Save on Enter press
@@ -80,7 +83,7 @@ export function EditableField({
             className={clsx(
                 'EditableField',
                 multiline && 'EditableField--multiline',
-                isEditing && 'EditableField--editing',
+                (persistEditMode || isEditing) && 'EditableField--editing',
                 className
             )}
             data-attr={dataAttr}
@@ -127,22 +130,30 @@ export function EditableField({
                                     injectStyles={false}
                                 />
                             )}
-                            <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                title={
-                                    !minLength
-                                        ? 'Save'
-                                        : `Save (at least ${pluralize(minLength, 'character', 'characters')} required)`
-                                }
-                                compact
-                                disabled={!isSaveable}
-                                onClick={save}
-                                type="primary"
-                            >
-                                {saveButtonText}
-                            </LemonButton>
+                            {!persistEditMode && (
+                                <>
+                                    <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        title={
+                                            !minLength
+                                                ? 'Save'
+                                                : `Save (at least ${pluralize(
+                                                      minLength,
+                                                      'character',
+                                                      'characters'
+                                                  )} required)`
+                                        }
+                                        compact
+                                        disabled={!isSaveable}
+                                        onClick={save}
+                                        type="primary"
+                                    >
+                                        {saveButtonText}
+                                    </LemonButton>
+                                </>
+                            )}
                         </>
                     ) : (
                         <>

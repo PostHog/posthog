@@ -71,10 +71,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         name="name"
                         value={action.name || ''}
                         placeholder="Name this action"
-                        onSave={(name) => {
+                        onChange={(name) => {
                             setAction({ ...action, name })
                             setEdited(!!name)
                         }}
+                        persistEditMode={!id}
                         minLength={1}
                         maxLength={400} // Sync with action model
                         data-attr={`action-name-${id ? 'edit' : 'create'}`}
@@ -232,7 +233,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div className="float-right">
                     <span data-attr="delete-action-bottom">{deleteAction}</span>
                     <Button
-                        disabled={!edited}
+                        disabled={!edited || !action.name}
                         data-attr="save-action-button"
                         type="primary"
                         icon={<SaveOutlined />}
