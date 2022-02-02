@@ -20,7 +20,6 @@ import {
     FilterOutlined,
 } from '@ant-design/icons'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './index.scss'
@@ -137,7 +136,6 @@ export function ActionFilterRow({
         setEntityFilterVisibility,
         duplicateFilter,
     } = useActions(logic)
-    const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
@@ -364,7 +362,6 @@ export function ActionFilterRow({
                                         mathGroupTypeIndex={mathGroupTypeIndex}
                                         index={index}
                                         onMathSelect={onMathSelect}
-                                        areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                     />
                                 </Col>
@@ -472,21 +469,11 @@ interface MathSelectorProps {
     mathGroupTypeIndex?: number | null
     index: number
     onMathSelect: (index: number, value: any) => any // TODO
-    areEventPropertiesNumericalAvailable?: boolean
     style?: React.CSSProperties
 }
 
-function MathSelector({
-    math,
-    mathGroupTypeIndex,
-    index,
-    onMathSelect,
-    areEventPropertiesNumericalAvailable,
-    style,
-}: MathSelectorProps): JSX.Element {
-    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
-        areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
-    }`
+function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: MathSelectorProps): JSX.Element {
+    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.`
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
     const math_entries = eventMathEntries
@@ -502,9 +489,8 @@ function MathSelector({
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
                 {math_entries.map(([key, { name, description, onProperty }]) => {
-                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
                     return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>
+                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
                             <Tooltip
                                 title={
                                     onProperty ? (
@@ -539,9 +525,8 @@ function MathSelector({
             </Select.OptGroup>
             <Select.OptGroup key="property aggregates" label="Property aggregation">
                 {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
-                    const disabled = onProperty && !areEventPropertiesNumericalAvailable
                     return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>
+                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
                             <Tooltip
                                 title={
                                     onProperty ? (
