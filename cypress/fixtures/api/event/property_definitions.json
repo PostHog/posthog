@@ -9,7 +9,6 @@
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": null,
-            "property_type_format": null,
             "is_event_property": null
         },
         {
@@ -18,7 +17,6 @@
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": "DateTime",
-            "property_type_format": "unix_timestamp",
             "is_event_property": null
         }
     ]
