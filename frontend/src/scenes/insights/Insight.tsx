@@ -154,7 +154,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                             maxLength={400} // Sync with Insight model
                             data-attr="insight-description"
                             compactButtons
-                            paywall
+                            isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                         />
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                             <ObjectTags
