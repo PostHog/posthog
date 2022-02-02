@@ -40,13 +40,14 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                                             fullWidth
                                             type={
                                                 dashboard.restriction_level ===
-                                                DashboardRestrictionLevel.InherentViewAndEdit
+                                                DashboardRestrictionLevel.EveryoneInProjectCanEdit
                                                     ? 'highlighted'
                                                     : 'stealth'
                                             }
                                             onClick={() =>
                                                 triggerDashboardUpdate({
-                                                    restriction_level: DashboardRestrictionLevel.InherentViewAndEdit,
+                                                    restriction_level:
+                                                        DashboardRestrictionLevel.EveryoneInProjectCanEdit,
                                                 })
                                             }
                                         >
@@ -56,14 +57,14 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                                             fullWidth
                                             type={
                                                 dashboard.restriction_level ===
-                                                DashboardRestrictionLevel.InherentViewButExplicitEdit
+                                                DashboardRestrictionLevel.OnlyCollaboratorsCanEdit
                                                     ? 'highlighted'
                                                     : 'stealth'
                                             }
                                             onClick={() =>
                                                 triggerDashboardUpdate({
                                                     restriction_level:
-                                                        DashboardRestrictionLevel.InherentViewButExplicitEdit,
+                                                        DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
                                                 })
                                             }
                                         >
@@ -79,7 +80,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                                 border: '1px solid var(--border)',
                             }}
                         >
-                            {dashboard.restriction_level === DashboardRestrictionLevel.InherentViewButExplicitEdit
+                            {dashboard.restriction_level === DashboardRestrictionLevel.OnlyCollaboratorsCanEdit
                                 ? 'Only those invited to this dashboard can edit'
                                 : 'Everyone in the project can view'}
                         </LemonButtonWithPopup>

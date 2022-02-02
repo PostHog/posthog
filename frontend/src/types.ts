@@ -685,9 +685,16 @@ export interface InsightModel {
     next?: string
 }
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
-    InherentViewAndEdit = 21,
-    InherentViewButExplicitEdit = 37,
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -704,7 +711,7 @@ export interface DashboardType {
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
-    effective_privilege_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean

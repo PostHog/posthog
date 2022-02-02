@@ -168,7 +168,7 @@ class DashboardSerializer(serializers.ModelSerializer):
                 item.save()
         return InsightSerializer(items, many=True, context=self.context).data
 
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
         return dashboard.get_effective_privilege_level(self.context["request"].user)
 
     def validate(self, data):
@@ -199,7 +199,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset().order_by("name")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        queryset = queryset.prefetch_related(
+        queryset = queryset.select_related("team__organization").prefetch_related(
             Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"),)
         )
         return queryset

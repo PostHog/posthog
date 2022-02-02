@@ -60,13 +60,13 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT},
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertDictContainsSubset(
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT}, response_data
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}, response_data
         )
 
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_admin(self):
@@ -77,13 +77,13 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT},
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertDictContainsSubset(
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT}, response_data
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}, response_data
         )
 
     def test_cannot_set_dashboard_to_restrict_editing_as_other_user_who_is_project_member(self):
@@ -95,7 +95,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT},
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
         )
         response_data = response.json()
 
@@ -116,13 +116,13 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT},
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertDictContainsSubset(
-            {"restriction_level": Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT}, response_data
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}, response_data
         )
 
     def test_can_edit_restricted_dashboard_as_creator_who_is_project_member(self):
@@ -133,7 +133,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             team=self.team,
             name="Edit-restricted dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(
@@ -153,7 +153,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             team=self.team,
             name="Edit-restricted dashboard",
             created_by=creator,
-            restriction_level=Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(
@@ -178,7 +178,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             team=self.team,
             name="Edit-restricted dashboard",
             created_by=creator,
-            restriction_level=Dashboard.RestrictionLevel.INHERENT_VIEW_BUT_EXPLICIT_EDIT,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(
