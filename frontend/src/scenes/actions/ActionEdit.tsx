@@ -92,6 +92,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             setAction({ ...action, description })
                             setEdited(!!description)
                         }}
+                        persistEditMode={!id}
+                        autoFocus={!!id}
                         data-attr="action-description"
                         compactButtons
                         maxLength={600} // No limit on backend model, but enforce shortish description
@@ -107,8 +109,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     saveAction()
                 }}
             >
-                <div className="input-set">
-                    {id && (
+                {id && (
+                    <div className="input-set">
                         <div>
                             <span className="text-muted mb-05">
                                 {actionCountLoading && <LoadingOutlined />}
@@ -120,8 +122,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 )}
                             </span>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div className="match-group-section" style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>

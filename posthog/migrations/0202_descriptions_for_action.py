@@ -10,5 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="action", name="description", field=models.TextField(blank=True, null=True),),
+        migrations.AddField(model_name="action", name="description", field=models.TextField(blank=True),),
     ]

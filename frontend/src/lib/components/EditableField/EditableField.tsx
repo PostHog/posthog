@@ -17,6 +17,7 @@ interface EditableFieldProps {
     placeholder?: string
     minLength?: number
     maxLength?: number
+    autoFocus?: boolean
     multiline?: boolean
     compactButtons?: boolean
     /** Whether this field should be shown or hidden (gated). */
@@ -36,6 +37,7 @@ export function EditableField({
     placeholder,
     minLength,
     maxLength,
+    autoFocus = true,
     multiline = false,
     compactButtons = false,
     isGated = false,
@@ -44,7 +46,7 @@ export function EditableField({
     'data-attr': dataAttr,
     saveButtonText = 'Save',
 }: EditableFieldProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(persistEditMode)
+    const [isEditing, setIsEditing] = useState(!isGated && persistEditMode)
     const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
@@ -83,7 +85,7 @@ export function EditableField({
             className={clsx(
                 'EditableField',
                 multiline && 'EditableField--multiline',
-                (persistEditMode || isEditing) && 'EditableField--editing',
+                isEditing && 'EditableField--editing',
                 className
             )}
             data-attr={dataAttr}
@@ -111,7 +113,7 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                 />
                             ) : (
                                 <AutosizeInput
@@ -125,7 +127,7 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                     className="EditableField__autosize"
                                     injectStyles={false}
                                 />
