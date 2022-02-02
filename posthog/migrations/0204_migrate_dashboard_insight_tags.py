@@ -32,7 +32,7 @@ def reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0202_global_tags_setup"),
+        ("posthog", "0203_global_tags_setup"),
     ]
 
     operations = [migrations.RunPython(forwards, reverse)]

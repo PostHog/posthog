@@ -7,25 +7,26 @@ import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
-import { useValues } from 'kea'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
 
 interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
     onChange?: (value: string) => void
-    onSave: (value: string) => void
+    onSave?: (value: string) => void
     placeholder?: string
     minLength?: number
     maxLength?: number
+    autoFocus?: boolean
     multiline?: boolean
     compactButtons?: boolean
-    /** Whether this field should be gated based on AvailableFeature.DASHBOARD_COLLABORATION. */
-    paywall?: boolean
+    /** Whether this field should be shown or hidden (gated). */
+    isGated?: boolean
+    /** Whether the editable field should always be in edit mode. Hides state changing buttons and doesn't call onSave anywhere */
+    persistEditMode?: boolean
     className?: string
     'data-attr'?: string
+    saveButtonText?: string
 }
 
 export function EditableField({
@@ -36,14 +37,15 @@ export function EditableField({
     placeholder,
     minLength,
     maxLength,
+    autoFocus = true,
     multiline = false,
     compactButtons = false,
-    paywall = false,
+    isGated = false,
+    persistEditMode = false,
     className,
     'data-attr': dataAttr,
+    saveButtonText = 'Save',
 }: EditableFieldProps): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-
     const [isEditing, setIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
 
@@ -51,7 +53,6 @@ export function EditableField({
         setTentativeValue(value)
     }, [value])
 
-    const isGated = paywall && !hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
     const isSaveable = !minLength || tentativeValue.length >= minLength
 
     const cancel = (): void => {
@@ -64,8 +65,10 @@ export function EditableField({
         setIsEditing(false)
     }
 
+    const realIsEditing = !isGated && (persistEditMode || isEditing)
+
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
-        if (isEditing) {
+        if (!persistEditMode && realIsEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
                 save() // Save on Enter press
@@ -84,7 +87,7 @@ export function EditableField({
             className={clsx(
                 'EditableField',
                 multiline && 'EditableField--multiline',
-                isEditing && 'EditableField--editing',
+                realIsEditing && 'EditableField--editing',
                 className
             )}
             data-attr={dataAttr}
@@ -98,7 +101,7 @@ export function EditableField({
                 }
             >
                 <div className="EditableField--highlight">
-                    {isEditing ? (
+                    {realIsEditing ? (
                         <>
                             {multiline ? (
                                 <TextareaAutosize
@@ -112,7 +115,7 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                 />
                             ) : (
                                 <AutosizeInput
@@ -126,27 +129,35 @@ export function EditableField({
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
-                                    autoFocus
+                                    autoFocus={autoFocus}
                                     className="EditableField__autosize"
                                     injectStyles={false}
                                 />
                             )}
-                            <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                title={
-                                    !minLength
-                                        ? 'Save'
-                                        : `Save (at least ${pluralize(minLength, 'character', 'characters')} required)`
-                                }
-                                compact
-                                disabled={!isSaveable}
-                                onClick={save}
-                                type="primary"
-                            >
-                                Save
-                            </LemonButton>
+                            {!persistEditMode && (
+                                <>
+                                    <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        title={
+                                            !minLength
+                                                ? 'Save'
+                                                : `Save (at least ${pluralize(
+                                                      minLength,
+                                                      'character',
+                                                      'characters'
+                                                  )} required)`
+                                        }
+                                        compact
+                                        disabled={!isSaveable}
+                                        onClick={save}
+                                        type="primary"
+                                    >
+                                        {saveButtonText}
+                                    </LemonButton>
+                                </>
+                            )}
                         </>
                     ) : (
                         <>

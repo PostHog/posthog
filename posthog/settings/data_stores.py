@@ -92,6 +92,9 @@ CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_c
 
 CLICKHOUSE_STABLE_HOST = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 
+# This disables using external schemas like protobuf for clickhouse kafka engine
+CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = get_from_env("CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS", False, type_cast=str_to_bool)
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:

@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0201_remove_property_type_format_constraint"),
+        ("posthog", "0202_descriptions_for_action"),
     ]
 
     operations = [

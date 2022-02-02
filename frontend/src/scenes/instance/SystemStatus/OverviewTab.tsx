@@ -34,6 +34,10 @@ function RenderValue(metricRow: MetricRow): JSX.Element | string {
         return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
     }
 
+    if (typeof value === 'number') {
+        return value.toLocaleString('en-US')
+    }
+
     if (value === null || value === undefined || value === '') {
         return <Tag>Unknown</Tag>
     }

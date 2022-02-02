@@ -30,6 +30,7 @@ OperatorType = Literal[
     "lt",
     "is_set",
     "is_not_set",
+    "is_date_exact",
     "is_date_after",
     "is_date_before",
 ]

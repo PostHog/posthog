@@ -1,6 +1,5 @@
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Type, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
@@ -20,7 +19,6 @@ from rest_hooks.signals import raw_hook_event
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
-from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
@@ -40,7 +38,6 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
-from posthog.models.cohort import Cohort
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -48,7 +45,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries import base, retention, stickiness, trends
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
-from .person import PersonSerializer, get_person_name, paginated_result
+from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin
 
 
@@ -88,15 +85,16 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         fields = [
             "id",
             "name",
+            "description",
             "tags",
             "post_to_slack",
             "slack_message_format",
             "steps",
             "created_at",
+            "created_by",
             "deleted",
             "is_calculating",
             "last_calculated_at",
-            "created_by",
             "team_id",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
@@ -175,13 +173,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
 
-def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
-    queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-
-    queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-    return queryset.filter(team_id=team_id).order_by("-id")
-
-
 class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
@@ -193,12 +184,16 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        return get_actions(queryset, self.request.GET.dict(), self.team_id)
+
+        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
+        queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+        return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
