@@ -847,7 +847,7 @@ export function ExperimentPreview({
     }
 
     const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
-    const showEndDate = !experiment?.end_date && currentDuration >= 0 && funnelEntrants && funnelSampleSize
+    const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
     return (
         <Row className="experiment-preview-row">
@@ -1016,16 +1016,19 @@ export function ExperimentPreview({
                                 <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
                             </Col>
                         )}
-                        {experimentInsightType === InsightType.FUNNELS && showEndDate && (
-                            <Col className="ml">
-                                <div className="card-secondary mt">Expected end date</div>
-                                <span>
-                                    {expectedEndDate.isAfter(dayjs())
-                                        ? expectedEndDate.format('D MMM YYYY')
-                                        : dayjs().format('D MMM YYYY')}
-                                </span>
-                            </Col>
-                        )}
+                        {experimentId !== 'new' &&
+                            !editingExistingExperiment &&
+                            experimentInsightType === InsightType.FUNNELS &&
+                            showEndDate && (
+                                <Col className="ml">
+                                    <div className="card-secondary mt">Expected end date</div>
+                                    <span>
+                                        {expectedEndDate.isAfter(dayjs())
+                                            ? expectedEndDate.format('D MMM YYYY')
+                                            : dayjs().format('D MMM YYYY')}
+                                    </span>
+                                </Col>
+                            )}
                     </Row>
                 </Row>
                 {experimentId !== 'new' && !editingExistingExperiment && (
