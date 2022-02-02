@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Col, Row, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -32,9 +32,8 @@ import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -141,8 +140,6 @@ export function ActionFilterRow({
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -379,14 +376,31 @@ export function ActionFilterRow({
                                                 maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})`,
                                             }}
                                         >
-                                            <MathPropertySelector
-                                                name={name}
-                                                math={math}
-                                                mathProperty={mathProperty}
-                                                index={index}
-                                                onMathPropertySelect={onMathPropertySelect}
-                                                horizontalUI={horizontalUI}
-                                                exposeWebPerformance={!!featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE]}
+                                            <TaxonomicPopup
+                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                value={mathProperty}
+                                                onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
+                                                renderValue={(currentValue) => (
+                                                    <Tooltip
+                                                        title={
+                                                            <>
+                                                                Calculate{' '}
+                                                                {mathDefinitions[math ?? ''].name.toLowerCase()} from
+                                                                property <code>{currentValue}</code>. Note that only{' '}
+                                                                {name} occurences where <code>{currentValue}</code> is
+                                                                set with a numeric value will be taken into account.
+                                                            </>
+                                                        }
+                                                        placement="right"
+                                                    >
+                                                        <div /* <div> needed for <Tooltip /> to work */>
+                                                            <PropertyKeyInfo
+                                                                value={currentValue}
+                                                                disablePopover={true}
+                                                            />
+                                                        </div>
+                                                    </Tooltip>
+                                                )}
                                             />
                                         </Col>
                                     </>
@@ -549,66 +563,6 @@ function MathSelector({
             </Select.OptGroup>
         </Select>
     )
-}
-
-interface MathPropertySelectorProps {
-    name: string | null
-    math?: string
-    mathProperty?: string
-    index: number
-    onMathPropertySelect: (index: number, value: string) => any
-    horizontalUI?: boolean
-    exposeWebPerformance?: boolean
-}
-
-function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
-    const [visible, setVisible] = useState(false)
-
-    return (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                    value={props.mathProperty}
-                    onChange={(_, payload) => {
-                        props.onMathPropertySelect(props.index, String(payload))
-                        setVisible(false)
-                    }}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}
-                    eventNames={[]}
-                />
-            }
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-        >
-            {({ setRef }) => (
-                <Button
-                    data-attr="math-property-select"
-                    onClick={() => setVisible(true)}
-                    ref={setRef}
-                    style={{
-                        maxWidth: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                    }}
-                >
-                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {props.mathProperty ? <PropertyKeyInfo value={props.mathProperty} /> : <em>Please Select</em>}
-                    </span>
-                    <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-            )}
-        </Popup>
-    )
-    // TODO: put this back
-    // title={
-    //     <>
-    //         Calculate {mathDefinitions[props.math ?? ''].name.toLowerCase()} from property{' '}
-    //         <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
-    //         is set with a numeric value will be taken into account.
-    //     </>
-    // }
 }
 
 const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
