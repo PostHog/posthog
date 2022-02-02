@@ -1001,14 +1001,27 @@ export function ExperimentPreview({
                     </Row>
                     <Row>
                         {experimentId !== 'new' && !editingExistingExperiment && (
-                            <Col className="mr">
-                                <div className="card-secondary mt">Start date</div>
-                                {experiment?.start_date ? (
-                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </Col>
+                            <>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experiment?.start_date ? (
+                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
+                                </Col>
+                                {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
+                                    <Col className="mr">
+                                        <div className="card-secondary mt">Expected end date</div>
+                                        <span>
+                                            {expectedEndDate.isAfter(dayjs())
+                                                ? expectedEndDate.format('D MMM YYYY')
+                                                : dayjs().format('D MMM YYYY')}
+                                        </span>
+                                    </Col>
+                                ) : null}
+                                {/* The null prevents showing a 0 while loading */}
+                            </>
                         )}
                         {experiment?.end_date && (
                             <Col className="ml">
@@ -1016,19 +1029,6 @@ export function ExperimentPreview({
                                 <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
                             </Col>
                         )}
-                        {experimentId !== 'new' &&
-                            !editingExistingExperiment &&
-                            experimentInsightType === InsightType.FUNNELS &&
-                            showEndDate && (
-                                <Col className="ml">
-                                    <div className="card-secondary mt">Expected end date</div>
-                                    <span>
-                                        {expectedEndDate.isAfter(dayjs())
-                                            ? expectedEndDate.format('D MMM YYYY')
-                                            : dayjs().format('D MMM YYYY')}
-                                    </span>
-                                </Col>
-                            )}
                     </Row>
                 </Row>
                 {experimentId !== 'new' && !editingExistingExperiment && (
