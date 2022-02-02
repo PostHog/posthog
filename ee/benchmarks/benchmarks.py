@@ -637,5 +637,5 @@ class QuerySuite:
                 name="benchmarking cohort",
                 groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
             )
-            cohort.calculate_people_ch()
+            cohort.calculate_people()
         self.cohort = cohort

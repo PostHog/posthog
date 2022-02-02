@@ -60,7 +60,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
                 )
                 cohort.calculate_people()
-                cohort.calculate_people_ch()
+                cohort.calculate_people()
 
                 self.create_snapshot("user", "1", self.base_time)
                 self.create_event("user", self.base_time, team=self.team)

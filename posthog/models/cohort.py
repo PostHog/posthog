@@ -103,38 +103,10 @@ class Cohort(models.Model):
         }
 
     def calculate_people(self):
-        if self.is_static:
-            return
-        try:
-            persons_query = self._clickhouse_persons_query()
-
-            try:
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-            except EmptyResultSet:
-                query = DELETE_QUERY.format(cohort_id=self.pk)
-                params = {}
-            else:
-                query = f"""
-                    {DELETE_QUERY};
-                    {UPDATE_QUERY};
-                """.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
-                )
-
-            cursor = connection.cursor()
-            with transaction.atomic():
-                cursor.execute(query, params)
-        except Exception as err:
-            raise err
-
-    def calculate_people_ch(self):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import calculate_cohort
 
         try:
             recalculate_cohortpeople(self)
-            calculate_cohort(self.id)
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
         except Exception as e:

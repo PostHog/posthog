@@ -7,20 +7,21 @@ from django.db.models import Count, QuerySet
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from posthog.api import action
-from posthog.api.person import get_funnel_actor_class
+from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
@@ -36,6 +37,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_insight_filter,
 )
+from posthog.utils import format_query_params_absolute_url
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -155,13 +157,27 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.annotate(count=Count("people"))
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
-class CohortActorsViewSet(StructuredViewSetMixin):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-
     @action(detail=True, methods=["GET"])
-    def actors(self):
-        print(self.context["cohort_id"])
-        pass
+    def actors(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        cohort = self.get_object()
+        offset = request.GET.get("offset", 0)
+        limit = request.GET.get("limit", 100)
+        raw_result = sync_execute(
+            "SELECT * FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s LIMIT %(limit)s OFFSET %(offset)s",
+            {"team_id": cohort.team_id, "cohort_id": cohort.pk, "offset": offset, "limit": limit + 1},
+        )
+        actor_ids = []
+        if raw_result and len(raw_result):
+            actor_ids = [row[0] for row in raw_result]
+
+        actors, serialized_actors = get_people(cohort.team_id, actor_ids)
+
+        _should_paginate = should_paginate(actors, limit)
+        next_url = format_query_params_absolute_url(request, offset + limit, limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit, limit) if offset - limit > 0 else None
+
+        return Response({"next": next_url, "previous": previous_url, "results": serialized_actors})
+
 
 class LegacyCohortViewSet(CohortViewSet):
     legacy_team_compatibility = True
