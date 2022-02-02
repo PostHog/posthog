@@ -45,6 +45,7 @@ export enum TaxonomicFilterGroupType {
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
+    NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
     Screens = 'screens',

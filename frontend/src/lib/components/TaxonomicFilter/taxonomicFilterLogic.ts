@@ -140,6 +140,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
                 },
                 {
+                    name: 'Numerical event properties',
+                    searchPlaceholder: 'numerical event properties',
+                    type: TaxonomicFilterGroupType.NumericalEventProperties,
+                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                        is_numerical: true,
+                        ...(featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}),
+                    }).url,
+                    getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
+                    getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
+                },
+                {
                     name: 'Person properties',
                     searchPlaceholder: 'person properties',
                     type: TaxonomicFilterGroupType.PersonProperties,
