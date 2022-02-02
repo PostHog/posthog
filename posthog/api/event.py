@@ -178,7 +178,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             },
             long_date_from,
         )
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, has_person_id_joined=False)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            team_id=team.pk, filters=filter.properties, has_person_id_joined=False
+        )
 
         if request.GET.get("action_id"):
             try:

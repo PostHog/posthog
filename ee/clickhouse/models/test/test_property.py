@@ -361,6 +361,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
         query, params = parse_prop_clauses(
+            team_id=self.team.pk,
             filters=filter.properties,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
