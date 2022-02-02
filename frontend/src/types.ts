@@ -227,7 +227,6 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
-    description?: string
 }
 
 /** Sync with plugin-server/src/types.ts */
