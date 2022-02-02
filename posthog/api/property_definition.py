@@ -76,7 +76,7 @@ class PropertyDefinitionViewSet(
             name_filter = ""
 
         if self.request.GET.get("is_numerical", None) == "true":
-            numerical_filter = "AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp') AND (name NOT ilike %(numeric_wildcard_filter)s OR name = %(allowed_numeric_dollar_property)s)"
+            numerical_filter = "AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')"
         else:
             numerical_filter = ""
 
@@ -98,8 +98,6 @@ class PropertyDefinitionViewSet(
             "names": names,
             "team_id": self.team_id,
             "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
-            "numeric_wildcard_filter": "$%",
-            "allowed_numeric_dollar_property": "$performance_page_loaded",
             **search_kwargs,
         }
 
