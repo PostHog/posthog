@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ee", "0006_event_definition_verification"),
+        ("ee", "0007_dashboard_permissions"),
     ]
 
     operations = [

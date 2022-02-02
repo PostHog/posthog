@@ -268,7 +268,8 @@
          "posthog_dashboard"."is_shared",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode"
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
   FROM "posthog_dashboard"
   WHERE "posthog_dashboard"."id" IN (1,
                                      2,

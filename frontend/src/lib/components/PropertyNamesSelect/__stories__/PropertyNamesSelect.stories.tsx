@@ -1,5 +1,5 @@
 import { Provider } from 'kea'
-import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/mocks'
 import React from 'react'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'

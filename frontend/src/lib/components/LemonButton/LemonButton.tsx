@@ -13,12 +13,12 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     active?: boolean
     /** URL to link to. */
     to?: string
-    /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
-    popup?: LemonButtonPopup
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
     sideIcon?: React.ReactElement | null
+    /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
+    popup?: LemonButtonPopup
 }
 
 /** Styled button. */
