@@ -1,4 +1,5 @@
 import glob
+import math
 import subprocess
 import tempfile
 import uuid
@@ -111,7 +112,12 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     total_events_ingested_last_day = sync_execute(
         "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / total_events_ingested_last_day
+    if dead_letter_queue_events_last_day == 0:
+        dead_letter_queue_ingestion_ratio = 0
+    elif total_events_ingested_last_day == 0:
+        dead_letter_queue_ingestion_ratio = math.inf
+    else:
+        dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / total_events_ingested_last_day
 
     # if the dead letter queue has as many events today as ingestion, issue an alert
     dead_letter_queue_events_high = (
