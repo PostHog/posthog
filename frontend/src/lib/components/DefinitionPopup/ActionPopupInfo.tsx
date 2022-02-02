@@ -8,7 +8,6 @@ import {
 } from 'lib/components/DefinitionPopup/utils'
 
 export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element | null {
-    console.log('ACTION', entity)
     if (!entity) {
         return null
     }

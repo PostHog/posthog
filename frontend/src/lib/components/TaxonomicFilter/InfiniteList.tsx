@@ -203,7 +203,6 @@ const selectedItemHasPopup = (
     isTaxonomyEnabled: boolean = false
 ): boolean => {
     if (isTaxonomyEnabled) {
-        console.log('group', group)
         return (
             // NB: also update "renderItemPopup" above
             !!item &&
@@ -256,8 +255,6 @@ export function InfiniteList(): JSX.Element {
         !!user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY) &&
         !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
-    console.log('hasTaxonomyFeatures', user?.organization?.available_features)
-
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
@@ -308,15 +305,6 @@ export function InfiniteList(): JSX.Element {
             </div>
         )
     }
-
-    console.log(
-        'LIST GROUP',
-        listGroupType,
-        isActiveTab,
-        selectedItemInView,
-        selectedItemHasPopup(selectedItem, listGroupType, group, showNewTaxonomyFeature),
-        tooltipDesiredState(referenceElement) !== ListTooltip.None
-    )
 
     return (
         <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`}>

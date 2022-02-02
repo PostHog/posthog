@@ -351,8 +351,6 @@ export const renderItemPopup = (
         return
     }
 
-    console.log('ITEM', item)
-
     const icon = group.getIcon?.(item)
     return (
         <BindLogic
