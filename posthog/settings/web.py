@@ -154,7 +154,9 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
 ]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
@@ -172,7 +174,6 @@ USE_L10N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
@@ -183,11 +184,19 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
+
+def add_recorder_js_headers(headers, path, url):
+    if url.endswith("/recorder.js"):
+        headers["Cache-Control"] = "max-age=31536000, public"
+
+
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if not IS_CDN_CONFIGURED:
     # Don't serve static files from app on posthog cloud
     INSTALLED_APPS.append("django.contrib.staticfiles")
+
+# end static
 
 AUTH_USER_MODEL = "posthog.User"
 
@@ -220,9 +229,3 @@ SPECTACULAR_SETTINGS = {
 EXCEPTIONS_HOG = {
     "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
 }
-
-
-def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js"):
-        headers["Cache-Control"] = "max-age=31536000, public"
-
