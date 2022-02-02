@@ -378,6 +378,7 @@ export function ActionFilterRow({
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
+                                                dataAttr="math-property-select"
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
