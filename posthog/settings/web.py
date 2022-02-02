@@ -193,7 +193,7 @@ def add_recorder_js_headers(headers, path, url):
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 if not IS_CDN_CONFIGURED:
-    # Don't serve static files from app on posthog cloud
+    # Don't serve static files if CDN is configured
     INSTALLED_APPS.append("django.contrib.staticfiles")
 
 # end static
