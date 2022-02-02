@@ -434,7 +434,15 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.api.cohort import CohortSerializer
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id, deleted=False)
+        raw_result = sync_execute(
+            "SELECT cohort_id FROM cohortpeople WHERE team_id = %(team_id)s AND person_id = %(person_id)s",
+            {"team_id": person.team_id, "person_id": person.uuid},
+        )
+        cohort_ids = []
+        if raw_result and len(raw_result):
+            cohort_ids = [row[0] for row in raw_result]
+
+        cohorts = Cohort.objects.filter(id__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 

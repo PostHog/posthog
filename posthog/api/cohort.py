@@ -20,6 +20,7 @@ from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
+from ee.clickhouse.sql.cohort import GET_COHORT_SIZE_SQL
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -42,7 +43,6 @@ from posthog.utils import format_query_params_absolute_url
 
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    count = serializers.SerializerMethodField()
     earliest_timestamp_func = get_earliest_timestamp
 
     class Meta:
@@ -138,11 +138,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return cohort
 
-    def get_count(self, action: Cohort) -> Optional[int]:
-        if hasattr(action, "count"):
-            return action.count  # type: ignore
-        return None
-
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
@@ -154,7 +149,6 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.annotate(count=Count("people"))
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
     @action(detail=True, methods=["GET"])

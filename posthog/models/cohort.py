@@ -81,6 +81,7 @@ class Cohort(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
+    count: models.IntegerField = models.IntegerField(default=0)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
 
