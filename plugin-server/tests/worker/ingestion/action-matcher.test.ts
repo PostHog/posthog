@@ -41,7 +41,7 @@ describe('ActionMatcher', () => {
             id: actionCounter++,
             team_id: 2,
             name: 'Test',
-            description: null,
+            description: '',
             created_at: new Date().toISOString(),
             created_by_id: commonUserId,
             deleted: false,
