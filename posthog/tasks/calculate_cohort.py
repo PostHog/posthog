@@ -53,4 +53,3 @@ def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any
     cohort = Cohort.objects.get(pk=cohort_id)
 
     insert_cohort_actors_into_ch(cohort, filter_data)
-    insert_cohort_people_into_pg(cohort=cohort)

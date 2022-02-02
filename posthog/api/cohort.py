@@ -20,7 +20,7 @@ from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
-from ee.clickhouse.sql.cohort import GET_COHORT_SIZE_SQL, GET_COHORT_SQL
+from ee.clickhouse.sql.cohort import GET_COHORT_SIZE_SQL, GET_COHORT_SQL, GET_STATIC_COHORT_SQL
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -156,8 +156,10 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         cohort = self.get_object()
         offset = request.GET.get("offset", 0)
         limit = request.GET.get("limit", 100)
+
+        SQL = GET_STATIC_COHORT_SQL if cohort.is_static else GET_COHORT_SQL
         raw_result = sync_execute(
-            GET_COHORT_SQL, {"team_id": cohort.team_id, "cohort_id": cohort.pk, "offset": offset, "limit": limit + 1},
+            SQL, {"team_id": cohort.team_id, "cohort_id": cohort.pk, "offset": offset, "limit": limit + 1},
         )
         actor_ids = []
         if raw_result and len(raw_result):
@@ -174,16 +176,6 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class LegacyCohortViewSet(CohortViewSet):
     legacy_team_compatibility = True
-
-
-def insert_cohort_people_into_pg(cohort: Cohort):
-    ids = sync_execute(
-        "SELECT person_id FROM {} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s".format(
-            PERSON_STATIC_COHORT_TABLE
-        ),
-        {"cohort_id": cohort.pk, "team_id": cohort.team.pk},
-    )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
 
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
