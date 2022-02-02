@@ -46,7 +46,7 @@ export function EditableField({
     'data-attr': dataAttr,
     saveButtonText = 'Save',
 }: EditableFieldProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(!isGated && persistEditMode)
+    const [isEditing, setIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
@@ -65,8 +65,10 @@ export function EditableField({
         setIsEditing(false)
     }
 
+    const realIsEditing = !isGated && (persistEditMode || isEditing)
+
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
-        if (!persistEditMode && isEditing) {
+        if (!persistEditMode && realIsEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
                 save() // Save on Enter press
@@ -85,7 +87,7 @@ export function EditableField({
             className={clsx(
                 'EditableField',
                 multiline && 'EditableField--multiline',
-                isEditing && 'EditableField--editing',
+                realIsEditing && 'EditableField--editing',
                 className
             )}
             data-attr={dataAttr}
@@ -99,7 +101,7 @@ export function EditableField({
                 }
             >
                 <div className="EditableField--highlight">
-                    {isEditing ? (
+                    {realIsEditing ? (
                         <>
                             {multiline ? (
                                 <TextareaAutosize
