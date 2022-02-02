@@ -13,9 +13,9 @@ class TestStaticUrls(APIBaseTest):
         self.assertEqual(response.streaming_content, b"")
 
     def test_cdn_static_site_serving(self):
-        with self.settings(CDN_URL="https://cdn.example.com", JS_URL="https://cdn.example.com"):
+        cdn_domain = "https://cdn.example.com"
+        with self.settings(CDN_URL=cdn_domain, IS_CDN_CONFIGURED=True, JS_URL=cdn_domain):
             response = self.client.get("/static/array.js", follow=True)
-            self.assertEqual(settings.IS_CDN_CONFIGURED, True)
             contains_staticfiles = "django.contrib.staticfiles" in settings.INSTALLED_APPS
             self.assertEqual(contains_staticfiles, False)
             self.assertRedirects(response, "https://cdn.example.com/static/array.js")
