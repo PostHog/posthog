@@ -4,7 +4,7 @@ import os
 from datetime import timedelta
 from typing import List
 
-from posthog.settings.base_variables import IS_CDN_CONFIGURED, BASE_DIR, DEBUG, TEST
+from posthog.settings.base_variables import BASE_DIR, DEBUG, IS_CDN_CONFIGURED, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -154,9 +154,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day

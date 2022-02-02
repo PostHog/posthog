@@ -6,8 +6,8 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
-from django.views.generic import RedirectView
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import RedirectView
 
 from posthog.api import (
     api_not_found,
@@ -46,10 +46,7 @@ def authorize_and_redirect(request):
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={
-            "domain": urlparse(url).hostname,
-            "redirect_url": url,
-        },
+        context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
 
 
