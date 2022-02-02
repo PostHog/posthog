@@ -35,7 +35,7 @@ export function CohortEntityFilterBox({
             },
             dataSource: actions.map((action: ActionType) => ({
                 key: EntityTypes.ACTIONS + action.id,
-                name: action.name,
+                name: action.name || '',
                 volume: action.count,
                 id: action.id,
                 action,
