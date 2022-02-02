@@ -109,7 +109,8 @@ const renderItemContents = ({
 
     const isUnusedEventProperty =
         featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
-        listGroupType === TaxonomicFilterGroupType.EventProperties &&
+        (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
+            listGroupType === TaxonomicFilterGroupType.EventProperties) &&
         (item as PropertyDefinition).is_event_property !== null &&
         !(item as PropertyDefinition).is_event_property
 

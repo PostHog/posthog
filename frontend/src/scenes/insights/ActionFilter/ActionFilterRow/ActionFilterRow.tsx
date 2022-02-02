@@ -380,6 +380,7 @@ export function ActionFilterRow({
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
+                                                eventNames={name ? [name] : []}
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
