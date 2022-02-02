@@ -241,7 +241,7 @@ describe('eventsTableLogic', () => {
                 it('fetch events sets after to one year ago when there are no events', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
-                    })
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -256,7 +256,7 @@ describe('eventsTableLogic', () => {
                             isNext: false,
                         })
                         logic.actions.fetchEvents()
-                    })
+                    }).toDispatchActions(['fetchEventsSuccess', 'fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -266,7 +266,7 @@ describe('eventsTableLogic', () => {
                 it('triggers fetch events on set properties', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([])
-                    }).toDispatchActions(['fetchEvents'])
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -277,7 +277,7 @@ describe('eventsTableLogic', () => {
                     const eventName = randomString()
                     await expectLogic(logic, () => {
                         logic.actions.setEventFilter(eventName)
-                    }).toDispatchActions(['fetchEvents'])
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + `&event=${eventName}` + orderByTimestamp + afterOneYearAgo
@@ -339,7 +339,10 @@ describe('eventsTableLogic', () => {
                             isNext: false,
                         })
                         logic.actions.fetchNextEvents()
-                    }).toDispatchActions([logic.actionCreators.fetchEvents({ before: secondEvent.timestamp })])
+                    }).toDispatchActions([
+                        logic.actionCreators.fetchEvents({ before: secondEvent.timestamp }),
+                        'fetchEventsSuccess',
+                    ])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
