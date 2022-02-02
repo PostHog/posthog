@@ -202,7 +202,6 @@ UNION ALL
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
 """
 
-# TODO are these templated correctly now?
 EVENT_JOIN_PERSON_SQL = """
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
 """

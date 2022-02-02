@@ -97,7 +97,6 @@ FROM (
 GROUP BY day_start, breakdown_value
 """
 
-# TODO are these templated correctly now?
 BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (

@@ -273,7 +273,6 @@ GROUP BY distinct_id
 HAVING argMax(is_deleted, version) = 0
 """
 
-# TODO are these templated correctly now?
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
