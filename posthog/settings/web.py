@@ -183,6 +183,12 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
+WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
+
+if not IS_CDN_CONFIGURED:
+    # Don't serve static files from app on posthog cloud
+    INSTALLED_APPS.append("django.contrib.staticfiles")
+
 AUTH_USER_MODEL = "posthog.User"
 
 LOGIN_URL = "/login"
@@ -220,11 +226,3 @@ def add_recorder_js_headers(headers, path, url):
     if url.endswith("/recorder.js"):
         headers["Cache-Control"] = "max-age=31536000, public"
 
-
-# Static file configs
-
-WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
-
-if not IS_CDN_CONFIGURED:
-    # Don't serve static files from app on posthog cloud
-    INSTALLED_APPS.append("django.contrib.staticfiles")
