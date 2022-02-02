@@ -1,5 +1,4 @@
-from ctypes import cast
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -51,7 +50,7 @@ class Dashboard(models.Model):
         from ee.models import DashboardPrivilege
 
         try:
-            return self.privileges.values_list("level", flat=True).get(user=user)
+            return cast(Dashboard.RestrictionLevel, self.privileges.values_list("level", flat=True).get(user=user))
         except DashboardPrivilege.DoesNotExist:
             # Returning the lowest access level if there's no explicit privilege for this user
             return self.RestrictionLevel.INHERENT_VIEW_AND_EDIT
