@@ -474,10 +474,9 @@ interface MathSelectorProps {
 }
 
 function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: MathSelectorProps): JSX.Element {
-    const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.`
+    const numericalNotice =
+        'This can only be used on properties that have at least one number type occurence in your events.'
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
-
-    const math_entries = eventMathEntries
 
     return (
         <Select
@@ -489,7 +488,7 @@ function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: 
             dropdownStyle={{ maxWidth: 320 }}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {math_entries.map(([key, { name, description, onProperty }]) => {
+                {eventMathEntries.map(([key, { name, description, onProperty }]) => {
                     return (
                         <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
                             <Tooltip
