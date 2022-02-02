@@ -1,7 +1,7 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
@@ -60,18 +60,19 @@ describe('eventsTableLogic', () => {
         return { results: [], count: 0 }
     })
 
-    describe('when polling is disabled', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    describe('polling is disabled', () => {
+        beforeEach(() => {
+            router.actions.push(urls.person('1'))
+            logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.person('1'),
                 disableActions: true,
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.person('1'))
-            },
+            })
+            logic.mount()
         })
 
         it('can disable polling for events', async () => {
@@ -86,31 +87,14 @@ describe('eventsTableLogic', () => {
         })
     })
 
-    describe('when loaded on a different page', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
-                key: 'test-key',
-                sceneUrl: urls.person('1'),
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.person('1'))
-            },
-        })
-    })
-
     describe('when loaded on events page', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.events())
-            },
+            })
+            logic.mount()
         })
 
         it('sets a key', () => {
