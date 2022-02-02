@@ -195,7 +195,7 @@ def get_event_ingestion_context(
     error_response = None
 
     try:
-        ingestion_context = get_team_ingest_context_from_token(token)
+        ingestion_context = get_ingestion_context_for_token(token)
     except Exception as e:
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")
@@ -259,7 +259,7 @@ def get_event_ingestion_context(
     return ingestion_context, db_error, error_response
 
 
-def get_team_ingest_context_from_token(token: str) -> Optional[EventIngestionContext]:
+def get_ingestion_context_for_token(token: str) -> Optional[EventIngestionContext]:
     """
     Based on a token associated with a Team, retrieve the context that is
     required to ingest events.
