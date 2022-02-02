@@ -3,7 +3,6 @@ set -e
 
 # Seed a secret
 export POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
-export DEPLOYMENT="hobby"
 
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
