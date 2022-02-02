@@ -402,9 +402,9 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block Popup"
+                          className="popper-tooltip click-outside-block Popup Popup__box"
                           ref={setPopperElement}
-                          style={styles.popper}
+                          style={{ ...styles.popper, transition: 'none' }}
                           {...attributes.popper}
                       >
                           {selectedItem && group

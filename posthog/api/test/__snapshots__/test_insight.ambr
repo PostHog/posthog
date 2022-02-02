@@ -118,7 +118,9 @@
          "posthog_dashboarditem"."updated_at",
          "posthog_dashboarditem"."tags",
          "posthog_dashboarditem"."favorited",
-         "posthog_dashboarditem"."refresh_attempt"
+         "posthog_dashboarditem"."refresh_attempt",
+         "posthog_dashboarditem"."last_modified_at",
+         "posthog_dashboarditem"."last_modified_by_id"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."team_id" = 2
          AND NOT "posthog_dashboarditem"."deleted")

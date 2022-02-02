@@ -18,7 +18,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     tag?: T
     status?: 'success' | 'warning' | 'danger' | 'highlighted'
     /** Extended content, e.g. a description, to show in the lower button area. */
-    extendedContent?: string
+    extendedContent?: React.ReactNode
     /** Tooltip to display on hover. */
     tooltip?: any
     /** Whether the row should take up the parent's full width. */

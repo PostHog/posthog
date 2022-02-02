@@ -22,6 +22,7 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    SecondaryExperimentMetric,
     AvailableFeature,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
@@ -29,6 +30,7 @@ import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
@@ -37,7 +39,7 @@ export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
-        actions: [experimentsLogic, ['updateExperiment', 'addToExperiments']],
+        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
@@ -55,10 +57,12 @@ export const experimentLogic = kea<experimentLogicType>({
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
+        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -125,7 +129,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
                     const newRolloutPercentages = percentageDistribution(
-                        state?.parameters?.feature_flag_variants.length - 1
+                        (state?.parameters?.feature_flag_variants || []).length - 1
                     )
                     const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
@@ -138,6 +142,13 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setSecondaryMetrics: (state, { secondaryMetrics }) => {
+                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, secondary_metrics: metrics },
                     }
                 },
                 resetNewExperiment: () => ({
@@ -188,7 +199,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
-                        actions.updateExperiment(response)
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -202,6 +213,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
+                    response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
             } catch (error) {
                 errorToast(
@@ -280,9 +292,10 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
-                // loading a draft mode experiment
+                // loading a draft experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
@@ -291,24 +304,25 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const startDate = dayjs()
+            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const endDate = dayjs()
+            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            const duration = endDate.diff(values.experimentData?.start_date, 'second')
+            values.experimentData &&
+                eventUsageLogic.actions.reportExperimentCompleted(
+                    values.experimentData,
+                    endDate,
+                    duration,
+                    values.areResultsSignificant
+                )
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ archived: true })
+            values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new' || values.editingExistingExperiment) {
@@ -318,7 +332,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -330,6 +344,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         return response as Experiment
                     }
                     return null
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    return response
                 },
             },
         ],
@@ -388,6 +410,14 @@ export const experimentLogic = kea<experimentLogicType>({
                     experimentData?.parameters?.feature_flag_variants ||
                     []
                 )
+            },
+        ],
+        parsedSecondaryMetrics: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
+                const secondaryMetrics: Partial<FilterType>[] =
+                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics.map((metric) => ({ filters: metric }))
             },
         ],
         minimumDetectableChange: [
@@ -455,6 +485,35 @@ export const experimentLogic = kea<experimentLogicType>({
                     return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
                         1
                     )
+                },
+        ],
+        getIndexForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string, insightType: InsightType): number => {
+                    if (!experimentResults) {
+                        return 0
+                    }
+                    let index = -1
+
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults?.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults?.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+
+                    if (index === -1) {
+                        return 0
+                    }
+
+                    return index
                 },
         ],
         countDataForVariant: [

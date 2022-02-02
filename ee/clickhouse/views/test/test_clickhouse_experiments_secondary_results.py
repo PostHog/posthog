@@ -5,7 +5,6 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.test.base import APIBaseTest
 
 
 class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedTest):
@@ -112,36 +111,25 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 "start_date": "2020-01-01T00:00",
                 "end_date": "2020-01-06T00:00",
                 "feature_flag_key": ff_key,
-                "parameters": {
-                    "secondary_metrics": [
-                        {
-                            "insight": "trends",
-                            "events": [{"order": 0, "id": "$pageview"}],
-                            "properties": [
-                                {
-                                    "key": "$geoip_country_name",
-                                    "type": "person",
-                                    "value": ["france"],
-                                    "operator": "exact",
-                                }
-                                # properties superceded by FF breakdown
-                            ],
-                        },
-                        {
-                            "insight": "funnels",
-                            "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
-                            "properties": [
-                                {
-                                    "key": "$geoip_country_name",
-                                    "type": "person",
-                                    "value": ["france"],
-                                    "operator": "exact",
-                                }
-                                # properties superceded by FF breakdown
-                            ],
-                        },
-                    ]
-                },
+                "parameters": {},
+                "secondary_metrics": [
+                    {
+                        "insight": "trends",
+                        "events": [{"order": 0, "id": "$pageview"}],
+                        "properties": [
+                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                            # properties superceded by FF breakdown
+                        ],
+                    },
+                    {
+                        "insight": "funnels",
+                        "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
+                        "properties": [
+                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                            # properties superceded by FF breakdown
+                        ],
+                    },
+                ],
                 # target metric insignificant since we're testing secondaries right now
                 "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}],},
             },
@@ -289,14 +277,14 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         {"key": "test_2", "name": "Test Variant 2", "rollout_percentage": 25},
                         {"key": "test", "name": "Test Variant 3", "rollout_percentage": 25},
                     ],
-                    "secondary_metrics": [
-                        {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}],},
-                        {
-                            "insight": "funnels",
-                            "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                        },
-                    ],
                 },
+                "secondary_metrics": [
+                    {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}],},
+                    {
+                        "insight": "funnels",
+                        "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    },
+                ],
                 # target metric insignificant since we're testing secondaries right now
                 "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}],},
             },

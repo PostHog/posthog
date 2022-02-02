@@ -100,6 +100,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
+    HEALTHCHECK_MAX_STALE_SECONDS: number
     CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
@@ -800,8 +801,6 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -817,7 +816,6 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {

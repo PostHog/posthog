@@ -13,12 +13,15 @@
         flex-direction: row;
         align-items: center;
         width: fit-content;
+        max-width: calc(100% + 0.5rem);
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
         white-space: pre-wrap;
+        overflow: auto;
     }
     &--editing .EditableField--highlight {
         align-items: flex-end;
+        width: auto;
         max-width: calc(100% + 0.5rem);
         outline: 1px solid var(--border);
         border-radius: var(--radius);

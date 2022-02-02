@@ -1,69 +1,12 @@
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Union
-from uuid import uuid4
 
 from django.test.client import Client
 from rest_framework import status
 
-from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.api.test.test_insight import insight_test_factory
-from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-class ClickhouseTestInsights(
-    ClickhouseTestMixin, LicensedTestMixin, insight_test_factory(_create_event, _create_person)  # type: ignore
-):
-    # Extra permissioning tests here
-    def test_insight_trends_allowed_if_project_open_and_org_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = False
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_insight_trends_forbidden_if_project_private_and_org_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertDictEqual(self.permission_denied_response("You don't have access to the project."), response.json())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_insight_trends_allowed_if_project_private_and_org_member_and_project_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):

@@ -70,7 +70,7 @@ def log_event_to_dead_letter_queue(
 ):
     data = event.copy()
 
-    data["failure_timestamp"] = datetime.now().isoformat()
+    data["error_timestamp"] = datetime.now().isoformat()
     data["error_location"] = error_location
     data["error"] = error_message
     data["elements_chain"] = ""
