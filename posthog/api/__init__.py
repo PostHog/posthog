@@ -104,7 +104,7 @@ from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGrou
 from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
-from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
+from posthog.api.cohort import CohortActorsViewSet, CohortViewSet, LegacyCohortViewSet
 from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
 from posthog.api.insight import InsightViewSet
@@ -123,7 +123,10 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
 projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
-projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+cohort_router = projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+
+cohort_router.register(r"actors", CohortActorsViewSet, "cohort_actors", ["team_id", "cohort_id"])
+
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])

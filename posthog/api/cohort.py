@@ -19,6 +19,7 @@ from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickin
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
+from posthog.api import action
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -154,6 +155,13 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.annotate(count=Count("people"))
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
+class CohortActorsViewSet(StructuredViewSetMixin):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+
+    @action(detail=True, methods=["GET"])
+    def actors(self):
+        print(self.context["cohort_id"])
+        pass
 
 class LegacyCohortViewSet(CohortViewSet):
     legacy_team_compatibility = True
