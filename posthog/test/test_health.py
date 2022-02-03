@@ -57,6 +57,11 @@ def test_readyz_doesnt_require_db(client: Client):
 
 @pytest.mark.django_db
 def test_livez_returns_200_and_doesnt_require_db(client: Client):
+    """
+    We want the livez endpoint to involve no database queries at all, it should
+    just be an indicator that the python process hasn't hung.
+    """
+
     with simulate_db_error():
         resp = get_livez(client)
 

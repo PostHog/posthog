@@ -1,3 +1,20 @@
+"""
+Defines the healthcheck endpoints to be used by kubernetes deployments to
+ensure:
+
+ 1. new deployments are not marked as ready if they are misconfigured, e.g.
+    kafka settings are wrong
+ 2. pods that are dead for some reason are taken out of service
+ 3. traffic is not routed to pods that we know we fail to handle it
+    successfully. e.g. if an events pod can't reach kafka, we know that it
+    shouldn't get http traffic routed to it.
+
+I have specifically not reused the statuses in instance_status. These health
+endpoints are for a very specific purpose and we want to make sure that any
+changes to them are deliberate, as otherwise we could introduce unexpected
+behaviour in deployments.
+"""
+
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
@@ -40,9 +57,9 @@ def readyz(request):
 
     checks = {
         "http": True,
-        "db": health_db(),
-        "db_migrations_uptodate": health_migrations(),
-        "kafka_connected": health_kafka(),
+        "db": is_db_connected(),
+        "db_migrations_uptodate": are_db_migrations_uptodate(),
+        "kafka_connected": is_kafka_connected(),
     }
 
     status = 200 if all(check_status for name, check_status in checks.items() if name not in exclude) else 503
@@ -50,7 +67,7 @@ def readyz(request):
     return JsonResponse(checks, status=status)
 
 
-def health_kafka() -> bool:
+def is_kafka_connected() -> bool:
     """
     Check that we can reach Kafka,
 
@@ -62,7 +79,7 @@ def health_kafka() -> bool:
     return KafkaProducer().bootstrap_connected()
 
 
-def health_db() -> bool:
+def is_db_connected() -> bool:
     """
     Check we can reach the main db and perform a super simple query
 
@@ -77,7 +94,7 @@ def health_db() -> bool:
     return True
 
 
-def health_migrations() -> bool:
+def are_db_migrations_uptodate() -> bool:
     """
     Check that all migrations that the running version of the code knows about
     have been applied.
