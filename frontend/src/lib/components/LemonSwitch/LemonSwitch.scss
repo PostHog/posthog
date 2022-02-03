@@ -91,14 +91,16 @@
 .LemonSwitch__wrapper {
     display: flex;
     align-items: center;
-    &--outlined-block {
-        justify-content: space-between;
+    &--primary {
         font-weight: 600;
         flex-grow: 1;
         height: 3rem;
         padding: 0 1rem;
         border: 1px solid var(--border);
         border-radius: var(--radius);
+        .LemonSwitch__label {
+            flex-grow: 1;
+        }
     }
 }
 
