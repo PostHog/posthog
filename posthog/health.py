@@ -9,6 +9,10 @@ ensure:
     successfully. e.g. if an events pod can't reach kafka, we know that it
     shouldn't get http traffic routed to it.
 
+See
+https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+for generic k8s docs on healthchecks.
+
 I have specifically not reused the statuses in instance_status. These health
 endpoints are for a very specific purpose and we want to make sure that any
 changes to them are deliberate, as otherwise we could introduce unexpected
