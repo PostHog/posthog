@@ -55,6 +55,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExperimentWorkflow } from './ExperimentWorkflow'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -1071,6 +1072,8 @@ export function ExperimentPreview({
             </Col>
             {experimentId !== 'new' && !editingExistingExperiment && (
                 <Col span={12} className="pl">
+                    {!experiment?.start_date && <ExperimentWorkflow />}
+
                     <div className="card-secondary mb">Feature flag usage and implementation</div>
                     <Row justify="space-between" className="mb-05">
                         <div>
