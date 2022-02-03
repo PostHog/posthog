@@ -55,8 +55,6 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { Link } from 'lib/components/Link'
-import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -611,28 +609,6 @@ export function Experiment_(): JSX.Element {
                                     <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
                                         Dismiss
                                     </Button>
-                                </Col>
-                            </Row>
-                        )}
-                        {experimentData.end_date && (
-                            <Row align="middle" className="feature-flag-mods">
-                                <Col>
-                                    Since the Experiment has ended,{' '}
-                                    <Link
-                                        to={
-                                            experimentData.feature_flag
-                                                ? urls.featureFlag(experimentData.feature_flag)
-                                                : undefined
-                                        }
-                                    >
-                                        you can now modify the feature flag distribution.
-                                    </Link>
-                                    <Tooltip
-                                        placement="right"
-                                        title="We recommend removing the feature flag from your code completely, instead of relying on this distribution."
-                                    >
-                                        <InfoCircleOutlined style={{ padding: '4px 2px' }} />
-                                    </Tooltip>
                                 </Col>
                             </Row>
                         )}
