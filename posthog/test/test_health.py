@@ -30,15 +30,14 @@ def test_readyz_endpoint_fails_for_kafka_connection_issues(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_supports_excluding_checks(client: Client):
-    with simulate_db_error():
-        resp = get_readyz(client, exclude=["db", "db_migrations_uptodate"])
+    with simulate_postgres_error():
+        resp = get_readyz(client, exclude=["postgres", "postgres_migrations_uptodate"])
 
     assert resp.status_code == 200
     data = resp.json()
-    assert {check: status for check, status in data.items() if check in {"db", "db_migrations_uptodate"}} == {
-        "db": False,
-        "db_migrations_uptodate": False,
-    }
+    assert {
+        check: status for check, status in data.items() if check in {"postgres", "postgres_migrations_uptodate"}
+    } == {"postgres": False, "postgres_migrations_uptodate": False,}
 
 
 @pytest.mark.django_db
@@ -47,12 +46,12 @@ def test_readyz_doesnt_require_db(client: Client):
     We don't want to fail to construct a response if we can't reach the
     database.
     """
-    with simulate_db_error():
+    with simulate_postgres_error():
         resp = get_readyz(client)
 
     assert resp.status_code == 503
     data = resp.json()
-    assert data["db"] == False
+    assert data["postgres"] == False
 
 
 @pytest.mark.django_db
@@ -62,7 +61,7 @@ def test_livez_returns_200_and_doesnt_require_db(client: Client):
     just be an indicator that the python process hasn't hung.
     """
 
-    with simulate_db_error():
+    with simulate_postgres_error():
         resp = get_livez(client)
 
     assert resp.status_code == 200
@@ -79,7 +78,7 @@ def get_livez(client: Client) -> HttpResponse:
 
 
 @contextmanager
-def simulate_db_error():
+def simulate_postgres_error():
     """
     Causes any call to cursor to raise the upper most Error in djangos db
     Exception hierachy

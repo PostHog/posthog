@@ -61,8 +61,8 @@ def readyz(request):
 
     checks = {
         "http": True,
-        "db": is_db_connected(),
-        "db_migrations_uptodate": are_db_migrations_uptodate(),
+        "postgres": is_postgres_connected(),
+        "postgres_migrations_uptodate": are_postgres_migrations_uptodate(),
         "kafka_connected": is_kafka_connected(),
     }
 
@@ -83,9 +83,9 @@ def is_kafka_connected() -> bool:
     return KafkaProducer().bootstrap_connected()
 
 
-def is_db_connected() -> bool:
+def is_postgres_connected() -> bool:
     """
-    Check we can reach the main db and perform a super simple query
+    Check we can reach the main postgres and perform a super simple query
 
     Returns `True` if so, `False` otherwise
     """
@@ -98,7 +98,7 @@ def is_db_connected() -> bool:
     return True
 
 
-def are_db_migrations_uptodate() -> bool:
+def are_postgres_migrations_uptodate() -> bool:
     """
     Check that all migrations that the running version of the code knows about
     have been applied.
