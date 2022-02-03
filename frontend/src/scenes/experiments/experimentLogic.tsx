@@ -475,7 +475,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
 
                 if (experimentResults?.significance_code === SignificanceCode.NotEnoughExposure) {
-                    return 'This is because we need atleast 100 people per variant to declare significance'
+                    return 'This is because we need atleast 100 people per variant to declare significance.'
                 }
 
                 return ''
