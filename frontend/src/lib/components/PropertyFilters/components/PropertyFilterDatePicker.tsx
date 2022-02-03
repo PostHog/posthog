@@ -85,10 +85,8 @@ export function PropertyFilterDatePicker({
             renderExtraFooter={() => (
                 <>
                     <LemonSwitch
-                        label={<>Include time?</>}
+                        label="Include time?"
                         checked={includeTimeInFilter}
-                        loading={false}
-                        data-attr="share-dashboard-switch"
                         onChange={(active) => {
                             setIncludeTimeInFilter(active)
                         }}

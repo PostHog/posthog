@@ -57,6 +57,10 @@
     margin-left: 2rem;
 }
 
+.LemonRow--outlined {
+    border: 1px solid var(--border);
+}
+
 .LemonRow--full-width {
     width: 100%;
     padding-left: 0.5rem;
