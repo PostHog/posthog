@@ -35,6 +35,8 @@ export interface TaxonomicFilterGroup {
     valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
+    getPopupHeader: (instance: any) => string
+    getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
 }
 
