@@ -6,9 +6,7 @@ export interface LemonSelectOption {
     icon?: React.ReactElement
 }
 
-export interface LemonSelectOptions {
-    [value: string | number]: LemonSelectOption
-}
+export type LemonSelectOptions = Record<string | number, LemonSelectOption>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'onChange'> {
