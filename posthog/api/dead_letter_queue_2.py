@@ -7,8 +7,46 @@ from rest_framework import exceptions, mixins, permissions, serializers, viewset
 from posthog.permissions import IsStaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
 
+from datetime import datetime
+from typing import Any, Dict, List, Union
+
+from rest_framework import viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from ee.clickhouse.client import sync_execute
+from posthog.permissions import IsStaffUser
+from posthog.version import VERSION
 
 
+
+DEAD_LETTER_QUEUE_METRICS = {
+    "dlq_size": {
+        "metric": "Total events in dead letter queue", 
+        "fn": lambda : { "value": get_dead_letter_queue_size() },
+  },
+    "dlq_events_last_24h": {
+        "metric": "Events sent to dead letter queue in the last 24h",
+        "fn": lambda : { "value": get_dead_letter_queue_events_last_24h() },
+    },
+    "dlq_last_error_timestamp": {
+        "metric": "Last error timestamp",
+        "fn": lambda : { "value": get_dlq_last_error_timestamp() },
+    },
+    "dlq_events_per_error": {
+        "metric": "Total events per error",
+        "fn": lambda : {"columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error()},
+    },
+    "dlq_events_per_location": {
+        "metric": "Total events per error location",
+        "fn": lambda : {"columns": ["Error location", "Total events"], "rows": get_dead_letter_queue_events_per_location() },
+    },
+    "dlq_events_per_day": {
+        "metric": "Total events per day",
+        "fn": lambda : {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day() },
+    }
+,
+}
 
 class DeadLetterQueueMetric(object):
     key: str = ""
@@ -21,51 +59,42 @@ class DeadLetterQueueMetric(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_dlq_metric(key: str, setting_config: Dict = {}) -> DeadLetterQueueMetric:
+def get_dlq_metric(key: str) -> DeadLetterQueueMetric:
 
-    
+    metric_context =  DEAD_LETTER_QUEUE_METRICS[key]
+    metric = metric_context | metric_context["fn"]()
 
-    return InstanceSetting(
+
+    return DeadLetterQueueMetric(
         key=key,
-        value=getattr(config, key),
-        value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
-        description=setting_config[1],
-        editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
+        metric=metric.get("metric"),
+        value=metric.get("value"),
+        subrows=metric.get("subrows")
     )
 
 
-class InstanceSettingsSerializer(serializers.Serializer):
-    key = serializers.CharField()
-    value = serializers.JSONField()  # value can be bool, int, or str
-    value_type = serializers.CharField(read_only=True)
-    description = serializers.CharField(read_only=True)
-    editable = serializers.BooleanField()
-
-    def update(self, instance: InstanceSetting, validated_data: Dict[str, Any]) -> InstanceSetting:
-        if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
-            raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
-        if validated_data["value"]:
-            target_type = settings.CONFIG[instance.key][2]
-            new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
-            setattr(config, instance.key, new_value_parsed)
-            instance.value = new_value_parsed
-        return instance
+class DeadLetterQueueMetricsSerializer(serializers.Serializer):
+    key = serializers.CharField(read_only=True)
+    metric = serializers.CharField(read_only=True)
+    value = serializers.JSONField(read_only=True)  
+    subrows = serializers.JSONField(read_only=True)  
 
 
-class InstanceSettingsViewset(
-    viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin
+class DeadLetterQueueMetricsViewSet(
+    viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin
 ):
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
-    serializer_class = InstanceSettingsSerializer
+    serializer_class = DeadLetterQueueMetricsSerializer
     lookup_field = "key"
 
     def get_queryset(self):
         output = []
-        for key, setting_config in settings.CONFIG.items():
-            output.append(get_instance_setting(key, setting_config))
+        for key, metric_context in settings.CONFIG.items():
+            metric = { "key": key } | metric_context | metric_context["fn"]()
+            output.append(metric)
         return output
 
-    def get_object(self) -> InstanceSetting:
+    def get_object(self) -> DeadLetterQueueMetric:
         # Perform the lookup filtering.
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         key = self.kwargs[lookup_url_kwarg]
@@ -73,4 +102,36 @@ class InstanceSettingsViewset(
         if key not in settings.CONFIG:
             raise exceptions.NotFound(f"Setting with key `{key}` does not exist.")
 
-        return get_instance_setting(key)
+        return get_dlq_metric(key)
+
+def get_dead_letter_queue_size() -> int:
+    return sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]
+
+
+def get_dlq_last_error_timestamp() -> int:
+    ts = sync_execute("SELECT max(error_timestamp) FROM events_dead_letter_queue")[0][0]
+
+    last_error_timestamp = "-" if ts.timestamp() == datetime(1970, 1, 1).timestamp() else ts
+    return last_error_timestamp
+
+
+def get_dead_letter_queue_events_last_24h() -> int:
+    return sync_execute(
+        "SELECT count(*) FROM events_dead_letter_queue WHERE error_timestamp >= (NOW() - INTERVAL 1 DAY)"
+    )[0][0]
+
+
+def get_dead_letter_queue_events_per_error() -> List[Union[str, int]]:
+    return sync_execute("SELECT error, count(*) AS c FROM events_dead_letter_queue GROUP BY error ORDER BY c DESC")
+
+
+def get_dead_letter_queue_events_per_location() -> List[Union[str, int]]:
+    return sync_execute(
+        "SELECT error_location, count(*) AS c FROM events_dead_letter_queue GROUP BY error_location ORDER BY c DESC"
+    )
+
+
+def get_dead_letter_queue_events_per_day() -> List[Union[str, int]]:
+    return sync_execute(
+        "SELECT toDate(error_timestamp) as day, count(*) AS c FROM events_dead_letter_queue GROUP BY day"
+    )

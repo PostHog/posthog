@@ -1,3 +1,12 @@
+import re
+from typing import Any, Dict, List, Optional, Union
+
+from constance import config, settings
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+
+from posthog.permissions import IsStaffUser
+from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+
 from datetime import datetime
 from typing import Any, Dict, List, Union
 
@@ -10,69 +19,97 @@ from posthog.permissions import IsStaffUser
 from posthog.version import VERSION
 
 
-class DeadLetterQueueViewSet(viewsets.ViewSet):
-    """
-    Show info about instance for this user
-    """
 
-    permission_classes = [IsStaffUser]
+DEAD_LETTER_QUEUE_METRICS = {
+    "dlq_size": {
+        "metric": "Total events in dead letter queue", 
+        "fn": lambda : { "value": get_dead_letter_queue_size() },
+  },
+    "dlq_events_last_24h": {
+        "metric": "Events sent to dead letter queue in the last 24h",
+        "fn": lambda : { "value": get_dead_letter_queue_events_last_24h() },
+    },
+    "dlq_last_error_timestamp": {
+        "metric": "Last error timestamp",
+        "fn": lambda : { "value": get_dlq_last_error_timestamp() },
+    },
+    "dlq_events_per_error": {
+        "metric": "Total events per error",
+        "fn": lambda : {"columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error()},
+    },
+    "dlq_events_per_location": {
+        "metric": "Total events per error location",
+        "fn": lambda : {"columns": ["Error location", "Total events"], "rows": get_dead_letter_queue_events_per_location() },
+    },
+    "dlq_events_per_day": {
+        "metric": "Total events per day",
+        "fn": lambda : {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day() },
+    }
+,
+}
 
-    def list(self, request: Request) -> Response:
+class DeadLetterQueueMetric(object):
+    key: str = ""
+    metric: str = ""
+    value: Union[str, bool, int, None] = None
+    subrows: Optional[List[Any]] = None
 
-        metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
+    def __init__(self, **kwargs):
+        for field in ("key", "value", "value", "subrows"):
+            setattr(self, field, kwargs.get(field, None))
 
-        metrics.append(
-            {"key": "dlq_size", "metric": "Total events in dead letter queue", "value": get_dead_letter_queue_size()}
-        )
 
-        metrics.append(
-            {
-                "key": "dlq_events_last_24h",
-                "metric": "Events sent to dead letter queue in the last 24h",
-                "value": get_dead_letter_queue_events_last_24h(),
-            }
-        )
+def get_dlq_metric(key: str) -> DeadLetterQueueMetric:
 
-        metrics.append(
-            {
-                "key": "dlq_last_error_timestamp",
-                "metric": "Last error timestamp",
-                "value": get_dlq_last_error_timestamp(),
-            }
-        )
+    metric_context =  DEAD_LETTER_QUEUE_METRICS[key]
+    metric = metric_context | metric_context["fn"]()
 
-        metrics.append(
-            {
-                "key": "dlq_events_per_error",
-                "metric": "Total events per error",
-                "value": "",
-                "subrows": {"columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error()},
-            }
-        )
 
-        metrics.append(
-            {
-                "key": "dlq_events_per_location",
-                "metric": "Total events per error location",
-                "value": "",
-                "subrows": {
-                    "columns": ["Error location", "Total events"],
-                    "rows": get_dead_letter_queue_events_per_location(),
-                },
-            }
-        )
+    return DeadLetterQueueMetric(
+        key=key,
+        metric=metric.get("metric"),
+        value=metric.get("value"),
+        subrows=metric.get("subrows")
+    )
 
-        metrics.append(
-            {
-                "key": "dlq_events_per_day",
-                "metric": "Total events per day",
-                "value": "",
-                "subrows": {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day()},
-            }
-        )
 
-        return Response({"results": {"overview": metrics}})
+class DeadLetterQueueMetricsSerializer(serializers.Serializer):
+    key = serializers.CharField(read_only=True)
+    metric = serializers.CharField(read_only=True)
+    value = serializers.JSONField(read_only=True)  
+    subrows = serializers.JSONField(read_only=True)  
 
+
+class DeadLetterQueueViewSet(
+    viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin
+):
+    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
+    serializer_class = DeadLetterQueueMetricsSerializer
+    lookup_field = "key"
+
+    def get_queryset(self):
+        output = []
+        for key, metric_context in DEAD_LETTER_QUEUE_METRICS.items():
+            print('#########')
+            print('#########')
+            print('#########')
+            print('#########')
+            print(metric_context, metric_context["fn"]())
+            fn = metric_context["fn"]
+            del  metric_context["fn"]
+            metric = { "key": key } | metric_context | fn()
+            output.append(metric)
+        return output
+
+    def get_object(self) -> DeadLetterQueueMetric:
+        # Perform the lookup filtering.
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        key = self.kwargs[lookup_url_kwarg]
+
+        if key not in settings.CONFIG:
+            raise exceptions.NotFound(f"Setting with key `{key}` does not exist.")
+
+        return get_dlq_metric(key)
 
 def get_dead_letter_queue_size() -> int:
     return sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]
