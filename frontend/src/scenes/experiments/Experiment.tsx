@@ -82,6 +82,7 @@ export function Experiment_(): JSX.Element {
         conversionRateForVariant,
         getIndexForVariant,
         significanceTooltip,
+        areTrendResultsConfusing,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -714,6 +715,16 @@ export function Experiment_(): JSX.Element {
                                                                 </Row>
                                                             </b>{' '}
                                                             {countDataForVariant(variant)}{' '}
+                                                            {areTrendResultsConfusing && idx === 0 && (
+                                                                <Tooltip
+                                                                    placement="right"
+                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so it's relative count is higher."
+                                                                >
+                                                                    <InfoCircleOutlined
+                                                                        style={{ padding: '4px 2px' }}
+                                                                    />
+                                                                </Tooltip>
+                                                            )}
                                                         </Row>
                                                     ) : (
                                                         <Row>

@@ -530,6 +530,8 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string, insightType: InsightType): number => {
+                    // Ensures we get the right index from results, so the UI can
+                    // display the right colour for the variant
                     if (!experimentResults) {
                         return 0
                     }
@@ -581,6 +583,28 @@ export const experimentLogic = kea<experimentLogicType>({
                         (key) => Math.abs(experimentResults.probability[key] - maxValue) < Number.EPSILON
                     )
                 }
+            },
+        ],
+        areTrendResultsConfusing: [
+            (s) => [s.experimentResults, s.highestProbabilityVariant],
+            (experimentResults, highestProbabilityVariant): boolean => {
+                // Results are confusing when the top variant has a lower
+                // absolute count than other variants. This happens because
+                // exposure is invisible to the user
+                if (!experimentResults) {
+                    return false
+                }
+                // find variant with highest count
+                const variantResults: TrendResult = (experimentResults?.insight as TrendResult[]).reduce(
+                    (bestVariant, currentVariant) =>
+                        currentVariant.count > bestVariant.count ? currentVariant : bestVariant,
+                    { count: 0, breakdown_value: '' } as TrendResult
+                )
+                if (!variantResults.count) {
+                    return false
+                }
+
+                return variantResults.breakdown_value !== highestProbabilityVariant
             },
         ],
     },
