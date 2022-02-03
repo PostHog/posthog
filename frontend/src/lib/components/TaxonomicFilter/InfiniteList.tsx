@@ -10,7 +10,7 @@ import {
     PropertyKeyInfo,
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
-import { getContext, useActions, useValues } from 'kea'
+import { Provider, useActions, useValues } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,7 +27,6 @@ import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { Provider } from 'react-redux'
 import { renderItemPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 
 enum ListTooltip {
@@ -343,7 +342,7 @@ export function InfiniteList(): JSX.Element {
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
-                      <Provider store={getContext().store}>
+                      <Provider>
                           <div
                               className="popper-tooltip click-outside-block Popup Popup__box"
                               ref={setPopperElement}
