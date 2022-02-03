@@ -1,6 +1,6 @@
 import React from 'react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface EventNameInterface {
@@ -10,7 +10,7 @@ interface EventNameInterface {
 
 export function EventName({ value, onChange }: EventNameInterface): JSX.Element {
     return (
-        <TaxonomicPopup
+        <TaxonomicStringPopup
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
             value={value}

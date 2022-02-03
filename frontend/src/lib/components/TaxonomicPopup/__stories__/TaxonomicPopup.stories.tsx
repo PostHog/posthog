@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { TaxonomicPopup } from '../TaxonomicPopup'
+import { TaxonomicPopup, TaxonomicStringPopup } from '../TaxonomicPopup'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,7 +11,7 @@ export default {
     title: 'PostHog/Components/TaxonomicPopup',
 }
 
-export const OneCategory = (): JSX.Element => {
+export const TaxonomicStringPopupOneCategory = (): JSX.Element => {
     const [value, setValue] = useState<string | undefined>('$browser')
 
     return (
@@ -22,7 +22,7 @@ export const OneCategory = (): JSX.Element => {
                 defaultFilterMocks()
             }}
         >
-            <TaxonomicPopup
+            <TaxonomicStringPopup
                 groupType={TaxonomicFilterGroupType.PersonProperties}
                 value={value}
                 onChange={setValue}
@@ -33,7 +33,7 @@ export const OneCategory = (): JSX.Element => {
 }
 
 export const MultipleCategories = (): JSX.Element => {
-    const [value, setValue] = useState<string | undefined>(undefined)
+    const [value, setValue] = useState<string | number | undefined>(undefined)
     const [group, setGroup] = useState(TaxonomicFilterGroupType.PersonProperties)
 
     return (
