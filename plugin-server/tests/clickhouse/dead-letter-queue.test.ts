@@ -83,6 +83,5 @@ describe('events dead letter queue', () => {
         expect(dlqEvent.error_location).toEqual('plugin_server_ingest_event')
         expect(dlqEvent.error).toEqual('ingestEvent failed. Error: database unavailable')
         expect(dlqEvent.properties).toEqual(JSON.stringify({ key: 'value' }))
-        expect(dlqEvent.event_uuid).toEqual(EVENT_UUID)
     })
 })
