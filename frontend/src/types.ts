@@ -13,7 +13,7 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -687,18 +687,6 @@ export interface InsightModel {
     next?: string
 }
 
-/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
-export enum DashboardRestrictionLevel {
-    EveryoneInProjectCanEdit = 21,
-    OnlyCollaboratorsCanEdit = 37,
-}
-
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
-}
-
 export interface DashboardType {
     id: number
     name: string
@@ -720,6 +708,15 @@ export interface DashboardType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
+
+export interface DashboardCollaboratorType {
+    id: string
+    dashboard_id: DashboardType['id']
+    user: UserBasicType
+    level: DashboardPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
 
 export interface OrganizationInviteType {
     id: string

@@ -27,7 +27,6 @@ class CanEditDashboard(BasePermission):
 class DashboardCollaboratorSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(read_only=True)
-    effective_level = serializers.SerializerMethodField()
 
     user_uuid = serializers.UUIDField(required=True, write_only=True)
 
@@ -41,12 +40,8 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             "added_at",
             "updated_at",
             "user_uuid",  # write_only (see above)
-            "effective_level",  # read_only (calculated)
         ]
-        read_only_fields = ["id", "dashboard_id", "user", "user", "effective_level"]
-
-    def get_effective_level(self, dashboard_privilege: DashboardPrivilege) -> Dashboard.PrivilegeLevel:
-        return dashboard_privilege.dashboard.get_effective_privilege_level(dashboard_privilege.user_id)
+        read_only_fields = ["id", "dashboard_id", "user", "user"]
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         dashboard = Dashboard.objects.get(id=self.context["dashboard_id"])
@@ -54,10 +49,8 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError("Cannot add collaborators to a dashboard on the lowest restriction level.")
         attrs = super().validate(attrs)
         level = attrs.get("level")
-        if level is not None and level <= Dashboard.PrivilegeLevel.CAN_VIEW:
-            raise serializers.ValidationError(
-                "View access is the base privilege level for a dashboard, so it can't be set explicitly."
-            )
+        if level is not None and level != Dashboard.PrivilegeLevel.CAN_EDIT:
+            raise serializers.ValidationError("Only edit access can be explicitly specified currently.")
         return attrs
 
     def create(self, validated_data):

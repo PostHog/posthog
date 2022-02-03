@@ -185,7 +185,22 @@
     cursor: pointer;
 }
 
-.ShareButton__overlay {
-    width: 26rem;
-    padding: 0.5rem;
+.CollaboratorRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+    margin-top: 0.5rem;
+    padding-left: 0.5rem;
+    &--owner {
+        padding-right: 2rem;
+    }
+}
+
+.CollaboratorRow__details {
+    display: flex;
+    align-items: center;
+    button {
+        margin-left: 0.5rem;
+    }
 }

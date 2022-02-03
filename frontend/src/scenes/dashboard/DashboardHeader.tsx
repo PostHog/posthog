@@ -180,10 +180,13 @@ export function DashboardHeader(): JSX.Element {
                 {dashboardMode === DashboardMode.Fullscreen && (
                     <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
                 )}
-                <ShareModal
-                    onCancel={() => setDashboardMode(null, DashboardEventSource.Browser)}
-                    visible={dashboardMode === DashboardMode.Sharing}
-                />
+                {dashboard && (
+                    <ShareModal
+                        onCancel={() => setDashboardMode(null, DashboardEventSource.Browser)}
+                        visible={dashboardMode === DashboardMode.Sharing}
+                        dashboardId={dashboard.id}
+                    />
+                )}
                 {dashboardsLoading ? (
                     <Loading />
                 ) : (

@@ -33,8 +33,10 @@ export function LemonSelect<O extends LemonSelectOptions>({
                         key={key}
                         icon={option.icon}
                         onClick={() => {
-                            onChange(key)
-                            setLocalValue(key)
+                            if (key !== localValue) {
+                                onChange(key)
+                                setLocalValue(key)
+                            }
                         }}
                         type={
                             /* Intentionally == instead of === because JS treats object number keys as strings, */
