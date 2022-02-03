@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import React from 'react'
+import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { errorToast } from 'lib/utils'
@@ -24,6 +24,7 @@ import {
     FunnelStep,
     SecondaryExperimentMetric,
     AvailableFeature,
+    SignificanceCode,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -440,6 +441,44 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults): boolean => {
                 return experimentResults?.significant || false
+            },
+        ],
+        significanceTooltip: [
+            (s) => [s.experimentResults],
+            (experimentResults): string | ReactElement => {
+                if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
+                    return (
+                        <div>
+                            This is because the expected loss in conversion is greater than 1%.{' '}
+                            <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                {' '}
+                                See our Experimentation docs for more information.{' '}
+                            </a>
+                        </div>
+                    )
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
+                    return (
+                        <div>
+                            This is because the p value is greater than 0.05.{' '}
+                            <a href="https://posthog.com/docs/user-guides/experimentation#trend-experiment-calculations">
+                                {' '}
+                                See our Experimentation docs for more information.{' '}
+                            </a>
+                        </div>
+                    )
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.LowWinProbability) {
+                    return 'This is because the win probability of all test variants combined is less than 90%.'
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.NotEnoughExposure) {
+                    return 'This is because we need atleast 100 people per variant to declare significance'
+                }
+
+                return ''
             },
         ],
         recommendedExposureForCountData: [

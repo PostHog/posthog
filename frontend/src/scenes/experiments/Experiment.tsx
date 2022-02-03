@@ -55,6 +55,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -79,6 +81,7 @@ export function Experiment_(): JSX.Element {
         experimentId,
         conversionRateForVariant,
         getIndexForVariant,
+        significanceTooltip,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -580,8 +583,10 @@ export function Experiment_(): JSX.Element {
                         {showWarning && experimentResults && areResultsSignificant && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>. You can end this experiment now
-                                    or let it run to completion.
+                                    Your results are <b>statistically significant</b>.{' '}
+                                    {experimentData.end_date
+                                        ? ''
+                                        : 'You can end this experiment now or let it run to completion.'}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
@@ -593,19 +598,40 @@ export function Experiment_(): JSX.Element {
                         {showWarning && experimentResults && !areResultsSignificant && (
                             <Row align="middle" className="not-significant-results">
                                 <Col span={19} style={{ color: '#f96132' }}>
-                                    Your results are <b>not statistically significant</b>. We don't recommend ending
-                                    this experiment yet.
-                                    <Tooltip
-                                        placement="right"
-                                        title="This can be because the number of people exposed to the experiment is less than 100, or the results are not statistically significant."
-                                    >
-                                        <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
-                                    </Tooltip>
+                                    Your results are <b>not statistically significant</b>.{' '}
+                                    {experimentData.end_date ? '' : "We don't recommend ending this experiment yet."}
+                                    {significanceTooltip && (
+                                        <Tooltip placement="right" title={significanceTooltip}>
+                                            <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
+                                        </Tooltip>
+                                    )}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
                                         Dismiss
                                     </Button>
+                                </Col>
+                            </Row>
+                        )}
+                        {experimentData.end_date && (
+                            <Row align="middle" className="feature-flag-mods">
+                                <Col>
+                                    Since the Experiment has ended,{' '}
+                                    <Link
+                                        to={
+                                            experimentData.feature_flag
+                                                ? urls.featureFlag(experimentData.feature_flag)
+                                                : undefined
+                                        }
+                                    >
+                                        you can now modify the feature flag distribution.
+                                    </Link>
+                                    <Tooltip
+                                        placement="right"
+                                        title="We recommend removing the feature flag from your code completely, instead of relying on this distribution."
+                                    >
+                                        <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                                    </Tooltip>
                                 </Col>
                             </Row>
                         )}
