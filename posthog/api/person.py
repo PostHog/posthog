@@ -330,13 +330,15 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         flattened = []
         if key:
             result = get_person_property_values_for_key(key, team, value)
-            for value in result:
+            for (value, count) in result:
                 try:
                     # Try loading as json for dicts or arrays
-                    flattened.append(json.loads(value[0]))
+                    flattened.append((json.loads(value), count))
                 except json.decoder.JSONDecodeError:
-                    flattened.append(value[0])
-        return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
+                    flattened.append((value, count))
+        return response.Response(
+            [{"name": convert_property_value(value), "count": count} for (value, count) in flatten(flattened)]
+        )
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
