@@ -337,7 +337,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append((value, count))
         return response.Response(
-            [{"name": convert_property_value(value), "count": count} for (value, count) in flatten(flattened)]
+            [{"name": convert_property_value(value), "count": count} for (value, count) in flattened]
         )
 
     @action(methods=["POST"], detail=True)
