@@ -20,7 +20,23 @@ export function DeadLetterQueue(): JSX.Element {
     const { setActiveTab } = useActions(deadLetterQueueLogic)
 
     if (!user?.is_staff) {
-        return <></>
+        return (
+            <PageHeader
+                title="Dead Letter Queue"
+                caption={
+                    <>
+                        <p>
+                            Only users with staff access can manage the dead letter queue. Please contact your instance
+                            admin.
+                        </p>
+                        <p>
+                            If you're an admin and don't have access, set <code>is_staff=true</code> for your user on
+                            the PostgreSQL <code>posthog_user</code> table.
+                        </p>
+                    </>
+                }
+            />
+        )
     }
 
     return (
