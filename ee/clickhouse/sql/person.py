@@ -387,9 +387,23 @@ COMMENT_DISTINCT_ID_COLUMN_SQL = (
 
 
 SELECT_PERSON_PROP_VALUES_SQL = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM person where JSONHas(properties, %(key)s) AND team_id = %(team_id)s LIMIT 10
+SELECT 
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+FROM 
+    person 
+WHERE 
+    team_id = %(team_id)s AND
+    JSONHas(properties, %(key)s) 
+LIMIT 10
 """
 
 SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM person where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s LIMIT 10
+SELECT 
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+FROM 
+    person 
+WHERE 
+    team_id = %(team_id)s AND 
+    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+LIMIT 10
 """
