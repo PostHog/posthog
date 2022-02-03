@@ -1,6 +1,6 @@
 """
-Defines the healthcheck endpoints to be used by kubernetes deployments to
-ensure:
+Defines the healthcheck endpoints to be used by process orchestration system 
+deployments to ensure:
 
  1. new deployments are not marked as ready if they are misconfigured, e.g.
     kafka settings are wrong
