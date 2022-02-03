@@ -120,8 +120,8 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
         user = cast(User, self.context["request"].user)
-        does_user_have_inherent_restriction_rights = instance.does_user_have_inherent_restriction_rights(user)
-        can_user_edit = does_user_have_inherent_restriction_rights or instance.can_user_edit(user)
+        does_user_have_inherent_restriction_rights = instance.does_user_have_inherent_restriction_rights(user.id)
+        can_user_edit = does_user_have_inherent_restriction_rights or instance.can_user_edit(user.id)
         if not can_user_edit:
             raise exceptions.PermissionDenied(
                 "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
