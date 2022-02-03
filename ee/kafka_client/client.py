@@ -2,6 +2,7 @@ import io
 import json
 from typing import Any, Callable, Dict, Optional
 
+import kafka.errors
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
 from kafka import KafkaConsumer as KC
@@ -74,6 +75,25 @@ class _KafkaProducer:
 
     def close(self):
         self.producer.flush()
+
+
+def can_connect():
+    """
+    This is intended to validate if we are able to connect to kafka, without
+    actually sending any messages. I'm not amazingly pleased with this as a
+    solution. Would have liked to have validated that the singleton producer was
+    connected. It does expose `bootstrap_connected`, but this becomes false if
+    the cluster restarts despite still being able to successfully send messages.
+
+    I'm hoping that the load this generates on the cluster will be
+    insignificant, even if it is occuring from, say, 30 separate pods, say,
+    every 10 seconds.
+    """
+    try:
+        _KafkaProducer(test=TEST)
+    except kafka.errors.KafkaError:
+        return False
+    return True
 
 
 KafkaProducer = SingletonDecorator(_KafkaProducer)
