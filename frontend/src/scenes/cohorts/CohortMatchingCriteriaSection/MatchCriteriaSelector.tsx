@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Col, Input, Row, Select } from 'antd'
-import { CohortEntityFilterBox } from './CohortEntityFilterBox'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CohortGroupType, MatchType } from '~/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { findActionName } from '~/models/actionsModel'
 
 const { Option } = Select
 
@@ -126,8 +128,6 @@ function EntityCriteriaRow({
     onEntityCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
-
     const { label, days, count_operator, count } = group
 
     const onOperatorChange = (newCountOperator: string): void => {
@@ -142,29 +142,29 @@ function EntityCriteriaRow({
         onEntityCriteriaChange({ count: newCount })
     }
 
-    const onEntityChange = (type: TaxonomicFilterGroupType, id: string | number, newLabel: string): void => {
+    const onEntityChange = (type: TaxonomicFilterGroupType, id: string | number): void => {
         if (type === TaxonomicFilterGroupType.Events && typeof id === 'string') {
-            onEntityCriteriaChange({ event_id: id, label: newLabel })
+            onEntityCriteriaChange({ event_id: id, action_id: undefined, label: id })
         } else if (type === TaxonomicFilterGroupType.Actions && typeof id === 'number') {
-            onEntityCriteriaChange({ action_id: id, label: newLabel })
+            onEntityCriteriaChange({
+                action_id: id,
+                event_id: undefined,
+                label: findActionName(id) || `Action #${id}`,
+            })
         }
-        setOpen(false)
     }
 
     return (
         <div style={{ marginTop: 16, width: '100%' }}>
             <Row gutter={8}>
                 <Col flex="auto">
-                    <CohortEntityFilterBox
-                        filter={{ name: label ?? null }}
-                        open={open}
-                        onSelect={onEntityChange}
-                        onOpen={() => {
-                            setOpen(true)
-                        }}
-                        onClose={() => {
-                            setOpen(false)
-                        }}
+                    <TaxonomicPopup
+                        groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        groupType={group.action_id ? TaxonomicFilterGroupType.Actions : TaxonomicFilterGroupType.Events}
+                        value={group.action_id || group.event_id}
+                        onChange={(value, groupType) => onEntityChange(groupType, value)}
+                        renderValue={() => <PropertyKeyInfo value={label || 'Select an event'} disablePopover={true} />}
+                        dataAttr="edit-cohort-entity-filter"
                     />
                 </Col>
                 <Col span={4}>

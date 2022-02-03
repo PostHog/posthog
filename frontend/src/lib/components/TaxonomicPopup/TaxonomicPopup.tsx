@@ -1,22 +1,36 @@
 import './TaxonomicPopup.scss'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
+import clsx from 'clsx'
 
-export interface TaxonomicPopupProps {
+export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
-    value?: string
-    onChange: (value: string, groupType: TaxonomicFilterGroupType) => void
+    value?: ValueType
+    onChange: (value: ValueType, groupType: TaxonomicFilterGroupType) => void
 
     groupTypes?: TaxonomicFilterGroupType[]
-    renderValue?: (value: string) => JSX.Element
+    renderValue?: (value: ValueType) => JSX.Element
     dataAttr?: string
     eventNames?: string[]
     placeholder?: React.ReactNode
     style?: React.CSSProperties
+    fullWidth?: boolean
+}
+
+/** Like TaxonomicPopup, but convenient when you know you will only use string values */
+export function TaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.Element {
+    return (
+        <TaxonomicPopup
+            {...props}
+            value={String(props.value)}
+            onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
+            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
+        />
+    )
 }
 
 export function TaxonomicPopup({
@@ -29,6 +43,7 @@ export function TaxonomicPopup({
     eventNames = [],
     placeholder = 'Please select',
     style,
+    fullWidth = true,
 }: TaxonomicPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
@@ -39,7 +54,7 @@ export function TaxonomicPopup({
                     groupType={groupType}
                     value={value}
                     onChange={({ type }, payload) => {
-                        onChange?.(String(payload), type)
+                        onChange?.(payload, type)
                         setVisible(false)
                     }}
                     taxonomicGroupTypes={groupTypes ?? [groupType]}
@@ -54,7 +69,7 @@ export function TaxonomicPopup({
                     data-attr={dataAttr}
                     onClick={() => setVisible(!visible)}
                     ref={setRef}
-                    className="TaxonomicPopup__button"
+                    className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
                     style={style}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>

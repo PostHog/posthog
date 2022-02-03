@@ -32,7 +32,7 @@ import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/tren
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -373,7 +373,7 @@ export function ActionFilterRow({
                                                 maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})`,
                                             }}
                                         >
-                                            <TaxonomicPopup
+                                            <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
