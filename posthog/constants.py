@@ -208,5 +208,13 @@ class RetentionQueryType(str, Enum):
     TARGET_FIRST_TIME = "target_first_time"
 
 
+class ExperimentSignificanceCode(str, Enum):
+    SIGNIFICANT = "significant"
+    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
+    LOW_WIN_PROBABILITY = "low_win_probability"
+    HIGH_LOSS = "high_loss"
+    HIGH_P_VALUE = "high_p_value"
+
+
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5

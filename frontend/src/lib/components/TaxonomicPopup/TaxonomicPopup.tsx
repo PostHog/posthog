@@ -52,7 +52,7 @@ export function TaxonomicPopup({
             {({ setRef }) => (
                 <Button
                     data-attr={dataAttr}
-                    onClick={() => setVisible(true)}
+                    onClick={() => setVisible(!visible)}
                     ref={setRef}
                     className="TaxonomicPopup__button"
                     style={style}

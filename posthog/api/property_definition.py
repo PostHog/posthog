@@ -75,6 +75,11 @@ class PropertyDefinitionViewSet(
             names = ()
             name_filter = ""
 
+        if self.request.GET.get("is_numerical", None) == "true":
+            numerical_filter = "AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')"
+        else:
+            numerical_filter = ""
+
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
         event_names = self.request.GET.get("event_names", None)
         if event_names:
@@ -104,7 +109,7 @@ class PropertyDefinitionViewSet(
                        {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
@@ -115,7 +120,7 @@ class PropertyDefinitionViewSet(
                 f"""
                 SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
+                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,

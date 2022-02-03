@@ -57,11 +57,11 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: Experiment_,
     logic: experimentLogic,
 }
 
-export function Experiment(): JSX.Element {
+export function Experiment_(): JSX.Element {
     const {
         newExperimentData,
         experimentData,
