@@ -8,18 +8,60 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
-import { IconCopy } from 'lib/components/icons'
+import { IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature, DashboardRestrictionLevel } from '~/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+
+const RESTRICTION_OPTIONS: LemonSelectOptions = {
+    [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
+        label: 'Everyone in the project can edit',
+        icon: <IconLockOpen />,
+    },
+    [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
+        label: 'Only those invited to this dashboard can edit',
+        icon: <IconLock />,
+    },
+}
 
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element | null {
     const { dashboard } = useValues(dashboardLogic)
     const { dashboardLoading } = useValues(dashboardsModel)
-    const { setIsSharedDashboard } = useActions(dashboardLogic)
+    const { setIsSharedDashboard, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
         <LemonModal visible={visible} onCancel={onCancel} destroyOnClose>
-            <h5>Dashboard sharing</h5>
+            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
+                featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
+                    <>
+                        <h5>Dashboard collaboration</h5>
+                        <LemonSelect
+                            value={dashboard.restriction_level}
+                            onChange={(newValue) =>
+                                triggerDashboardUpdate({
+                                    restriction_level: newValue,
+                                })
+                            }
+                            options={RESTRICTION_OPTIONS}
+                            loading={dashboardLoading}
+                            type="stealth"
+                            outlined
+                            style={{
+                                height: '3rem',
+                                width: '100%',
+                            }}
+                        />
+                        <LemonSpacer />
+                    </>
+                )}
+            <h5>External sharing</h5>
             <LemonSwitch
                 id="share-dashboard-switch"
                 label="Share dashboard publicly"
@@ -29,7 +71,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 onChange={(active) => {
                     setIsSharedDashboard(dashboard.id, active)
                 }}
-                block
+                type="primary"
             />
             {dashboard.is_shared ? (
                 <>

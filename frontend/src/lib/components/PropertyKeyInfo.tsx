@@ -512,43 +512,23 @@ export const keyMapping: KeyMappingInterface = {
     element: {
         tag_name: {
             label: 'Tag Name',
-            description: (
-                <span>
-                    HTML tag name of the element which you want to filter.
-                    <br />
-                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
-                </span>
-            ),
+            description: 'HTML tag name of the element which you want to filter.',
             examples: ['a', 'button', 'input'],
         },
         selector: {
             label: 'CSS Selector',
-            description: (
-                <span>
-                    Select any element by CSS selector.
-                    <br />
-                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
-                </span>
-            ),
+            description: 'Select any element by CSS selector.',
             examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
         },
         text: {
             label: 'Text',
-            description: (
-                <span>
-                    Filter on the inner text of the HTML element.
-                    <br />
-                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
-                </span>
-            ),
+            description: 'Filter on the inner text of the HTML element.',
         },
         href: {
             label: 'Target (href)',
             description: (
                 <span>
                     Filter on the <code>href</code> attribute of the element.
-                    <br />
-                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['https://posthog.com/about'],

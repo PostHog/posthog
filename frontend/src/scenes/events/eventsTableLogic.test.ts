@@ -1,7 +1,7 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
@@ -60,18 +60,19 @@ describe('eventsTableLogic', () => {
         return { results: [], count: 0 }
     })
 
-    describe('when polling is disabled', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    describe('polling is disabled', () => {
+        beforeEach(() => {
+            router.actions.push(urls.person('1'))
+            logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.person('1'),
                 disableActions: true,
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.person('1'))
-            },
+            })
+            logic.mount()
         })
 
         it('can disable polling for events', async () => {
@@ -86,31 +87,14 @@ describe('eventsTableLogic', () => {
         })
     })
 
-    describe('when loaded on a different page', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
-                key: 'test-key',
-                sceneUrl: urls.person('1'),
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.person('1'))
-            },
-        })
-    })
-
     describe('when loaded on events page', () => {
-        initKeaTestLogic({
-            logic: eventsTableLogic,
-            props: {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
-            },
-            onLogic: (l) => (logic = l),
-            beforeLogic: () => {
-                router.actions.push(urls.events())
-            },
+            })
+            logic.mount()
         })
 
         it('sets a key', () => {
@@ -257,7 +241,7 @@ describe('eventsTableLogic', () => {
                 it('fetch events sets after to one year ago when there are no events', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
-                    })
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -272,7 +256,7 @@ describe('eventsTableLogic', () => {
                             isNext: false,
                         })
                         logic.actions.fetchEvents()
-                    })
+                    }).toDispatchActions(['fetchEventsSuccess', 'fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -282,7 +266,7 @@ describe('eventsTableLogic', () => {
                 it('triggers fetch events on set properties', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([])
-                    }).toDispatchActions(['fetchEvents'])
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
@@ -293,7 +277,7 @@ describe('eventsTableLogic', () => {
                     const eventName = randomString()
                     await expectLogic(logic, () => {
                         logic.actions.setEventFilter(eventName)
-                    }).toDispatchActions(['fetchEvents'])
+                    }).toDispatchActions(['fetchEventsSuccess'])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + `&event=${eventName}` + orderByTimestamp + afterOneYearAgo
@@ -355,7 +339,10 @@ describe('eventsTableLogic', () => {
                             isNext: false,
                         })
                         logic.actions.fetchNextEvents()
-                    }).toDispatchActions([logic.actionCreators.fetchEvents({ before: secondEvent.timestamp })])
+                    }).toDispatchActions([
+                        logic.actionCreators.fetchEvents({ before: secondEvent.timestamp }),
+                        'fetchEventsSuccess',
+                    ])
 
                     expect(api.get).toHaveBeenLastCalledWith(
                         baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
@@ -448,13 +435,6 @@ describe('eventsTableLogic', () => {
                     }).toMatchValues({ isLoading: false })
                 })
 
-                it('set delayed loading sets isloading to true', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.fetchOrPollFailure({})
-                        logic.actions.setDelayedLoading()
-                    }).toMatchValues({ isLoading: true })
-                })
-
                 it('Fetch Events sets isLoading to true', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
@@ -526,27 +506,40 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        it('writes properties to the URL', async () => {
-            const value = randomString()
-            const propertyFilter = makePropertyFilter(value)
-            await expectLogic(logic, () => {
+        describe('url handling', () => {
+            it('writes properties to the URL', async () => {
+                const value = randomString()
+                const propertyFilter = makePropertyFilter(value)
                 logic.actions.setProperties([propertyFilter])
+                expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
             })
-            expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
-        })
 
-        it('reads properties from the URL', async () => {
-            const propertyFilter = makePropertyFilter()
-            router.actions.push(urls.events(), { properties: [propertyFilter] })
-            await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
-        })
-
-        it('writes event filter to the URL', async () => {
-            const eventFilter = randomString()
-            await expectLogic(logic, () => {
-                logic.actions.setEventFilter(eventFilter)
+            it('does not write empty properties to the URL', async () => {
+                logic.actions.setProperties([])
+                expect(router.values.searchParams).not.toHaveProperty('properties')
             })
-            expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+
+            it('reads properties from the URL', async () => {
+                const propertyFilter = makePropertyFilter()
+                router.actions.push(urls.events(), { properties: [propertyFilter] })
+                await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
+            })
+
+            it('writes event filter to the URL', async () => {
+                const eventFilter = randomString()
+                await expectLogic(logic, () => {
+                    logic.actions.setEventFilter(eventFilter)
+                })
+                expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+            })
+
+            it('fires two actions to change state, but just one API.get', async () => {
+                await expectLogic(logic, () => {
+                    const propertyFilter = makePropertyFilter()
+                    router.actions.push(urls.events(), { properties: [propertyFilter], eventFilter: 'new event' })
+                }).toDispatchActions(['setProperties', 'fetchEvents', 'setEventFilter', 'fetchEvents'])
+                expect(api.get).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe('polling for events', () => {

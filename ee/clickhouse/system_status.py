@@ -13,6 +13,7 @@ from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import make_ch_pool, sync_execute
 from ee.clickhouse.models.event import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
+from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
@@ -90,7 +91,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": last_event_ingested_timestamp,
     }
 
-    dead_letter_queue_size = sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]
+    dead_letter_queue_size = get_dead_letter_queue_size()
 
     yield {
         "key": "dead_letter_queue_size",
@@ -98,9 +99,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": dead_letter_queue_size,
     }
 
-    dead_letter_queue_events_last_day = sync_execute(
-        "SELECT count(*) FROM events_dead_letter_queue WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
-    )[0][0]
+    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
 
     yield {
         "key": "dead_letter_queue_events_last_day",
@@ -111,12 +110,12 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     total_events_ingested_last_day = sync_execute(
         "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / total_events_ingested_last_day
+    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
+        dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
+    )
 
     # if the dead letter queue has as many events today as ingestion, issue an alert
-    dead_letter_queue_events_high = (
-        dead_letter_queue_ingestion_ratio >= 0.5 and dead_letter_queue_events_last_day > 10000
-    )
+    dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 0.2
 
     yield {
         "key": "dead_letter_queue_ratio_ok",

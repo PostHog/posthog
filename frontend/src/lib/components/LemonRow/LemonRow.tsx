@@ -2,6 +2,7 @@ import React from 'react'
 import clsx from 'clsx'
 import './LemonRow.scss'
 import { Tooltip } from '../Tooltip'
+import { Spinner } from '../Spinner/Spinner'
 
 // Implement function type inference for forwardRef,
 // so that function components wrapped with forwardRef (i.e. LemonRow) can be generic.
@@ -19,12 +20,15 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     status?: 'success' | 'warning' | 'danger' | 'highlighted'
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: React.ReactNode
+    loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: any
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     /** Whether the row's contents should be centered. */
     center?: boolean
+    /** Whether the element should be outlined with a standard border. */
+    outlined?: any
     /** A compact row is slightly smaller than normal to better look inline with text. */
     compact?: boolean
     'data-attr'?: string
@@ -45,13 +49,19 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         extendedContent,
         tooltip,
         sideIcon,
+        loading = false,
         compact = false,
         fullWidth = false,
         center = false,
+        outlined = false,
         ...props
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
 ): JSX.Element {
+    if (loading) {
+        icon = <Spinner size="sm" />
+    }
+
     const element = React.createElement(
         tag || 'div',
         {
@@ -62,6 +72,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 compact && 'LemonRow--compact',
                 !children && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
+                outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center'
             ),
             ...props,
