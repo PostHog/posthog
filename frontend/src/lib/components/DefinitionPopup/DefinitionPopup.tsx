@@ -75,7 +75,7 @@ function Header({ title, headerTitle, icon, editText = 'Edit', viewText = 'View'
                 <>
                     <div className="definition-popup-header-row">
                         <div className="definition-popup-header-row-title">{headerTitle}</div>
-                        <div className="definition-popup-header-row-buttons">
+                        <div className="definition-popup-header-row-buttons" style={{ display: 'blank' /* TODO */ }}>
                             <a onClick={() => setPopupState(DefinitionPopupState.Edit)}>{viewText}</a>
                         </div>
                     </div>
