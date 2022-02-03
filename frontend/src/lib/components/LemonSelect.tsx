@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
 
 export interface LemonSelectOption {
@@ -25,7 +25,8 @@ export function LemonSelect<O extends LemonSelectOptions>({
     dropdownMatchSelectWidth = true,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
-    console.log(value, options)
+    const [localValue, setLocalValue] = useState(value)
+
     return (
         <LemonButtonWithPopup
             popup={{
@@ -33,12 +34,14 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     <LemonButton
                         key={key}
                         icon={option.icon}
-                        onClick={() => onChange(key)}
+                        onClick={() => {
+                            onChange(key)
+                            setLocalValue(key)
+                        }}
                         type={
-                            /* Intentionally == instead of === because JS treats object number keys as strings, messing comparisons up a bit */ key ==
-                            value
-                                ? 'highlighted'
-                                : 'stealth'
+                            /* Intentionally == instead of === because JS treats object number keys as strings, */
+                            /* messing comparisons up a bit */
+                            key == localValue ? 'highlighted' : 'stealth'
                         }
                         fullWidth
                     >
@@ -48,10 +51,10 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 sameWidth: dropdownMatchSelectWidth,
                 actionable: true,
             }}
-            icon={options[value]?.icon}
+            icon={options[localValue]?.icon}
             {...buttonProps}
         >
-            {options[value]?.label || value}
+            {options[localValue]?.label || localValue}
         </LemonButtonWithPopup>
     )
 }
