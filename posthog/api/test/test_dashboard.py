@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, Filter, Insight, Team, User
+from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -28,6 +29,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
     def test_create_basic_dashboard(self):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard"})
@@ -37,6 +42,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], [])
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
@@ -62,6 +71,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["creation_mode"], "template")
         self.assertEqual(response_data["description"], "Internal system metrics.")
         self.assertEqual(response_data["tags"], ["official", "engineering"])
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
@@ -490,3 +503,29 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
         self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
+
+    def test_retrieve_dashboard_different_project_with_access(self):
+        team2 = Team.objects.create(organization=self.organization)
+        # Regression, make sure we grab the right dashboard
+        Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
+
+        dashboard = Dashboard.objects.create(team=self.team, name="correct dashboard", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "object_exists_in_other_project",
+                "type": "validation_error",
+                "extra": {"project_id": self.team.pk},
+                "detail": "Dashboard exists in a different project.",
+            },
+        )
+
+    def test_retrieve_dashboard_different_team(self):
+        team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
+        dashboard = Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
+        response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)

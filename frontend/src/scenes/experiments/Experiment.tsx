@@ -33,6 +33,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     PropertyFilter,
+    Experiment,
 } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
@@ -43,21 +44,24 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
+import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: Experiment_,
     logic: experimentLogic,
 }
 
-export function Experiment(): JSX.Element {
+export function Experiment_(): JSX.Element {
     const {
         newExperimentData,
         experimentData,
@@ -65,15 +69,18 @@ export function Experiment(): JSX.Element {
         minimumSampleSizePerVariant,
         recommendedExposureForCountData,
         variants,
-        expectedRunningTime,
         experimentResults,
         countDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
+        parsedSecondaryMetrics,
         areResultsSignificant,
         experimentId,
         conversionRateForVariant,
+        getIndexForVariant,
+        significanceTooltip,
+        areTrendResultsConfusing,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -83,11 +90,15 @@ export function Experiment(): JSX.Element {
         setEditExperiment,
         endExperiment,
         addExperimentGroup,
+        updateExperiment,
         updateExperimentGroup,
         removeExperimentGroup,
+        setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
     } = useActions(experimentLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -114,18 +125,18 @@ export function Experiment(): JSX.Element {
     const sampleSize = sampleSizePerVariant * variants.length
     const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
-    const runningTime = expectedRunningTime(entrants, sampleSize)
     const exposure = recommendedExposureForCountData(trendCount)
 
     // Parameters for experiment results
     // don't use creation variables in results
     const funnelResultsPersonsTotal =
-        experimentInsightType === InsightType.FUNNELS &&
-        experimentResults?.insight &&
-        (experimentResults.insight as FunnelStep[][]).reduce(
-            (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
-            0
-        )
+        experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
+            ? (experimentResults.insight as FunnelStep[][]).reduce(
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                  0
+              )
+            : 0
+
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
@@ -185,7 +196,7 @@ export function Experiment(): JSX.Element {
                                                 label={
                                                     <div>
                                                         Feature flag key{' '}
-                                                        <Tooltip title="This feature flag key should be unique from any existing ones and will be associated with this experiment.">
+                                                        <Tooltip title="Choose a unique key. This will create a new feature flag which will be associated with this experiment.">
                                                             <InfoCircleOutlined />
                                                         </Tooltip>
                                                     </div>
@@ -436,7 +447,7 @@ export function Experiment(): JSX.Element {
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={true}
+                                                                entitiesLimit={1}
                                                                 hideMathSelector={false}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
@@ -463,10 +474,10 @@ export function Experiment(): JSX.Element {
                                             <ExperimentPreview
                                                 experiment={newExperimentData}
                                                 trendCount={trendCount}
-                                                exposure={exposure}
-                                                sampleSize={sampleSize}
-                                                runningTime={runningTime}
-                                                conversionRate={conversionRate}
+                                                trendExposure={exposure}
+                                                funnelSampleSize={sampleSize}
+                                                funnelEntrants={entrants}
+                                                funnelConversionRate={conversionRate}
                                             />
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
@@ -475,6 +486,24 @@ export function Experiment(): JSX.Element {
                                         </Card>
                                     </Col>
                                 </Row>
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                    <Row>
+                                        <Col>
+                                            <div>
+                                                <b>Secondary metrics</b>
+                                                <span className="text-muted ml-05">(optional)</span>
+                                            </div>
+                                            <div className="text-muted">
+                                                Use secondary metrics to monitor metrics related to your experiment
+                                                goal. You can add up to three secondary metrics.{' '}
+                                            </div>
+                                        </Col>
+                                        <SecondaryMetrics
+                                            onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                            initialMetrics={parsedSecondaryMetrics}
+                                        />
+                                    </Row>
+                                )}
                             </BindLogic>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
@@ -505,8 +534,24 @@ export function Experiment(): JSX.Element {
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
                                 </Row>
-                                <span className="description">
-                                    {experimentData.description || 'There is no description for this experiment.'}
+                                <span className="exp-description">
+                                    {experimentData.start_date ? (
+                                        <EditableField
+                                            multiline
+                                            name="description"
+                                            value={experimentData.description || ''}
+                                            placeholder="Description (optional)"
+                                            onSave={(value) => updateExperiment({ description: value })}
+                                            maxLength={400} // Sync with Experiment model
+                                            data-attr="experiment-description"
+                                            compactButtons
+                                        />
+                                    ) : (
+                                        <>
+                                            {experimentData.description ||
+                                                'There is no description for this experiment.'}
+                                        </>
+                                    )}
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
@@ -537,8 +582,10 @@ export function Experiment(): JSX.Element {
                         {showWarning && experimentResults && areResultsSignificant && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>. You can end this experiment now
-                                    or let it run to completion.
+                                    Your results are <b>statistically significant</b>.{' '}
+                                    {experimentData.end_date
+                                        ? ''
+                                        : 'You can end this experiment now or let it run to completion.'}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
@@ -550,8 +597,13 @@ export function Experiment(): JSX.Element {
                         {showWarning && experimentResults && !areResultsSignificant && (
                             <Row align="middle" className="not-significant-results">
                                 <Col span={19} style={{ color: '#f96132' }}>
-                                    Your results are <b>not statistically significant</b>. We don't recommend ending
-                                    this experiment yet.
+                                    Your results are <b>not statistically significant</b>.{' '}
+                                    {experimentData.end_date ? '' : "We don't recommend ending this experiment yet."}
+                                    {significanceTooltip && (
+                                        <Tooltip placement="right" title={significanceTooltip}>
+                                            <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
+                                        </Tooltip>
+                                    )}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
@@ -567,10 +619,10 @@ export function Experiment(): JSX.Element {
                                 <ExperimentPreview
                                     experiment={experimentData}
                                     trendCount={trendCount}
-                                    exposure={experimentData?.parameters.recommended_running_time}
-                                    sampleSize={experimentData?.parameters.recommended_sample_size}
-                                    runningTime={runningTime}
-                                    conversionRate={conversionRate}
+                                    trendExposure={experimentData?.parameters.recommended_running_time}
+                                    funnelSampleSize={experimentData?.parameters.recommended_sample_size}
+                                    funnelConversionRate={conversionRate}
+                                    funnelEntrants={funnelResultsPersonsTotal}
                                 />
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
@@ -614,51 +666,74 @@ export function Experiment(): JSX.Element {
                         {experimentResults ? (
                             <>
                                 <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                    {Object.keys(experimentResults.probability)
-                                        .reverse()
-                                        .map((variant, idx) => (
-                                            <Col key={idx} className="pr">
-                                                <div>
-                                                    <b>{capitalizeFirstLetter(variant)}</b>
-                                                </div>
-                                                {experimentInsightType === InsightType.TRENDS ? (
-                                                    <Row>
-                                                        <b style={{ paddingRight: 4 }}>
-                                                            <Row>
-                                                                {'action' in experimentResults.insight[0] && (
-                                                                    <EntityFilterInfo
-                                                                        filter={experimentResults.insight[0].action}
+                                    {
+                                        //sort by decreasing probability
+                                        Object.keys(experimentResults.probability)
+                                            .sort(
+                                                (a, b) =>
+                                                    experimentResults.probability[b] - experimentResults.probability[a]
+                                            )
+                                            .map((variant, idx) => (
+                                                <Col key={idx} className="pr">
+                                                    <div>
+                                                        <b>{capitalizeFirstLetter(variant)}</b>
+                                                    </div>
+                                                    {experimentInsightType === InsightType.TRENDS ? (
+                                                        <Row>
+                                                            <b style={{ paddingRight: 4 }}>
+                                                                <Row>
+                                                                    {'action' in experimentResults.insight[0] && (
+                                                                        <EntityFilterInfo
+                                                                            filter={experimentResults.insight[0].action}
+                                                                        />
+                                                                    )}
+                                                                    <span style={{ paddingLeft: 4 }}>count:</span>
+                                                                </Row>
+                                                            </b>{' '}
+                                                            {countDataForVariant(variant)}{' '}
+                                                            {areTrendResultsConfusing && idx === 0 && (
+                                                                <Tooltip
+                                                                    placement="right"
+                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                                                                >
+                                                                    <InfoCircleOutlined
+                                                                        style={{ padding: '4px 2px' }}
                                                                     />
-                                                                )}
-                                                                <span style={{ paddingLeft: 4 }}>count:</span>
-                                                            </Row>
-                                                        </b>{' '}
-                                                        {countDataForVariant(variant)}{' '}
-                                                    </Row>
-                                                ) : (
-                                                    <Row>
-                                                        <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
-                                                        {conversionRateForVariant(variant)}%
-                                                    </Row>
-                                                )}
-                                                <Progress
-                                                    percent={Number(
-                                                        (experimentResults.probability[variant] * 100).toFixed(1)
+                                                                </Tooltip>
+                                                            )}
+                                                        </Row>
+                                                    ) : (
+                                                        <Row>
+                                                            <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
+                                                            {conversionRateForVariant(variant)}%
+                                                        </Row>
                                                     )}
-                                                    size="small"
-                                                    showInfo={false}
-                                                    strokeColor={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? getSeriesColor(idx + 1)
-                                                            : getChartColors('white')[idx]
-                                                    }
-                                                />
-                                                <div>
-                                                    Probability that this variant is the best:{' '}
-                                                    <b>{(experimentResults.probability[variant] * 100).toFixed(1)}%</b>
-                                                </div>
-                                            </Col>
-                                        ))}
+                                                    <Progress
+                                                        percent={Number(
+                                                            (experimentResults.probability[variant] * 100).toFixed(1)
+                                                        )}
+                                                        size="small"
+                                                        showInfo={false}
+                                                        strokeColor={
+                                                            experimentInsightType === InsightType.FUNNELS
+                                                                ? getSeriesColor(
+                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                          1
+                                                                  ) // baseline takes 0th index
+                                                                : getChartColors('white')[
+                                                                      getIndexForVariant(variant, InsightType.TRENDS)
+                                                                  ]
+                                                        }
+                                                    />
+                                                    <div>
+                                                        Probability that this variant is the best:{' '}
+                                                        <b>
+                                                            {(experimentResults.probability[variant] * 100).toFixed(1)}%
+                                                        </b>
+                                                    </div>
+                                                </Col>
+                                            ))
+                                    }
                                 </Row>
                             </>
                         ) : experimentResultsLoading ? (
@@ -743,31 +818,52 @@ export function CodeLanguageSelect(): JSX.Element {
 }
 
 interface ExperimentPreviewProps {
-    experiment: Partial<any> | null
+    experiment: Partial<Experiment> | null
     trendCount: number
-    exposure?: number
-    conversionRate: number
-    runningTime: number
-    sampleSize?: number
+    trendExposure?: number
+    funnelSampleSize?: number
+    funnelConversionRate: number
+    funnelEntrants?: number
 }
 
 export function ExperimentPreview({
     experiment,
     trendCount,
-    exposure,
-    conversionRate,
-    runningTime,
-    sampleSize,
+    funnelConversionRate,
+    trendExposure,
+    funnelSampleSize,
+    funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId, editingExistingExperiment, minimumDetectableChange } =
-        useValues(experimentLogic)
+    const {
+        experimentInsightType,
+        experimentId,
+        editingExistingExperiment,
+        minimumDetectableChange,
+        expectedRunningTime,
+    } = useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
     const sliderMaxValue =
-        experimentInsightType === InsightType.FUNNELS ? (100 - conversionRate < 50 ? 100 - conversionRate : 50) : 50
+        experimentInsightType === InsightType.FUNNELS
+            ? 100 - funnelConversionRate < 50
+                ? 100 - funnelConversionRate
+                : 50
+            : 50
+
+    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
+
+    let runningTime = 0
+    if (experiment?.start_date) {
+        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
+    } else {
+        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
+    }
+
+    const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
+    const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
     return (
-        <Row>
+        <Row className="experiment-preview-row">
             <Col span={experimentId === 'new' || editingExistingExperiment ? 24 : 12}>
                 <Row className="experiment-preview-row">
                     {experimentId !== 'new' ? (
@@ -854,7 +950,7 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary">Recommended running time</div>
                                 <div>
-                                    <span className="l4">~{exposure}</span> days
+                                    <span className="l4">~{trendExposure}</span> days
                                 </div>
                             </Col>
                         </>
@@ -864,12 +960,12 @@ export function ExperimentPreview({
                                 <>
                                     <Col span={12}>
                                         <div className="card-secondary">Baseline Conversion Rate</div>
-                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                        <div className="l4">{funnelConversionRate.toFixed(1)}%</div>
                                     </Col>
                                     <Col span={12}>
                                         <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
                                         <div className="l4">
-                                            {(conversionRate + minimumDetectableChange).toFixed(1)}%
+                                            {(funnelConversionRate + minimumDetectableChange).toFixed(1)}%
                                         </div>
                                     </Col>
                                 </>
@@ -877,7 +973,7 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary">Recommended Sample Size</div>
                                 <div className="pb">
-                                    <span className="l4">~{sampleSize}</span> persons
+                                    <span className="l4">~{funnelSampleSize}</span> persons
                                 </div>
                             </Col>
                             {!experiment?.start_date && (
@@ -907,7 +1003,7 @@ export function ExperimentPreview({
                                 {!!experiment?.filters?.properties?.length ? (
                                     <div>
                                         {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                            return <PropertyFilterButton key={item.key} item={item} greyBadges={true} />
+                                            return <PropertyFilterButton key={item.key} item={item} />
                                         })}
                                     </div>
                                 ) : (
@@ -918,14 +1014,27 @@ export function ExperimentPreview({
                     </Row>
                     <Row>
                         {experimentId !== 'new' && !editingExistingExperiment && (
-                            <Col className="mr">
-                                <div className="card-secondary mt">Start date</div>
-                                {experiment?.start_date ? (
-                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </Col>
+                            <>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experiment?.start_date ? (
+                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
+                                </Col>
+                                {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
+                                    <Col className="mr">
+                                        <div className="card-secondary mt">Expected end date</div>
+                                        <span>
+                                            {expectedEndDate.isAfter(dayjs())
+                                                ? expectedEndDate.format('D MMM YYYY')
+                                                : dayjs().format('D MMM YYYY')}
+                                        </span>
+                                    </Col>
+                                ) : null}
+                                {/* The null prevents showing a 0 while loading */}
+                            </>
                         )}
                         {experiment?.end_date && (
                             <Col className="ml">
@@ -939,10 +1048,15 @@ export function ExperimentPreview({
                     <Row className="experiment-preview-row">
                         <Col>
                             <div className="card-secondary mb-05">
-                                {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
+                                {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                             </div>
-                            {[...(experiment?.filters?.events || []), ...(experiment?.filters?.actions || [])]
-                                .sort((a, b) => a.order - b.order)
+                            {(
+                                [
+                                    ...(experiment?.filters?.events || []),
+                                    ...(experiment?.filters?.actions || []),
+                                ] as ActionFilterType[]
+                            )
+                                .sort((a, b) => (a.order || 0) - (b.order || 0))
                                 .map((event: ActionFilterType, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
@@ -960,7 +1074,7 @@ export function ExperimentPreview({
                                             </b>
                                         </Row>
                                         {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                            <PropertyFilterButton key={prop.key} item={prop} />
                                         ))}
                                     </Col>
                                 ))}

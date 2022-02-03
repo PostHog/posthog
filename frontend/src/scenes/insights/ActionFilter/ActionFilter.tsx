@@ -5,7 +5,13 @@ import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
+import {
+    ActionFilter as ActionFilterType,
+    FilterType,
+    FunnelStepRangeEntityFilter,
+    InsightType,
+    Optional,
+} from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
@@ -21,16 +27,26 @@ export interface ActionFilterProps {
     addFilterDefaultOptions?: Record<string, any>
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
-    buttonCopy: string // Text copy for the action button to add more events/actions (graph series)
+    /** Text copy for the action button to add more events/actions (graph series) */
+    buttonCopy: string
     buttonType?: ButtonType
-    disabled?: boolean // Whether the full control is enabled or not
-    singleFilter?: boolean // Whether it's allowed to add multiple event/action series (e.g. lifecycle only accepts one event)
-    sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
-    showSeriesIndicator?: boolean // Whether to show an indicator identifying each graph
-    seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
-    showOr?: boolean // Whether to show the "OR" label after each filter
-    hideFilter?: boolean // Hide local filtering (currently used for retention insight)
-    hideRename?: boolean // Hides the rename option
+    /** Whether the full control is enabled or not */
+    disabled?: boolean
+    /** Whether actions/events can be sorted (used mainly for funnel step reordering) */
+    sortable?: boolean
+    /** Whether to show an indicator identifying each graph */
+    showSeriesIndicator?: boolean
+    /** Series badge shows A, B, C | 1, 2, 3 */
+    seriesIndicatorType?: 'alpha' | 'numeric'
+    /** Whether to show the "OR" label after each filter */
+    showOr?: boolean
+    /** Hide local filtering (currently used for retention insight) */
+    hideFilter?: boolean
+    /** Hides the rename option */
+    hideRename?: boolean
+    /** A limit of entities (series or funnel steps) beyond which more can't be added */
+    entitiesLimit?: number
+    /** Custom prefix element to show in each ActionFilterRow */
     customRowPrefix?:
         | string
         | JSX.Element
@@ -38,7 +54,8 @@ export interface ActionFilterProps {
               filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
-          }) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
+          }) => JSX.Element)
+    /** Custom suffix element to show in each ActionFilterRow */
     customRowSuffix?:
         | string
         | JSX.Element
@@ -46,16 +63,20 @@ export interface ActionFilterProps {
               filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
+          }) => JSX.Element)
     rowClassName?: string
     propertyFilterWrapperClassName?: string
     stripeActionRow?: boolean
-    customActions?: JSX.Element // Custom actions to be added next to the add series button
+    /** Custom actions to be added next to the add series button */
+    customActions?: JSX.Element
     horizontalUI?: boolean
     fullWidth?: boolean
-    showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
-    actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
-    propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
+    /** Show nested arrows to the left of property filter buttons */
+    showNestedArrow?: boolean
+    /** Which tabs to show for actions selector */
+    actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    /** Which tabs to show for property filters */
+    propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hideDeleteBtn?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -79,7 +100,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hidePropertySelector = false,
             buttonCopy = '',
             disabled = false,
-            singleFilter = false,
             sortable = false,
             showSeriesIndicator = false,
             seriesIndicatorType = 'alpha',
@@ -91,6 +111,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customRowPrefix,
             customRowSuffix,
             rowClassName,
+            entitiesLimit,
             propertyFilterWrapperClassName,
             stripeActionRow = true,
             customActions,
@@ -134,6 +155,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             }
         }
 
+        const singleFilter = entitiesLimit === 1
+
         const commonProps = {
             logic: logic as any,
             showSeriesIndicator,
@@ -155,6 +178,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideRename,
             onRenameClick: showModal,
         }
+
+        const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
 
         return (
             <div ref={ref}>
@@ -209,10 +234,14 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<PlusCircleOutlined />}
-                                disabled={disabled}
+                                disabled={reachedLimit || disabled}
                                 className="add-action-event-button"
                             >
-                                {buttonCopy || 'Action or event'}
+                                {!reachedLimit
+                                    ? buttonCopy || 'Action or event'
+                                    : `Reached limit of ${entitiesLimit} ${
+                                          filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                                      }`}
                             </Button>
                         )}
                         {customActions}

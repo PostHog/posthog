@@ -54,6 +54,14 @@ reverse_proxy http://web:8000
 }
 EOF
 
+# Write .env file
+envsubst > .env <<EOF
+POSTHOG_SECRET=$POSTHOG_SECRET
+SENTRY_DSN=$SENTRY_DSN
+DOMAIN=$DOMAIN
+EOF
+
+
 # write entrypoint
 rm -rf compose
 mkdir -p compose
@@ -110,10 +118,7 @@ echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
 echo "If you have any issues at all delete everything in this directory and run the curl command again"
 echo ""
-echo "To upgrade: run the following"
-echo "'docker-compose stop'"
-echo "'git pull'"
-echo "'docker-compose start'"
+echo "To upgrade: run ./posthog/bin/upgrade-hobby"
 echo ""
 echo "PostHog will be up at the location you provided!"
 echo "https://${DOMAIN}"

@@ -97,7 +97,6 @@ class TestUserAPI(APIBaseTest):
             team=self.team,
             name="a timestamp",
             property_type="DateTime",
-            property_type_format="unix_timestamp",
             description="This is a cool timestamp.",
             tags=["test", "official"],
         )

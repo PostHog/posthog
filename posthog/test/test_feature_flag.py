@@ -306,12 +306,12 @@ class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_person_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team, "distinct_id")
+        flags = get_overridden_feature_flags(self.team.pk, "distinct_id")
         self.assertEqual(flags, {"feature-all": True, "feature-posthog": True, "feature-disabled": True})
 
     @snapshot_postgres_queries
     def test_group_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team, "distinct_id", {"organization": "PostHog"})
+        flags = get_overridden_feature_flags(self.team.pk, "distinct_id", {"organization": "PostHog"})
         self.assertEqual(
             flags,
             {

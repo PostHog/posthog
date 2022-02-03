@@ -40,6 +40,7 @@ def process_error(
     error: str,
     rollback: bool = True,
     alert: bool = False,
+    status: int = MigrationStatus.Errored,
     current_operation_index: Optional[int] = None,
 ):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
@@ -47,19 +48,19 @@ def process_error(
     update_async_migration(
         migration_instance=migration_instance,
         current_operation_index=current_operation_index,
-        status=MigrationStatus.Errored,
+        status=status,
         error=error,
         finished_at=datetime.now(),
     )
 
-    if async_migrations_emails_enabled():
-        from posthog.tasks.email import send_async_migration_errored_email
-
-        send_async_migration_errored_email.delay(
-            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error
-        )
-
     if alert:
+        if async_migrations_emails_enabled():
+            from posthog.tasks.email import send_async_migration_errored_email
+
+            send_async_migration_errored_email.delay(
+                migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error
+            )
+
         send_alert_to_plugins(
             key="async_migration_errored",
             description=f"Migration {migration_instance.name} failed with error {error}",
@@ -116,7 +117,7 @@ def rollback_migration(migration_instance: AsyncMigration):
     attempt_migration_rollback(migration_instance)
 
 
-def complete_migration(migration_instance: AsyncMigration):
+def complete_migration(migration_instance: AsyncMigration, email: bool = True):
     now = datetime.now()
     update_async_migration(
         migration_instance=migration_instance,
@@ -125,7 +126,7 @@ def complete_migration(migration_instance: AsyncMigration):
         progress=100,
     )
 
-    if async_migrations_emails_enabled():
+    if email and async_migrations_emails_enabled():
         from posthog.tasks.email import send_async_migration_complete_email
 
         send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())

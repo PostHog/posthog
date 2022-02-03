@@ -59,7 +59,6 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                 </label>
                                 <EventName
                                     value={step.event}
-                                    isActionStep={true}
                                     onChange={(value) =>
                                         sendStep({
                                             ...step,
@@ -67,6 +66,19 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                         })
                                     }
                                 />
+
+                                <br />
+
+                                <small>
+                                    <a
+                                        href="https://posthog.com/docs/libraries"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        See documentation
+                                    </a>{' '}
+                                    on how to send custom events in lots of languages.
+                                </small>
                             </div>
                         )}
                         {step.event === '$pageview' && (

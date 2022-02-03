@@ -12,6 +12,7 @@ from ee.clickhouse.queries.experiments import (
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from posthog.constants import ExperimentSignificanceCode
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -82,13 +83,14 @@ class ClickhouseFunnelExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significant = self.are_results_significant(control_variant, test_variants, probabilities)
+        significance_code = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": funnel_results,
             "probability": mapping,
-            "significant": significant,
+            "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.funnel._filter.to_dict(),
+            "significance_code": significance_code,
         }
 
     def get_variants(self, funnel_results):
@@ -139,31 +141,35 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
-    ) -> bool:
+    ) -> ExperimentSignificanceCode:
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
             # We need a feature flag distribution threshold because distribution of people
             # can skew wildly when there are few people in the experiment
             if variant.success_count + variant.failure_count < FF_DISTRIBUTION_THRESHOLD:
-                return False
+                return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
         if control_sample_size < FF_DISTRIBUTION_THRESHOLD:
-            return False
+            return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
-        if max(probabilities) < MIN_PROBABILITY_FOR_SIGNIFICANCE:
-            return False
+        if (
+            probabilities[0] < MIN_PROBABILITY_FOR_SIGNIFICANCE
+            and sum(probabilities[1:]) < MIN_PROBABILITY_FOR_SIGNIFICANCE
+        ):
+            # Sum of probability of winning for all variants except control is less than 90%
+            return ExperimentSignificanceCode.LOW_WIN_PROBABILITY
 
         best_test_variant = max(
             test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
         )
 
-        expected_loss = calculate_expected_loss(
-            best_test_variant,
-            [control_variant, *[variant for variant in test_variants if variant != best_test_variant]],
-        )
+        expected_loss = calculate_expected_loss(best_test_variant, [control_variant],)
 
-        return expected_loss < EXPECTED_LOSS_SIGNIFICANCE_LEVEL
+        if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
+            return ExperimentSignificanceCode.HIGH_LOSS
+
+        return ExperimentSignificanceCode.SIGNIFICANT
 
 
 def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:

@@ -56,7 +56,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
-        name: 'Funnels',
+        name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,

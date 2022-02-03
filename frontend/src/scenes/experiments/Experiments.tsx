@@ -20,6 +20,7 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { IconOpenInNew } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -121,7 +122,6 @@ export function Experiments(): JSX.Element {
                         </LemonTag>
                     </div>
                 }
-                style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                         <LinkButton
@@ -137,6 +137,25 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
+                    <div
+                        style={{
+                            borderBottom: '1px solid var(--border)',
+                            paddingBottom: '0.5rem',
+                            marginBottom: '1rem',
+                        }}
+                    >
+                        If you're confused, check out our
+                        <a
+                            data-attr="experiment-help"
+                            href="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
+                            target="_blank"
+                            rel="noopener"
+                        >
+                            {' '}
+                            Experimentation user guide
+                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                        </a>
+                    </div>
                     <Tabs
                         activeKey={tab}
                         style={{ borderColor: '#D9D9D9' }}

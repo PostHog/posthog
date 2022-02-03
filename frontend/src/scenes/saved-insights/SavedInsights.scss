@@ -5,7 +5,7 @@
     display: flex;
     flex-direction: column;
 
-    td {
+    > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
     }
@@ -141,7 +141,10 @@
     display: grid;
     grid-gap: 1rem;
     min-height: 30rem;
-    @media screen and (min-width: $lg) {
+    @media screen and (min-width: $xl) {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    @media screen and (min-width: $xxl) {
         grid-template-columns: repeat(3, 1fr);
     }
 }
