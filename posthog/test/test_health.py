@@ -8,6 +8,7 @@ from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.http import HttpResponse
 from django.test import Client
+from kafka.errors import KafkaError
 
 from ee.kafka_client.client import TestKafkaProducer
 
@@ -20,7 +21,7 @@ def test_readyz_returns_200_if_everything_is_ok(client: Client):
 
 @pytest.mark.django_db
 def test_readyz_endpoint_fails_for_kafka_connection_issues(client: Client):
-    with simulate_kafka_not_connected():
+    with simulate_kafka_cannot_connect():
         resp = get_readyz(client)
 
     assert resp.status_code == 503
@@ -37,7 +38,7 @@ def test_readyz_supports_excluding_checks(client: Client):
     data = resp.json()
     assert {
         check: status for check, status in data.items() if check in {"postgres", "postgres_migrations_uptodate"}
-    } == {"postgres": False, "postgres_migrations_uptodate": False,}
+    } == {"postgres": False, "postgres_migrations_uptodate": False}
 
 
 def test_readyz_doesnt_require_db(client: Client):
@@ -87,7 +88,16 @@ def simulate_postgres_error():
 
 
 @contextmanager
-def simulate_kafka_not_connected():
-    with patch.object(TestKafkaProducer, "bootstrap_connected") as producer_connected_mock:
-        producer_connected_mock.return_value = False
+def simulate_kafka_cannot_connect():
+    """
+    Causes instantiation of a kafka producer to raise a `KafkaError`.
+
+    IMPORTANT: this is mocking the `TestKafkaProducer`, itselt a mock. I'm
+    hoping that the real producer raises similarly, and that that behaviour
+    doesn't change with version of the library. I have tested this manually
+    however locally with real Kafka connection, and it seems to function as
+    expected :fingerscrossed:
+    """
+    with patch.object(TestKafkaProducer, "__init__") as init_mock:
+        init_mock.side_effect = KafkaError("failed to connect")
         yield

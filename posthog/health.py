@@ -1,23 +1,21 @@
-"""
-Defines the healthcheck endpoints to be used by process orchestration system 
-deployments to ensure:
+# Defines the healthcheck endpoints to be used by process orchestration system
+# deployments to ensure:
 
- 1. new deployments are not marked as ready if they are misconfigured, e.g.
-    kafka settings are wrong
- 2. pods that are dead for some reason are taken out of service
- 3. traffic is not routed to pods that we know we fail to handle it
-    successfully. e.g. if an events pod can't reach kafka, we know that it
-    shouldn't get http traffic routed to it.
+#  1. new deployments are not marked as ready if they are misconfigured, e.g.
+#     kafka settings are wrong
+#  2. pods that are dead for some reason are taken out of service
+#  3. traffic is not routed to pods that we know we fail to handle it
+#     successfully. e.g. if an events pod can't reach kafka, we know that it
+#     shouldn't get http traffic routed to it.
 
-See
-https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-for generic k8s docs on healthchecks.
+# See
+# https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+# for generic k8s docs on healthchecks.
 
-I have specifically not reused the statuses in instance_status. These health
-endpoints are for a very specific purpose and we want to make sure that any
-changes to them are deliberate, as otherwise we could introduce unexpected
-behaviour in deployments.
-"""
+# I have specifically not reused the statuses in instance_status. These health
+# endpoints are for a very specific purpose and we want to make sure that any
+# changes to them are deliberate, as otherwise we could introduce unexpected
+# behaviour in deployments.
 
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
@@ -25,7 +23,7 @@ from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import JsonResponse
 
-from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.client import can_connect as can_connect_to_kafka
 
 
 def livez(request):
@@ -80,7 +78,7 @@ def is_kafka_connected() -> bool:
     NOTE: we are only checking the Producer here, as currently this process
     does not Consume from Kafka.
     """
-    return KafkaProducer().bootstrap_connected()
+    return can_connect_to_kafka()
 
 
 def is_postgres_connected() -> bool:
