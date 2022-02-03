@@ -40,7 +40,6 @@ def test_readyz_supports_excluding_checks(client: Client):
     } == {"postgres": False, "postgres_migrations_uptodate": False,}
 
 
-@pytest.mark.django_db
 def test_readyz_doesnt_require_db(client: Client):
     """
     We don't want to fail to construct a response if we can't reach the
@@ -54,7 +53,6 @@ def test_readyz_doesnt_require_db(client: Client):
     assert data["postgres"] == False
 
 
-@pytest.mark.django_db
 def test_livez_returns_200_and_doesnt_require_db(client: Client):
     """
     We want the livez endpoint to involve no database queries at all, it should
