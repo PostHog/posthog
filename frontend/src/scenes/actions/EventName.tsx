@@ -14,7 +14,7 @@ export function EventName({ value, onChange }: EventNameInterface): JSX.Element 
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
             value={value}
-            style={{ width: '100%', maxWidth: '24rem' }}
+            style={{ maxWidth: '24rem' }}
             placeholder="Choose an event"
             dataAttr="event-name-box"
             renderValue={(v) => <PropertyKeyInfo value={v} />}

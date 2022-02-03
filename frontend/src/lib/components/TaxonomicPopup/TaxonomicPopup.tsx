@@ -5,6 +5,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
+import clsx from 'clsx'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue> {
     groupType: TaxonomicFilterGroupType
@@ -17,6 +18,7 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue> {
     eventNames?: string[]
     placeholder?: React.ReactNode
     style?: React.CSSProperties
+    fullWidth?: boolean
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
@@ -41,6 +43,7 @@ export function TaxonomicPopup({
     eventNames = [],
     placeholder = 'Please select',
     style,
+    fullWidth = true,
 }: TaxonomicPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
@@ -66,7 +69,7 @@ export function TaxonomicPopup({
                     data-attr={dataAttr}
                     onClick={() => setVisible(!visible)}
                     ref={setRef}
-                    className="TaxonomicPopup__button"
+                    className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
                     style={style}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
