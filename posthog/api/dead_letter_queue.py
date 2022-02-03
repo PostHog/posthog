@@ -92,16 +92,18 @@ def get_dead_letter_queue_events_last_24h() -> int:
 
 
 def get_dead_letter_queue_events_per_error() -> List[Union[str, int]]:
-    return sync_execute("SELECT error, count(*) AS c FROM events_dead_letter_queue GROUP BY error ORDER BY c DESC")
+    return sync_execute(
+        "SELECT error, count(*) AS c FROM events_dead_letter_queue GROUP BY error ORDER BY c DESC LIMIT 10"
+    )
 
 
 def get_dead_letter_queue_events_per_location() -> List[Union[str, int]]:
     return sync_execute(
-        "SELECT error_location, count(*) AS c FROM events_dead_letter_queue GROUP BY error_location ORDER BY c DESC"
+        "SELECT error_location, count(*) AS c FROM events_dead_letter_queue GROUP BY error_location ORDER BY c DESC LIMIT 10"
     )
 
 
 def get_dead_letter_queue_events_per_day() -> List[Union[str, int]]:
     return sync_execute(
-        "SELECT toDate(error_timestamp) as day, count(*) AS c FROM events_dead_letter_queue GROUP BY day"
+        "SELECT toDate(error_timestamp) as day, count(*) AS c FROM events_dead_letter_queue GROUP BY day ORDER BY c DESC LIMIT 10"
     )
