@@ -97,25 +97,3 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
                 "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
             ),
         )
-
-    def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.test_dashboard.created_by = None
-        self.test_dashboard.save()
-        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
-
-        response = self.client.post(
-            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT,},
-        )
-        response_data = response.json()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response(
-                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            ),
-        )

@@ -17,7 +17,7 @@ from posthog.permissions import TeamMemberAccessPermission
 class CanEditDashboard(BasePermission):
     message = "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
 
-    def has_permission(self, request: request.Request, view: "DashboardCollaboratorViewSet") -> bool:
+    def has_permission(self, request: request.Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
         dashboard: Dashboard = get_object_or_404(Dashboard.objects.filter(id=view.parents_query_dict["dashboard_id"]))

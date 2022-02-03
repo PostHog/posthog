@@ -27,11 +27,12 @@ from posthog.health import livez, readyz
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
 
+ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
 except ImportError:
-    ee_urlpatterns: List[Any] = []
+    pass
 else:
     extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
