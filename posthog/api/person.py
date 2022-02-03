@@ -24,6 +24,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
+from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
@@ -52,11 +53,14 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import filter_persons
-from posthog.queries.lifecycle import LifecycleTrend
-from posthog.queries.retention import Retention
-from posthog.queries.stickiness import Stickiness
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    flatten,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+)
 
 
 class PersonCursorPagination(CursorPagination):
@@ -320,18 +324,18 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        people = self.get_queryset()
-        key = "properties__{}".format(request.GET.get("key"))
-        people = people.values(key).annotate(count=Count("id")).filter(**{f"{key}__isnull": False}).order_by("-count")
-
-        if request.GET.get("value"):
-            people = people.extra(
-                where=["properties ->> %s LIKE %s"], params=[request.GET["key"], "%{}%".format(request.GET["value"])],
-            )
-
-        return response.Response(
-            [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
-        )
+        key = request.GET.get("key")
+        value = request.GET.get("value")
+        team = self.team
+        flattened = []
+        result = get_person_property_values_for_key(key, team, value)
+        for value in result:
+            try:
+                # Try loading as json for dicts or arrays
+                flattened.append(json.loads(value[0]))
+            except json.decoder.JSONDecodeError:
+                flattened.append(value[0])
+        return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
