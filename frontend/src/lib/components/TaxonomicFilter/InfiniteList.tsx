@@ -201,9 +201,9 @@ const selectedItemHasPopup = (
     item?: PropertyDefinition | CohortType,
     listGroupType?: TaxonomicFilterGroupType,
     group?: TaxonomicFilterGroup,
-    isTaxonomyEnabled: boolean = false
+    showNewPopups: boolean = false
 ): boolean => {
-    if (isTaxonomyEnabled) {
+    if (showNewPopups) {
         return (
             // NB: also update "renderItemPopup" above
             !!item &&
