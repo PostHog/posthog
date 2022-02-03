@@ -328,13 +328,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         value = request.GET.get("value")
         team = self.team
         flattened = []
-        result = get_person_property_values_for_key(key, team, value)
-        for value in result:
-            try:
-                # Try loading as json for dicts or arrays
-                flattened.append(json.loads(value[0]))
-            except json.decoder.JSONDecodeError:
-                flattened.append(value[0])
+        if key:
+            result = get_person_property_values_for_key(key, team, value)
+            for value in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append(json.loads(value[0]))
+                except json.decoder.JSONDecodeError:
+                    flattened.append(value[0])
         return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 
     @action(methods=["POST"], detail=True)
