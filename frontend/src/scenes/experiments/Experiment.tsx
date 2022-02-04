@@ -61,6 +61,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -539,6 +541,18 @@ export function Experiment_(): JSX.Element {
                                     >
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
+                                    {experimentResults && experimentData.end_date && (
+                                        <Tag
+                                            style={{ alignSelf: 'center' }}
+                                            color={areResultsSignificant ? 'green' : 'geekblue'}
+                                        >
+                                            <b className="uppercase">
+                                                {areResultsSignificant
+                                                    ? 'Significant Results'
+                                                    : 'Results not significant'}
+                                            </b>
+                                        </Tag>
+                                    )}
                                 </Row>
                                 <span className="exp-description">
                                     {experimentData.start_date ? (
@@ -585,7 +599,7 @@ export function Experiment_(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {showWarning && experimentResults && areResultsSignificant && (
+                        {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
                                     Your results are <b>statistically significant</b>.{' '}
@@ -600,7 +614,7 @@ export function Experiment_(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experimentResults && !areResultsSignificant && (
+                        {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="not-significant-results">
                                 <Col span={23} style={{ color: '#2D2D2D' }}>
                                     <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
@@ -614,6 +628,26 @@ export function Experiment_(): JSX.Element {
                                         experimentation guide{' '}
                                     </a>
                                     for more information.{' '}
+                                </Col>
+                                <Col span={1}>
+                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                </Col>
+                            </Row>
+                        )}
+                        {showWarning && experimentData.end_date && (
+                            <Row align="middle" className="feature-flag-mods">
+                                <Col span={23}>
+                                    <b>Your experiment is complete.</b> We recommend removing the feature flag from your
+                                    code completely, instead of relying on this distribution:{' '}
+                                    <Link
+                                        to={
+                                            experimentData.feature_flag
+                                                ? urls.featureFlag(experimentData.feature_flag)
+                                                : undefined
+                                        }
+                                    >
+                                        <b>Adjust feature flag distribution.</b>
+                                    </Link>
                                 </Col>
                                 <Col span={1}>
                                     <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
