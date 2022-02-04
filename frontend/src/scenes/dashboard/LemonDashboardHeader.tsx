@@ -13,7 +13,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
-import { ShareModal } from './ShareModal'
+import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
@@ -206,16 +206,27 @@ export function LemonDashboardHeader(): JSX.Element | null {
     )
 }
 
-function CollaboratorBubbles({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element {
+function CollaboratorBubbles({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
+    const { dashboard } = useValues(dashboardLogic)
     const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId }))
+
+    if (!dashboard) {
+        return null
+    }
+
+    const tooltipParts: string[] = [DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level].label || '?']
+    if (dashboard.is_shared) {
+        tooltipParts.push('Shared publicly')
+    }
 
     return (
         <ProfileBubbles
             people={allCollaborators.map((collaborator) => ({
                 email: collaborator.user.email,
                 name: collaborator.user.first_name,
-                tooltip: `${collaborator.user.first_name} (${privilegeLevelToName(collaborator.level)})`,
+                title: `${collaborator.user.first_name} (${privilegeLevelToName(collaborator.level)})`,
             }))}
+            tooltip={tooltipParts.join(' • ')}
         />
     )
 }

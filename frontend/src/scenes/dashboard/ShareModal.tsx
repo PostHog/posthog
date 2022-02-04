@@ -19,6 +19,17 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 
+export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
+    [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
+        label: 'Everyone in the project can edit',
+        icon: <IconLockOpen />,
+    },
+    [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
+        label: 'Only those invited to this dashboard can edit',
+        icon: <IconLock />,
+    },
+}
+
 export interface ShareModalProps {
     visible: boolean
     onCancel: () => void
@@ -84,18 +95,15 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
 
     const dashboardCollaborationAvailable = hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
 
-    const restrictionOptions: LemonSelectOptions = {
-        [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
-            label: 'Everyone in the project can edit',
-            icon: <IconLockOpen />,
-            disabled: !dashboardCollaborationAvailable,
-        },
-        [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
-            label: 'Only those invited to this dashboard can edit',
-            icon: <IconLock />,
-            disabled: !dashboardCollaborationAvailable,
-        },
-    }
+    const restrictionOptions: LemonSelectOptions = Object.fromEntries(
+        Object.entries(DASHBOARD_RESTRICTION_OPTIONS).map(([key, option]) => [
+            key,
+            {
+                ...option,
+                disabled: !dashboardCollaborationAvailable,
+            },
+        ])
+    )
 
     return (
         dashboard && (

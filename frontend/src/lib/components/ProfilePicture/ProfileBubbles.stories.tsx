@@ -22,6 +22,10 @@ export function OneBubble(): JSX.Element {
     return <ProfileBubblesComponent people={DUMMIES.slice(0, 1)} />
 }
 
+export function MultipleBubblesWithTooltip(): JSX.Element {
+    return <ProfileBubblesComponent people={DUMMIES} tooltip="Cool people." />
+}
+
 export function MultipleBubblesAtLimit(): JSX.Element {
     return <ProfileBubblesComponent people={DUMMIES} limit={4} />
 }
