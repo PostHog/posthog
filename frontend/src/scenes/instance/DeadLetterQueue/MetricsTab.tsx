@@ -13,7 +13,7 @@ const ROWS_LIMIT = 10
 
 export function MetricsTab(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading, rowsPerMetricKey } =
+    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading, rowsPerMetric } =
         useValues(deadLetterQueueLogic)
     const { loadDeadLetterQueueMetrics, loadMoreRows } = useActions(deadLetterQueueLogic)
 
@@ -64,7 +64,7 @@ export function MetricsTab(): JSX.Element {
                                 dataIndex: 'value',
                             },
                         ]}
-                        dataSource={rowsPerMetricKey[row.key].map(([key, value]) => ({ key, value })) || []}
+                        dataSource={rowsPerMetric[row.key].map(([key, value]) => ({ key, value })) || []}
                         loading={deadLetterQueueMetricsLoading}
                         defaultSorting={{
                             columnKey: 'value',
@@ -79,7 +79,7 @@ export function MetricsTab(): JSX.Element {
                         }}
                     >
                         <Button
-                            disabled={rowsPerMetricKey[row.key].length % ROWS_LIMIT !== 0}
+                            disabled={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0}
                             onClick={() => loadMoreRows(row.key)}
                         >
                             Load more values

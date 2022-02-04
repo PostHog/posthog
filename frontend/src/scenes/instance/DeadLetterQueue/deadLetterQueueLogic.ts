@@ -33,7 +33,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                 setActiveTab: (_, { tabKey }) => tabKey,
             },
         ],
-        rowsPerMetricKey: [
+        rowsPerMetric: [
             {} as Record<string, any[]>,
             {
                 addRowsToMetric: (state, { key, rows }) => {
@@ -54,11 +54,11 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                     }
                     const metrics = (await api.get('api/dead_letter_queue')).results
 
-                    const rowsPerMetricKey = {}
+                    const rowsPerMetric = {}
                     for (const metric of metrics.filter((m: DeadLetterQueueMetricRow) => !!m.subrows)) {
-                        rowsPerMetricKey[metric.key] = metric.subrows.rows
+                        rowsPerMetric[metric.key] = metric.subrows.rows
                     }
-                    actions.setRowsPerMetricKey(rowsPerMetricKey)
+                    actions.setRowsPerMetricKey(rowsPerMetric)
                     return metrics
                 },
             },
@@ -67,7 +67,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
 
     listeners: ({ values, actions }) => ({
         loadMoreRows: async ({ key }) => {
-            const offset = values.rowsPerMetricKey[key]?.length + 1
+            const offset = values.rowsPerMetric[key]?.length + 1
             if (offset) {
                 const res = await api.get(`api/dead_letter_queue/${key}?offset=${offset}`)
                 actions.addRowsToMetric(key, res.subrows.rows)
