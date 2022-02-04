@@ -59,7 +59,7 @@ class DeadLetterQueueMetric(object):
 
 def get_dlq_metric(key: str, offset: Optional[int] = 0) -> DeadLetterQueueMetric:
     metric_context = DEAD_LETTER_QUEUE_METRICS[key]
-    fn_result = metric_context["fn"](offset)
+    fn_result = metric_context["fn"](offset)  # type: ignore
 
     return DeadLetterQueueMetric(
         key=key,
@@ -84,7 +84,7 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
     def get_queryset(self):
         output = []
         for key, metric_context in DEAD_LETTER_QUEUE_METRICS.items():
-            fn_result = metric_context["fn"](0)
+            fn_result = metric_context["fn"](0)  # type: ignore
             metric = {
                 "key": key,
                 "value": metric_context.get("value"),
@@ -97,7 +97,7 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
     def get_object(self) -> DeadLetterQueueMetric:
         offset = 0
         try:
-            offset = int(self.request.GET.get("offset"))
+            offset = int(self.request.GET.get("offset") or 0)
         except:
             pass
 
