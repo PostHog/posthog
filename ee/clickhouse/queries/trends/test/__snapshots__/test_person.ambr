@@ -2,8 +2,8 @@
   '
   
   SELECT $group_0 AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
