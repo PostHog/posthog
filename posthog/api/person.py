@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from django.db.models import Count, Func, OuterRef, Q, QuerySet
+from django.db.models import Count, Func, OuterRef, Q, QuerySet, Subquery
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -437,14 +437,16 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
 
         cohort_people_count = (
-            CohortPeople.objects.filter(version=OuterRef("version"))
-            .values("person_id")
+            CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
+            .values("cohort_id")
             .annotate(count=Count("person_id", distinct=True))
+            .order_by("count")
             .values("count")
         )
 
-        cohorts = Cohort.objects.annotate(count=cohort_people_count).filter(people__id=person.id, deleted=False)
-
+        cohorts = Cohort.objects.annotate(count=Subquery(cohort_people_count)).filter(
+            people__id=person.id, deleted=False
+        )
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 

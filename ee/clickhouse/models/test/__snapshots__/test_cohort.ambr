@@ -108,6 +108,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) = 1) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   '
 ---
@@ -161,6 +162,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) = 1) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
   '
@@ -251,6 +253,7 @@
               AND timestamp <= '2020-01-10 00:00:00'
               AND ((event = '$pageview'))
             GROUP BY person_id) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   '
 ---
@@ -303,6 +306,7 @@
               AND timestamp <= '2020-01-10 00:00:00'
               AND ((event = '$pageview'))
             GROUP BY person_id) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
   '
@@ -364,6 +368,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) >= 2) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   '
 ---
@@ -417,6 +422,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) >= 2) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
   '
@@ -508,6 +514,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) <= 1) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   '
 ---
@@ -561,6 +568,7 @@
               AND ((event = '$pageview'))
             GROUP BY person_id
             HAVING count(*) <= 1) )
+  ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
   '

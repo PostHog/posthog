@@ -213,7 +213,8 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
             | Q(persondistinctid__distinct_id__icontains=request.GET["search"])
         ).distinct("id")
     if request.GET.get("cohort"):
-        queryset = queryset.filter(cohort__id=request.GET["cohort"])
+        cohort = Cohort.objects.get(pk=request.GET["cohort"])
+        queryset = queryset.filter(cohort__id=cohort.pk, cohortpeople__version=cohort.version)
     if request.GET.get("properties"):
         filter = Filter(data={"properties": json.loads(request.GET["properties"])})
         queryset = queryset.filter(

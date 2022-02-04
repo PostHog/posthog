@@ -114,9 +114,9 @@ class Cohort(models.Model):
             # Get or wait to update cohort version
             with transaction.atomic():
                 cohort = self.queryset().select_for_update().get()
-                new_version = cohort.version + 1
-                cohort.version = new_version
-                cohort.save()
+                cohort.version = cohort.version + 1
+                cohort.save(update_fields=["version"])
+                new_version = cohort.version
 
             # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
             cursor = 0
@@ -133,11 +133,11 @@ class Cohort(models.Model):
 
     def calculate_people_ch(self):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import calculate_cohort
 
         try:
             recalculate_cohortpeople(self)
-            calculate_cohort(self.id)
+            self.calculate_people()
+            self.refresh_from_db()
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
         except Exception as e:
