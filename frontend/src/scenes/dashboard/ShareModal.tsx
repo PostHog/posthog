@@ -33,7 +33,7 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
-        <LemonModal visible={visible} onCancel={onCancel} destroyOnClose>
+        <LemonModal visible={visible} onCancel={onCancel}>
             {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && <DashboardCollaboration dashboardId={dashboard.id} />}
             <section>
                 <h5>External sharing</h5>
