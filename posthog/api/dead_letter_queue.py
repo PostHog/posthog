@@ -59,13 +59,13 @@ class DeadLetterQueueMetric(object):
 
 def get_dlq_metric(key: str, offset: Optional[int] = 0) -> DeadLetterQueueMetric:
     metric_context = DEAD_LETTER_QUEUE_METRICS[key]
-
     fn_result = metric_context["fn"](offset)
 
-    metric = {**metric_context, **fn_result}
-
     return DeadLetterQueueMetric(
-        key=key, metric=metric.get("metric"), value=metric.get("value"), subrows=metric.get("subrows")
+        key=key,
+        metric=metric_context.get("metric"),
+        value=metric_context.get("value"),
+        subrows=fn_result.get("subrows"),
     )
 
 
