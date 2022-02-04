@@ -4,6 +4,7 @@ import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './
 export interface LemonSelectOption {
     label?: string
     icon?: React.ReactElement
+    disabled?: boolean
 }
 
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
@@ -43,6 +44,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                             /* messing comparisons up a bit */
                             key == localValue ? 'highlighted' : 'stealth'
                         }
+                        disabled={option.disabled}
                         fullWidth
                     >
                         {option.label || key}

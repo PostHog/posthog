@@ -971,6 +971,18 @@ export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Ele
     )
 }
 
+/** Material Design Workspace Premium icon. */
+export function IconPremium(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m9.68 13.69 2.32-1.76 2.31 1.76-.88-2.85 2.32-1.84h-2.84l-.91-2.81-.91 2.81h-2.84l2.31 1.84zm10.32-3.69c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 2.03.76 3.87 2 5.28v7.72l6-2 6 2v-7.72c1.24-1.41 2-3.25 2-5.28zm-8-6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6 2.69-6 6-6zm0 15-4 1.02v-3.1c1.18.68 2.54 1.08 4 1.08s2.82-.4 4-1.08v3.1z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Refresh icon. */
 export function IconRefresh(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (

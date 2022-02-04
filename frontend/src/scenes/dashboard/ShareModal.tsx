@@ -8,7 +8,7 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
-import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
+import { IconCancel, IconCopy, IconLock, IconLockOpen, IconPremium } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
@@ -19,17 +19,6 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 
-const RESTRICTION_OPTIONS: LemonSelectOptions = {
-    [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
-        label: 'Everyone in the project can edit',
-        icon: <IconLockOpen />,
-    },
-    [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
-        label: 'Only those invited to this dashboard can edit',
-        icon: <IconLock />,
-    },
-}
-
 export interface ShareModalProps {
     visible: boolean
     onCancel: () => void
@@ -39,17 +28,13 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
     const { dashboardLoading } = useValues(dashboardsModel)
     const { dashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
         <LemonModal visible={visible} onCancel={onCancel} destroyOnClose>
-            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
-                featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
-                    <DashboardCollaboration dashboardId={dashboard.id} />
-                )}
+            {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && <DashboardCollaboration dashboardId={dashboard.id} />}
             <section>
                 <h5>External sharing</h5>
                 <LemonSwitch
@@ -95,12 +80,39 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
     const { deleteExplicitCollaborator, setExplicitCollaboratorsToBeAdded, addExplicitCollaborators } = useActions(
         dashboardCollaboratorsLogic({ dashboardId })
     )
+    const { hasAvailableFeature } = useValues(userLogic)
+
+    const dashboardCollaborationAvailable = hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
+
+    const restrictionOptions: LemonSelectOptions = {
+        [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
+            label: 'Everyone in the project can edit',
+            icon: <IconLockOpen />,
+            disabled: !dashboardCollaborationAvailable,
+        },
+        [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
+            label: 'Only those invited to this dashboard can edit',
+            icon: dashboardCollaborationAvailable ? <IconLock /> : <IconPremium />,
+            disabled: !dashboardCollaborationAvailable,
+        },
+    }
 
     return (
         dashboard && (
             <>
                 <section>
                     <h5>Dashboard restrictions</h5>
+                    {!dashboardCollaborationAvailable && (
+                        <a href="https://posthog.com/pricing" target="_blank">
+                            <LemonButton
+                                icon={<IconPremium />}
+                                type="primary"
+                                style={{ height: '3rem', width: '100%' }}
+                            >
+                                Upgrade for advanced collaboration features
+                            </LemonButton>
+                        </a>
+                    )}
                     <LemonSelect
                         value={dashboard.restriction_level}
                         onChange={(newValue) =>
@@ -108,7 +120,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                                 restriction_level: newValue,
                             })
                         }
-                        options={RESTRICTION_OPTIONS}
+                        options={restrictionOptions}
                         loading={dashboardLoading}
                         type="stealth"
                         outlined
@@ -125,7 +137,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                             {/* TOOD: Use Lemon instead of Ant components here */}
                             <Select
                                 mode="multiple"
-                                placeholder="Search for members…"
+                                placeholder="Search for team members to add…"
                                 loading={explicitCollaboratorsLoading}
                                 value={explicitCollaboratorsToBeAdded}
                                 onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
