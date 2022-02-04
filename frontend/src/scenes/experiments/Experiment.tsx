@@ -618,10 +618,7 @@ export function Experiment_(): JSX.Element {
                             <Row align="middle" className="not-significant-results">
                                 <Col span={23} style={{ color: '#2D2D2D' }}>
                                     <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
-                                    <br />
-                                    {experimentData?.end_date
-                                        ? ''
-                                        : "We don't recommend ending this experiment yet."}{' '}
+                                    {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
                                     See our{' '}
                                     <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
                                         {' '}
