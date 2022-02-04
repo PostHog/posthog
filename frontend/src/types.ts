@@ -954,7 +954,7 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string
+    value: string | number
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
@@ -1407,6 +1407,8 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
+    // ID of feature flag
+    feature_flag: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -1428,6 +1430,7 @@ export interface ExperimentResults {
     itemID: string
     significant: boolean
     noData?: boolean
+    significance_code: SignificanceCode
 }
 
 export interface SecondaryExperimentMetric {
@@ -1499,6 +1502,14 @@ export interface FunnelCorrelation {
         | FunnelCorrelationResultsType.Events
         | FunnelCorrelationResultsType.Properties
         | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum SignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
 export enum FunnelCorrelationType {
