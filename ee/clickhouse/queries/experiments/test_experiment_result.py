@@ -151,10 +151,10 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         variant_control = Variant("B", 100, 18)
 
         _, probability = ClickhouseFunnelExperimentResult.calculate_results(variant_control, [variant_test])
-        self.assertAlmostEqual(probability, 0.918, places=2)
+        self.assertAlmostEqual(probability, 0.918, places=1)
 
         alternative_probability = calculate_probability_of_winning_for_target(variant_test, [variant_control])
-        self.assertAlmostEqual(probability, alternative_probability, places=2)
+        self.assertAlmostEqual(probability, alternative_probability, places=1)
 
     def test_calculate_results_for_two_test_variants(self):
         variant_test_1 = Variant("A", 100, 10)
@@ -165,9 +165,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
             variant_control, [variant_test_1, variant_test_2]
         )
         self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.0, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.033, places=2)
-        self.assertAlmostEqual(probabilities[2], 0.967, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.0, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.033, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.967, places=1)
 
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2]
@@ -199,7 +199,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2]
         )
-        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
+        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
             calculate_expected_loss(variant_test_2, [variant_control, variant_test_1]), 0.022, places=2
@@ -216,8 +216,8 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, [variant_test_1])
         self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.197, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.802, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.197, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.802, places=1)
 
         self.assertAlmostEqual(calculate_expected_loss(variant_test_1, [variant_control]), 0.0010, places=3)
 
@@ -236,16 +236,16 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
         )
         self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.0, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.033, places=2)
-        self.assertAlmostEqual(probabilities[2], 0.967, places=2)
-        self.assertAlmostEqual(probabilities[3], 0.0, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.0, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.033, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.967, places=1)
+        self.assertAlmostEqual(probabilities[3], 0.0, places=1)
 
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
         )
 
-        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
+        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
             calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]), 0.0004, places=2
@@ -266,15 +266,15 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
         )
         self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.168, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.174, places=2)
-        self.assertAlmostEqual(probabilities[2], 0.292, places=2)
-        self.assertAlmostEqual(probabilities[3], 0.365, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.168, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.174, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.292, places=1)
+        self.assertAlmostEqual(probabilities[3], 0.365, places=1)
 
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
         )
-        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
+        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
             calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]), 0.033, places=2
@@ -300,7 +300,7 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         alternative_probability_for_control = calculate_probability_of_winning_for_target(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
         )
-        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
+        self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(calculate_expected_loss(variant_test_3, [variant_control]), 0, places=2)
 

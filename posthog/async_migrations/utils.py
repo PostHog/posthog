@@ -41,11 +41,16 @@ def process_error(
     rollback: bool = True,
     alert: bool = False,
     status: int = MigrationStatus.Errored,
+    current_operation_index: Optional[int] = None,
 ):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
 
     update_async_migration(
-        migration_instance=migration_instance, status=status, error=error, finished_at=datetime.now(),
+        migration_instance=migration_instance,
+        current_operation_index=current_operation_index,
+        status=status,
+        error=error,
+        finished_at=datetime.now(),
     )
 
     if alert:

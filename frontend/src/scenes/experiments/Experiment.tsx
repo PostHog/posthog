@@ -79,6 +79,8 @@ export function Experiment_(): JSX.Element {
         experimentId,
         conversionRateForVariant,
         getIndexForVariant,
+        significanceTooltip,
+        areTrendResultsConfusing,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -580,8 +582,10 @@ export function Experiment_(): JSX.Element {
                         {showWarning && experimentResults && areResultsSignificant && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>. You can end this experiment now
-                                    or let it run to completion.
+                                    Your results are <b>statistically significant</b>.{' '}
+                                    {experimentData.end_date
+                                        ? ''
+                                        : 'You can end this experiment now or let it run to completion.'}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
@@ -593,14 +597,13 @@ export function Experiment_(): JSX.Element {
                         {showWarning && experimentResults && !areResultsSignificant && (
                             <Row align="middle" className="not-significant-results">
                                 <Col span={19} style={{ color: '#f96132' }}>
-                                    Your results are <b>not statistically significant</b>. We don't recommend ending
-                                    this experiment yet.
-                                    <Tooltip
-                                        placement="right"
-                                        title="This can be because the number of people exposed to the experiment is less than 100, or the results are not statistically significant."
-                                    >
-                                        <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
-                                    </Tooltip>
+                                    Your results are <b>not statistically significant</b>.{' '}
+                                    {experimentData.end_date ? '' : "We don't recommend ending this experiment yet."}
+                                    {significanceTooltip && (
+                                        <Tooltip placement="right" title={significanceTooltip}>
+                                            <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
+                                        </Tooltip>
+                                    )}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
@@ -688,6 +691,16 @@ export function Experiment_(): JSX.Element {
                                                                 </Row>
                                                             </b>{' '}
                                                             {countDataForVariant(variant)}{' '}
+                                                            {areTrendResultsConfusing && idx === 0 && (
+                                                                <Tooltip
+                                                                    placement="right"
+                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                                                                >
+                                                                    <InfoCircleOutlined
+                                                                        style={{ padding: '4px 2px' }}
+                                                                    />
+                                                                </Tooltip>
+                                                            )}
                                                         </Row>
                                                     ) : (
                                                         <Row>
