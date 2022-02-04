@@ -709,6 +709,7 @@ export interface DashboardType {
 
 export type DashboardLayoutSize = 'sm' | 'xs'
 
+/** Explicit dashboard collaborator, based on DashboardPrivilege. */
 export interface DashboardCollaboratorType {
     id: string
     dashboard_id: DashboardType['id']
@@ -716,6 +717,11 @@ export interface DashboardCollaboratorType {
     level: DashboardPrivilegeLevel
     added_at: string
     updated_at: string
+}
+
+/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
+export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
+    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
 }
 
 export interface OrganizationInviteType {

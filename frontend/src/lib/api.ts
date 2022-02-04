@@ -16,6 +16,7 @@ import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
+import { DashboardPrivilegeLevel } from './constants'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -280,11 +281,15 @@ const api = {
             },
             async create(
                 dashboardId: DashboardType['id'],
-                userUuid: UserType['uuid']
+                userUuid: UserType['uuid'],
+                level: DashboardPrivilegeLevel
             ): Promise<DashboardCollaboratorType> {
-                return await new ApiRequest()
-                    .dashboardCollaborators(dashboardId)
-                    .create({ data: { user_uuid: userUuid } })
+                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
+                    data: {
+                        user_uuid: userUuid,
+                        level,
+                    },
+                })
             },
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()

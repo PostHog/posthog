@@ -8,16 +8,16 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
-import { IconCopy, IconDeleteForever, IconLock, IconLockOpen } from 'lib/components/icons'
+import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature, DashboardType, UserBasicType, UserType } from '~/types'
+import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
 import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { Select } from 'antd'
-import clsx from 'clsx'
+import { Button, Select } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const RESTRICTION_OPTIONS: LemonSelectOptions = {
     [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
@@ -30,46 +30,15 @@ const RESTRICTION_OPTIONS: LemonSelectOptions = {
     },
 }
 
-function CollaboratorRow({
-    user,
-    level,
-    deleteCollaborator,
-}: {
-    user: UserBasicType
-    level: DashboardPrivilegeLevel | null
-    deleteCollaborator?: (userUuid: UserType['uuid']) => void
-}): JSX.Element {
-    return (
-        <div className={clsx('CollaboratorRow', !level && 'CollaboratorRow--owner')}>
-            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
-            <div className="CollaboratorRow__details">
-                <span>{level ? privilegeLevelToName[level] : <b>owner</b>}</span>
-                {deleteCollaborator && (
-                    <LemonButton
-                        icon={<IconDeleteForever />}
-                        onClick={() => deleteCollaborator(user.uuid)}
-                        type="stealth"
-                    />
-                )}
-            </div>
-        </div>
-    )
-}
-
 export interface ShareModalProps {
     visible: boolean
     onCancel: () => void
-    dashboardId: DashboardType['id']
 }
 
-export function ShareModal({ visible, onCancel, dashboardId }: ShareModalProps): JSX.Element | null {
+export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
-    const { dashboard } = useValues(dashboardLogic({ id: dashboardId }))
-    const { setIsSharedDashboard, triggerDashboardUpdate } = useActions(dashboardLogic({ id: dashboardId }))
-    const { explicitCollaborators, explicitCollaboratorsLoading } = useValues(
-        dashboardCollaboratorsLogic({ dashboardId: dashboardId })
-    )
-    const { deleteExplicitCollaborator } = useActions(dashboardCollaboratorsLogic({ dashboardId: dashboardId }))
+    const { dashboard } = useValues(dashboardLogic)
+    const { setIsSharedDashboard } = useActions(dashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -79,66 +48,7 @@ export function ShareModal({ visible, onCancel, dashboardId }: ShareModalProps):
         <LemonModal visible={visible} onCancel={onCancel} destroyOnClose>
             {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
                 featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
-                    <>
-                        <section>
-                            <h5>Dashboard restrictions</h5>
-                            <LemonSelect
-                                value={dashboard.restriction_level}
-                                onChange={(newValue) =>
-                                    triggerDashboardUpdate({
-                                        restriction_level: newValue,
-                                    })
-                                }
-                                options={RESTRICTION_OPTIONS}
-                                loading={dashboardLoading}
-                                type="stealth"
-                                outlined
-                                style={{
-                                    height: '3rem',
-                                    width: '100%',
-                                }}
-                            />
-                        </section>
-                        {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
-                            <section>
-                                <h5>Collaborators</h5>
-                                <Select
-                                    mode="multiple"
-                                    placeholder="Search for members…"
-                                    loading={explicitCollaboratorsLoading}
-                                    showArrow
-                                    showSearch
-                                    autoFocus
-                                    style={{ width: '100%' }}
-                                >
-                                    {[].map((user: UserType) => (
-                                        <Select.Option
-                                            key={user.id}
-                                            value={user.uuid}
-                                            title={`${user.first_name} (${user.email})`}
-                                        >
-                                            <ProfilePicture
-                                                name={user.first_name}
-                                                email={user.email}
-                                                size="sm"
-                                                style={{ display: 'inline-flex', marginRight: 8 }}
-                                            />
-                                            {user.first_name} ({user.email})
-                                        </Select.Option>
-                                    ))}
-                                </Select>
-                                {dashboard.created_by && <CollaboratorRow user={dashboard.created_by} level={null} />}
-                                {explicitCollaborators.map((collaborator) => (
-                                    <CollaboratorRow
-                                        key={collaborator.id}
-                                        user={collaborator.user}
-                                        level={collaborator.level}
-                                        deleteCollaborator={deleteExplicitCollaborator}
-                                    />
-                                ))}
-                            </section>
-                        )}
-                    </>
+                    <DashboardCollaboration dashboardId={dashboard.id} />
                 )}
             <section>
                 <h5>External sharing</h5>
@@ -174,4 +84,138 @@ export function ShareModal({ visible, onCancel, dashboardId }: ShareModalProps):
             </section>
         </LemonModal>
     ) : null
+}
+
+function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
+    const { dashboardLoading } = useValues(dashboardsModel)
+    const { dashboard } = useValues(dashboardLogic)
+    const { triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { allCollaborators, explicitCollaboratorsLoading, addableMembers, explicitCollaboratorsToBeAdded } =
+        useValues(dashboardCollaboratorsLogic({ dashboardId }))
+    const { deleteExplicitCollaborator, setExplicitCollaboratorsToBeAdded, addExplicitCollaborators } = useActions(
+        dashboardCollaboratorsLogic({ dashboardId })
+    )
+
+    return (
+        dashboard && (
+            <>
+                <section>
+                    <h5>Dashboard restrictions</h5>
+                    <LemonSelect
+                        value={dashboard.restriction_level}
+                        onChange={(newValue) =>
+                            triggerDashboardUpdate({
+                                restriction_level: newValue,
+                            })
+                        }
+                        options={RESTRICTION_OPTIONS}
+                        loading={dashboardLoading}
+                        type="stealth"
+                        outlined
+                        style={{
+                            height: '3rem',
+                            width: '100%',
+                        }}
+                    />
+                </section>
+                {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
+                    <section>
+                        <h5>Collaborators</h5>
+                        <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
+                            {/* TOOD: Use Lemon instead of Ant components here */}
+                            <Select
+                                mode="multiple"
+                                placeholder="Search for members…"
+                                loading={explicitCollaboratorsLoading}
+                                value={explicitCollaboratorsToBeAdded}
+                                onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                showArrow
+                                showSearch
+                                style={{ flexGrow: 1 }}
+                            >
+                                {addableMembers.map((user) => (
+                                    <Select.Option
+                                        key={user.id}
+                                        value={user.uuid}
+                                        title={`${user.first_name} (${user.email})`}
+                                    >
+                                        <ProfilePicture
+                                            name={user.first_name}
+                                            email={user.email}
+                                            size="sm"
+                                            style={{ display: 'inline-flex', marginRight: 8 }}
+                                        />
+                                        {user.first_name} ({user.email})
+                                    </Select.Option>
+                                ))}
+                            </Select>
+                            <Button
+                                type="primary"
+                                style={{ flexShrink: 0, marginLeft: '0.5rem' }}
+                                loading={explicitCollaboratorsLoading}
+                                disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                onClick={() => addExplicitCollaborators()}
+                            >
+                                Add
+                            </Button>
+                        </div>
+                        {allCollaborators.map((collaborator) => (
+                            <CollaboratorRow
+                                key={collaborator.user.uuid}
+                                collaborator={collaborator}
+                                deleteCollaborator={deleteExplicitCollaborator}
+                            />
+                        ))}
+                    </section>
+                )}
+            </>
+        )
+    )
+}
+
+function CollaboratorRow({
+    collaborator,
+    deleteCollaborator,
+}: {
+    collaborator: FusedDashboardCollaboratorType
+    deleteCollaborator: (userUuid: UserType['uuid']) => void
+}): JSX.Element {
+    const { user, level } = collaborator
+
+    const wasInvited = typeof level === 'number'
+
+    return (
+        <div className="CollaboratorRow">
+            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
+            <Tooltip
+                title={
+                    !wasInvited
+                        ? `${user.first_name || 'This person'} ${
+                              level === 'owner' ? 'created the dashboard' : 'is a project administrator'
+                          }`
+                        : null
+                }
+                placement="left"
+            >
+                <div className="CollaboratorRow__details">
+                    <span>
+                        {!wasInvited ? (
+                            <b>{level === 'owner' ? 'owner' : privilegeLevelToName[DashboardPrivilegeLevel.CanEdit]}</b>
+                        ) : (
+                            privilegeLevelToName[level]
+                        )}
+                    </span>
+                    <LemonButton
+                        icon={<IconCancel />}
+                        onClick={() => deleteCollaborator(user.uuid)}
+                        type="stealth"
+                        tooltip={wasInvited ? 'Remove invited collaborator' : null}
+                        disabled={!wasInvited}
+                        status="danger"
+                        compact
+                    />
+                </div>
+            </Tooltip>
+        </div>
+    )
 }
