@@ -92,7 +92,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
         },
         [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
             label: 'Only those invited to this dashboard can edit',
-            icon: dashboardCollaborationAvailable ? <IconLock /> : <IconPremium />,
+            icon: <IconLock />,
             disabled: !dashboardCollaborationAvailable,
         },
     }
@@ -103,18 +103,24 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                 <section>
                     <h5>Dashboard restrictions</h5>
                     {!dashboardCollaborationAvailable && (
-                        <a href="https://posthog.com/pricing" target="_blank">
-                            <LemonButton
-                                icon={<IconPremium />}
-                                type="primary"
-                                style={{ height: '3rem', width: '100%' }}
-                            >
-                                Upgrade for advanced collaboration features
-                            </LemonButton>
-                        </a>
+                        <div>
+                            <a href="https://posthog.com/pricing" target="_blank">
+                                <LemonButton
+                                    icon={<IconPremium />}
+                                    type="premium"
+                                    style={{ height: '3rem', width: '100%' }}
+                                >
+                                    Upgrade to unlock advanced collaboration features
+                                </LemonButton>
+                            </a>
+                        </div>
                     )}
                     <LemonSelect
-                        value={dashboard.restriction_level}
+                        value={
+                            dashboardCollaborationAvailable
+                                ? dashboard.restriction_level
+                                : DashboardRestrictionLevel.EveryoneInProjectCanEdit
+                        }
                         onChange={(newValue) =>
                             triggerDashboardUpdate({
                                 restriction_level: newValue,
@@ -130,56 +136,57 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                         }}
                     />
                 </section>
-                {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
-                    <section>
-                        <h5>Collaborators</h5>
-                        <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
-                            {/* TOOD: Use Lemon instead of Ant components here */}
-                            <Select
-                                mode="multiple"
-                                placeholder="Search for team members to add…"
-                                loading={explicitCollaboratorsLoading}
-                                value={explicitCollaboratorsToBeAdded}
-                                onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                showArrow
-                                showSearch
-                                style={{ flexGrow: 1 }}
-                            >
-                                {addableMembers.map((user) => (
-                                    <Select.Option
-                                        key={user.id}
-                                        value={user.uuid}
-                                        title={`${user.first_name} (${user.email})`}
-                                    >
-                                        <ProfilePicture
-                                            name={user.first_name}
-                                            email={user.email}
-                                            size="sm"
-                                            style={{ display: 'inline-flex', marginRight: 8 }}
-                                        />
-                                        {user.first_name} ({user.email})
-                                    </Select.Option>
-                                ))}
-                            </Select>
-                            <Button
-                                type="primary"
-                                style={{ flexShrink: 0, marginLeft: '0.5rem' }}
-                                loading={explicitCollaboratorsLoading}
-                                disabled={explicitCollaboratorsToBeAdded.length === 0}
-                                onClick={() => addExplicitCollaborators()}
-                            >
-                                Add
-                            </Button>
-                        </div>
-                        {allCollaborators.map((collaborator) => (
-                            <CollaboratorRow
-                                key={collaborator.user.uuid}
-                                collaborator={collaborator}
-                                deleteCollaborator={deleteExplicitCollaborator}
-                            />
-                        ))}
-                    </section>
-                )}
+                {dashboardCollaborationAvailable &&
+                    dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
+                        <section>
+                            <h5>Collaborators</h5>
+                            <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
+                                {/* TOOD: Use Lemon instead of Ant components here */}
+                                <Select
+                                    mode="multiple"
+                                    placeholder="Search for team members to add…"
+                                    loading={explicitCollaboratorsLoading}
+                                    value={explicitCollaboratorsToBeAdded}
+                                    onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                    showArrow
+                                    showSearch
+                                    style={{ flexGrow: 1 }}
+                                >
+                                    {addableMembers.map((user) => (
+                                        <Select.Option
+                                            key={user.id}
+                                            value={user.uuid}
+                                            title={`${user.first_name} (${user.email})`}
+                                        >
+                                            <ProfilePicture
+                                                name={user.first_name}
+                                                email={user.email}
+                                                size="sm"
+                                                style={{ display: 'inline-flex', marginRight: 8 }}
+                                            />
+                                            {user.first_name} ({user.email})
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                                <Button
+                                    type="primary"
+                                    style={{ flexShrink: 0, marginLeft: '0.5rem' }}
+                                    loading={explicitCollaboratorsLoading}
+                                    disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                    onClick={() => addExplicitCollaborators()}
+                                >
+                                    Add
+                                </Button>
+                            </div>
+                            {allCollaborators.map((collaborator) => (
+                                <CollaboratorRow
+                                    key={collaborator.user.uuid}
+                                    collaborator={collaborator}
+                                    deleteCollaborator={deleteExplicitCollaborator}
+                                />
+                            ))}
+                        </section>
+                    )}
             </>
         )
     )
