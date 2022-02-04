@@ -141,7 +141,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
-    def test_funnel_person_recordings(self):
+    def test_strict_funnel_person_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_event(
             event="step one",

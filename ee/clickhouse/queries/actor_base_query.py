@@ -119,21 +119,23 @@ class ActorBaseQuery:
     ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
         all_session_ids = set()
         for row in raw_result:
-            for event in row[1]:
-                if event[2]:
-                    all_session_ids.add(event[2])
+            if len(row) > 1:
+                for event in row[1]:
+                    if event[2]:
+                        all_session_ids.add(event[2])
 
         session_ids_with_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
 
         matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:
             recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
-            for event in row[1]:
-                event_session_id = event[2]
-                if event_session_id and event_session_id in session_ids_with_recordings:
-                    recording_events_by_session_id.setdefault(event_session_id, []).append(
-                        EventInfoForRecording(timestamp=event[0], uuid=event[1], window_id=event[3])
-                    )
+            if len(row) > 1:
+                for event in row[1]:
+                    event_session_id = event[2]
+                    if event_session_id and event_session_id in session_ids_with_recordings:
+                        recording_events_by_session_id.setdefault(event_session_id, []).append(
+                            EventInfoForRecording(timestamp=event[0], uuid=event[1], window_id=event[3])
+                        )
             recordings = [
                 MatchedRecording(session_id=session_id, events=events)
                 for session_id, events in recording_events_by_session_id.items()

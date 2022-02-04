@@ -20,7 +20,7 @@ class ClickhouseFunnelUnorderedActors(ClickhouseFunnelUnordered, ActorBaseQuery)
             FUNNEL_PERSONS_BY_STEP_SQL.format(
                 steps_per_person_query=self.get_step_counts_query(),
                 persons_steps=self._get_funnel_person_step_condition(),
-                matching_events_select_statement=self._get_funnel_person_step_events(),
+                matching_events_select_statement="",  # unordered funnels does not support matching events (and thereby recordings)
                 extra_fields=extra_fields_string,
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",

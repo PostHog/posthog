@@ -163,14 +163,14 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
-    def test_funnel_person_recordings(self):
+    def test_unordered_funnel_does_not_return_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_event(
             event="step two",
             distinct_id="user_1",
             team=self.team,
             timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-            properties={"$session_id": "s2", "$window_id": "w2"},
+            properties={"$session_id": "s1", "$window_id": "w1"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
         _create_event(
@@ -183,9 +183,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         _create_session_recording_event(self.team.pk, "user_1", "s1", timezone.now() + timedelta(days=1))
-        _create_session_recording_event(self.team.pk, "user_1", "s2", timezone.now())
 
-        # First event (returns second step)
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -199,93 +197,11 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-                "include_recordings": "true",
+                "include_recordings": "true",  # <- The important line
             }
         )
         _, results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now(),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
+            results[0]["matched_recordings"], [],
         )
-
-        # Second event (returns first step)
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": 2,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-                "include_recordings": "true",
-            }
-        )
-        _, results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        # self.assertEqual(results[0]["id"], p1.uuid)
-        # self.assertEqual(
-        #     results[0]["matched_recordings"],
-        #     [
-        #         {
-        #             "session_id": "s1",
-        #             "events": [
-        #                 {
-        #                     "uuid": UUID("11111111-1111-1111-1111-111111111111"),
-        #                     "timestamp": timezone.now() + timedelta(days=1),
-        #                     "window_id": "w1",
-        #                 }
-        #             ],
-        #         }
-        #     ],
-        # )
-
-        # Third event dropoff returns second event (first step)
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": -3,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-                "include_recordings": "true",
-            }
-        )
-        _, results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
-        # self.assertEqual(results[0]["id"], p1.uuid)
-        # self.assertEqual(
-        #     results[0]["matched_recordings"],
-        #     [
-        #         {
-        #             "session_id": "s1",
-        #             "events": [
-        #                 {
-        #                     "uuid": UUID("11111111-1111-1111-1111-111111111111"),
-        #                     "timestamp": timezone.now() + timedelta(days=1),
-        #                     "window_id": "w1",
-        #                 }
-        #             ],
-        #         },
-        #     ],
-        # )
