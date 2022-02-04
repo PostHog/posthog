@@ -9,7 +9,7 @@ SELECT groupArray(value) FROM (
     WHERE
         team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
-    ORDER BY count DESC
+    ORDER BY count DESC, value DESC
     LIMIT %(limit)s OFFSET %(offset)s
 )
 """
