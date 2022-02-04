@@ -40,7 +40,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                         key={key}
                         icon={option.icon}
                         onClick={() => {
-                            if (key !== localValue) {
+                            if (key != localValue) {
                                 onChange(key)
                                 setLocalValue(key)
                             }
