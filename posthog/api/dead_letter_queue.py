@@ -43,6 +43,12 @@ DEAD_LETTER_QUEUE_METRICS = {
             "subrows": {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day(offset)}
         },
     },
+    "dlq_events_per_tag": {
+        "metric": "Total events per tag",
+        "fn": lambda offset: {
+            "subrows": {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_tag(offset)}
+        },
+    },
 }
 
 
@@ -156,6 +162,18 @@ def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Unio
         FROM events_dead_letter_queue 
         GROUP BY day 
         ORDER BY c, day DESC 
+        LIMIT {ROWS_LIMIT} 
+        OFFSET {offset}
+        """
+    )
+
+
+def get_dead_letter_queue_events_per_tag(offset: Optional[int] = 0) -> List[Union[str, int]]:
+    return sync_execute(
+        f"""
+        SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue 
+        GROUP BY tag
+        ORDER BY c, tag DESC 
         LIMIT {ROWS_LIMIT} 
         OFFSET {offset}
         """
