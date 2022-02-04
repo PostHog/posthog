@@ -24,7 +24,7 @@ export function ExperimentWorkflow(): JSX.Element {
             </Row>
             <Row>
                 <Col
-                    className={`exp-workflow-step ${workflowValidateStepCompleted ? 'step-completed' : ''}`}
+                    className={`full-width exp-workflow-step ${workflowValidateStepCompleted ? 'step-completed' : ''}`}
                     onClick={() => setWorkflowValidateStepCompleted(!workflowValidateStepCompleted)}
                 >
                     <Row align="middle">
@@ -43,7 +43,7 @@ export function ExperimentWorkflow(): JSX.Element {
             </Row>
             <Row>
                 <Col
-                    className={`exp-workflow-step ${workflowLaunchStepCompleted ? 'step-completed' : ''}`}
+                    className={`full-width exp-workflow-step ${workflowLaunchStepCompleted ? 'step-completed' : ''}`}
                     onClick={() => setWorkflowLaunchStepCompleted(!workflowLaunchStepCompleted)}
                 >
                     <Row align="middle">
