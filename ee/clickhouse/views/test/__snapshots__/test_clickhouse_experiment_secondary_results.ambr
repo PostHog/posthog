@@ -14,7 +14,7 @@
        AND has(['control', 'test'], trim(BOTH '"'
                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -84,7 +84,7 @@
        AND has(['control', 'test'], trim(BOTH '"'
                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
