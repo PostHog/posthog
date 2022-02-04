@@ -93,7 +93,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                         errorToast(
                             'Error saving your definition',
                             'Attempting to save this definition returned an error:',
-                            error
+                            error.message
                         )
                     }
                     breakpoint()
