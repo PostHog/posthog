@@ -67,7 +67,7 @@ export function InsightContainer(
         funnelLogic(insightProps)
     )
     const { toggleHelp } = useActions(helpButtonLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { projectMetadata } = useValues(teamLogic)
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -191,8 +191,8 @@ export function InsightContainer(
                         </Col>
                     </Row>
                     {filters.date_from === 'all' &&
-                        currentTeam?.event_first_seen &&
-                        dayjs(currentTeam.event_first_seen) < dayjs('2015-01-01') && (
+                        projectMetadata?.event_first_seen &&
+                        dayjs(projectMetadata.event_first_seen) < dayjs('2015-01-01') && (
                             <Row style={{ padding: '0 16px' }}>
                                 <InfoMessage style={{ width: '100%' }}>
                                     <>

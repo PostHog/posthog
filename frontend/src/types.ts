@@ -197,7 +197,6 @@ export interface TeamType extends TeamBasicType {
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
     has_group_types: boolean
-    event_first_seen?: string
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -208,6 +207,12 @@ export interface TeamType extends TeamBasicType {
     }
 }
 
+/** /api/projects/<id>/metadata/ */
+export interface ProjectMetadataType {
+    event_first_seen: string
+    total_saved_insights: number
+    total_custom_dashboards: number
+}
 export interface ActionType {
     count?: number
     created_at: string

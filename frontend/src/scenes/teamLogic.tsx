@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
-import { TeamType } from '~/types'
+import { ProjectMetadataType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
@@ -88,6 +88,18 @@ export const teamLogic = kea<teamLogicType>({
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
+        projectMetadata: [
+            null as ProjectMetadataType | null,
+            {
+                loadProjectMetadata: async () => {
+                    try {
+                        return await api.get('api/projects/@current/metadata/')
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
     }),
     selectors: {
         currentTeamId: [
@@ -146,6 +158,7 @@ export const teamLogic = kea<teamLogicType>({
                 // If app context is not available, a traditional request is needed
                 actions.loadCurrentTeam()
             }
+            actions.loadProjectMetadata()
         },
     }),
 })
