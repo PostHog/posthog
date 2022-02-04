@@ -172,6 +172,7 @@
                  AND person_max.is_deleted = 0
                  AND (trim(BOTH '"'
                            FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) )
+  LIMIT 50001
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3

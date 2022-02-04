@@ -163,6 +163,7 @@
                  AND person_max.is_deleted = 0
                  AND (has(['some_val'], trim(BOTH '"'
                                              FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+  LIMIT 50001
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
@@ -246,6 +247,7 @@
                  AND person_max.is_deleted = 0
                  AND (has(['some_val'], trim(BOTH '"'
                                              FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+  LIMIT 50001
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.4
