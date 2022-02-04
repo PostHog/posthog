@@ -3,7 +3,7 @@ import { ProfilePicture } from '.'
 import { Tooltip } from '../Tooltip'
 
 export interface ProfileBubblesProps {
-    people: { email: string; name?: string; tooltip: string }[]
+    people: { email: string; name?: string; tooltip?: string }[]
     limit?: number
 }
 
@@ -17,7 +17,7 @@ export function ProfileBubbles({ people, limit = 6 }: ProfileBubblesProps): JSX.
         // The limit of bubbles is 1 less than shown because we have to account for the +n bubble.
         shownPeople = people.slice(0, limit - 1)
         stashedPeople = people.slice(limit - 1)
-        restTooltips = stashedPeople.map(({ tooltip }) => tooltip).join('\n')
+        restTooltips = stashedPeople.map(({ email, name, tooltip }) => tooltip || name || email).join(', ')
     }
 
     return (
@@ -30,7 +30,7 @@ export function ProfileBubbles({ people, limit = 6 }: ProfileBubblesProps): JSX.
                 </Tooltip>
             ))}
             {overflowing && (
-                <Tooltip title={restTooltips} overlayInnerStyle={{ whiteSpace: 'pre-wrap' }}>
+                <Tooltip title={restTooltips}>
                     <div className="ProfileBubbles__more">+{stashedPeople.length}</div>
                 </Tooltip>
             )}
