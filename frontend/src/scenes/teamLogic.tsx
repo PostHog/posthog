@@ -8,6 +8,7 @@ import React from 'react'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -130,7 +131,7 @@ export const teamLogic = kea<teamLogicType>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -145,6 +146,14 @@ export const teamLogic = kea<teamLogicType>({
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
+        },
+        loadProjectMetadataSuccess: ({ projectMetadata }) => {
+            if (projectMetadata && values.currentTeam) {
+                posthog.group('project', values.currentTeam.uuid, {
+                    total_saved_insights: projectMetadata.total_saved_insights,
+                    total_custom_dashboards: projectMetadata.total_custom_dashboards,
+                })
+            }
         },
     }),
     events: ({ actions }) => ({

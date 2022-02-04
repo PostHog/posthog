@@ -221,9 +221,13 @@ class ProjectMetadataSerializer(serializers.Serializer):
         return Insight.objects.filter(team=team, saved=True).count()
 
     def get_total_custom_dashboards(self, team: Team) -> int:
-        return Dashboard.objects.filter(
-            deleted=False, items__in=Insight.objects.filter(team=team, is_sample=False)
-        ).count()
+        return (
+            Insight.objects.filter(team=team, is_sample=False, dashboard__isnull=False)
+            .exclude(dashboard__deleted=True)
+            .values_list("dashboard_id")
+            .distinct()
+            .count()
+        )
 
 
 class ProjectMetadataViewset(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
