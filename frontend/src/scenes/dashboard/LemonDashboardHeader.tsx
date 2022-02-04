@@ -34,11 +34,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                     <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
                 )}
                 {dashboard && (
-                    <ShareModal
-                        onCancel={() => setIsShareModalVisible(false)}
-                        visible={isShareModalVisible}
-                        dashboardId={dashboard.id}
-                    />
+                    <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />
                 )}
                 <PageHeader
                     title={
