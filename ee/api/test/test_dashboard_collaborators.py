@@ -2,7 +2,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
-from posthog.models import Dashboard, OrganizationMembership, Team, User, dashboard
+from posthog.models import Dashboard, OrganizationMembership, Team, User
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
@@ -76,6 +76,26 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(response_data["user"]["email"], other_user.email)
         self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
+    def test_cannot_add_yourself_to_restricted_dashboard_as_creator(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.test_dashboard.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
+            {"user_uuid": str(self.user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT,},
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_data,
+            self.validation_error_response(
+                "A user with inherent dashboard restriction rights (the dashboard owner or a project admins) cannot be added as a collaborator."
+            ),
+        )
+
     def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -87,6 +107,126 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
             {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT,},
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response(
+                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
+            ),
+        )
+
+    def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.test_dashboard.save()
+        _, _, other_user = User.objects.bootstrap("Beta", "a@x.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
+            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT,},
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_data,
+            self.validation_error_response("Cannot add collaborators that have no access to the project."),
+        )
+
+    def test_cannot_add_collaborator_to_other_org_to_edit_restricted_dashboard_as_creator(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.test_dashboard.save()
+        self.organization_membership.delete()
+        _, _, other_user = User.objects.bootstrap("Beta", "a@x.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
+            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT,},
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_data, self.permission_denied_response("You don't have access to the project."),
+        )
+
+    def test_cannot_update_existing_collaborator(self):
+        # This will change once there are more levels, but with just two it doesn't make sense to PATCH privileges
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        self.test_dashboard.save()
+        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
+        DashboardPrivilege.objects.create(
+            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}",
+            {"level": Dashboard.PrivilegeLevel.CAN_VIEW,},
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_cannot_remove_collaborator_from_unrestricted_dashboard_as_creator(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        self.test_dashboard.save()
+        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
+        DashboardPrivilege.objects.create(
+            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        response = self.client.delete(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
+        )
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_data,
+            self.validation_error_response(
+                "Cannot remove collaborators from a dashboard on the lowest restriction level."
+            ),
+        )
+
+    def test_can_remove_collaborator_from_restricted_dashboard_as_creator(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.test_dashboard.save()
+        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
+        DashboardPrivilege.objects.create(
+            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        response = self.client.delete(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_cannot_remove_collaborator_from_restricted_dashboard_as_other_user(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.test_dashboard.created_by = None
+        self.test_dashboard.save()
+        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
+        DashboardPrivilege.objects.create(
+            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        response = self.client.delete(
+            f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
         response_data = response.json()
 

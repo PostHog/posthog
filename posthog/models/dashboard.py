@@ -77,11 +77,13 @@ class Dashboard(models.Model):
     def does_user_have_inherent_restriction_rights(self, user_id: int) -> bool:
         from posthog.models.organization import OrganizationMembership
 
+        # The owner (aka creator) has full permissions
+        if user_id == self.created_by_id:
+            return True
+        effective_project_membership_level = self.team.get_effective_membership_level(user_id)
         return (
-            # The owner (aka creator) has full permissions
-            user_id == self.created_by_id
-            # Project admins get full permissions as well
-            or self.team.get_effective_membership_level(user_id) >= OrganizationMembership.Level.ADMIN
+            effective_project_membership_level is not None
+            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
         )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
