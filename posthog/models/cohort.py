@@ -22,7 +22,7 @@ DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
 """
 
 UPDATE_QUERY = """
-INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
+INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
 {values_query}
 ON CONFLICT DO NOTHING
 """
@@ -87,6 +87,9 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
+    def queryset(self):
+        return self.__class__.objects.filter(id=self.id)
+
     def get_analytics_metadata(self):
         action_groups_count: int = 0
         properties_groups_count: int = 0
@@ -103,29 +106,28 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self):
+    def calculate_people(self, batch_size=50000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
-            persons_query = self._clickhouse_persons_query()
 
-            try:
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-            except EmptyResultSet:
-                query = DELETE_QUERY.format(cohort_id=self.pk)
-                params = {}
-            else:
-                query = f"""
-                    {DELETE_QUERY};
-                    {UPDATE_QUERY};
-                """.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
-                )
-
-            cursor = connection.cursor()
+            # Get or wait to update cohort version
             with transaction.atomic():
-                cursor.execute(query, params)
+                cohort = self.queryset().select_for_update().get()
+                new_version = cohort.version + 1
+                cohort.version = new_version
+                cohort.save()
+
+            # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
+            cursor = 0
+            persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+            while persons:
+                to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk, version=new_version) for p in persons]
+                CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
+
+                cursor += batch_size
+                persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+
         except Exception as err:
             raise err
 
@@ -166,7 +168,9 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
+                    values_query=sql.replace(
+                        'FROM "posthog_person"', f', {self.pk}, {self.version} FROM "posthog_person"', 1,
+                    ),
                 )
                 cursor.execute(query, params)
             self.is_calculating = False
@@ -193,7 +197,9 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
+                    values_query=sql.replace(
+                        'FROM "posthog_person"', f', {self.pk}, {self.version} FROM "posthog_person"', 1,
+                    ),
                 )
                 cursor.execute(query, params)
 
@@ -212,10 +218,10 @@ class Cohort(models.Model):
     def __str__(self):
         return self.name
 
-    def _clickhouse_persons_query(self):
+    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
         from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id
 
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk)
+        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)
 
     def _postgres_persons_query(self):

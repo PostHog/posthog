@@ -11,9 +11,7 @@ from typing import (
 )
 
 from django.db.models import Exists, OuterRef, Q
-from importlib_metadata import version
 
-from posthog.models.cohort import Cohort
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
@@ -101,6 +99,8 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
+            from posthog.models.cohort import Cohort
+
             cohort_id = int(cast(Union[str, int], value))
             cohort = Cohort.objects.get(pk=cohort_id)
             return Q(
