@@ -107,9 +107,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["breakdown_value"], "uh")
         self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["breakdown_value"], "oh")
         self.assertEqual(response[1]["count"], 1)
 
     @snapshot_clickhouse_queries
@@ -248,8 +248,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[1])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[0])
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[1])
         self.assertEntityResponseEqual(event_response, action_response)
 
     @test_with_materialized_columns(["$some_property"])
