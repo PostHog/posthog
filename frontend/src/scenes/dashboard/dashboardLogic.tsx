@@ -732,7 +732,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         reportDashboardViewed: async (_, breakpoint) => {
             if (values.allItems) {
                 eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
-                await breakpoint(IS_TEST_MODE ? 1 : 10_000) // Tests will wait for all breakpoints to finish
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
                     eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
                 }
