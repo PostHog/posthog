@@ -10,7 +10,7 @@ export function ExperimentWorkflow(): JSX.Element {
     return (
         <Card className="experiment-workflow" title={<span className="card-secondary">Experiment workflow</span>}>
             <Row>
-                <Col className="exp-workflow-step step-completed">
+                <Col className="exp-workflow-step step-completed full-width">
                     <Row align="middle">
                         {true ? (
                             <IconCheckmark style={{ color: 'var(--primary)', fontSize: 24 }} />
