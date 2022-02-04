@@ -186,20 +186,17 @@
     .not-significant-results {
         padding: $default_spacing / 2;
         width: 100%;
-        background: rgba(249, 97, 50, 0.1);
+        background: rgba(83, 117, 255, 0.1);
         border-radius: 4px;
-        text-align: center;
         margin-bottom: $default_spacing;
     }
 
     .feature-flag-mods {
         padding: $default_spacing / 2;
         width: 100%;
-        background: rgba($brand_yellow, 0.1);
+        background: #f6ebf8;
         border-radius: 4px;
-        text-align: center;
         margin-bottom: $default_spacing;
-        justify-content: center;
     }
 }
 
