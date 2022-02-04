@@ -1,0 +1,382 @@
+import {
+    SimpleOption,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
+import { useActions, useValues } from 'kea'
+import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
+import React, { useEffect } from 'react'
+import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { LockOutlined } from '@ant-design/icons'
+import { Link } from 'lib/components/Link'
+import { IconOpenInNew } from 'lib/components/icons'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
+import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
+import { Button, Checkbox, Input } from 'antd'
+import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
+import { DefinitionOwnerDropdown } from 'scenes/events/definitions/DefinitionOwnerDropdown'
+
+function TaxonomyIntroductionSection(): JSX.Element {
+    const Lock = (): JSX.Element => (
+        <div
+            style={{
+                height: '100%',
+                width: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: 'var(--text-muted)',
+            }}
+        >
+            <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
+        </div>
+    )
+
+    return (
+        <>
+            <DefinitionPopup.Grid cols={2}>
+                <DefinitionPopup.Card title="First seen" value={<Lock />} />
+                <DefinitionPopup.Card title="Last seen" value={<Lock />} />
+                <DefinitionPopup.Card title="30 day volume" value={<Lock />} />
+                <DefinitionPopup.Card title="30 day queries" value={<Lock />} />
+            </DefinitionPopup.Grid>
+            <DefinitionPopup.Section>
+                <Link
+                    to="https://posthog.com/docs/user-guides"
+                    target="_blank"
+                    data-attr="taxonomy-learn-more"
+                    style={{ fontWeight: 600, marginTop: 8 }}
+                >
+                    Learn more about Taxonomy
+                    <IconOpenInNew style={{ marginLeft: 8 }} />
+                </Link>
+            </DefinitionPopup.Section>
+        </>
+    )
+}
+
+function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
+    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isElement, isProperty } =
+        useValues(definitionPopupLogic)
+
+    if (!definition) {
+        return <></>
+    }
+
+    const sharedComponents = (
+        <>
+            {hasTaxonomyFeatures &&
+                definition &&
+                'description' in definition &&
+                (hasTaxonomyFeatures && definition.description ? (
+                    <DefinitionPopup.Description description={definition.description} />
+                ) : (
+                    <DefinitionPopup.DescriptionEmpty />
+                ))}
+            {isElement && definition?.name && (
+                <DefinitionPopup.Description description={keyMapping.element[definition.name].description} />
+            )}
+            <DefinitionPopup.Example value={group?.getValue(definition)?.toString()} />
+            {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
+                <ObjectTags
+                    className="definition-popup-tags"
+                    tags={definition.tags}
+                    style={{ marginBottom: 4 }}
+                    staticOnly
+                />
+            )}
+            <DefinitionPopup.TimeMeta
+                createdAt={(definition && 'created_at' in definition && definition.created_at) || undefined}
+                createdBy={(definition && 'created_by' in definition && definition.created_by) || undefined}
+                updatedAt={(definition && 'updated_at' in definition && definition.updated_at) || undefined}
+                updatedBy={(definition && 'updated_by' in definition && definition.updated_by) || undefined}
+            />
+            <DefinitionPopup.HorizontalLine />
+        </>
+    )
+
+    // Things start to get different here
+    if (isEvent) {
+        const _definition = definition as EventDefinition
+        return (
+            <>
+                {sharedComponents}
+                {hasTaxonomyFeatures ? (
+                    <DefinitionPopup.Grid cols={2}>
+                        <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
+                        <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
+                        <DefinitionPopup.Card title="30 day volume" value={_definition.volume_30_day ?? '-'} />
+                        <DefinitionPopup.Card title="30 day queries" value={_definition.query_usage_30_day ?? '-'} />
+                    </DefinitionPopup.Grid>
+                ) : (
+                    <TaxonomyIntroductionSection />
+                )}
+                <DefinitionPopup.HorizontalLine />
+                <DefinitionPopup.Section>
+                    <DefinitionPopup.Card
+                        title="Sent as"
+                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                    />
+                </DefinitionPopup.Section>
+            </>
+        )
+    }
+    if (isAction) {
+        const _definition = definition as ActionType
+        return (
+            <>
+                {sharedComponents}
+                <ActionPopupInfo entity={_definition} />
+                {(_definition?.steps?.length || 0) > 0 && <DefinitionPopup.HorizontalLine />}
+                <DefinitionPopup.Grid cols={2}>
+                    <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
+                </DefinitionPopup.Grid>
+            </>
+        )
+    }
+    if (isProperty) {
+        const _definition = definition as PropertyDefinition
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopup.Grid cols={2}>
+                    <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
+                    <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
+                    <DefinitionPopup.Card title="30 day volume" value={_definition.volume_30_day ?? '-'} />
+                    <DefinitionPopup.Card title="30 day queries" value={_definition.query_usage_30_day ?? '-'} />
+                </DefinitionPopup.Grid>
+                <DefinitionPopup.HorizontalLine />
+                <DefinitionPopup.Section>
+                    <DefinitionPopup.Card
+                        title="Sent as"
+                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                    />
+                </DefinitionPopup.Section>
+            </>
+        )
+    }
+    if (isCohort) {
+        const _definition = definition as CohortType
+        if (type === TaxonomicFilterGroupType.CohortsWithAllUsers) {
+            return (
+                <>
+                    {sharedComponents}
+                    <DefinitionPopup.Grid cols={2}>
+                        <DefinitionPopup.Card title="Persons" value={_definition.count ?? 0} />
+                        <DefinitionPopup.Card
+                            title="Last calculated"
+                            value={formatTimeFromNow(_definition.last_calculation)}
+                        />
+                    </DefinitionPopup.Grid>
+                </>
+            )
+        }
+        if (!_definition.is_static) {
+            return (
+                <>
+                    {sharedComponents}
+                    <DefinitionPopup.Grid cols={2}>
+                        <DefinitionPopup.Card title="Persons" value={_definition.count ?? 0} />
+                        <DefinitionPopup.Card
+                            title="Last calculated"
+                            value={formatTimeFromNow(_definition.last_calculation)}
+                        />
+                    </DefinitionPopup.Grid>
+                    {(_definition.groups?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
+                    <CohortPopupInfo entity={_definition} />
+                </>
+            )
+        }
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopup.Grid cols={2}>
+                    <DefinitionPopup.Card title="Persons" value={_definition.count ?? 0} />
+                    <DefinitionPopup.Card
+                        title="Last calculated"
+                        value={formatTimeFromNow(_definition.last_calculation)}
+                    />
+                </DefinitionPopup.Grid>
+            </>
+        )
+    }
+    if (isElement) {
+        const _definition = definition as SimpleOption
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopup.Section>
+                    <DefinitionPopup.Card
+                        title="Sent as"
+                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                    />
+                </DefinitionPopup.Section>
+            </>
+        )
+    }
+    return <></>
+}
+
+function DefinitionEdit(): JSX.Element {
+    const { definition, definitionLoading, singularType, hasTaxonomyFeatures, isViewable, type } =
+        useValues(definitionPopupLogic)
+    const { setDefinition, setNewTag, deleteTag, handleView, handleCancel, handleSave } =
+        useActions(definitionPopupLogic)
+
+    if (!definition || !hasTaxonomyFeatures) {
+        return <></>
+    }
+
+    return (
+        <>
+            <DefinitionPopup.HorizontalLine />
+            <form className="definition-popup-edit-form">
+                {definition && 'description' in definition && (
+                    <>
+                        <label className="definition-popup-edit-form-label" htmlFor="description">
+                            <span className="label-text">Description</span>
+                            <span className="text-muted-alt">(optional)</span>
+                        </label>
+                        <Input.TextArea
+                            id="description"
+                            className="definition-popup-edit-form-value"
+                            autoFocus
+                            placeholder={`There is no description for this ${singularType}.`}
+                            value={definition.description || ''}
+                            onChange={(e) => {
+                                setDefinition({ description: e.target.value })
+                            }}
+                            autoSize={{ minRows: 3, maxRows: 4 }}
+                            data-attr="definition-popup-edit-description"
+                        />
+                    </>
+                )}
+                {definition && 'tags' in definition && (
+                    <>
+                        <label className="definition-popup-edit-form-label" htmlFor="description">
+                            <span className="label-text">Tags</span>
+                            <span className="text-muted-alt">(optional)</span>
+                        </label>
+                        <ObjectTags
+                            className="definition-popup-edit-form-value"
+                            tags={definition.tags || []}
+                            onTagSave={setNewTag}
+                            onTagDelete={deleteTag}
+                            saving={false}
+                        />
+                    </>
+                )}
+                {definition && 'owner' in definition && (
+                    <>
+                        <label className="definition-popup-edit-form-label" htmlFor="owner">
+                            <span className="label-text">Owner</span>
+                            <span className="text-muted">(optional)</span>
+                        </label>
+                        <DefinitionOwnerDropdown
+                            className="definition-popup-edit-form-value"
+                            owner={definition.owner ?? null}
+                        />
+                    </>
+                )}
+                {definition && 'verified' in definition && (
+                    <Checkbox
+                        checked={definition.verified}
+                        onChange={() => {
+                            setDefinition({ verified: !definition.verified })
+                        }}
+                    >
+                        <div className="definition-popup-edit-form-label">
+                            <span className="label-text">Verified event</span>
+                        </div>
+                        <div className="text-muted definition-popup-edit-form-value">
+                            Verified events are prioritized in filters and other selection components. Verifying an
+                            event is a signal to collaborators that this event should be used in favor of similar
+                            events.
+                        </div>
+                    </Checkbox>
+                )}
+                <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
+                <div className="definition-popup-edit-form-buttons click-outside-block">
+                    {isViewable && type !== TaxonomicFilterGroupType.Events ? (
+                        <Button
+                            onClick={handleView}
+                            className="definition-popup-edit-form-buttons-secondary"
+                            style={{ color: 'var(--primary)' }}
+                            disabled={definitionLoading}
+                        >
+                            More options
+                        </Button>
+                    ) : (
+                        <div style={{ flex: 1 }} />
+                    )}
+                    <div>
+                        <Button
+                            onClick={handleCancel}
+                            className="definition-popup-edit-form-buttons-secondary"
+                            style={{ color: 'var(--primary)', marginRight: 8 }}
+                            disabled={definitionLoading}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="primary"
+                            onClick={handleSave}
+                            className="definition-popup-edit-form-buttons-primary"
+                            disabled={definitionLoading}
+                        >
+                            Save
+                        </Button>
+                    </div>
+                </div>
+            </form>
+        </>
+    )
+}
+
+interface ItemPopupInterface {
+    item: TaxonomicDefinitionTypes
+    group: TaxonomicFilterGroup
+}
+
+export function DefinitionPopupContents({ item, group }: ItemPopupInterface): JSX.Element {
+    // Supports all types specified in selectedItemHasPopup
+    const value = group.getValue(item)
+
+    if (!value || !item) {
+        return <></>
+    }
+
+    const { state, singularType, isElement, isViewable, definition } = useValues(definitionPopupLogic)
+    const { setDefinition } = useActions(definitionPopupLogic)
+    const icon = group.getIcon?.(definition || item)
+
+    // Must use `useEffect` here to hydrate popup card with newest item, since lifecycle of `ItemPopup` is controlled
+    // independently by `infiniteListLogic`
+    useEffect(() => {
+        setDefinition(item)
+    }, [item])
+
+    return (
+        <DefinitionPopup.Wrapper>
+            <DefinitionPopup.Header
+                title={
+                    <PropertyKeyInfo
+                        value={item.name ?? ''}
+                        type={isElement ? 'element' : undefined}
+                        disablePopover
+                        disableIcon={!!icon}
+                    />
+                }
+                headerTitle={group.getPopupHeader(item)}
+                editHeaderTitle={`Edit ${singularType}`}
+                icon={icon}
+                hideEdit={!isViewable}
+                hideView={!isViewable}
+            />
+            {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+        </DefinitionPopup.Wrapper>
+    )
+}

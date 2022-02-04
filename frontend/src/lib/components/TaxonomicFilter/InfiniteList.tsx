@@ -10,10 +10,14 @@ import {
     PropertyKeyInfo,
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
-import { Provider, useActions, useValues } from 'kea'
+import { Provider, useActions, useValues, BindLogic } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
@@ -27,7 +31,8 @@ import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { renderItemPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
+import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 enum ListTooltip {
     None = 0,
@@ -198,7 +203,7 @@ const renderItemPopupWithoutTaxonomy = (
 }
 
 const selectedItemHasPopup = (
-    item?: PropertyDefinition | CohortType,
+    item?: TaxonomicDefinitionTypes,
     listGroupType?: TaxonomicFilterGroupType,
     group?: TaxonomicFilterGroup,
     showNewPopups: boolean = false
@@ -351,16 +356,28 @@ export function InfiniteList(): JSX.Element {
                               style={{ ...styles.popper, transition: 'none' }}
                               {...attributes.popper}
                           >
-                              {selectedItem && group
-                                  ? showNewPopups
-                                      ? renderItemPopup(
-                                            selectedItem,
-                                            listGroupType,
-                                            group,
-                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
-                                        )
-                                      : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
-                                  : null}
+                              {selectedItem && group ? (
+                                  showNewPopups ? (
+                                      <BindLogic
+                                          logic={definitionPopupLogic}
+                                          props={{
+                                              type: listGroupType,
+                                              item: selectedItem,
+                                              hasTaxonomyFeatures: hasAvailableFeature(
+                                                  AvailableFeature.INGESTION_TAXONOMY
+                                              ),
+                                          }}
+                                      >
+                                          <DefinitionPopupContents item={selectedItem} group={group} />
+                                      </BindLogic>
+                                  ) : (
+                                      renderItemPopupWithoutTaxonomy(
+                                          selectedItem as PropertyDefinition | CohortType | ActionType,
+                                          listGroupType,
+                                          group
+                                      )
+                                  )
+                              ) : null}
                           </div>
                       </Provider>,
                       document.querySelector('body') as HTMLElement

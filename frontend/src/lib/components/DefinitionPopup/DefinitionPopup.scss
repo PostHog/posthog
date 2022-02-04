@@ -1,6 +1,6 @@
 .definition-popup {
     width: 316px;
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
 
     .definition-popup-header {
         display: flex;
@@ -11,6 +11,7 @@
             flex-direction: row;
             justify-content: space-between;
             margin-bottom: 4px;
+            line-height: 2rem;
 
             .definition-popup-header-row-title {
                 font-size: 11px;
@@ -23,7 +24,12 @@
             .definition-popup-header-row-buttons {
                 display: flex;
                 flex-direction: row;
-                font-size: 14px;
+                font-size: 13px;
+
+                a {
+                    user-select: none;
+                    margin-left: 16px;
+                }
             }
         }
 
@@ -32,11 +38,12 @@
             align-items: center;
             font-weight: 600;
             font-size: 20px;
-            line-height: 24px;
+            min-height: 24px;
             margin-bottom: 4px;
 
             svg {
                 margin-right: 8px;
+                width: 28px;
 
                 &.taxonomy-icon-muted {
                     path {
@@ -68,9 +75,16 @@
         }
     }
 
+    .definition-popup-tags {
+        .ant-tag {
+            margin-top: 0 !important;
+        }
+    }
+
     .definition-popup-description {
         font-weight: 400;
         margin-bottom: 4px;
+        overflow-wrap: break-word;
 
         &.empty {
             font-style: italic;
@@ -81,10 +95,6 @@
     .definition-popup-examples {
         margin-bottom: 4px;
         font-style: italic;
-    }
-
-    .ant-tag {
-        margin-top: 0 !important;
     }
 
     .definition-popup-timemeta {
@@ -143,6 +153,36 @@
                             border-radius: 4px;
                         }
                     }
+                }
+            }
+        }
+    }
+
+    .definition-popup-edit-form {
+        display: flex;
+        flex-direction: column;
+
+        .label-text {
+            font-weight: 600;
+            margin-right: 4px;
+        }
+
+        .definition-popup-edit-form-label {
+            margin-bottom: 8px;
+        }
+        .definition-popup-edit-form-value {
+            margin-bottom: 16px;
+        }
+
+        .definition-popup-edit-form-buttons {
+            display: flex;
+            justify-content: space-between;
+
+            .definition-popup-edit-form-buttons-secondary {
+                color: var(--primary);
+                &:hover,
+                &:focus {
+                    border-color: var(--primary);
                 }
             }
         }

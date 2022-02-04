@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { CohortType, EventDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -77,3 +77,5 @@ export type ListFuse = Fuse<{
     name: string
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty
