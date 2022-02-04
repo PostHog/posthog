@@ -102,29 +102,30 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self):
+    def calculate_people(self, batch_size=50000, pg_batch_size=5000):
         if self.is_static:
             return
         try:
-            persons_query = self._clickhouse_persons_query()
+            cursor = 0
+            persons_query = self._clickhouse_persons_query(batch_size=batch_size, offset=0)
+            has_next = True
 
             try:
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                persons = persons_query.distinct("pk")
             except EmptyResultSet:
-                query = DELETE_QUERY.format(cohort_id=self.pk)
-                params = {}
+                CohortPeople.objects.filter(cohort_id=self.pk).delete()
             else:
-                query = f"""
-                    {DELETE_QUERY};
-                    {UPDATE_QUERY};
-                """.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
-                )
-
-            cursor = connection.cursor()
-            with transaction.atomic():
-                cursor.execute(query, params)
+                with transaction.atomic():
+                    CohortPeople.objects.filter(cohort_id=self.pk).delete()
+                    while has_next:
+                        cursor += batch_size
+                        to_insert = []
+                        for p in persons:
+                            cohort_people_rel = CohortPeople(person_id=p.pk, cohort_id=self.pk)
+                            to_insert.append(cohort_people_rel)
+                        CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
+                        persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+                        has_next = len(persons)
         except Exception as err:
             raise err
 
@@ -211,10 +212,10 @@ class Cohort(models.Model):
     def __str__(self):
         return self.name
 
-    def _clickhouse_persons_query(self):
+    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
         from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id
 
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk)
+        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)
 
     def _postgres_persons_query(self):

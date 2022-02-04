@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Tuple, cast
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -15,7 +16,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortPeople
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
@@ -338,6 +339,28 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
         )
         self.assertEqual(len(results), 2)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort")
+    def test_cohortpeople_basic_paginating(self, mock_calculate_people):
+        for i in range(50):
+            Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=[f"{i}"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+
+        mock_calculate_people.assert_called_once_with((cohort1.pk))
+        cohort1.calculate_people(batch_size=10, pg_batch_size=5)
+
+        self.assertEqual(len(CohortPeople.objects.all()), 50)
 
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
