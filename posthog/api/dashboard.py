@@ -52,9 +52,13 @@ class DashboardSerializer(serializers.ModelSerializer):
             "filters",
             "tags",
             "restriction_level",
+            "effective_restriction_level",
             "effective_privilege_level",
         ]
-        read_only_fields = ("creation_mode",)
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]

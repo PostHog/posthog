@@ -44,12 +44,18 @@ class Dashboard(models.Model):
     )
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
 
+    @property
+    def effective_restriction_level(self) -> RestrictionLevel:
+        return (
+            self.restriction_level
+            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_COLLABORATION)
+            else self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
     def get_effective_privilege_level(self, user_id: int) -> PrivilegeLevel:
         if (
-            # There is a need for  checks IF dashboard permissioning is available to this org
-            not self.team.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
             # Checks can be skipped if the dashboard in on the lowest restriction level
-            or self.restriction_level == self.PrivilegeLevel.CAN_VIEW
+            self.effective_restriction_level == self.PrivilegeLevel.CAN_VIEW
             # Users with inherent restriction rights can do anything
             or self.does_user_have_inherent_restriction_rights(user_id)
         ):
@@ -64,7 +70,7 @@ class Dashboard(models.Model):
             return self.PrivilegeLevel.CAN_VIEW
 
     def can_user_edit(self, user_id: int) -> bool:
-        if self.restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+        if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
             return True
         return self.get_effective_privilege_level(user_id) >= self.PrivilegeLevel.CAN_EDIT
 

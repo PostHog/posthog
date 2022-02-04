@@ -116,11 +116,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                         </div>
                     )}
                     <LemonSelect
-                        value={
-                            dashboardCollaborationAvailable
-                                ? dashboard.restriction_level
-                                : DashboardRestrictionLevel.EveryoneInProjectCanEdit
-                        }
+                        value={dashboard.effective_restriction_level}
                         onChange={(newValue) =>
                             triggerDashboardUpdate({
                                 restriction_level: newValue,
