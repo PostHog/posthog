@@ -108,7 +108,7 @@ class Cohort(models.Model):
         try:
             cursor = 0
             # increase by 1 to test pagination
-            persons_query = self._clickhouse_persons_query(batch_size=batch_size + 1, offset=0)
+            persons_query = self._clickhouse_persons_query(batch_size=batch_size, offset=0)
 
             try:
                 persons = persons_query.distinct("pk")
@@ -118,14 +118,11 @@ class Cohort(models.Model):
                 with transaction.atomic():
                     CohortPeople.objects.filter(cohort_id=self.pk).delete()
                     while persons:
-                        to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk) for p in persons[:batch_size]]
+                        to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk) for p in persons]
                         CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
 
-                        if len(persons) >= batch_size:
-                            cursor += batch_size
-                            persons = self._clickhouse_persons_query(batch_size=batch_size + 1, offset=cursor)
-                        else:
-                            persons = []
+                        cursor += batch_size
+                        persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
 
         except Exception as err:
             raise err

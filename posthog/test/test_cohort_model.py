@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
+from ee.clickhouse.client import sync_execute
 from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
 from posthog.test.base import BaseTest
 
@@ -32,8 +33,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
-    @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
-    def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
+    def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
@@ -45,11 +45,11 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
         )
 
-        get_person_ids_by_cohort_id.return_value = [person1.uuid, person2.uuid]
+        cohort.calculate_people_ch()
+        self.assertCountEqual(list(cohort.people.all()), [person1, person3])
 
-        cohort.calculate_people()
-
-        self.assertCountEqual(list(cohort.people.all()), [person1, person2])
+        uuids = [row[0] for row in sync_execute("SELECT person_id FROM cohortpeople")]
+        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
