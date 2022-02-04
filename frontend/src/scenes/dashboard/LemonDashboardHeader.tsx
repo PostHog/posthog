@@ -15,7 +15,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
-import { DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
@@ -156,11 +156,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     }
                                 />
                                 <LemonSpacer vertical />
-                                {dashboard &&
-                                    dashboard.effective_restriction_level >
-                                        DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
-                                        <CollaboratorBubbles dashboardId={dashboard.id} />
-                                    )}
+                                {dashboard && <CollaboratorBubbles dashboard={dashboard} />}
                                 <LemonButton
                                     type="secondary"
                                     data-attr="dashboard-share-button"
@@ -206,9 +202,8 @@ export function LemonDashboardHeader(): JSX.Element | null {
     )
 }
 
-function CollaboratorBubbles({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic)
-    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId }))
+function CollaboratorBubbles({ dashboard }: { dashboard: DashboardType }): JSX.Element | null {
+    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
 
     if (!dashboard) {
         return null
