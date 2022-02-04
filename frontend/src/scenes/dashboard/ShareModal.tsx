@@ -18,6 +18,7 @@ import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
+import { getUpgradeLink } from 'lib/utils/getAppContext'
 
 export interface ShareModalProps {
     visible: boolean
@@ -102,19 +103,6 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
             <>
                 <section>
                     <h5>Dashboard restrictions</h5>
-                    {!dashboardCollaborationAvailable && (
-                        <div>
-                            <a href="https://posthog.com/pricing" target="_blank">
-                                <LemonButton
-                                    icon={<IconPremium />}
-                                    type="premium"
-                                    style={{ height: '3rem', width: '100%' }}
-                                >
-                                    Upgrade to unlock advanced collaboration features
-                                </LemonButton>
-                            </a>
-                        </div>
-                    )}
                     <LemonSelect
                         value={dashboard.effective_restriction_level}
                         onChange={(newValue) =>
@@ -126,6 +114,17 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                         loading={dashboardLoading}
                         type="stealth"
                         outlined
+                        dropdownNotice={
+                            !dashboardCollaborationAvailable ? (
+                                <div style={{ marginBottom: '0.5rem' }}>
+                                    <a href={getUpgradeLink()} target="_blank">
+                                        <LemonButton icon={<IconPremium />} type="premium" fullWidth>
+                                            Upgrade to unlock advanced collaboration features
+                                        </LemonButton>
+                                    </a>
+                                </div>
+                            ) : null
+                        }
                         style={{
                             height: '3rem',
                             width: '100%',

@@ -14,6 +14,8 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     options: O
     value: keyof O
     onChange: (newValue: keyof O) => void
+    /** An optional notice to display above the options. */
+    dropdownNotice?: React.ReactElement | null
     dropdownMatchSelectWidth?: boolean
 }
 
@@ -21,6 +23,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     value,
     onChange,
     options,
+    dropdownNotice,
     dropdownMatchSelectWidth = true,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
@@ -35,27 +38,32 @@ export function LemonSelect<O extends LemonSelectOptions>({
     return (
         <LemonButtonWithPopup
             popup={{
-                overlay: Object.entries(options).map(([key, option]) => (
-                    <LemonButton
-                        key={key}
-                        icon={option.icon}
-                        onClick={() => {
-                            if (key != localValue) {
-                                onChange(key)
-                                setLocalValue(key)
-                            }
-                        }}
-                        type={
-                            /* Intentionally == instead of === because JS treats object number keys as strings, */
-                            /* messing comparisons up a bit */
-                            key == localValue ? 'highlighted' : 'stealth'
-                        }
-                        disabled={option.disabled}
-                        fullWidth
-                    >
-                        {option.label || key}
-                    </LemonButton>
-                )),
+                overlay: (
+                    <>
+                        {dropdownNotice}
+                        {Object.entries(options).map(([key, option]) => (
+                            <LemonButton
+                                key={key}
+                                icon={option.icon}
+                                onClick={() => {
+                                    if (key != localValue) {
+                                        onChange(key)
+                                        setLocalValue(key)
+                                    }
+                                }}
+                                type={
+                                    /* Intentionally == instead of === because JS treats object number keys as strings, */
+                                    /* messing comparisons up a bit */
+                                    key == localValue ? 'highlighted' : 'stealth'
+                                }
+                                disabled={option.disabled}
+                                fullWidth
+                            >
+                                {option.label || key}
+                            </LemonButton>
+                        ))}
+                    </>
+                ),
                 sameWidth: dropdownMatchSelectWidth,
                 actionable: true,
             }}
