@@ -8,7 +8,7 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
-import { IconCancel, IconCopy, IconLock, IconLockOpen, IconPremium } from 'lib/components/icons'
+import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
@@ -102,19 +102,6 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
             <>
                 <section>
                     <h5>Dashboard restrictions</h5>
-                    {!dashboardCollaborationAvailable && (
-                        <div>
-                            <a href="https://posthog.com/pricing" target="_blank">
-                                <LemonButton
-                                    icon={<IconPremium />}
-                                    type="premium"
-                                    style={{ height: '3rem', width: '100%' }}
-                                >
-                                    Upgrade to unlock advanced collaboration features
-                                </LemonButton>
-                            </a>
-                        </div>
-                    )}
                     <LemonSelect
                         value={dashboard.effective_restriction_level}
                         onChange={(newValue) =>

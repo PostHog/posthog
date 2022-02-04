@@ -54,21 +54,6 @@
     }
 }
 
-.LemonButton--premium {
-    background: var(--warning);
-    color: #fff;
-    &:not(:disabled):hover,
-    &.LemonButton--active {
-        background: var(--warning-hover);
-    }
-    &:not(:disabled):active {
-        background: var(--warning-active);
-    }
-    .LemonRow__icon {
-        color: #fff;
-    }
-}
-
 .LemonButton--stealth {
     color: var(--text-default);
     font-weight: 400;
