@@ -4,13 +4,17 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
-import { CalendarOutlined } from '@ant-design/icons'
+import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
+import { useValues } from 'kea'
+import { teamLogic } from 'scenes/teamLogic'
+import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -76,6 +80,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
+    const { projectMetadata } = useValues(teamLogic)
 
     return (
         <div className="display-config-inner">
@@ -90,6 +95,27 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
+                                    {filters.date_from === 'all' &&
+                                        projectMetadata?.event_first_seen &&
+                                        dayjs(projectMetadata.event_first_seen) < dayjs('2015-01-01') && (
+                                            <>
+                                                {' '}
+                                                (Jan 1, 2015 - present){' '}
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            {' '}
+                                                            Looks like you have some old events in this project. The
+                                                            "All time" filter will consider all events from Jan 1, 2015
+                                                            onwards. If you wish to analyze data from before 2015,
+                                                            please reach out.
+                                                        </>
+                                                    }
+                                                >
+                                                    <InfoCircleOutlined />
+                                                </Tooltip>
+                                            </>
+                                        )}
                                 </>
                             )}
                         />
