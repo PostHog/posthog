@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
 
 export interface LemonSelectOption {
@@ -25,6 +25,12 @@ export function LemonSelect<O extends LemonSelectOptions>({
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
+
+    useEffect(() => {
+        if (!buttonProps.loading) {
+            setLocalValue(value)
+        }
+    }, [value, buttonProps.loading])
 
     return (
         <LemonButtonWithPopup
