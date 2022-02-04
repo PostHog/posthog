@@ -184,7 +184,6 @@ export function DashboardHeader(): JSX.Element {
                     <ShareModal
                         onCancel={() => setDashboardMode(null, DashboardEventSource.Browser)}
                         visible={dashboardMode === DashboardMode.Sharing}
-                        dashboardId={dashboard.id}
                     />
                 )}
                 {dashboardsLoading ? (
