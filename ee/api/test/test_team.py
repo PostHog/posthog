@@ -13,9 +13,7 @@ from rest_framework.status import (
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.models.event import create_event
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models import Dashboard, Insight, Organization, OrganizationMembership, Team, User
 
 
 class TestProjectEnterpriseAPI(APILicensedTest):
@@ -279,18 +277,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     # Retrieving projects
 
     def test_fetch_team_as_org_admin_works(self):
-        create_event(
-            uuid.uuid4(),
-            "very_old_event",
-            self.team,
-            "user_123456",
-            datetime.datetime(2010, 1, 1, 23, 59, 59, 0, tzinfo=pytz.UTC),
-        )
-
-        create_event(
-            uuid.uuid4(), "no_so_old_event", self.team, "user_123456", datetime.datetime(2015, 1, 1, tzinfo=pytz.UTC),
-        )
-
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -303,7 +289,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                 "name": "Default Project",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
-                "event_first_seen": "2010-01-01T23:59:59Z",
             },
             response_data,
         )
@@ -446,4 +431,50 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                     "effective_membership_level": int(OrganizationMembership.Level.MEMBER),
                 }
             ],
+        )
+
+
+class ProjectMetadataAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+
+        # Events
+        create_event(
+            uuid.uuid4(),
+            "very_old_event",
+            self.team,
+            "user_123456",
+            datetime.datetime(2010, 1, 1, 23, 59, 59, 0, tzinfo=pytz.UTC),
+        )
+
+        create_event(
+            uuid.uuid4(), "no_so_old_event", self.team, "user_123456", datetime.datetime(2015, 1, 1, tzinfo=pytz.UTC),
+        )
+
+        # Dashboards
+
+        d1 = Dashboard.objects.create(team=self.team, name="one dashboard", created_by=self.user, tags=["deprecated"])
+        Dashboard.objects.create(
+            team=self.team, name="two dashboard", created_by=self.user
+        )  # should be uncounted as it has no items
+        d3 = Dashboard.objects.create(
+            team=self.team, name="two dashboard", created_by=self.user
+        )  # should be uncounted as it has only sample items
+        Insight.objects.create(filters={}, team=self.team, created_by=self.user, dashboard=d1)
+        Insight.objects.create(filters={}, team=self.team, created_by=self.user, dashboard=d3, is_sample=True)
+
+        # Insights
+        Insight.objects.create(filters={}, team=self.team, created_by=self.user, saved=True)
+        Insight.objects.create(filters={}, team=self.team, created_by=self.user, saved=True)
+        Insight.objects.create(filters={}, team=self.team, created_by=self.user)
+
+    def test_project_metadata_endpoint(self):
+
+        response = self.client.get(f"/api/projects/@current/metadata/")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, HTTP_200_OK)
+        self.assertEqual(
+            response_data,
+            {"event_first_seen": "2010-01-01T23:59:59Z", "total_saved_insights": 2, "total_custom_dashboards": 1,},
         )

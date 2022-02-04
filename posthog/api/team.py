@@ -6,13 +6,11 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Organization, Team
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
+from posthog.models import Dashboard, GroupTypeMapping, Insight, Organization, OrganizationMembership, Team, User
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -45,7 +43,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
-    event_first_seen = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -72,7 +69,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
             "access_control",
             "has_group_types",
-            "event_first_seen",
         )
         read_only_fields = (
             "id",
@@ -91,23 +87,6 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
-
-    def get_event_first_seen(self, team: Team) -> Optional[datetime.datetime]:
-        # TODO: Remove try statement when CH is moved out ee/
-        try:
-            from ee.clickhouse.client import sync_execute
-        except ImportError:
-            return None
-
-        try:
-            response = sync_execute(
-                "SELECT timestamp FROM events WHERE team_id = %(team_id)s ORDER BY timestamp LIMIT 1",
-                {"team_id": team.pk},
-            )[0][0]
-        except IndexError:
-            return None
-
-        return response
 
     def validate(self, attrs: Any) -> Any:
         if "access_control" in attrs:
@@ -209,3 +188,42 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team.api_token = generate_random_token_project()
         team.save()
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+
+class ProjectMetadataSerializer(serializers.Serializer):
+    event_first_seen = serializers.SerializerMethodField()
+    total_saved_insights = serializers.SerializerMethodField()
+    total_custom_dashboards = serializers.SerializerMethodField()
+
+    def get_event_first_seen(self, team: Team) -> Optional[datetime.datetime]:
+        # TODO: Remove try statement when CH is moved out ee/
+        try:
+            from ee.clickhouse.client import sync_execute
+        except ImportError:
+            return None
+
+        try:
+            response = sync_execute(
+                "SELECT timestamp FROM events WHERE team_id = %(team_id)s ORDER BY timestamp LIMIT 1",
+                {"team_id": team.pk},
+            )[0][0]
+        except IndexError:
+            return None
+
+        return response
+
+    def get_total_saved_insights(self, team: Team) -> int:
+        return Insight.objects.filter(team=team, saved=True).count()
+
+    def get_total_custom_dashboards(self, team: Team) -> int:
+        return Dashboard.objects.filter(
+            deleted=False, items__in=Insight.objects.filter(team=team, is_sample=False)
+        ).count()
+
+
+class ProjectMetadataViewset(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = ProjectMetadataSerializer
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(instance=self.team)
+        return response.Response(serializer.data)

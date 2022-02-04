@@ -50,6 +50,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
+projects_router.register(r"metadata", team.ProjectMetadataViewset, "project_metadata", ["team_id"])
 project_plugins_configs_router = projects_router.register(
     r"plugin_configs", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"]
 )
