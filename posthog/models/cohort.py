@@ -75,6 +75,7 @@ class Cohort(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
+    version: models.IntegerField = models.IntegerField(default=0)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
@@ -256,6 +257,7 @@ class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+    version: models.IntegerField = models.IntegerField(default=0)
 
     class Meta:
         indexes = [

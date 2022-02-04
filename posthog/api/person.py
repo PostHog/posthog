@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from django.db.models import Count, Func, Q, QuerySet
+from django.db.models import Count, Func, OuterRef, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -47,6 +47,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Event, Filter, Person, User
+from posthog.models.cohort import CohortPeople
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -434,7 +435,15 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.api.cohort import CohortSerializer
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id, deleted=False)
+
+        cohort_people_count = (
+            CohortPeople.objects.filter(version=OuterRef("version"))
+            .values("person_id")
+            .annotate(count=Count("person_id", distinct=True))
+            .values("count")
+        )
+
+        cohorts = Cohort.objects.annotate(count=cohort_people_count).filter(people__id=person.id, deleted=False)
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 

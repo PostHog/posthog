@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.db.models import Count, QuerySet
-from django.db.models.expressions import F
+from django.db.models.expressions import F, OuterRef
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -26,6 +26,7 @@ from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
+from posthog.models.cohort import CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -151,7 +152,14 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.annotate(count=Count("people"))
+        cohort_people_count = (
+            CohortPeople.objects.filter(version=OuterRef("version"))
+            .values("person_id")
+            .annotate(count=Count("person_id", distinct=True))
+            .values("count")
+        )
+
+        queryset = queryset.annotate(count=cohort_people_count)
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
 
