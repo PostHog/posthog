@@ -10,11 +10,14 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
+import { DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
+import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
 export function LemonDashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode } = useValues(dashboardLogic)
@@ -34,11 +37,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                     <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
                 )}
                 {dashboard && (
-                    <ShareModal
-                        onCancel={() => setIsShareModalVisible(false)}
-                        visible={isShareModalVisible}
-                        dashboardId={dashboard.id}
-                    />
+                    <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />
                 )}
                 <PageHeader
                     title={
@@ -157,6 +156,11 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     }
                                 />
                                 <LemonSpacer vertical />
+                                {dashboard &&
+                                    dashboard.effective_restriction_level >
+                                        DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
+                                        <CollaboratorBubbles dashboardId={dashboard.id} />
+                                    )}
                                 <LemonButton
                                     type="secondary"
                                     data-attr="dashboard-share-button"
@@ -199,5 +203,19 @@ export function LemonDashboardHeader(): JSX.Element | null {
                 />
             </>
         )
+    )
+}
+
+function CollaboratorBubbles({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element {
+    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId }))
+
+    return (
+        <ProfileBubbles
+            people={allCollaborators.map((collaborator) => ({
+                email: collaborator.user.email,
+                name: collaborator.user.first_name,
+                tooltip: `${collaborator.user.first_name} (${privilegeLevelToName(collaborator.level)})`,
+            }))}
+        />
     )
 }
