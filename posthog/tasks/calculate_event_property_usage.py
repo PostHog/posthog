@@ -10,7 +10,6 @@ from posthog.models.event import Event
 from posthog.models.event_definition import EventDefinition
 from posthog.models.insight import Insight
 from posthog.models.property_definition import PropertyDefinition
-from posthog.utils import is_clickhouse_enabled
 
 
 def calculate_event_property_usage() -> None:
@@ -47,17 +46,10 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
     timestamp = now() - timedelta(days=30)
-    if is_clickhouse_enabled():
-        from ee.clickhouse.client import sync_execute
-        from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
+    from ee.clickhouse.client import sync_execute
+    from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
 
-        return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
-    return (
-        Event.objects.filter(team=team, timestamp__gt=timestamp)
-        .values("event")
-        .annotate(count=Count("id"))
-        .values_list("event", "count")
-    )
+    return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
 
 
 def _extract_count(events_volume: List[Tuple[str, int]], event: str) -> int:

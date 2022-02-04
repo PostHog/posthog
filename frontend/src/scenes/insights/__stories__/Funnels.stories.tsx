@@ -6,7 +6,7 @@ import { rest } from 'msw'
 import { worker } from '../../../mocks/browser'
 import { FunnelResult, FunnelStep } from '~/types'
 import posthog from 'posthog-js'
-import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/mocks'
 import { createMemoryHistory } from 'history'
 import React from 'react'
 import { Provider } from 'kea'
@@ -374,7 +374,6 @@ const sampleContextData = {
     },
     current_user: { organization: { available_features: ['correlation_analysis'] } },
     preflight: {
-        is_clickhouse_enabled: true,
         instance_preferences: { disable_paid_fs: false },
     },
     default_event_name: '$pageview',

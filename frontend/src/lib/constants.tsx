@@ -68,9 +68,10 @@ export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
+    FEEDBACK_CALL_CTA: 'feedback-call-cta', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205 `control`, `test`
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
@@ -85,10 +86,16 @@ export const FEATURE_FLAGS = {
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
-    RECORDINGS_IN_TRENDS_PERSON_MODAL: '7852-recordings-in-trends-person-modal', // owner: @rcmarron
-    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
+    WEB_PERFORMANCE: 'hackathon-apm', //owner @pauldambra
+    NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
+    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
+    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
+    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
+    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
+    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

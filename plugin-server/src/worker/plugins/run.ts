@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
+import { Alert, Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
 import { statusReport } from '../../utils/status-report'
 import { IllegalOperationError } from '../../utils/utils'
@@ -156,6 +156,36 @@ export async function runPluginTask(
     return response
 }
 
+export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
+    const rootAcessTeamIds = await server.rootAccessManager.getRootAccessTeams()
+    const pluginsToRun = getPluginsForTeams(server, rootAcessTeamIds)
+
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const handleAlert = await pluginConfig.vm?.getHandleAlert()
+            if (handleAlert) {
+                const timer = new Date()
+                try {
+                    await handleAlert(alert)
+                } catch (error) {
+                    await processError(server, pluginConfig, error)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.handle_alert.ERROR`)
+                }
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.handle_alert`, timer)
+                captureTimeSpentRunning(pluginConfig.team_id, timer, 'handleAlert')
+            }
+        })
+    )
+}
+
 function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
+}
+
+function getPluginsForTeams(server: Hub, teamIds: TeamId[]) {
+    let plugins: PluginConfig[] = []
+    for (const teamId of teamIds) {
+        plugins = plugins.concat(getPluginsForTeam(server, teamId))
+    }
+    return plugins
 }

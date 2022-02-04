@@ -1,11 +1,12 @@
 import uuid
 from unittest.mock import ANY, patch
 
+import pytest
 from django.utils.text import slugify
 from rest_framework import status
 
 from posthog.models import Team, User
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
 
@@ -80,6 +81,38 @@ class TestUserAPI(APIBaseTest):
                 },
             ],
         )
+
+    @pytest.mark.ee
+    def test_organization_metadata_on_user_serializer(self):
+
+        from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            name="a timestamp",
+            property_type="DateTime",
+            description="This is a cool timestamp.",
+            tags=["test", "official"],
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="plan", description="The current membership plan the user has active.",
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="some_prop",  # I shouldn't be counted
+        )
+
+        response = self.client.get("/api/users/@me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 2)
 
     def test_cannot_retrieve_or_list_other_users(self):
         """
@@ -308,6 +341,22 @@ class TestUserAPI(APIBaseTest):
         )
 
         self._assert_current_org_and_team_unchanged()
+
+    def test_current_team_prefer_current_organization(self):
+        """
+        If current_organization is set but current_team isn't (for example when a team is deleted), make sure we set the team in the current organization
+        """
+        org2 = Organization.objects.create(name="bla")
+        OrganizationMembership.objects.create(organization=org2, user=self.user)
+        team2 = Team.objects.create(organization=org2)
+
+        # select current organization
+        self.user.current_organization = org2
+        self.user.current_team = None
+        self.user.save()
+
+        response = self.client.get("/api/users/@me/").json()
+        self.assertEqual(response["team"]["id"], team2.pk)
 
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture):

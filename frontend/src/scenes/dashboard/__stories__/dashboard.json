@@ -239,7 +239,6 @@
                     "can_create_org": false,
                     "email_service_available": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -3199,7 +3198,6 @@
         "events": {
             "eventsTableLogic": {
                 "all-/events": {
-                    "sceneIsEventsPage": true,
                     "properties": [],
                     "eventFilter": "",
                     "isLoading": false,
@@ -3234,7 +3232,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -3359,7 +3356,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -3630,7 +3626,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -3778,7 +3773,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -3907,7 +3901,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -4038,7 +4031,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -4163,7 +4155,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -4462,7 +4453,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -4895,7 +4885,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5041,7 +5030,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5170,7 +5158,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5297,7 +5284,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5422,7 +5408,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5549,7 +5534,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5676,7 +5660,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5803,7 +5786,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -5928,7 +5910,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -6054,7 +6035,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -6334,7 +6314,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -6576,7 +6555,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -6701,7 +6679,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -6989,7 +6966,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -7118,7 +7094,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -7243,7 +7218,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -7653,7 +7627,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -7778,7 +7751,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8066,7 +8038,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8192,7 +8163,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8317,7 +8287,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8651,7 +8620,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8777,7 +8745,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -8902,7 +8869,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9235,7 +9201,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9360,7 +9325,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9485,7 +9449,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9612,7 +9575,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9739,7 +9701,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -9891,7 +9852,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -10035,7 +9995,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -10160,7 +10119,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -10301,7 +10259,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -10426,7 +10383,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -10551,7 +10507,6 @@
                                 "is_demo_project": true,
                                 "posthog_version": "1.29.1",
                                 "realm": "hosted-clickhouse",
-                                "is_clickhouse_enabled": true,
                                 "ee_available": true,
                                 "email_service_available": false,
                                 "$active_feature_flags": [
@@ -18401,16 +18356,6 @@
                         "updated_at": null,
                         "updated_by": null,
                         "query_usage_30_day": 0
-                    },
-                    {
-                        "id": "017989da-7571-0001-bc1f-c48306dd7a5e",
-                        "name": "is_clickhouse_enabled",
-                        "description": null,
-                        "tags": null,
-                        "is_numerical": false,
-                        "updated_at": null,
-                        "updated_by": null,
-                        "query_usage_30_day": null
                     },
                     {
                         "id": "01791516-32bb-0000-4094-b9829f5f9651",

@@ -1,14 +1,15 @@
 import { createMemoryHistory } from 'history'
 import { initKea } from '~/initKea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { getContext, Provider } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
 import { featureFlagLogic } from '../logic/featureFlagLogic'
 import { systemStatusLogic } from '../../scenes/instance/SystemStatus/systemStatusLogic'
 
-function resetKeaWithState(state: Record<string, any>): void {
-    const history = createMemoryHistory({ initialEntries: [state.kea.router.location] })
+export function resetKeaStory(url?: string, state?: Record<string, any>): void {
+    const initialLocation = url ? combineUrl(url) : state?.kea?.router?.location
+    const history = createMemoryHistory(initialLocation ? { initialEntries: [initialLocation] } : {})
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
     initKea({ state, routerLocation: history.location, routerHistory: history })
@@ -16,29 +17,30 @@ function resetKeaWithState(state: Record<string, any>): void {
     systemStatusLogic.mount()
     router.mount()
     const { store } = getContext()
-    store.dispatch({ type: 'bla' })
+    store.dispatch({ type: 'storybook init' })
 }
 
 export function KeaStory<T = React.ReactNode>({
+    url,
     state,
+    onInit,
     children,
 }: {
-    state: Record<string, any>
+    url?: string
+    state?: Record<string, any>
+    onInit?: () => void
     children: T
 }): T | JSX.Element | null {
-    const [lastState, setLastState] = useState(null as Record<string, any> | null)
-
+    const [didReset, setDidReset] = useState(false)
     useEffect(() => {
-        if (state !== lastState) {
-            setLastState(null)
+        if (!didReset) {
+            resetKeaStory(url, state)
+            onInit?.()
+            setDidReset(true)
         }
-        if (state && lastState === null) {
-            resetKeaWithState(state)
-            setLastState(state)
-        }
-    }, [state])
+    }, [didReset])
 
-    return lastState ? <Provider>{children || <App />}</Provider> : null
+    return didReset ? <Provider>{children || <App />}</Provider> : null
 }
 
 export function keaStory(Component: any, json: any): () => JSX.Element {

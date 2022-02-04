@@ -67,6 +67,8 @@ export async function addHistoricalEventsExportCapability(
         name: 'runEveryMinute',
         type: PluginTaskType.Schedule,
         exec: async () => {
+            await oldRunEveryMinute?.()
+
             const lastRun = await meta.storage.get(RUN_EVERY_MINUTE_LAST_RUN_KEY, 0)
             const exportShouldBeRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
 
@@ -95,8 +97,6 @@ export async function addHistoricalEventsExportCapability(
             await meta.storage.set(OLD_TIMESTAMP_CURSOR_KEY, currentTimestampCursor)
 
             await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now())
-
-            await oldRunEveryMinute?.()
         },
     }
 

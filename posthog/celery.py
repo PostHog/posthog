@@ -12,7 +12,6 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
-from posthog.utils import is_clickhouse_enabled
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -87,42 +86,39 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="send event usage report",
     )
 
-    if is_clickhouse_enabled():
-        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
-        sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
-        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
-        sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+    sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
+    sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+    sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+    sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+
+    sender.add_periodic_task(
+        crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+    )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+    try:
+        from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
+
+        minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(" ")
 
         sender.add_periodic_task(
-            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
-        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-        try:
-            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
+            crontab(
+                minute=minute,
+                hour=hour,
+                day_of_month=day_of_month,
+                month_of_year=month_of_year,
+                day_of_week=day_of_week,
+            ),
+            clickhouse_materialize_columns.s(),
+            name="clickhouse materialize columns",
+        )
 
-            minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(
-                " "
-            )
-
-            sender.add_periodic_task(
-                crontab(
-                    minute=minute,
-                    hour=hour,
-                    day_of_month=day_of_month,
-                    month_of_year=month_of_year,
-                    day_of_week=day_of_week,
-                ),
-                clickhouse_materialize_columns.s(),
-                name="clickhouse materialize columns",
-            )
-
-            sender.add_periodic_task(
-                crontab(hour="*/4", minute=0),
-                clickhouse_mark_all_materialized.s(),
-                name="clickhouse mark all columns as materialized",
-            )
-        except Exception as err:
-            capture_exception(err)
-            print(f"Scheduling materialized column task failed: {err}")
+        sender.add_periodic_task(
+            crontab(hour="*/4", minute=0),
+            clickhouse_mark_all_materialized.s(),
+            name="clickhouse mark all columns as materialized",
+        )
+    except Exception as err:
+        capture_exception(err)
+        print(f"Scheduling materialized column task failed: {err}")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -137,18 +133,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse import client
+    from ee.clickhouse import client
 
-        client._request_information = {"kind": "celery", "id": task.name}
+    client._request_information = {"kind": "celery", "id": task.name}
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse import client
+    from ee.clickhouse import client
 
-        client._request_information = None
+    client._request_information = None
 
 
 @app.task(ignore_result=True)
@@ -172,90 +166,71 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse.client import sync_execute
-        from posthog.internal_metrics import gauge
+    from ee.clickhouse.client import sync_execute
+    from posthog.internal_metrics import gauge
 
-        for table in CLICKHOUSE_TABLES:
-            try:
-                QUERY = (
-                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-                )
-                query = QUERY.format(table=table)
-                lag = sync_execute(query)[0][2]
-                gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
-            except:
-                pass
-    else:
-        pass
+    for table in CLICKHOUSE_TABLES:
+        try:
+            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+            query = QUERY.format(table=table)
+            lag = sync_execute(query)[0][2]
+            gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+        except:
+            pass
 
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse.client import sync_execute
-        from posthog.internal_metrics import gauge
+    from ee.clickhouse.client import sync_execute
+    from posthog.internal_metrics import gauge
 
-        for table in CLICKHOUSE_TABLES:
-            try:
-                QUERY = """select count(1) freq from {table};"""
-                query = QUERY.format(table=table)
-                rows = sync_execute(query)[0][0]
-                gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
-            except:
-                pass
-    else:
-        pass
+    for table in CLICKHOUSE_TABLES:
+        try:
+            QUERY = """select count(1) freq from {table};"""
+            query = QUERY.format(table=table)
+            rows = sync_execute(query)[0][0]
+            gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+        except:
+            pass
 
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse.client import sync_execute
-        from posthog.internal_metrics import gauge
+    from ee.clickhouse.client import sync_execute
+    from posthog.internal_metrics import gauge
 
-        QUERY = """
-            select table, count(1) freq
-            from system.parts
-            group by table
-            order by freq desc;
-        """
-        rows = sync_execute(QUERY)
-        for (table, parts) in rows:
-            gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
-    else:
-        pass
+    QUERY = """
+        select table, count(1) freq
+        from system.parts
+        group by table
+        order by freq desc;
+    """
+    rows = sync_execute(QUERY)
+    for (table, parts) in rows:
+        gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
 
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from ee.clickhouse.client import sync_execute
-        from posthog.internal_metrics import gauge
+    from ee.clickhouse.client import sync_execute
+    from posthog.internal_metrics import gauge
 
-        QUERY = """
-            SELECT
-                table,
-                count(1) AS freq
-            FROM system.mutations
-            WHERE is_done = 0
-            GROUP BY table
-            ORDER BY freq DESC
-        """
-        rows = sync_execute(QUERY)
-        for (table, muts) in rows:
-            gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
-    else:
-        pass
+    QUERY = """
+        SELECT
+            table,
+            count(1) AS freq
+        FROM system.mutations
+        WHERE is_done = 0
+        GROUP BY table
+        ORDER BY freq DESC
+    """
+    rows = sync_execute(QUERY)
+    for (table, muts) in rows:
+        gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
 
 
 def recompute_materialized_columns_enabled() -> bool:
-    if (
-        is_clickhouse_enabled()
-        and settings.EE_AVAILABLE
-        and getattr(config, "MATERIALIZED_COLUMNS_ENABLED")
-        and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
-    ):
+    if getattr(config, "MATERIALIZED_COLUMNS_ENABLED") and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"):
         return True
     return False
 
@@ -278,7 +253,7 @@ def clickhouse_mark_all_materialized():
 
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
-    if is_clickhouse_enabled() and not settings.MULTI_TENANCY:
+    if not settings.MULTI_TENANCY:
         from ee.tasks.send_license_usage import send_license_usage
 
         send_license_usage()
@@ -286,14 +261,9 @@ def clickhouse_send_license_usage():
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
-    if is_clickhouse_enabled():
-        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+    from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
 
-        send_reports_clickhouse()
-    else:
-        from posthog.tasks.org_usage_report import send_all_org_usage_reports as send_reports_postgres
-
-        send_reports_postgres()
+    send_reports_clickhouse()
 
 
 @app.task(ignore_result=True)
@@ -330,13 +300,6 @@ def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
-
-
-@app.task(ignore_result=True)
-def calculate_event_action_mappings():
-    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
-
-    calculate_actions_from_last_calculation()
 
 
 @app.task(ignore_result=True)

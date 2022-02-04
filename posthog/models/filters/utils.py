@@ -11,19 +11,14 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
 )
-from posthog.utils import is_clickhouse_enabled
 
 GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 def earliest_timestamp_func(team_id: int):
-    if is_clickhouse_enabled():
-        from ee.clickhouse.queries.util import get_earliest_timestamp
+    from ee.clickhouse.queries.util import get_earliest_timestamp
 
-        return get_earliest_timestamp(team_id)
-    from posthog.models.event import Event
-
-    return Event.objects.earliest_timestamp(team_id)
+    return get_earliest_timestamp(team_id)
 
 
 def get_filter(team, data: dict = {}, request: Optional[Request] = None):

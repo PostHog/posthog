@@ -1,5 +1,5 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
-import { Select, Tag } from 'antd'
+import { ConfigProvider, Empty, Select, Tag } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import { CloseButton } from './CloseButton'
 import { ANTD_TOOLTIP_PLACEMENTS, toString } from 'lib/utils'
@@ -7,6 +7,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import './SelectGradientOverflow.scss'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { LoadingOutlined } from '@ant-design/icons'
 
 interface DropdownGradientRendererProps {
     updateScrollGradient: () => void
@@ -118,30 +119,54 @@ export function SelectGradientOverflow({
         }
     }
     document.addEventListener('click', outsideClickListener)
+
     return (
         <div ref={containerRef} style={{ width: '100%' }}>
-            <Select
-                {...props}
-                dropdownAlign={placement ? ANTD_TOOLTIP_PLACEMENTS[placement] : undefined}
-                ref={selectRef}
-                open={isOpen}
-                onFocus={onFocus}
-                onBlur={onBlur}
-                onPopupScroll={() => {
-                    updateScrollGradient()
+            {/*
+            This config provider is used to configure the empty data state on the wrapped
+            ANT select component
+             */}
+            <ConfigProvider
+                renderEmpty={() => {
+                    if (props.loading) {
+                        return (
+                            <div className="illustration-main" style={{ textAlign: 'center' }}>
+                                <LoadingOutlined style={{ fontSize: 20 }} />
+                                <div>Loading data</div>
+                            </div>
+                        )
+                    } else {
+                        return (
+                            <div className="illustration-main">
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No data" />
+                            </div>
+                        )
+                    }
                 }}
-                tagRender={CustomTag}
-                dropdownRender={(menu) => (
-                    <DropdownGradientRenderer
-                        menu={menu}
-                        innerRef={dropdownRef}
-                        updateScrollGradient={updateScrollGradient}
-                    />
-                )}
-                dropdownMatchSelectWidth={dropdownMatchSelectWidth}
             >
-                {props.children}
-            </Select>
+                <Select
+                    {...props}
+                    dropdownAlign={placement ? ANTD_TOOLTIP_PLACEMENTS[placement] : undefined}
+                    ref={selectRef}
+                    open={isOpen}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                    onPopupScroll={() => {
+                        updateScrollGradient()
+                    }}
+                    tagRender={CustomTag}
+                    dropdownRender={(menu) => (
+                        <DropdownGradientRenderer
+                            menu={menu}
+                            innerRef={dropdownRef}
+                            updateScrollGradient={updateScrollGradient}
+                        />
+                    )}
+                    dropdownMatchSelectWidth={dropdownMatchSelectWidth}
+                >
+                    {props.children}
+                </Select>
+            </ConfigProvider>
         </div>
     )
 }

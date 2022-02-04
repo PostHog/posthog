@@ -4,6 +4,8 @@ import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCopy } from './icons'
+import { LemonButton } from './LemonButton'
+import clsx from 'clsx'
 
 interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
@@ -23,6 +25,7 @@ interface InputProps {
     placeholder?: string
     description?: string
     isValueSensitive?: boolean
+    className?: string
 }
 
 export function CopyToClipboardInline({
@@ -44,7 +47,7 @@ export function CopyToClipboardInline({
             className={isValueSensitive ? 'ph-no-capture' : ''}
             style={{
                 cursor: selectable ? 'text' : 'pointer',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
                 flexWrap: 'nowrap',
@@ -56,15 +59,13 @@ export function CopyToClipboardInline({
             {...props}
         >
             <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
-            <IconCopy
+            <LemonButton
+                compact
+                icon={<IconCopy />}
                 className="copy-icon"
                 onClick={!selectable ? undefined : copy}
                 style={{
                     [iconPosition === 'end' ? 'marginLeft' : 'marginRight']: 4,
-                    fontSize: 20,
-                    color: 'var(--primary)',
-                    cursor: 'pointer',
-                    flexShrink: 0,
                     ...iconStyle,
                 }}
             />
@@ -82,11 +83,12 @@ export function CopyToClipboardInput({
     placeholder,
     description,
     isValueSensitive = false,
+    className,
     ...props
 }: InputProps): JSX.Element {
     return (
         <Input
-            className={isValueSensitive ? 'ph-no-capture' : ''}
+            className={clsx(isValueSensitive && 'ph-no-capture', className)}
             type="text"
             value={value}
             placeholder={placeholder || 'nothing to show here'}

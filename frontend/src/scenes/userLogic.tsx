@@ -102,6 +102,7 @@ export const userLogic = kea<userLogicType>({
                             slug: user.organization.slug,
                             created_at: user.organization.created_at,
                             available_features: user.organization.available_features,
+                            ...user.organization.metadata,
                         })
                     }
                 }
@@ -145,7 +146,10 @@ export const userLogic = kea<userLogicType>({
         ],
         upgradeLink: [
             (s) => [s.preflight],
-            (preflight): string => (preflight?.cloud ? '/organization/billing' : '/instance/licenses'),
+            (preflight): string =>
+                preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
         ],
         otherOrganizations: [
             (s) => [s.user],

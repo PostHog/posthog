@@ -14,6 +14,7 @@ import {
     ActorType,
     ActionType,
     PropertyFilterValue,
+    PropertyType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -371,20 +372,72 @@ export const genericOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
-export const dateTimeOperatorMap: Record<string, string> = {
+export const stringOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export const numericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
+    gt: '> greater than',
+    lt: '< lower than',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export const dateTimeOperatorMap: Record<string, string> = {
+    is_date_exact: '= equals',
     is_date_before: '< before',
     is_date_after: '> after',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
 
+export const booleanOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
+    ...stringOperatorMap,
+    ...numericOperatorMap,
     ...genericOperatorMap,
+    ...booleanOperatorMap,
+    // slight overkill to spread all of these into the map
+    // but gives freedom for them to diverge more over time
+}
+
+const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, string>> = {
+    DateTime: dateTimeOperatorMap,
+    String: stringOperatorMap,
+    Numeric: numericOperatorMap,
+    Boolean: booleanOperatorMap,
+}
+
+export function chooseOperatorMap(
+    propertyType: PropertyType | undefined,
+    allowQueryingEventsByDateTime: boolean
+): Record<string, string> {
+    let choice = genericOperatorMap
+    if (propertyType) {
+        choice = operatorMappingChoice[propertyType] || genericOperatorMap
+        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
+            choice = genericOperatorMap
+        }
+    }
+    return choice
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -401,7 +454,7 @@ export function isOperatorRegex(operator: string): boolean {
 }
 
 export function isOperatorDate(operator: string): boolean {
-    return ['is_date_before', 'is_date_after'].includes(operator)
+    return ['is_date_before', 'is_date_after', 'is_date_exact'].includes(operator)
 }
 
 export function formatPropertyLabel(
@@ -928,8 +981,8 @@ export function sampleOne<T>(items: T[]): T {
     return items[Math.floor(Math.random() * items.length)]
 }
 
-/** Convert camelCase, PascalCase or snake_case to Sentence case. */
-export function identifierToHuman(identifier: string | number): string {
+/** Convert camelCase, PascalCase or snake_case to Sentence case or Title Case. */
+export function identifierToHuman(identifier: string | number, caseType: 'sentence' | 'title' = 'sentence'): string {
     const words: string[] = []
     let currentWord: string = ''
     String(identifier)
@@ -957,7 +1010,9 @@ export function identifierToHuman(identifier: string | number): string {
     if (currentWord) {
         words.push(currentWord)
     }
-    return capitalizeFirstLetter(words.join(' '))
+    return capitalizeFirstLetter(
+        words.map((word) => (caseType === 'sentence' ? word : capitalizeFirstLetter(word))).join(' ')
+    )
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {

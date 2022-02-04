@@ -137,6 +137,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    """
+    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+    """
+
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -251,6 +255,7 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+    include_in_docs = False
 
     def get_queryset(self) -> QuerySet:
         return super().get_queryset().filter(user=self.request.user)

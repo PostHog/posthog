@@ -6,7 +6,6 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '~/types'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
-import { urls } from '../urls'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -106,7 +105,7 @@ export async function createActionFromEvent(
         }
     }
     if (action.id) {
-        router.actions.push(urls.taxonomyCalculatedEventsEdit(action.id))
+        router.actions.push(`/action/${action.id}`)
         toast(
             <span>
                 Action succesfully created.{' '}

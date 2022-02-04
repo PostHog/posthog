@@ -13,11 +13,13 @@ import {
 } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
-import { eventUsageLogic, RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonUUID = string
 interface Params {
@@ -194,19 +196,15 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
     listeners: ({ actions }) => ({
         setEntityFilters: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
             actions.getSessionRecordings()
         },
         setPropertyFilters: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
             actions.getSessionRecordings()
         },
         setDateRange: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
             actions.getSessionRecordings()
         },
         setDurationFilter: () => {
-            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
             actions.getSessionRecordings()
         },
         loadNext: () => {
@@ -223,9 +221,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
         showFilters: [
-            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters],
-            (filterEnabled, entityFilters, propertyFilters) => {
+            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters, featureFlagLogic.selectors.featureFlags],
+            (filterEnabled, entityFilters, propertyFilters, featureFlags) => {
                 return (
+                    featureFlags[FEATURE_FLAGS.RECORDINGS_FILTER_EXPERIMENT] === 'test' ||
                     filterEnabled ||
                     entityFilters !== DEFAULT_ENTITY_FILTERS ||
                     propertyFilters !== DEFAULT_PROPERTY_FILTERS

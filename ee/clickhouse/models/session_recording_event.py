@@ -1,9 +1,9 @@
 import datetime
 import json
-import logging
 import uuid
 from typing import Union
 
+import structlog
 from sentry_sdk import capture_exception
 
 from ee.clickhouse.client import sync_execute
@@ -12,7 +12,7 @@ from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 MAX_KAFKA_MESSAGE_LENGTH = 800_000
 MAX_INSERT_LENGTH = 15_000_000

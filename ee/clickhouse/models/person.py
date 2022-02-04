@@ -22,9 +22,8 @@ from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
-from posthog.utils import is_clickhouse_enabled
 
-if is_clickhouse_enabled() and TEST:
+if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
 
     @receiver(post_save, sender=Person)

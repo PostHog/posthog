@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import React from 'react'
+import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { errorToast } from 'lib/utils'
@@ -22,18 +22,26 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    SecondaryExperimentMetric,
+    AvailableFeature,
+    SignificanceCode,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
+    connect: {
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
+    },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
@@ -50,10 +58,12 @@ export const experimentLogic = kea<experimentLogicType>({
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
+        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -69,6 +79,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (experimentData.filters) {
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
+                    }
+
+                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
+                    if (experimentData.parameters) {
+                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
+                        return { ...vals, ...experimentData, parameters: newParameters }
                     }
                     return { ...vals, ...experimentData }
                 },
@@ -114,7 +130,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
                     const newRolloutPercentages = percentageDistribution(
-                        state?.parameters?.feature_flag_variants.length - 1
+                        (state?.parameters?.feature_flag_variants || []).length - 1
                     )
                     const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
@@ -127,6 +143,13 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setSecondaryMetrics: (state, { secondaryMetrics }) => {
+                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, secondary_metrics: metrics },
                     }
                 },
                 resetNewExperiment: () => ({
@@ -177,6 +200,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         }
                     )
                     if (response?.id) {
+                        actions.updateExperiments(response)
                         router.actions.push(urls.experiment(response.id))
                         return
                     }
@@ -190,6 +214,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
+                    response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
             } catch (error) {
                 errorToast(
@@ -205,6 +230,8 @@ export const experimentLogic = kea<experimentLogicType>({
 
             if (response?.id) {
                 const experimentId = response.id
+                router.actions.push(urls.experiment(experimentId))
+                actions.addToExperiments(response)
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
@@ -252,7 +279,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
 
             const createdInsight: InsightModel = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
+                `api/projects/${values.currentTeamId}/insights`,
                 newInsight
             )
             actions.setExperimentInsightId(createdInsight.short_id)
@@ -266,44 +293,47 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
-                // loading a draft mode experiment
+                // loading a draft experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
+                actions.resetNewExperiment()
                 actions.loadExperimentResults()
             }
         },
         launchExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const startDate = dayjs()
+            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            const endDate = dayjs()
+            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            const duration = endDate.diff(values.experimentData?.start_date, 'second')
+            values.experimentData &&
+                eventUsageLogic.actions.reportExperimentCompleted(
+                    values.experimentData,
+                    endDate,
+                    duration,
+                    values.areResultsSignificant
+                )
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ archived: true })
+            values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new') {
+            if (values.experimentId === 'new' || values.editingExistingExperiment) {
                 actions.createNewExperimentInsight()
             } else {
                 actions.createNewExperimentInsight(values.experimentData?.filters)
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -315,6 +345,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         return response as Experiment
                     }
                     return null
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    return response
                 },
             },
         ],
@@ -364,11 +402,23 @@ export const experimentLogic = kea<experimentLogicType>({
         variants: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData, experimentData): MultivariateFlagVariant[] => {
+                if (experimentData?.start_date) {
+                    return experimentData?.parameters?.feature_flag_variants || []
+                }
+
                 return (
                     newExperimentData?.parameters?.feature_flag_variants ||
                     experimentData?.parameters?.feature_flag_variants ||
                     []
                 )
+            },
+        ],
+        parsedSecondaryMetrics: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
+                const secondaryMetrics: Partial<FilterType>[] =
+                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics.map((metric) => ({ filters: metric }))
             },
         ],
         minimumDetectableChange: [
@@ -387,109 +437,56 @@ export const experimentLogic = kea<experimentLogicType>({
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
-        mdeGivenSampleSizeAndConversionRate: [
-            () => [],
-            () =>
-                (sampleSize: number, conversionRate: number): number => {
-                    return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / sampleSize)
-                },
-        ],
-        mdeGivenCountData: [
-            () => [],
-            () =>
-                (controlCountData: number): number => {
-                    // ref http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    // 4*sqrt(lambda*)
-
-                    // background rates:
-                    // roughly matches significance for https://www.evanmiller.org/ab-testing/poisson-means.html
-                    return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
-                },
-        ],
-        bestConversionVariant: [
-            (s) => [s.variants, s.conversionRateForVariant],
-            (variants, conversionRateForVariant): { variant: MultivariateFlagVariant; value: number } => {
-                const bestVariant = variants.reduce(
-                    (best, variant) => {
-                        const value = parseFloat(conversionRateForVariant(variant.key))
-                        if (value > best.value) {
-                            return { variant, value }
-                        }
-                        return best
-                    },
-                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
-                )
-                return bestVariant
+        areResultsSignificant: [
+            (s) => [s.experimentResults],
+            (experimentResults): boolean => {
+                return experimentResults?.significant || false
             },
         ],
-        bestCountVariant: [
-            (s) => [s.variants, s.countDataForVariant],
-            (variants, countDataForVariant): { variant: MultivariateFlagVariant; value: number } => {
-                const bestVariant = variants.reduce(
-                    (best, variant) => {
-                        const value = parseInt(countDataForVariant(variant.key))
-                        if (value && value > best.value) {
-                            return { variant, value }
-                        }
-                        return best
-                    },
-                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
-                )
-                return bestVariant
-            },
-        ],
-        areCountResultsSignificant: [
-            (s) => [s.mdeGivenCountData, s.bestCountVariant, s.countDataForVariant],
-            (mdeGivenCountData, bestCountVariant, countDataForVariant): boolean => {
-                const targetCountData = bestCountVariant.value
-                const controlCountData = parseInt(countDataForVariant('control'))
-                // minimum detectable effect for variant determines significance
-                return Math.abs(targetCountData - controlCountData) > mdeGivenCountData(controlCountData)
-            },
-        ],
-        areConversionResultsSignificant: [
-            (s) => [
-                s.mdeGivenSampleSizeAndConversionRate,
-                s.bestConversionVariant,
-                s.conversionRateForVariant,
-                s.experimentResults,
-            ],
-            (
-                mdeGivenSampleSizeAndConversionRate,
-                bestConversionVariant,
-                conversionRateForVariant,
-                experimentResults
-            ): boolean => {
-                if (!experimentResults) {
-                    return false
+        significanceTooltip: [
+            (s) => [s.experimentResults],
+            (experimentResults): string | ReactElement => {
+                if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
+                    return (
+                        <div>
+                            This is because the expected loss in conversion is greater than 1%.{' '}
+                            <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                {' '}
+                                See our Experimentation docs for more information.{' '}
+                            </a>
+                        </div>
+                    )
                 }
 
-                const controlResults = (experimentResults?.insight as FunnelStep[][]).find(
-                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === 'control'
-                )
-                if (!controlResults) {
-                    return false
+                if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
+                    return (
+                        <div>
+                            This is because the p value is greater than 0.05.{' '}
+                            <a href="https://posthog.com/docs/user-guides/experimentation#trend-experiment-calculations">
+                                {' '}
+                                See our Experimentation docs for more information.{' '}
+                            </a>
+                        </div>
+                    )
                 }
-                const sampleSizeForControl = controlResults[0].count
-                if (!sampleSizeForControl) {
-                    return false
+
+                if (experimentResults?.significance_code === SignificanceCode.LowWinProbability) {
+                    return 'This is because the win probability of all test variants combined is less than 90%.'
                 }
-                const targetConversionRate = bestConversionVariant.value
-                const controlConversionRate = parseFloat(conversionRateForVariant('control'))
-                // minimum detectable effect for variant determines significance
-                return (
-                    Math.abs(targetConversionRate - controlConversionRate) >
-                    mdeGivenSampleSizeAndConversionRate(sampleSizeForControl, controlConversionRate)
-                )
+
+                if (experimentResults?.significance_code === SignificanceCode.NotEnoughExposure) {
+                    return 'This is because we need at least 100 people per variant to declare significance.'
+                }
+
+                return ''
             },
         ],
         recommendedExposureForCountData: [
-            () => [],
-            () =>
+            (s) => [s.minimumDetectableChange],
+            (mde) =>
                 (baseCountData: number): number => {
-                    // assume a 5% mde, target count data is 5% of base count data
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    const minCountData = baseCountData * 0.05
+                    const minCountData = (baseCountData * mde) / 100
                     const lambda1 = baseCountData
                     const lambda2 = minCountData + baseCountData
 
@@ -505,9 +502,9 @@ export const experimentLogic = kea<experimentLogicType>({
         expectedRunningTime: [
             () => [],
             () =>
-                (entrants: number, sampleSize: number): number => {
+                (entrants: number, sampleSize: number, duration: number = DEFAULT_DURATION): number => {
                     // recommended people / (actual people / day) = expected days
-                    return parseFloat((sampleSize / (entrants / DEFAULT_DURATION)).toFixed(1))
+                    return parseFloat((sampleSize / (entrants / duration)).toFixed(1))
                 },
         ],
         conversionRateForVariant: [
@@ -527,6 +524,37 @@ export const experimentLogic = kea<experimentLogicType>({
                     return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
                         1
                     )
+                },
+        ],
+        getIndexForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string, insightType: InsightType): number => {
+                    // Ensures we get the right index from results, so the UI can
+                    // display the right colour for the variant
+                    if (!experimentResults) {
+                        return 0
+                    }
+                    let index = -1
+
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults?.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults?.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+
+                    if (index === -1) {
+                        return 0
+                    }
+
+                    return index
                 },
         ],
         countDataForVariant: [
@@ -557,10 +585,36 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             },
         ],
+        areTrendResultsConfusing: [
+            (s) => [s.experimentResults, s.highestProbabilityVariant],
+            (experimentResults, highestProbabilityVariant): boolean => {
+                // Results are confusing when the top variant has a lower
+                // absolute count than other variants. This happens because
+                // exposure is invisible to the user
+                if (!experimentResults) {
+                    return false
+                }
+                // find variant with highest count
+                const variantResults: TrendResult = (experimentResults?.insight as TrendResult[]).reduce(
+                    (bestVariant, currentVariant) =>
+                        currentVariant.count > bestVariant.count ? currentVariant : bestVariant,
+                    { count: 0, breakdown_value: '' } as TrendResult
+                )
+                if (!variantResults.count) {
+                    return false
+                }
+
+                return variantResults.breakdown_value !== highestProbabilityVariant
+            },
+        ],
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             actions.emptyExperimentResults()
+            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                router.actions.push('/experiments')
+                return
+            }
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment

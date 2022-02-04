@@ -12,11 +12,11 @@ class SideEffects:
         self.side_effect_count = 0
         self.side_effect_rollback_count = 0
 
-    def side_effect(self):
+    def side_effect(self, _):
         self.side_effect_count += 1
         return
 
-    def side_effect_rollback(self):
+    def side_effect_rollback(self, _):
         self.side_effect_rollback_count += 1
         return
 
@@ -32,29 +32,25 @@ class Migration(AsyncMigrationDefinition):
     sec = SideEffects()
 
     operations = [
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )",
             rollback="DROP TABLE test_async_migration",
-            side_effect=sec.side_effect,
-            side_effect_rollback=sec.side_effect_rollback,
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
             rollback="TRUNCATE TABLE test_async_migration",
-            side_effect=sec.side_effect,
-            side_effect_rollback=sec.side_effect_rollback,
         ),
-        AsyncMigrationOperation(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback="", resumable=True),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", resumable=True),
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="UPDATE test_async_migration SET value='c' WHERE key='a'",
             rollback="UPDATE test_async_migration SET value='b' WHERE key='a'",
-            resumable=True,  # why? because 'update where' queries can safely be re-run
-            side_effect=sec.side_effect,
-            side_effect_rollback=sec.side_effect_rollback,
         ),
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
     ]
 
     def healthcheck(self):

@@ -7,7 +7,6 @@ from freezegun.api import freeze_time
 from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-from posthog.tasks.calculate_action import calculate_action
 from posthog.test.base import BaseTest, test_with_materialized_columns
 
 
@@ -225,9 +224,6 @@ def factory_session_recordings_list_test(
             self.create_event("user", self.base_time, event_name="custom-event", properties={"$browser": "Chrome"})
             self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
 
-            calculate_action(action1.id)
-            calculate_action(action2.id)
-
             # An action with properties
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -400,8 +396,6 @@ def factory_session_recordings_list_test(
             )
             self.create_snapshot("user", "1", self.base_time - relativedelta(days=3) + relativedelta(hours=6))
 
-            calculate_action(action2.id)
-
             filter = SessionRecordingsFilter(
                 team=self.team,
                 data={
@@ -484,7 +478,3 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
     return TestSessionRecordingsList
-
-
-class TestSessionRecordingsAPI(factory_session_recordings_list_test(SessionRecordingList, Event.objects.create, SessionRecordingEvent.objects.create, Action.objects.create, ActionStep.objects.create)):  # type: ignore
-    pass

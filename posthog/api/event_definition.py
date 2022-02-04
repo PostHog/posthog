@@ -1,6 +1,6 @@
 from typing import Type
 
-from rest_framework import filters, mixins, permissions, serializers, status, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import AvailableFeature
@@ -14,14 +14,7 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 class EventDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
-        fields = (
-            "id",
-            "name",
-            "volume_30_day",
-            "query_usage_30_day",
-            "created_at",
-            "last_seen_at",
-        )
+        fields = ("id", "name", "volume_30_day", "query_usage_30_day", "created_at", "last_seen_at")
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()

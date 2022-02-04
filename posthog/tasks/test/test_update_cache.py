@@ -109,51 +109,22 @@ class TestUpdateCache(APIBaseTest):
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         dashboard_item = self._create_dashboard(filter)
 
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.TRENDS,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-
-        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
-        self.assertEqual(updated_dashboard_item.refreshing, False)
-        self.assertEqual(updated_dashboard_item.last_refresh, now())
-
-    @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.Funnel")
-    def test_update_cache_item_calls_right_funnel_class(self, funnel_mock: MagicMock) -> None:
-        #  basic funnel
-        filter = Filter(
-            data={
-                "insight": "FUNNELS",
-                "events": [
-                    {"id": "$pageview", "order": 0, "type": "events"},
-                    {"id": "$pageview", "order": 1, "type": "events"},
-                ],
-            }
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.TRENDS,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        dashboard_item = self._create_dashboard(filter)
-
-        funnel_mock.return_value.run.return_value = {}
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
-        funnel_mock.assert_called_once()
 
     @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelUnordered", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelStrict", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelUnordered", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelStrict", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTimeToConvert", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTrends", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnel", create=True)
+    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnel", create=True)
     def test_update_cache_item_calls_right_funnel_class_clickhouse(
         self,
         funnel_mock: MagicMock,
@@ -173,7 +144,7 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(EE_AVAILABLE=True, PRIMARY_DB="clickhouse"):
+        with self.settings(PRIMARY_DB="clickhouse"):
             filter = base_filter
             funnel_mock.return_value.run.return_value = {}
             update_cache_item(
@@ -191,25 +162,9 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_trends_mock.assert_called_once()
-            self.assertEqual(funnel_trends_mock.call_args[1]["funnel_order_class"], funnel_mock)
-            funnel_trends_mock.reset_mock()
 
-            # trends unordered funnel
-            filter = base_filter.with_data({"funnel_viz_type": "trends", "funnel_order_type": "unordered"})
-            funnel_trends_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-
-            funnel_trends_mock.assert_called_once()
-            self.assertEqual(funnel_trends_mock.call_args[1]["funnel_order_class"], funnel_unordered_mock)
-            funnel_trends_mock.reset_mock()
-
-            # time to convert strict funnel
+            # time to convert funnel
             filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
             funnel_time_to_convert_mock.return_value.run.return_value = {}
             update_cache_item(
@@ -217,10 +172,7 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_time_to_convert_mock.assert_called_once()
-            self.assertEqual(funnel_time_to_convert_mock.call_args[1]["funnel_order_class"], funnel_strict_mock)
-            funnel_time_to_convert_mock.reset_mock()
 
             # strict funnel
             filter = base_filter.with_data({"funnel_order_type": "strict"})
@@ -230,8 +182,17 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.FUNNEL,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
             funnel_strict_mock.assert_called_once()
+
+            # unordered funnel
+            filter = base_filter.with_data({"funnel_order_type": "unordered"})
+            funnel_unordered_mock.return_value.run.return_value = {}
+            update_cache_item(
+                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+                CacheType.FUNNEL,
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
+            )
+            funnel_unordered_mock.assert_called_once()
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,

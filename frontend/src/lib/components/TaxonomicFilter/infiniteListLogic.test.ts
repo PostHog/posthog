@@ -1,7 +1,5 @@
 import { infiniteListLogic } from './infiniteListLogic'
-import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -14,7 +12,7 @@ jest.mock('lib/api')
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
-    let logic: BuiltLogic<infiniteListLogicType>
+    let logic: ReturnType<typeof infiniteListLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
