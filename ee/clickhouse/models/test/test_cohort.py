@@ -338,9 +338,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
-    @snapshot_clickhouse_queries
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort")
-    def test_cohortpeople_basic_paginating(self, mock_calculate_people):
+    def test_cohortpeople_basic_paginating(self):
         for i in range(15):
             Person.objects.create(
                 team_id=self.team.pk,
@@ -348,15 +346,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 properties={"$some_prop": "something", "$another_prop": "something"},
             )
 
-        cohort1 = Cohort.objects.create(
+        cohort1: Cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch()
-
-        mock_calculate_people.assert_called_once_with((cohort1.pk))
         cohort1.calculate_people(batch_size=2, pg_batch_size=1)
 
         self.assertEqual(len(cohort1.people.all()), 15)
