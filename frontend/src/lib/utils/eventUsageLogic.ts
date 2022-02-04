@@ -257,7 +257,11 @@ export const eventUsageLogic = kea<
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean, delay?: number) => ({
+            dashboard,
+            hasShareToken,
+            delay,
+        }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
@@ -504,8 +508,10 @@ export const eventUsageLogic = kea<
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
-        reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+        reportDashboardViewed: async ({ dashboard, hasShareToken, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+            }
             const { created_at, is_shared, pinned, creation_mode } = dashboard
             const properties: Record<string, any> = {
                 created_at,
@@ -528,7 +534,8 @@ export const eventUsageLogic = kea<
                 properties.sample_items_count += item.is_sample ? 1 : 0
             }
 
-            posthog.capture('viewed dashboard', properties)
+            const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+            posthog.capture(eventName, properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
             await breakpoint(500)

@@ -35,6 +35,8 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
 export interface DashboardLogicProps {
     id?: number
     shareToken?: string
@@ -121,7 +123,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
-                        eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -707,10 +708,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 }, values.autoRefresh.interval * 1000)
             }
         },
-        loadDashboardItemsSuccess: () => {
+        loadDashboardItemsSuccess: async (_, breakpoint) => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
             const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
             actions.refreshAllDashboardItems(notYetLoadedItems)
+
+            if (values.allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
+                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                }
+            }
         },
     }),
 })
