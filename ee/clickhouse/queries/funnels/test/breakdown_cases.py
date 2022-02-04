@@ -429,7 +429,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
 
             assert_funnel_breakdown_result_is_correct(
-                result[0],
+                result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
                     FunnelStepResult(
@@ -449,7 +449,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[1],
+                result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Other"], count=3),
                     FunnelStepResult(
