@@ -20,6 +20,7 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 let uniqueMemoizedIndex = 0
 
@@ -63,6 +64,8 @@ export function TaxonomicPropertyFilter({
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
+
+    const { propertyDefinitions } = useValues(propertyDefinitionsModel)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -129,6 +132,7 @@ export function TaxonomicPropertyFilter({
 
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
+                            propertyDefinitions={propertyDefinitions}
                             allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
                             type={filter?.type}
                             propkey={filter?.key}
