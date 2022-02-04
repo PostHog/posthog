@@ -28,6 +28,8 @@ export interface TaxonomicFilterGroup {
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
+    expandedEndpoint?: string
+    expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
@@ -64,6 +66,7 @@ export interface ListStorage {
     results: (EventDefinition | CohortType)[]
     searchQuery?: string // Query used for the results currently in state
     count: number
+    expandedCount?: number
     queryChanged?: boolean
     first?: boolean
 }

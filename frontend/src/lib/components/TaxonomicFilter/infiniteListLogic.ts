@@ -57,6 +57,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
+        expand: true,
+        collapse: true,
     },
 
     reducers: {
@@ -75,6 +77,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
+        isExpanded: [false, { expand: () => true, collapse: () => false }],
     },
 
     loaders: ({ values }) => ({
@@ -91,32 +94,52 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { remoteEndpoint, searchQuery } = values
+                    const { isExpanded, remoteEndpoint, remoteExpandedEndpoint, searchQuery } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    const url = combineUrl(remoteEndpoint, {
-                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
-                        limit,
-                        offset,
-                    }).url
-
-                    let response
-
-                    if (apiCache[url]) {
-                        response = apiCache[url]
-                    } else {
-                        response = await api.get(url)
-                        apiCache[url] = response
-                        apiCacheTimers[url] = window.setTimeout(() => {
-                            delete apiCache[url]
-                            delete apiCacheTimers[url]
-                        }, API_CACHE_TIMEOUT)
-                        breakpoint()
+                    async function getCachedUrl(url: string): Promise<EventDefinitionStorage> {
+                        let response
+                        if (apiCache[url]) {
+                            response = apiCache[url]
+                        } else {
+                            response = await api.get(url)
+                            apiCache[url] = response
+                            apiCacheTimers[url] = window.setTimeout(() => {
+                                delete apiCache[url]
+                                delete apiCacheTimers[url]
+                            }, API_CACHE_TIMEOUT)
+                        }
+                        return response
                     }
+
+                    const url = combineUrl(
+                        isExpanded && remoteExpandedEndpoint ? remoteExpandedEndpoint : remoteEndpoint,
+                        {
+                            [`${values.group?.searchAlias || 'search'}`]: searchQuery,
+                            limit,
+                            offset,
+                        }
+                    ).url
+
+                    // only fetch the total count if this is an expandable list and we haven't expanded
+                    const expandedUrl =
+                        !isExpanded && remoteExpandedEndpoint
+                            ? combineUrl(remoteExpandedEndpoint, {
+                                  [`${values.group?.searchAlias || 'search'}`]: searchQuery,
+                                  limit: 1,
+                                  offset: 0,
+                              }).url
+                            : null
+
+                    const [response, expandedResponse] = await Promise.all([
+                        getCachedUrl(url),
+                        expandedUrl ? getCachedUrl(expandedUrl) : null,
+                    ])
+                    breakpoint()
 
                     const queryChanged = values.items.searchQuery !== values.searchQuery
 
@@ -128,7 +151,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count || response.length || 0,
+                        count: response.count || 0,
+                        expandedCount: expandedResponse?.count,
                     }
                 },
             },
@@ -158,18 +182,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             }
         },
         moveUp: () => {
-            const { index, totalCount } = values
-            actions.setIndex((index - 1 + totalCount) % totalCount)
+            const { index, totalListCount } = values
+            actions.setIndex((index - 1 + totalListCount) % totalListCount)
         },
         moveDown: () => {
-            const { index, totalCount } = values
-            actions.setIndex((index + 1) % totalCount)
+            const { index, totalListCount } = values
+            actions.setIndex((index + 1) % totalListCount)
         },
         selectSelected: () => {
-            actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+            if (values.isExpandable && values.index === values.totalListCount - 1) {
+                actions.expand()
+            } else {
+                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+            }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+        },
+        expand: () => {
+            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
     }),
 
@@ -182,6 +213,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        remoteExpandedEndpoint: [(s) => [s.group], (group) => group?.expandedEndpoint || null],
+        isExpandable: [
+            (s) => [s.remoteEndpoint, s.remoteExpandedEndpoint, s.remoteItems],
+            (remoteEndpoint, remoteExpandedEndpoint, remoteItems) =>
+                !!(remoteEndpoint && remoteExpandedEndpoint) &&
+                remoteItems.expandedCount &&
+                remoteItems.expandedCount > remoteItems.count,
+        ],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
@@ -238,6 +277,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
+        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
+        totalListCount: [
+            (s) => [s.totalCount, s.isExpandable],
+            (totalCount, isExpandable) => totalCount + (isExpandable ? 1 : 0),
+        ],
         results: [(s) => [s.items], (items) => items.results],
         selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
         selectedItemValue: [

@@ -35,7 +35,9 @@ function CategoryPill({
             className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': totalCount === 0 })}
             onClick={totalCount > 0 ? onClick : undefined}
         >
-            {group?.name}: {totalCount || 0}
+            {group?.name}
+            {': '}
+            {totalCount ?? '...'}
         </Tag>
     )
 }

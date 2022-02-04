@@ -246,12 +246,23 @@ export function InfiniteList(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
-        useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
+    const {
+        isLoading,
+        results,
+        index,
+        listGroupType,
+        group,
+        selectedItem,
+        selectedItemInView,
+        isExpandable,
+        totalCount,
+        totalListCount,
+        expandedCount,
+    } = useValues(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalCount === 0 && !isLoading
+    const showEmptyState = totalListCount === 0 && !isLoading
     const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
@@ -275,15 +286,20 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
+        const commonDivProps = {
+            key: `item_${rowIndex}`,
+            className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
+            style: style,
+            'data-attr': `prop-filter-${listGroupType}-${rowIndex}`,
+            ref: isHighlighted ? setReferenceElement : null,
+        }
+
         return item && group ? (
             <div
-                key={`item_${rowIndex}`}
+                {...commonDivProps}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
                 onClick={() => selectItem(group, itemValue ?? null, item)}
-                onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
-                style={style}
-                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                ref={isHighlighted ? setReferenceElement : null}
             >
                 {renderItemContents({
                     item,
@@ -292,14 +308,19 @@ export function InfiniteList(): JSX.Element {
                     eventNames,
                 })}
             </div>
-        ) : (
+        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
             <div
-                key={`skeleton_${rowIndex}`}
-                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
-                onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                style={style}
-                data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
+                {...commonDivProps}
+                className={`taxonomic-list-row expand-row${rowIndex === index ? ' hover' : ''}${
+                    isSelected ? ' selected' : ''
+                }`}
+                onClick={expand}
             >
+                {group.expandLabel?.({ count: totalCount, expandedCount }) ??
+                    `Click here to see ${expandedCount - totalCount} more rows`}
+            </div>
+        ) : (
+            <div {...commonDivProps} className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}>
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </div>
         )
@@ -329,7 +350,7 @@ export function InfiniteList(): JSX.Element {
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
+                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
                             overscanRowCount={100}
                             rowHeight={32}
                             rowRenderer={renderItem}
