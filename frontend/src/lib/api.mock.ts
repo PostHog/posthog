@@ -87,7 +87,7 @@ export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableF
         return MOCK_DEFAULT_TEAM
     } else if (pathname === 'api/organizations/@current') {
         return organization
-    } else if (pathname === `api/projects/${MOCK_TEAM_ID}/metadata/`) {
+    } else if (pathname === `api/projects/@current/metadata/`) {
         return {}
     } else if (
         [
