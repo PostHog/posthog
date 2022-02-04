@@ -83,7 +83,7 @@ class ClickhouseFunnelExperimentResult:
             variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
-        significance_code = self.are_results_significant(control_variant, test_variants, probabilities)
+        significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
             "insight": funnel_results,
@@ -91,6 +91,7 @@ class ClickhouseFunnelExperimentResult:
             "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.funnel._filter.to_dict(),
             "significance_code": significance_code,
+            "expected_loss": loss,
         }
 
     def get_variants(self, funnel_results):
@@ -141,35 +142,35 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
-    ) -> ExperimentSignificanceCode:
+    ) -> Tuple[ExperimentSignificanceCode, Probability]:
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
             # We need a feature flag distribution threshold because distribution of people
             # can skew wildly when there are few people in the experiment
             if variant.success_count + variant.failure_count < FF_DISTRIBUTION_THRESHOLD:
-                return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
+                return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
         if control_sample_size < FF_DISTRIBUTION_THRESHOLD:
-            return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
+            return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1
 
         if (
             probabilities[0] < MIN_PROBABILITY_FOR_SIGNIFICANCE
             and sum(probabilities[1:]) < MIN_PROBABILITY_FOR_SIGNIFICANCE
         ):
             # Sum of probability of winning for all variants except control is less than 90%
-            return ExperimentSignificanceCode.LOW_WIN_PROBABILITY
+            return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1
 
         best_test_variant = max(
             test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
         )
 
-        expected_loss = calculate_expected_loss(best_test_variant, [control_variant],)
+        expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
 
         if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
-            return ExperimentSignificanceCode.HIGH_LOSS
+            return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
 
-        return ExperimentSignificanceCode.SIGNIFICANT
+        return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
 
 
 def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:
