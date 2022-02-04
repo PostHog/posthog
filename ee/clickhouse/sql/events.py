@@ -53,7 +53,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
+KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),

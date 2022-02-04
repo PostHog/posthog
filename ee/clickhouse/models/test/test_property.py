@@ -573,14 +573,14 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             # unix timestamp in seconds
-            properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
+            properties={"unix_timestamp": int(datetime(2021, 4, 2, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             # unix timestamp in seconds
-            properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
+            properties={"unix_timestamp": int(datetime(2021, 4, 2, 19).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -613,6 +613,7 @@ def test_events(db, team) -> List[UUID]:
             event="$pageview",
             team=team,
             distinct_id="whatever",
+            # Jan 12 2022 08:49:54
             properties={"unix_timestamp_milliseconds": 1641977394339},
         ),
         _create_event(
@@ -649,18 +650,6 @@ def test_events(db, team) -> List[UUID]:
             event="some_custom_event",
             team=team,
             distinct_id="whatever",
-            properties={"relative_dates": f"{datetime(2021, 3, 31):%d/%m/%Y %H:%M:%S}"},
-        ),
-        _create_event(
-            event="$pageview",
-            team=team,
-            distinct_id="whatever",
-            properties={"relative_dates": f"{datetime(2021, 4, 2):%d/%m/%Y %H:%M:%S}"},
-        ),
-        _create_event(
-            event="$pageview",
-            team=team,
-            distinct_id="whatever",
             # seven digit unix timestamp in seconds - 7840800
             # Clickhouse cannot parse this. It isn't matched in tests from TEST_PROPERTIES
             properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
@@ -671,6 +660,57 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
+        ),
+        _create_event(
+            # matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
+        ),
+        _create_event(
+            # should not be matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
+        ),
+        _create_event(
+            # not matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're ignored in the query
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're don't cause a date to be included in an after filter
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
         ),
         _create_event(
             event="has set timestamp not `now`", team=team, distinct_id="some_guid", timestamp=datetime(2000, 4, 1)
@@ -691,12 +731,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(type="event", key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 23),
+        range(1, 28),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(type="event", key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 23),
+        range(2, 28),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(type="event", key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -704,12 +744,12 @@ TEST_PROPERTIES = [
     pytest.param(Property(type="event", key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(type="event", key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 23),
+        range(2, 28),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
     pytest.param(
         Property(type="event", key="unix_timestamp", operator="is_date_before", value="2021-04-02"),
-        [5, 6, 21],
+        [19],
         id="matching before a unix timestamp only querying by date",
     ),
     pytest.param(
@@ -719,16 +759,20 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(type="event", key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"),
-        [5, 21],
+        [19],
         id="matching before a unix timestamp querying by date and time",
     ),
     pytest.param(
         Property(type="event", key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"),
-        [6],
+        [5, 6],
         id="matching after a unix timestamp querying by date and time",
     ),
     pytest.param(Property(type="event", key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
-    pytest.param(Property(type="event", key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
+    pytest.param(
+        Property(type="event", key="long_date", operator="is_date_after", value="2021-03-31"),
+        [7, 8],
+        id="match after date only value against date and time formatted property",
+    ),
     pytest.param(Property(type="event", key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
     pytest.param(Property(type="event", key="long_date", operator="is_date_after", value="2021-04-01 18:30:00"), [8]),
     pytest.param(Property(type="event", key="short_date", operator="is_date_before", value="2021-04-05"), [9]),
@@ -814,14 +858,46 @@ TEST_PROPERTIES = [
         id="matching full format date with date parts increasing in size and separated by slashes after a given date",
     ),
     pytest.param(
-        Property(type="event", key="relative_dates", operator="is_date_after", value="-365",),
-        [19],
-        id="can parse relative dates and match after them",
+        Property(type="event", key="date_only", operator="is_date_exact", value="2021-04-01",),
+        [20, 21],
+        id="can match dates exactly",
     ),
     pytest.param(
-        Property(type="event", key="relative_dates", operator="is_date_before", value="-365",),
-        [18],
-        id="can parse relative dates and match before them",
+        Property(
+            type="event", key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31",
+        ),
+        [23, 24],
+        id="can match dates exactly against datetimes and unix timestamps",
+    ),
+    pytest.param(
+        Property(
+            type="event",
+            key="date_exact_including_seconds_and_milliseconds",
+            operator="is_date_exact",
+            value="2021-03-31 18:12:12",
+        ),
+        [25],
+        id="can match date times exactly against datetimes with milliseconds",
+    ),
+    pytest.param(
+        Property(
+            type="event",
+            key="date_exact_including_seconds_and_milliseconds",
+            operator="is_date_after",
+            value="2021-03-31",
+        ),
+        [],
+        id="can match date only filter after against datetime with milliseconds",
+    ),
+    pytest.param(
+        Property(type="event", key="date_only", operator="is_date_after", value="2021-04-01",),
+        [22],
+        id="can match after date only values",
+    ),
+    pytest.param(
+        Property(type="event", key="date_only", operator="is_date_before", value="2021-04-02",),
+        [20, 21],
+        id="can match before date only values",
     ),
 ]
 

@@ -716,6 +716,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean
@@ -801,8 +802,6 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -818,7 +817,6 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {

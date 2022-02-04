@@ -134,7 +134,9 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
+            filter_query, filter_params = method(
+                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+            )  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:
@@ -230,10 +232,61 @@ def prop_filter_json_extract(
             ),
             params,
         )
+    elif operator == "is_date_exact":
+        # TODO introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        # if we're comparing against a date with no time,
+        # truncate the values in the DB which may have times
+        granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
+        query = f"""AND date_trunc('{granularity}', coalesce(
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        )) = %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
+        )
     elif operator == "is_date_after":
-        return _choose_date_comparison_query(idx, prepend, prop, property_expr, ">")
+        # TODO introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        # if we're comparing against a date with no time,
+        # then instead of 2019-01-01 (implied 00:00:00)
+        # use 2019-01-01 23:59:59
+        is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
+
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
+        if is_date_only:
+            adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
+        else:
+            adjusted_value = f"%({prop_value_param_key})s"
+
+        query = f"""AND {first_of_date_or_timestamp} > {adjusted_value}"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
+        )
     elif operator == "is_date_before":
-        return _choose_date_comparison_query(idx, prepend, prop, property_expr, "<")
+        # TODO introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""AND {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
+        )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
@@ -264,28 +317,6 @@ def prop_filter_json_extract(
             clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
-
-
-def _choose_date_comparison_query(
-    idx: int, prepend: str, prop: Property, property_expr: str, operator: str
-) -> Tuple[str, Dict]:
-    assert isinstance(prop.value, str)
-
-    prop_value_param_key = "v{}_{}".format(prepend, idx)
-    if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
-        query = f"""AND {prop.key} {operator} %({prop_value_param_key})s"""
-    else:
-        query = f"""AND coalesce(
-                    parseDateTimeBestEffortOrNull({property_expr}),
-                    parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-                ) {operator} %({prop_value_param_key})s"""
-    return (
-        query,
-        {
-            "k{}_{}".format(prepend, idx): prop.key,
-            prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-        },
-    )
 
 
 def property_table(property: Property) -> TableWithProperties:
@@ -397,7 +428,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 

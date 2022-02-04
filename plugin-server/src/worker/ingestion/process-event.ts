@@ -636,10 +636,8 @@ export class EventsProcessor {
         timestamp?: DateTime | string,
         elements?: Element[]
     ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
-        const timestampString = castTimestampOrNow(
-            timestamp,
-            this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        )
+        const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
+        const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
@@ -648,21 +646,25 @@ export class EventsProcessor {
             event,
             properties: JSON.stringify(properties ?? {}),
             timestamp: timestampString,
-            teamId,
-            distinctId,
-            elementsChain,
-            createdAt: castTimestampOrNow(),
+            team_id: teamId,
+            distinct_id: distinctId,
+            elements_chain: elementsChain,
+            created_at: castTimestampOrNow(null, timestampFormat),
         }
 
         let eventId: Event['id'] | undefined
 
         if (this.kafkaProducer) {
+            const message = this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS
+                ? Buffer.from(JSON.stringify(eventPayload))
+                : (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_EVENTS,
                 messages: [
                     {
                         key: uuid,
-                        value: EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer,
+                        value: message,
                     },
                 ],
             })
@@ -676,11 +678,11 @@ export class EventsProcessor {
             } = await this.db.postgresQuery(
                 'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
                 [
-                    eventPayload.createdAt,
+                    eventPayload.created_at,
                     eventPayload.event,
                     distinctId,
                     eventPayload.properties,
-                    eventPayload.teamId,
+                    eventPayload.team_id,
                     eventPayload.timestamp,
                     JSON.stringify(elements || []),
                     elementsHash,

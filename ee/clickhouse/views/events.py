@@ -19,7 +19,7 @@ from ee.clickhouse.sql.events import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
-from posthog.api.documentation import OpenApiParameter, PropertiesSerializer, extend_schema
+from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
@@ -28,7 +28,7 @@ from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
-    serializer_class = ClickhouseEventSerializer  # type: ignore
+    serializer_class = ClickhouseEventSerializer
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]

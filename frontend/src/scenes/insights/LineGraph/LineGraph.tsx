@@ -17,7 +17,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
-import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
+import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
@@ -67,11 +67,16 @@ const noop = (): void => {}
 
 export function LineGraph(props: LineGraphProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
-        // @ts-ignore
+
+    if (featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
+        return <LineGraphV2 {...props} />
+    } else {
+        // @ts-expect-error
         return <LEGACY_LineGraph {...props} />
     }
+}
 
+function LineGraphV2(props: LineGraphProps): JSX.Element {
     const {
         datasets: _datasets,
         hiddenLegendKeys,
@@ -353,7 +358,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={
@@ -422,8 +428,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 if (onClick && point.length) {
                     target.style.cursor = 'pointer'
-                } else {
-                    target.style.cursor = 'default'
                 }
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {

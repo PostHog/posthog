@@ -221,7 +221,8 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
-    name: string
+    name: string | null
+    description?: string
     post_to_slack?: boolean
     slack_message_format?: string
     steps?: ActionStepType[]
@@ -307,6 +308,7 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
 }
@@ -685,6 +687,18 @@ export interface InsightModel {
     next?: string
 }
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+}
+
 export interface DashboardType {
     id: number
     name: string
@@ -698,6 +712,8 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -935,7 +951,7 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string
+    value: string | number
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
@@ -1333,6 +1349,9 @@ export interface EventDefinition {
     last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -1355,6 +1374,8 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    created_at?: string // TODO: Implement
+    last_seen_at?: string // TODO: Implement
 }
 
 export interface PersonProperty {
@@ -1383,6 +1404,8 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
+    // ID of feature flag
+    feature_flag: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -1404,6 +1427,11 @@ export interface ExperimentResults {
     itemID: string
     significant: boolean
     noData?: boolean
+    significance_code: SignificanceCode
+}
+
+export interface SecondaryExperimentMetric {
+    filters: Partial<FilterType>
 }
 
 export interface SelectOption {
@@ -1471,6 +1499,14 @@ export interface FunnelCorrelation {
         | FunnelCorrelationResultsType.Events
         | FunnelCorrelationResultsType.Properties
         | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum SignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
 export enum FunnelCorrelationType {

@@ -29,6 +29,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
     def test_create_basic_dashboard(self):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard"})
@@ -38,6 +42,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], [])
         self.assertEqual(response_data["creation_mode"], "default")
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
@@ -63,6 +71,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["creation_mode"], "template")
         self.assertEqual(response_data["description"], "Internal system metrics.")
         self.assertEqual(response_data["tags"], ["official", "engineering"])
+        self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(
+            response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")

@@ -25,8 +25,8 @@ import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-// TODO: Add support for Retention and Paths to InsightDetails
-const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION, InsightType.PATHS]
+// TODO: Add support for Retention to InsightDetails
+const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
