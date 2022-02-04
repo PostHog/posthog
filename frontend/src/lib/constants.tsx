@@ -48,9 +48,17 @@ export enum DashboardPrivilegeLevel {
     CanEdit = 37,
 }
 
-export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel.CanView]: 'can view',
     [DashboardPrivilegeLevel.CanEdit]: 'can edit',
+}
+
+export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
+    return privilegeLevel === 'owner'
+        ? 'owner'
+        : privilegeLevel === 'project-admin'
+        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
+        : rawPrivilegeLevelToName[privilegeLevel]
 }
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3

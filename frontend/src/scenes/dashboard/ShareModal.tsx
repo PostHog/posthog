@@ -12,7 +12,7 @@ import { IconCancel, IconCopy, IconLock, IconLockOpen, IconPremium } from 'lib/c
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
+import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -198,6 +198,7 @@ function CollaboratorRow({
     const { user, level } = collaborator
 
     const wasInvited = typeof level === 'number'
+    const privilegeLevelName = privilegeLevelToName(level)
 
     return (
         <div className="CollaboratorRow">
@@ -213,13 +214,7 @@ function CollaboratorRow({
                 placement="left"
             >
                 <div className="CollaboratorRow__details">
-                    <span>
-                        {!wasInvited ? (
-                            <b>{level === 'owner' ? 'owner' : privilegeLevelToName[DashboardPrivilegeLevel.CanEdit]}</b>
-                        ) : (
-                            privilegeLevelToName[level]
-                        )}
-                    </span>
+                    <span>{!wasInvited ? <b>{privilegeLevelName}</b> : privilegeLevelName}</span>
                     <LemonButton
                         icon={<IconCancel />}
                         onClick={() => deleteCollaborator(user.uuid)}
