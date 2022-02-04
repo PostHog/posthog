@@ -36,7 +36,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
-                    return (await api.get('api/dead_letter_queue')).results?.overview
+                    return (await api.get('api/dead_letter_queue')).results
                 },
             },
         ],

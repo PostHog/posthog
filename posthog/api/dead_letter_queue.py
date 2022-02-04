@@ -24,7 +24,7 @@ DEAD_LETTER_QUEUE_METRICS = {
     "dlq_size": {
         "metric": "Total events in dead letter queue", 
         "fn": lambda : { "value": get_dead_letter_queue_size() },
-  },
+    },
     "dlq_events_last_24h": {
         "metric": "Events sent to dead letter queue in the last 24h",
         "fn": lambda : { "value": get_dead_letter_queue_events_last_24h() },
@@ -35,15 +35,15 @@ DEAD_LETTER_QUEUE_METRICS = {
     },
     "dlq_events_per_error": {
         "metric": "Total events per error",
-        "fn": lambda : {"columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error()},
+        "fn": lambda : { "subrows": { "columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error() } },
     },
     "dlq_events_per_location": {
         "metric": "Total events per error location",
-        "fn": lambda : {"columns": ["Error location", "Total events"], "rows": get_dead_letter_queue_events_per_location() },
+        "fn": lambda : { "subrows": { "columns": ["Error location", "Total events"], "rows": get_dead_letter_queue_events_per_location() } },
     },
     "dlq_events_per_day": {
         "metric": "Total events per day",
-        "fn": lambda : {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day() },
+        "fn": lambda : { "subrows": { "columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day() } },
     }
 ,
 }
@@ -90,14 +90,9 @@ class DeadLetterQueueViewSet(
     def get_queryset(self):
         output = []
         for key, metric_context in DEAD_LETTER_QUEUE_METRICS.items():
-            print('#########')
-            print('#########')
-            print('#########')
-            print('#########')
-            print(metric_context, metric_context["fn"]())
-            fn = metric_context["fn"]
+            fn_result = metric_context["fn"]()
             del  metric_context["fn"]
-            metric = { "key": key } | metric_context | fn()
+            metric = { "key": key, **fn_result, **metric_context }
             output.append(metric)
         return output
 
