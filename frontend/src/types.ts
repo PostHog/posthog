@@ -1428,6 +1428,8 @@ export interface ExperimentResults {
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
 }
 
 export interface SecondaryExperimentMetric {
