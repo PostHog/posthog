@@ -191,6 +191,16 @@
         text-align: center;
         margin-bottom: $default_spacing;
     }
+
+    .feature-flag-mods {
+        padding: $default_spacing / 2;
+        width: 100%;
+        background: rgba($brand_yellow, 0.1);
+        border-radius: 4px;
+        text-align: center;
+        margin-bottom: $default_spacing;
+        justify-content: center;
+    }
 }
 
 .preview-conversion-goal-num {
