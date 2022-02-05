@@ -11,26 +11,76 @@ import { EyeOutlined } from '@ant-design/icons'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { webPerformanceLogic } from 'scenes/performance/webPerformanceLogic'
+import {
+    MinimalPerformanceResourceTiming,
+    ResourceTiming,
+    webPerformanceLogic,
+} from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { getChartColors } from 'lib/colors'
+import { areObjectValuesEmpty } from 'lib/utils'
 
 interface PerfBlockProps {
-    start: number
-    end: number
+    resourceTiming: ResourceTiming
     max: number | undefined
-    color?: string
 }
 
-function PerfBlock({ start, end, max, color }: PerfBlockProps): JSX.Element {
+const toPositionStyle = (
+    start: number,
+    end: number,
+    max: number
+): { right: number; blockSides: { left: string; right: string } } | null => {
+    if (!start && !end) {
+        return null
+    }
+    const left = (start / max) * 100
+    const right = 100 - (end / max) * 100
+    const blockSides = { left: `${left}%`, right: `${right}%` }
+
+    return { right, blockSides }
+}
+const colors = getChartColors('green')
+export function PerfBlock({ resourceTiming, max }: PerfBlockProps): JSX.Element {
     if (max) {
-        const left = (start / max) * 100
-        const right = 100 - (end / max) * 100
-        const blockSides = { left: `${left}%`, right: `${right}%` }
+        let right = 0
+        let end = 0
+        let blocks: JSX.Element[]
+
+        if (areObjectValuesEmpty(resourceTiming.performanceParts)) {
+            const minimalEntry = resourceTiming.entry as MinimalPerformanceResourceTiming
+            const style = toPositionStyle(minimalEntry.fetchStart, minimalEntry.responseEnd, max)
+            right = style?.right ?? 100
+            end = minimalEntry.responseEnd
+
+            blocks = [
+                <div
+                    key={minimalEntry.name}
+                    className="performance-block positioned"
+                    data-attr-name={minimalEntry.name}
+                    style={{ ...style?.blockSides, backgroundColor: resourceTiming.color }}
+                />,
+            ]
+        } else {
+            blocks = Object.entries(resourceTiming.performanceParts).map(([name, measure], index) => {
+                const style = toPositionStyle(measure.start, measure.end, max)
+                right = style?.right ?? 100
+                end = measure.end
+                return (
+                    <div
+                        key={name}
+                        className="performance-block positioned"
+                        data-attr-name={name}
+                        style={{ ...style?.blockSides, backgroundColor: colors[index] }}
+                    />
+                )
+            })
+        }
+
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
             <>
-                <div className="performance-block positioned" style={{ ...blockSides, backgroundColor: color }} />
+                {...blocks}
                 <div className="positioned" style={textPosition}>
                     {Math.round(end)}ms
                 </div>
@@ -87,10 +137,11 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                     <Row>
                         <Col span={8}>
-                            {Object.entries(eventToDisplay.durations).map(([marker]) => {
+                            {eventToDisplay.resourceTimings.map((timing) => {
+                                const name = typeof timing.item === 'string' ? timing.item : timing.item.pathname
                                 return (
-                                    <Row key={marker} className="marker-name marker-row">
-                                        {marker}
+                                    <Row key={name} className="marker-name marker-row">
+                                        {name}
                                     </Row>
                                 )
                             })}
@@ -113,15 +164,14 @@ function WaterfallChart(): JSX.Element {
                                     color={'var(--border-light)'}
                                 />
                             ))}
-                            {Object.entries(eventToDisplay.durations).map(([marker, measure]) => {
+                            {eventToDisplay.resourceTimings.map((resourceTiming) => {
+                                const name =
+                                    typeof resourceTiming.item === 'string'
+                                        ? resourceTiming.item
+                                        : resourceTiming.item.pathname
                                 return (
-                                    <Row key={marker} className={'marker-row'}>
-                                        <PerfBlock
-                                            start={measure.start}
-                                            end={measure.end}
-                                            max={eventToDisplay?.maxTime}
-                                            color={measure.color}
-                                        />
+                                    <Row key={name} className={'marker-row'}>
+                                        <PerfBlock resourceTiming={resourceTiming} max={eventToDisplay?.maxTime} />
                                     </Row>
                                 )
                             })}

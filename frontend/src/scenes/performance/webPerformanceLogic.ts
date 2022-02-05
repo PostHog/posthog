@@ -12,7 +12,7 @@ const eventApiProps: Partial<FilterType> = {
     ],
 }
 
-interface EventPerformanceMeasure {
+export interface EventPerformanceMeasure {
     start: number
     end: number
     color: string
@@ -26,7 +26,7 @@ interface PointInTimeMarker {
 export interface EventPerformanceData {
     id: string | number
     pointsInTime: Record<string, PointInTimeMarker>
-    durations: Record<string, EventPerformanceMeasure>
+    resourceTimings: ResourceTiming[]
     maxTime: number
     gridMarkers: number[]
 }
@@ -84,6 +84,62 @@ function colorForEntry(entryType: string): string {
     }
 }
 
+export interface MinimalPerformanceResourceTiming extends Omit<PerformanceEntry, 'entryType' | 'toJSON'> {
+    name: string
+    fetchStart: number
+    responseEnd: number
+}
+
+export interface ResourceTiming {
+    item: string | URL
+    entry: MinimalPerformanceResourceTiming | PerformanceResourceTiming
+    performanceParts: Record<string, EventPerformanceMeasure>
+    color?: string
+}
+
+function calculatePerformanceParts(
+    perfEntry: PerformanceResourceTiming,
+    maxTime: number
+): { performanceParts: Record<string, EventPerformanceMeasure>; maxTime: number } {
+    const performanceParts: Record<string, EventPerformanceMeasure> = {}
+    if (perfEntry.domainLookupEnd && perfEntry.domainLookupStart) {
+        performanceParts['dns lookup'] = {
+            start: perfEntry.domainLookupStart,
+            end: perfEntry.domainLookupEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = perfEntry.domainLookupEnd > maxTime ? perfEntry.domainLookupEnd : maxTime
+    }
+
+    if (perfEntry.connectEnd && perfEntry.connectStart) {
+        performanceParts['connection time'] = {
+            start: perfEntry.connectStart,
+            end: perfEntry.connectEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = perfEntry.connectEnd > maxTime ? perfEntry.connectEnd : maxTime
+    }
+
+    if (perfEntry.connectEnd && perfEntry.secureConnectionStart) {
+        performanceParts['tls time'] = {
+            start: perfEntry.secureConnectionStart,
+            end: perfEntry.connectEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = perfEntry.connectEnd > maxTime ? perfEntry.connectEnd : maxTime
+    }
+
+    if (perfEntry.responseStart && perfEntry.requestStart) {
+        performanceParts['waiting for first byte (TTFB)'] = {
+            start: perfEntry.requestStart,
+            end: perfEntry.responseStart,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = perfEntry.responseStart > maxTime ? perfEntry.responseStart : maxTime
+    }
+    return { performanceParts, maxTime }
+}
+
 function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
@@ -111,57 +167,31 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
         maxTime = fcp.startTime > maxTime ? fcp.startTime : maxTime
     }
 
-    const durations: Record<string, EventPerformanceMeasure> = {}
-    if (navTiming.domainLookupEnd && navTiming.domainLookupStart) {
-        durations['dns lookup'] = {
-            start: navTiming.domainLookupStart,
-            end: navTiming.domainLookupEnd,
-            color: colorForEntry(navTiming.initiatorType),
-        }
-        maxTime = navTiming.domainLookupEnd > maxTime ? navTiming.domainLookupEnd : maxTime
-    }
+    const resourceTimings: ResourceTiming[] = []
 
-    if (navTiming.connectEnd && navTiming.connectStart) {
-        durations['connection time'] = {
-            start: navTiming.connectStart,
-            end: navTiming.connectEnd,
-            color: colorForEntry(navTiming.initiatorType),
-        }
-        maxTime = navTiming.connectEnd > maxTime ? navTiming.connectEnd : maxTime
-    }
+    const __ret = calculatePerformanceParts(navTiming, maxTime)
+    resourceTimings.push({ item: 'the page', performanceParts: __ret.performanceParts, entry: navTiming })
+    maxTime = __ret.maxTime
 
-    if (navTiming.connectEnd && navTiming.secureConnectionStart) {
-        durations['tls time'] = {
-            start: navTiming.secureConnectionStart,
-            end: navTiming.connectEnd,
-            color: colorForEntry(navTiming.initiatorType),
-        }
-        maxTime = navTiming.connectEnd > maxTime ? navTiming.connectEnd : maxTime
-    }
-
-    if (navTiming.responseStart && navTiming.requestStart) {
-        durations['waiting for first byte (TTFB)'] = {
-            start: navTiming.requestStart,
-            end: navTiming.responseStart,
-            color: colorForEntry(navTiming.initiatorType),
-        }
-        maxTime = navTiming.responseStart > maxTime ? navTiming.responseStart : maxTime
-    }
-
+    console.log(perfData)
     perfData.resource.forEach((resource: PerformanceResourceTiming) => {
         const resourceURL = new URL(resource.name)
-        durations[resourceURL.pathname] = {
-            start: resource.startTime,
-            end: resource.responseEnd,
+        const thingy = calculatePerformanceParts(resource, maxTime)
+        const next = {
+            item: resourceURL,
+            performanceParts: thingy.performanceParts,
+            entry: resource,
             color: colorForEntry(resource.initiatorType),
         }
+        console.log({ next })
+        resourceTimings.push(next)
         maxTime = resource.responseEnd > maxTime ? resource.responseEnd : maxTime
     })
 
     return {
         id: pageViewEvent.id,
         pointsInTime,
-        durations: durations,
+        resourceTimings,
         maxTime,
         gridMarkers: Array.from(Array(10).keys()).map((n) => n * (maxTime / 10)),
     }
