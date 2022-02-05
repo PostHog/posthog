@@ -19,7 +19,7 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { getChartColors } from 'lib/colors'
-import { areObjectValuesEmpty } from 'lib/utils'
+import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
@@ -66,10 +66,10 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
                 <>
                     <hr />
-                    Resource is {asResourceTiming.decodedBodySize} bytes
+                    Resource is {humanizeBytes(asResourceTiming.decodedBodySize)}
                     {asResourceTiming.encodedBodySize !== asResourceTiming.decodedBodySize && (
                         <p>
-                            Was compressed. Sent {asResourceTiming.encodedBodySize} bytes. Saving{' '}
+                            Was compressed. Sent {humanizeBytes(asResourceTiming.encodedBodySize)}. Saving{' '}
                             {((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
                                 asResourceTiming.decodedBodySize) *
                                 100}
