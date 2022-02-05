@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Button, Col, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -20,6 +20,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { getChartColors } from 'lib/colors'
 import { areObjectValuesEmpty } from 'lib/utils'
+import { Popup } from 'lib/components/Popup/Popup'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -41,7 +42,30 @@ const toPositionStyle = (
     return { right, blockSides }
 }
 const colors = getChartColors('green')
-export function PerfBlock({ resourceTiming, max }: PerfBlockProps): JSX.Element {
+
+const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
+    const title = typeof resourceTiming.item == 'string' ? resourceTiming.item : resourceTiming.item.pathname
+    const url = typeof resourceTiming.item == 'string' ? null : resourceTiming.item.host
+    return (
+        <>
+            {url && <Typography.Text type="secondary">{url}</Typography.Text>}
+            <h2>{title}</h2>
+            <hr />
+            <p>
+                started at {resourceTiming.entry.startTime || resourceTiming.entry.fetchStart}ms and took{' '}
+                {resourceTiming.entry.duration}ms to complete
+            </p>
+            {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
+                <p key={index}>
+                    {key}: from: {part.start}ms to {part.end}ms (
+                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(2)}%)
+                </p>
+            ))}
+        </>
+    )
+}
+
+export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element => {
     if (max) {
         let right = 0
         let end = 0
@@ -77,21 +101,25 @@ export function PerfBlock({ resourceTiming, max }: PerfBlockProps): JSX.Element 
             })
         }
 
+        const [mouseIsOver, setMouseIsOver] = useState(false)
+
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <>
-                {blocks}
-                <div className="positioned" style={textPosition}>
-                    {Math.round(end)}ms
+            <Popup overlay={overlayFor(resourceTiming)} visible={mouseIsOver}>
+                <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
+                    {blocks}
+                    <div className="positioned" style={textPosition}>
+                        {Math.round(end)}ms
+                    </div>
                 </div>
-            </>
+            </Popup>
         )
     } else {
         return <></>
     }
 }
 
-function VerticalMarker({
+const VerticalMarker = ({
     max,
     position,
     color,
@@ -101,7 +129,7 @@ function VerticalMarker({
     position: number
     color: string
     bringToFront?: boolean
-}): JSX.Element {
+}): JSX.Element => {
     if (max) {
         const left = (position / max) * 100
         return (
@@ -115,7 +143,7 @@ function VerticalMarker({
     }
 }
 
-function WaterfallChart(): JSX.Element {
+const WaterfallChart = (): JSX.Element => {
     const { eventToDisplay } = useValues(webPerformanceLogic)
     return (
         <>
@@ -183,7 +211,7 @@ function WaterfallChart(): JSX.Element {
     )
 }
 
-function EventsWithPerformanceTable(): JSX.Element {
+const EventsWithPerformanceTable = (): JSX.Element => {
     const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(webPerformanceLogic)
     const { setEventToDisplay } = useActions(webPerformanceLogic)
     const columns: LemonTableColumns<EventType> = [
@@ -270,7 +298,7 @@ function EventsWithPerformanceTable(): JSX.Element {
     )
 }
 
-function DebugPerfData(): JSX.Element {
+const DebugPerfData = (): JSX.Element => {
     const { currentEvent } = useValues(webPerformanceLogic)
     return (
         <pre>
@@ -279,33 +307,31 @@ function DebugPerfData(): JSX.Element {
     )
 }
 
-export function WebPerformance(): JSX.Element {
-    return (
-        <div className="performance-waterfall">
-            <PageHeader
-                title={
-                    <Row align="middle">
-                        Web Performance
-                        <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                            Early Preview
-                        </LemonTag>
-                    </Row>
-                }
-            />
-            <Row gutter={[0, 32]}>
-                <Col span={24}>
-                    <EventsWithPerformanceTable />
-                </Col>
-                <Col span={24}>
-                    <WaterfallChart />
-                </Col>
-                <Col span={24}>
-                    <DebugPerfData />
-                </Col>
-            </Row>
-        </div>
-    )
-}
+export const WebPerformance = (): JSX.Element => (
+    <div className="performance-waterfall">
+        <PageHeader
+            title={
+                <Row align="middle">
+                    Web Performance
+                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                        Early Preview
+                    </LemonTag>
+                </Row>
+            }
+        />
+        <Row gutter={[0, 32]}>
+            <Col span={24}>
+                <EventsWithPerformanceTable />
+            </Col>
+            <Col span={24}>
+                <WaterfallChart />
+            </Col>
+            <Col span={24}>
+                <DebugPerfData />
+            </Col>
+        </Row>
+    </div>
+)
 
 export const scene: SceneExport = {
     component: WebPerformance,

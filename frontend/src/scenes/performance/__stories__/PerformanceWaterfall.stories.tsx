@@ -21,7 +21,7 @@ export const PerformanceBlockWithNoPerformanceDetails = keaStory(
                     <PerfBlock
                         max={1000}
                         resourceTiming={{
-                            item: 'http://localhost:8234/static/chunk-MCOK6TO3.js',
+                            item: new URL('http://localhost:8234/static/chunk-MCOK6TO3.js'),
                             performanceParts: {},
                             entry: {
                                 name: 'http://localhost:8234/static/chunk-MCOK6TO3.js',
@@ -47,7 +47,7 @@ export const PerformanceBlockWithPerformanceDetails = keaStory(
             <div className="waterfall-chart">
                 <Row key={0} className={'marker-row'}>
                     <PerfBlock
-                        max={1000}
+                        max={336.8}
                         resourceTiming={{
                             item: 'the page',
                             performanceParts: {
@@ -66,6 +66,11 @@ export const PerformanceBlockWithPerformanceDetails = keaStory(
                                     end: 193,
                                     color: 'hsl(235, 60%, 34%)',
                                 },
+                                'receiving response': {
+                                    start: 193,
+                                    end: 199.5,
+                                    color: 'hsl(235, 60%, 34%)',
+                                },
                             },
                             entry: {
                                 name: 'http://127.0.0.1:8000/events/stats',
@@ -79,7 +84,7 @@ export const PerformanceBlockWithPerformanceDetails = keaStory(
                                 connectEnd: 7.9,
                                 requestStart: 8.1,
                                 responseStart: 193,
-                                responseEnd: 193.5,
+                                responseEnd: 199.5,
                                 transferSize: 35115,
                                 encodedBodySize: 34815,
                                 decodedBodySize: 34815,

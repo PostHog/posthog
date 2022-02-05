@@ -137,6 +137,16 @@ function calculatePerformanceParts(
         }
         maxTime = perfEntry.responseStart > maxTime ? perfEntry.responseStart : maxTime
     }
+
+    if (perfEntry.responseStart && perfEntry.responseEnd) {
+        performanceParts['receiving response'] = {
+            start: perfEntry.responseStart,
+            end: perfEntry.responseEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = perfEntry.responseStart > maxTime ? perfEntry.responseStart : maxTime
+    }
+
     return { performanceParts, maxTime }
 }
 
@@ -173,17 +183,16 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     resourceTimings.push({ item: 'the page', performanceParts: __ret.performanceParts, entry: navTiming })
     maxTime = __ret.maxTime
 
-    console.log(perfData)
     perfData.resource.forEach((resource: PerformanceResourceTiming) => {
         const resourceURL = new URL(resource.name)
-        const thingy = calculatePerformanceParts(resource, maxTime)
+        const performanceCalculations = calculatePerformanceParts(resource, maxTime)
         const next = {
             item: resourceURL,
-            performanceParts: thingy.performanceParts,
+            performanceParts: performanceCalculations.performanceParts,
             entry: resource,
             color: colorForEntry(resource.initiatorType),
         }
-        console.log({ next })
+
         resourceTimings.push(next)
         maxTime = resource.responseEnd > maxTime ? resource.responseEnd : maxTime
     })
