@@ -80,7 +80,7 @@ export function PerfBlock({ resourceTiming, max }: PerfBlockProps): JSX.Element 
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
             <>
-                {...blocks}
+                {blocks}
                 <div className="positioned" style={textPosition}>
                     {Math.round(end)}ms
                 </div>

@@ -92,7 +92,7 @@ export interface MinimalPerformanceResourceTiming extends Omit<PerformanceEntry,
 
 export interface ResourceTiming {
     item: string | URL
-    entry: MinimalPerformanceResourceTiming | PerformanceResourceTiming
+    entry: MinimalPerformanceResourceTiming | PerformanceResourceTiming | PerformanceNavigationTiming
     performanceParts: Record<string, EventPerformanceMeasure>
     color?: string
 }
