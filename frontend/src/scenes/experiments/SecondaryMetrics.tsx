@@ -13,9 +13,17 @@ import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetrics
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
-    const { previewInsightId, metrics, modalVisible, metric } = useValues(logic)
+    const { previewInsightId, metrics, modalVisible, currentMetric } = useValues(logic)
 
-    const { createNewMetric, updateMetricFilters, setFilters, showModal, hideModal } = useActions(logic)
+    const {
+        createNewMetric,
+        updateMetricFilters,
+        setFilters,
+        showModal,
+        hideModal,
+        changeInsightType,
+        setCurrentMetricName,
+    } = useActions(logic)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -24,29 +32,32 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
         })
     )
 
-    console.log(insightProps)
-    console.log('previewID: ', previewInsightId)
-    console.log(metrics)
-
     const { isStepsEmpty, filterSteps } = useValues(funnelLogic(insightProps))
-
     return (
         <>
-            <Modal title="Add secondary metric" visible={modalVisible} onCancel={hideModal} onOk={hideModal} okText="Save" width={600}>
-                <Form layout="vertical"
-                    onFinish={() => {
-                        hideModal()
-                    }}
-                >
+            <Modal
+                title="Add secondary metric"
+                visible={modalVisible}
+                onCancel={hideModal}
+                onOk={() => {
+                    createNewMetric(currentMetric.filters.insight)
+                    hideModal()
+                }}
+                okText="Save"
+                style={{ minWidth: 600 }}
+            >
+                <Form layout="vertical" onValuesChange={(values) => setCurrentMetricName(values.name)}>
                     <Form.Item name="name" label="Name">
                         <Input />
                     </Form.Item>
                     <Form.Item name="type" label="Type">
                         <Select
                             style={{ display: 'flex' }}
-                            value={InsightType.TRENDS}
+                            value={currentMetric.filters.insight}
                             defaultValue={InsightType.TRENDS}
-                            onChange={() => { }}
+                            onChange={() => {
+                                changeInsightType()
+                            }}
                             suffixIcon={<CaretDownOutlined />}
                             dropdownMatchSelectWidth={false}
                         >
@@ -72,21 +83,20 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             style={{ width: '100%', marginRight: 8 }}
                             bodyStyle={{ padding: 0 }}
                         >
-                            {metric.filters.insight === InsightType.FUNNELS && (
+                            {currentMetric.filters.insight === InsightType.FUNNELS && (
                                 <ActionFilter
-                                    filters={metric.filters}
+                                    filters={currentMetric.filters}
                                     setFilters={(payload) => {
                                         const newFilters = {
-                                            ...metric.filters,
+                                            ...currentMetric.filters,
                                             insight: InsightType.FUNNELS,
                                             ...payload,
                                         }
-                                        // updateMetricFilters(metricId, newFilters)
+                                        updateMetricFilters(newFilters)
                                         setFilters(newFilters)
                                     }}
                                     // typeKey={`funnel-preview-${metricId}`}
                                     typeKey={`funnel-preview-${1}`}
-
                                     hideMathSelector={true}
                                     hideDeleteBtn={filterSteps.length === 1}
                                     buttonCopy="Add funnel step"
@@ -104,25 +114,24 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     rowClassName="action-filters-bordered"
                                 />
                             )}
-                            {metric.filters.insight === InsightType.TRENDS && (
+                            {currentMetric.filters.insight === InsightType.TRENDS && (
                                 <ActionFilter
+                                    entitiesLimit={1}
                                     horizontalUI
-                                    filters={metric.filters}
+                                    filters={currentMetric.filters}
                                     setFilters={(payload) => {
                                         const newFilters = {
-                                            ...metric.filters,
+                                            ...currentMetric.filters,
                                             insight: InsightType.TRENDS,
                                             ...payload,
                                         }
-                                        // updateMetricFilters(metricId, newFilters)
+                                        updateMetricFilters(newFilters)
                                         setFilters(newFilters)
                                     }}
                                     // typeKey={`trend-preview-${metricId}`}
-                                    typeKey={`funnel-preview-${1}`}
-
+                                    typeKey={`trend-preview-${1}`}
                                     buttonCopy="Add graph series"
                                     showSeriesIndicator
-                                    // singleFilter={true}
                                     hideMathSelector={false}
                                     propertiesTaxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
@@ -135,11 +144,9 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         </Card>
                     </Form.Item>
                     <Form.Item name="metric-preview" label="Metric preview">
-                        {/* <Col span={14}> */}
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <InsightContainer disableHeader={true} disableTable={true} />
                         </BindLogic>
-                        {/* </Col> */}
                     </Form.Item>
                 </Form>
             </Modal>
@@ -161,10 +168,11 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                                 insight: InsightType.FUNNELS,
                                                 ...payload,
                                             }
-                                            updateMetricFilters(metricId, newFilters)
+                                            updateMetricFilters(newFilters)
                                             setFilters(newFilters)
                                         }}
-                                        typeKey={`funnel-preview-${metricId}`}
+                                        // typeKey={`funnel-preview-${metricId}`}
+                                        typeKey={''}
                                         hideMathSelector={true}
                                         hideDeleteBtn={filterSteps.length === 1}
                                         buttonCopy="Add funnel step"
@@ -192,10 +200,11 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                                 insight: InsightType.TRENDS,
                                                 ...payload,
                                             }
-                                            updateMetricFilters(metricId, newFilters)
+                                            updateMetricFilters(newFilters)
                                             setFilters(newFilters)
                                         }}
-                                        typeKey={`trend-preview-${metricId}`}
+                                        // typeKey={`trend-preview-${metricId}`}
+                                        typeKey={''}
                                         buttonCopy="Add graph series"
                                         showSeriesIndicator
                                         // singleFilter={true}
@@ -213,11 +222,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     ))}
                     <Col>
                         <div className="mb-05 mt">
-                            <Button
-                                style={{ color: 'var(--primary)', minWidth: 240 }}
-                                onClick={showModal}
-
-                            >
+                            <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
                                 Add metric
                             </Button>
                             {/* <Button

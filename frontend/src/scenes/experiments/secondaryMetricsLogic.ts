@@ -21,6 +21,21 @@ import { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
 
 const DEFAULT_DURATION = 14
+const BASIC_TRENDS_INSIGHT = {
+    filters: {
+        insight: InsightType.TRENDS,
+        events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+        // display: ChartDisplayType.ActionsLineGraphCumulative,
+    },
+}
+
+const BASIC_FUNNELS_INSIGHT = {
+    filters: {
+        insight: InsightType.FUNNELS,
+        events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+        layout: FunnelLayout.horizontal,
+    },
+}
 
 export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
@@ -34,12 +49,14 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
     actions: {
         setSecondaryMetrics: (secondaryMetrics: any) => ({ secondaryMetrics }),
         createNewMetric: (metricType: InsightType) => ({ metricType }),
-        updateMetricFilters: (metricId: number, filters: Partial<FilterType>) => ({ metricId, filters }),
+        updateMetricFilters: (filters: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
         createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         showModal: true,
         hideModal: false,
+        changeInsightType: true,
+        setCurrentMetricName: (name: string) => ({ name }),
     },
     loaders: ({ values }) => ({
         experiments: [
@@ -66,7 +83,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                     return [
                         ...metrics,
                         {
-                            name: 'secondary metrics test',
                             filters: {
                                 insight: metricType,
                                 events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
@@ -75,9 +91,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                             },
                         },
                     ]
-                },
-                updateMetricFilters: (metrics, { metricId, filters }) => {
-                    return metrics.map((metric, index) => (index === metricId ? { ...metric, filters } : metric))
                 },
             },
         ],
@@ -88,13 +101,28 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                 hideModal: () => false,
             },
         ],
-        metric: [
+        currentMetricName: [
+            '',
+            {
+                setCurrentMetricName: (_, name) => name,
+            },
+        ],
+        currentMetric: [
             {
                 filters: {
-                    insight: InsightType.FUNNELS,
+                    insight: InsightType.TRENDS as InsightType,
                     events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                    layout: FunnelLayout.horizontal,
-                    display: ChartDisplayType.ActionsLineGraphCumulative,
+                },
+            },
+            {
+                changeInsightType: (metric) => {
+                    if (metric.filters.insight === InsightType.TRENDS) {
+                        return BASIC_FUNNELS_INSIGHT
+                    }
+                    return BASIC_TRENDS_INSIGHT
+                },
+                updateMetricFilters: (metric, { filters }) => {
+                    return { ...metric, filters }
                 },
             },
         ],
@@ -148,6 +176,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         updateMetricFilters: () => {
             props.onMetricsChange(values.metrics)
         },
+        changeInsightType: () => actions.createPreviewInsight(values.currentMetric.filters),
     }),
     events: ({ actions }) => ({
         afterMount: () => {
