@@ -111,7 +111,7 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
                 return (
                     <div
                         key={name}
-                        className="performance-block positioned"
+                        className={clsx('performance-block positioned', measure.reducedHeight && 'reduced-height')}
                         data-attr-name={name}
                         style={{ ...style?.blockSides, backgroundColor: colors[index] }}
                     />
