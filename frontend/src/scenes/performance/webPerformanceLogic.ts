@@ -98,18 +98,80 @@ export interface ResourceTiming {
     color?: string
 }
 
+const maybeIncrementMaxTime = (maxTime: number, candidate: number): number =>
+    candidate > maxTime ? candidate : maxTime
+
+/**
+ * There are defined sections to performance measurement. We may have data for some or all of them
+ *
+ * 1) Redirect
+ *  - from startTime which would also be redirectStart
+ *  - until redirectEnd
+ *
+ *  2) App Cache
+ *   - from fetchStart
+ *   - until domainLookupStart
+ *
+ *  3) DNS
+ *   - from domainLookupStart
+ *   - until domainLookupEnd
+ *
+ *  4) TCP
+ *   - from connectStart
+ *   - until connectEnd
+ *
+ *   this contains any time to negotiate SSL/TLS
+ *   - from secureConnectionStart
+ *   - until connectEnd
+ *
+ *  5) Request
+ *   - from requestStart
+ *   - until responseStart
+ *
+ *  6) Response
+ *   - from responseStart
+ *   - until responseEnd
+ *
+ *  7) Document Processing
+ *   - from responseEnd
+ *   - until loadEventEnd
+ *
+ * see https://nicj.net/resourcetiming-in-practice/
+ *
+ * @param perfEntry
+ * @param maxTime
+ */
 function calculatePerformanceParts(
     perfEntry: PerformanceResourceTiming | PerformanceNavigationTiming,
     maxTime: number
 ): { performanceParts: Record<string, EventPerformanceMeasure>; maxTime: number } {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
+
+    if (perfEntry.redirectStart && perfEntry.redirectEnd) {
+        performanceParts['redirect'] = {
+            start: perfEntry.redirectStart,
+            end: perfEntry.redirectEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.redirectEnd)
+    }
+
+    if (perfEntry.fetchStart && perfEntry.domainLookupStart) {
+        performanceParts['app cache'] = {
+            start: perfEntry.fetchStart,
+            end: perfEntry.domainLookupStart,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.redirectEnd)
+    }
+
     if (perfEntry.domainLookupEnd && perfEntry.domainLookupStart) {
         performanceParts['dns lookup'] = {
             start: perfEntry.domainLookupStart,
             end: perfEntry.domainLookupEnd,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime = perfEntry.domainLookupEnd > maxTime ? perfEntry.domainLookupEnd : maxTime
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.domainLookupEnd)
     }
 
     if (perfEntry.connectEnd && perfEntry.connectStart) {
@@ -118,17 +180,16 @@ function calculatePerformanceParts(
             end: perfEntry.connectEnd,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime = perfEntry.connectEnd > maxTime ? perfEntry.connectEnd : maxTime
-    }
 
-    if (perfEntry.connectEnd && perfEntry.secureConnectionStart) {
-        performanceParts['tls time'] = {
-            start: perfEntry.secureConnectionStart,
-            end: perfEntry.connectEnd,
-            color: colorForEntry(perfEntry.initiatorType),
-            reducedHeight: true,
+        if (perfEntry.secureConnectionStart) {
+            performanceParts['tls time'] = {
+                start: perfEntry.secureConnectionStart,
+                end: perfEntry.connectEnd,
+                color: colorForEntry(perfEntry.initiatorType),
+                reducedHeight: true,
+            }
         }
-        maxTime = perfEntry.connectEnd > maxTime ? perfEntry.connectEnd : maxTime
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.connectEnd)
     }
 
     if (perfEntry.responseStart && perfEntry.requestStart) {
@@ -137,7 +198,7 @@ function calculatePerformanceParts(
             end: perfEntry.responseStart,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime = perfEntry.responseStart > maxTime ? perfEntry.responseStart : maxTime
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.responseStart)
     }
 
     if (perfEntry.responseStart && perfEntry.responseEnd) {
@@ -146,7 +207,7 @@ function calculatePerformanceParts(
             end: perfEntry.responseEnd,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime = perfEntry.responseEnd > maxTime ? perfEntry.responseEnd : maxTime
+        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.responseEnd)
     }
 
     if (perfEntry.responseEnd && (perfEntry as PerformanceNavigationTiming).loadEventEnd) {
@@ -155,10 +216,7 @@ function calculatePerformanceParts(
             end: (perfEntry as PerformanceNavigationTiming).loadEventEnd,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime =
-            (perfEntry as PerformanceNavigationTiming).loadEventEnd > maxTime
-                ? (perfEntry as PerformanceNavigationTiming).loadEventEnd
-                : maxTime
+        maxTime = maybeIncrementMaxTime(maxTime, (perfEntry as PerformanceNavigationTiming).loadEventEnd)
     }
 
     return { performanceParts, maxTime }
@@ -194,7 +252,7 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     const resourceTimings: ResourceTiming[] = []
 
     const __ret = calculatePerformanceParts(navTiming, maxTime)
-    resourceTimings.push({ item: 'the page', performanceParts: __ret.performanceParts, entry: navTiming })
+    resourceTimings.push({ item: new URL(navTiming.name), performanceParts: __ret.performanceParts, entry: navTiming })
     maxTime = __ret.maxTime
 
     perfData.resource.forEach((resource: PerformanceResourceTiming) => {
