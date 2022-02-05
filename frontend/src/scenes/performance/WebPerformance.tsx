@@ -46,6 +46,7 @@ const colors = getChartColors('green')
 const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     const title = typeof resourceTiming.item == 'string' ? resourceTiming.item : resourceTiming.item.pathname
     const url = typeof resourceTiming.item == 'string' ? null : resourceTiming.item.host
+    const asResourceTiming = resourceTiming.entry as PerformanceResourceTiming
     return (
         <>
             {url && <Typography.Text type="secondary">{url}</Typography.Text>}
@@ -61,6 +62,22 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                     {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(2)}%)
                 </p>
             ))}
+            {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
+                <>
+                    <hr />
+                    Resource is {asResourceTiming.decodedBodySize} bytes
+                    {asResourceTiming.encodedBodySize !== asResourceTiming.decodedBodySize && (
+                        <p>
+                            Was compressed. Sent {asResourceTiming.encodedBodySize} bytes. Saving{' '}
+                            {((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
+                                asResourceTiming.decodedBodySize) *
+                                100}
+                            %
+                        </p>
+                    )}
+                </>
+            )}
+            <hr />
         </>
     )
 }
