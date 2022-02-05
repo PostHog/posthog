@@ -48,7 +48,12 @@ class TestCohort(BaseTest):
         cohort.calculate_people_ch()
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person3])
-        uuids = [row[0] for row in sync_execute("SELECT person_id FROM cohortpeople")]
+        uuids = [
+            row[0]
+            for row in sync_execute(
+                "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort.pk}
+            )
+        ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
