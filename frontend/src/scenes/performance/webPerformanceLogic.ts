@@ -16,6 +16,7 @@ export interface EventPerformanceMeasure {
     start: number
     end: number
     color: string
+    reducedHeight?: boolean
 }
 
 interface PointInTimeMarker {
@@ -31,7 +32,7 @@ export interface EventPerformanceData {
     gridMarkers: number[]
 }
 
-function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any> {
+function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any>[] {
     try {
         const keys = entries[0]
         return entries[1].map((entry) => {
@@ -42,7 +43,7 @@ function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any>
         })
     } catch (e) {
         console.error({ e, entries }, 'could not decompress performance entries')
-        return {}
+        return []
     }
 }
 
@@ -98,7 +99,7 @@ export interface ResourceTiming {
 }
 
 function calculatePerformanceParts(
-    perfEntry: PerformanceResourceTiming,
+    perfEntry: PerformanceResourceTiming | PerformanceNavigationTiming,
     maxTime: number
 ): { performanceParts: Record<string, EventPerformanceMeasure>; maxTime: number } {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
@@ -125,6 +126,7 @@ function calculatePerformanceParts(
             start: perfEntry.secureConnectionStart,
             end: perfEntry.connectEnd,
             color: colorForEntry(perfEntry.initiatorType),
+            reducedHeight: true,
         }
         maxTime = perfEntry.connectEnd > maxTime ? perfEntry.connectEnd : maxTime
     }
@@ -144,7 +146,19 @@ function calculatePerformanceParts(
             end: perfEntry.responseEnd,
             color: colorForEntry(perfEntry.initiatorType),
         }
-        maxTime = perfEntry.responseStart > maxTime ? perfEntry.responseStart : maxTime
+        maxTime = perfEntry.responseEnd > maxTime ? perfEntry.responseEnd : maxTime
+    }
+
+    if (perfEntry.responseEnd && (perfEntry as PerformanceNavigationTiming).loadEventEnd) {
+        performanceParts['document processing'] = {
+            start: perfEntry.responseEnd,
+            end: (perfEntry as PerformanceNavigationTiming).loadEventEnd,
+            color: colorForEntry(perfEntry.initiatorType),
+        }
+        maxTime =
+            (perfEntry as PerformanceNavigationTiming).loadEventEnd > maxTime
+                ? (perfEntry as PerformanceNavigationTiming).loadEventEnd
+                : maxTime
     }
 
     return { performanceParts, maxTime }
