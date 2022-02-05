@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { getChartColors } from 'lib/colors'
 import { areObjectValuesEmpty } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -229,8 +230,10 @@ const WaterfallChart = (): JSX.Element => {
 }
 
 const EventsWithPerformanceTable = (): JSX.Element => {
-    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(webPerformanceLogic)
+    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
+    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(logic)
     const { setEventToDisplay } = useActions(webPerformanceLogic)
+
     const columns: LemonTableColumns<EventType> = [
         {
             title: 'URL / Screen',
@@ -324,31 +327,48 @@ const DebugPerfData = (): JSX.Element => {
     )
 }
 
-export const WebPerformance = (): JSX.Element => (
-    <div className="performance-waterfall">
-        <PageHeader
-            title={
-                <Row align="middle">
-                    Web Performance
-                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                        Early Preview
-                    </LemonTag>
-                </Row>
-            }
-        />
-        <Row gutter={[0, 32]}>
-            <Col span={24}>
-                <EventsWithPerformanceTable />
-            </Col>
-            <Col span={24}>
-                <WaterfallChart />
-            </Col>
-            <Col span={24}>
-                <DebugPerfData />
-            </Col>
-        </Row>
-    </div>
-)
+export const WebPerformance = (): JSX.Element => {
+    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
+    const { properties } = useValues(logic)
+    const { setProperties } = useActions(logic)
+    return (
+        <div className="performance-waterfall">
+            <PageHeader
+                title={
+                    <Row align="middle">
+                        Web Performance
+                        <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                            Early Preview
+                        </LemonTag>
+                    </Row>
+                }
+                caption={
+                    'Shows page view events where performance information has been captured. Not all events have all performance information.'
+                }
+            />
+            <Row gutter={[0, 32]}>
+                <Col span={24}>
+                    <PropertyFilters
+                        propertyFilters={properties}
+                        onChange={setProperties}
+                        pageKey={'web-performance-table'}
+                        style={{ marginBottom: 0 }}
+                        eventNames={[]}
+                    />
+                </Col>
+                <Col span={24}>
+                    <EventsWithPerformanceTable />
+                </Col>
+                <Col span={24}>
+                    <WaterfallChart />
+                </Col>
+                <Col span={24}>
+                    <DebugPerfData />
+                </Col>
+            </Row>
+        </div>
+    )
+}
 
 export const scene: SceneExport = {
     component: WebPerformance,

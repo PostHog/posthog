@@ -1,13 +1,16 @@
 import { kea } from 'kea'
-import { EventType, FilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventType, FilterType, PropertyFilter, PropertyOperator } from '~/types'
 import api from 'lib/api'
 
 import { getChartColors } from 'lib/colors'
 
 import { webPerformanceLogicType } from './webPerformanceLogicType'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { router } from 'kea-router'
+
 const eventApiProps: Partial<FilterType> = {
     properties: [
-        { key: '$performance_page_loaded', value: '0', operator: PropertyOperator.GreaterThan, type: 'event' },
+        { key: '$performance_page_loaded', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
         { key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
     ],
 }
@@ -144,7 +147,10 @@ const maybeIncrementMaxTime = (maxTime: number, candidate: number): number =>
 function calculatePerformanceParts(
     perfEntry: PerformanceResourceTiming | PerformanceNavigationTiming,
     maxTime: number
-): { performanceParts: Record<string, EventPerformanceMeasure>; maxTime: number } {
+): {
+    performanceParts: Record<string, EventPerformanceMeasure>
+    maxTime: number
+} {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
 
     if (perfEntry.redirectStart && perfEntry.redirectEnd) {
@@ -278,27 +284,77 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData>>({
+interface WebPerformanceLogicProps {
+    sceneUrl: string
+}
+
+export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformanceLogicProps>>({
     path: ['scenes', 'performance'],
+    props: {} as WebPerformanceLogicProps,
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
             eventToDisplay,
         }),
+        setProperties: (
+            properties: AnyPropertyFilter[] | AnyPropertyFilter
+        ): {
+            properties: AnyPropertyFilter[]
+        } => {
+            // there seem to be multiple representations of "empty" properties
+            // the page does not work with some of those representations
+            // this action normalises them
+            if (Array.isArray(properties)) {
+                if (properties.length === 0) {
+                    return { properties: [{}] }
+                } else {
+                    return { properties }
+                }
+            } else {
+                return { properties: [properties] }
+            }
+        },
     },
     reducers: {
+        properties: [
+            [] as PropertyFilter[],
+            {
+                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
+            },
+        ],
         eventToDisplay: [
             null as EventPerformanceData | null,
             { setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay) },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
     },
-    loaders: () => ({
+    loaders: ({ values }) => ({
         pageViewEvents: {
             loadEvents: async () => {
-                const loadResult = await api.events.list(eventApiProps, 10)
+                const loadResult = await api.events.list({ ...eventApiProps, ...values.properties }, 10)
                 return loadResult?.results || []
             },
         },
+    }),
+    actionToUrl: ({ values }) => ({
+        setProperties: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    properties: values.properties.length === 0 ? undefined : values.properties,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    }),
+    urlToAction: ({ actions, values, props }) => ({
+        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            actions.setProperties(searchParams.properties || values.properties || {})
+        },
+    }),
+    listeners: ({ actions }) => ({
+        setProperties: () => actions.loadEvents(),
     }),
     events: ({ actions }) => ({
         afterMount: [actions.loadEvents],
