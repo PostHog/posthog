@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { CaretDownOutlined } from '@ant-design/icons'
+import { CaretDownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
@@ -23,6 +23,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
         hideModal,
         changeInsightType,
         setCurrentMetricName,
+        deleteMetric,
     } = useActions(logic)
 
     const { insightProps } = useValues(
@@ -38,6 +39,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
             <Modal
                 title="Add secondary metric"
                 visible={modalVisible}
+                destroyOnClose={true}
                 onCancel={hideModal}
                 onOk={() => {
                     createNewMetric(currentMetric.filters.insight)
@@ -46,7 +48,15 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                 okText="Save"
                 style={{ minWidth: 600 }}
             >
-                <Form layout="vertical" onValuesChange={(values) => setCurrentMetricName(values.name)}>
+                <Form
+                    layout="vertical"
+                    initialValues={{ name: '', type: InsightType.TRENDS }}
+                    onValuesChange={(values) => {
+                        if (values.name) {
+                            setCurrentMetricName(values.name)
+                        }
+                    }}
+                >
                     <Form.Item name="name" label="Name">
                         <Input />
                     </Form.Item>
@@ -54,7 +64,6 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         <Select
                             style={{ display: 'flex' }}
                             value={currentMetric.filters.insight}
-                            defaultValue={InsightType.TRENDS}
                             onChange={() => {
                                 changeInsightType()
                             }}
@@ -95,8 +104,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         updateMetricFilters(newFilters)
                                         setFilters(newFilters)
                                     }}
-                                    // typeKey={`funnel-preview-${metricId}`}
-                                    typeKey={`funnel-preview-${1}`}
+                                    typeKey={'funnel-preview-metric'}
                                     hideMathSelector={true}
                                     hideDeleteBtn={filterSteps.length === 1}
                                     buttonCopy="Add funnel step"
@@ -128,8 +136,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         updateMetricFilters(newFilters)
                                         setFilters(newFilters)
                                     }}
-                                    // typeKey={`trend-preview-${metricId}`}
-                                    typeKey={`trend-preview-${1}`}
+                                    typeKey={'trend-preview-metric'}
                                     buttonCopy="Add graph series"
                                     showSeriesIndicator
                                     hideMathSelector={false}
@@ -150,15 +157,18 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     </Form.Item>
                 </Form>
             </Modal>
-            <Row style={{ width: '100%' }}>
-                <Col span={10} style={{ paddingRight: 8 }}>
-                    {metrics.map((metric, metricId) => (
-                        <Row key={metricId}>
-                            <Card
-                                className="action-filters-bordered"
-                                style={{ width: '100%', marginRight: 8 }}
-                                bodyStyle={{ padding: 0 }}
-                            >
+            <Row>
+                <Col>
+                    {metrics.map((metric, idx) => (
+                        <Row key={idx} className="mt">
+                            <Row align="middle" className="full-width border-all" style={{ padding: 8 }}>
+                                <div style={{ fontWeight: 500 }}>Name</div>{' '}
+                                <div className="metric-name">
+                                    {metric.name ? metric.name : `${metric.filters.insight} metric`}
+                                </div>
+                                <DeleteOutlined onClick={() => deleteMetric(idx)} />
+                            </Row>
+                            <Card className="full-width" style={{ borderTop: 'none' }} bodyStyle={{ padding: 0 }}>
                                 {metric.filters.insight === InsightType.FUNNELS && (
                                     <ActionFilter
                                         filters={metric.filters}
@@ -171,8 +181,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             updateMetricFilters(newFilters)
                                             setFilters(newFilters)
                                         }}
-                                        // typeKey={`funnel-preview-${metricId}`}
-                                        typeKey={''}
+                                        typeKey={`funnel-preview-${idx}`}
                                         hideMathSelector={true}
                                         hideDeleteBtn={filterSteps.length === 1}
                                         buttonCopy="Add funnel step"
@@ -188,6 +197,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             TaxonomicFilterGroupType.Elements,
                                         ]}
                                         rowClassName="action-filters-bordered"
+                                        readOnly={true}
                                     />
                                 )}
                                 {metric.filters.insight === InsightType.TRENDS && (
@@ -203,11 +213,10 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             updateMetricFilters(newFilters)
                                             setFilters(newFilters)
                                         }}
-                                        // typeKey={`trend-preview-${metricId}`}
-                                        typeKey={''}
+                                        typeKey={`trend-preview-${idx}`}
                                         buttonCopy="Add graph series"
                                         showSeriesIndicator
-                                        // singleFilter={true}
+                                        entitiesLimit={1}
                                         hideMathSelector={false}
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
@@ -215,35 +224,21 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             TaxonomicFilterGroupType.Cohorts,
                                             TaxonomicFilterGroupType.Elements,
                                         ]}
+                                        readOnly={true}
                                     />
                                 )}
                             </Card>
                         </Row>
                     ))}
-                    <Col>
-                        <div className="mb-05 mt">
-                            <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
-                                Add metric
-                            </Button>
-                            {/* <Button
-                                style={{ color: 'var(--primary)', minWidth: 240 }}
-                                icon={<PlusOutlined />}
-                                // onClick={showModal}
-                                // onClick={() => createNewMetric(InsightType.TRENDS)}
-                            >
-                                Add trend metric
-                            </Button> */}
-                        </div>
-                        {/* <div>
-                            <Button
-                                style={{ color: 'var(--primary)', minWidth: 240 }}
-                                icon={<PlusOutlined />}
-                                onClick={() => createNewMetric(InsightType.FUNNELS)}
-                            >
-                                Add conversion metric
-                            </Button>
-                        </div> */}
-                    </Col>
+                    {metrics.length < 3 && (
+                        <Col>
+                            <div className="mb-05 mt">
+                                <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
+                                    Add metric
+                                </Button>
+                            </div>
+                        </Col>
+                    )}
                 </Col>
             </Row>
         </>

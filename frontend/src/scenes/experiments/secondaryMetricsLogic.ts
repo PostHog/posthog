@@ -49,14 +49,16 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
     actions: {
         setSecondaryMetrics: (secondaryMetrics: any) => ({ secondaryMetrics }),
         createNewMetric: (metricType: InsightType) => ({ metricType }),
+        addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
         updateMetricFilters: (filters: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
         createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         showModal: true,
         hideModal: false,
-        changeInsightType: true,
+        changeInsightType: (type?: InsightType) => ({ type }),
         setCurrentMetricName: (name: string) => ({ name }),
+        deleteMetric: (metricId: number) => ({ metricId }),
     },
     loaders: ({ values }) => ({
         experiments: [
@@ -79,19 +81,11 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         metrics: [
             props.initialMetrics,
             {
-                createNewMetric: (metrics, { metricType }) => {
-                    return [
-                        ...metrics,
-                        {
-                            filters: {
-                                insight: metricType,
-                                events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                                layout: FunnelLayout.horizontal,
-                                display: ChartDisplayType.ActionsLineGraphCumulative,
-                            },
-                        },
-                    ]
+                addNewMetric: (metrics, { metric }) => {
+                    console.log('metric', metric)
+                    return [...metrics, { ...metric }]
                 },
+                deleteMetric: (metrics, { metricId }) => metrics.filter((_, idx) => idx !== metricId),
             },
         ],
         modalVisible: [
@@ -104,7 +98,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         currentMetricName: [
             '',
             {
-                setCurrentMetricName: (_, name) => name,
+                setCurrentMetricName: (_, { name }) => name,
             },
         ],
         currentMetric: [
@@ -115,7 +109,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                 },
             },
             {
-                changeInsightType: (metric) => {
+                changeInsightType: (metric, { type }) => {
+                    if (type === InsightType.TRENDS) {
+                        return BASIC_TRENDS_INSIGHT
+                    }
                     if (metric.filters.insight === InsightType.TRENDS) {
                         return BASIC_FUNNELS_INSIGHT
                     }
@@ -171,10 +168,17 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             }
         },
         createNewMetric: () => {
+            actions.addNewMetric({ ...values.currentMetric, name: values.currentMetricName })
+            props.onMetricsChange(values.metrics)
+            actions.changeInsightType(InsightType.TRENDS)
+            actions.setCurrentMetricName('')
+        },
+        deleteMetric: () => {
             props.onMetricsChange(values.metrics)
         },
         updateMetricFilters: () => {
-            props.onMetricsChange(values.metrics)
+            // props.onMetricsChange(values.metrics)
+            // props.onMetricsChange([values.currentMetric])
         },
         changeInsightType: () => actions.createPreviewInsight(values.currentMetric.filters),
     }),
