@@ -25,7 +25,6 @@ const BASIC_TRENDS_INSIGHT = {
     filters: {
         insight: InsightType.TRENDS,
         events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-        // display: ChartDisplayType.ActionsLineGraphCumulative,
     },
 }
 

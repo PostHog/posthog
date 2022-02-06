@@ -50,7 +50,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -58,7 +58,6 @@ import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
@@ -105,8 +104,6 @@ export function Experiment_(): JSX.Element {
         setExperimentInsightType,
         archiveExperiment,
     } = useActions(experimentLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -476,7 +473,6 @@ export function Experiment_(): JSX.Element {
                                                 </Row>
                                             </Col>
                                         </Row>
-                                        {/* {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && ( */}
                                         <Row className="mt">
                                             <Col>
                                                 <div>
@@ -493,7 +489,6 @@ export function Experiment_(): JSX.Element {
                                                 initialMetrics={parsedSecondaryMetrics}
                                             />
                                         </Row>
-                                        {/* )} */}
                                     </Col>
                                     <Col span={12}>
                                         <Card className="experiment-preview">
@@ -756,12 +751,12 @@ export function Experiment_(): JSX.Element {
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                    1
-                                                                ) // baseline takes 0th index
+                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                          1
+                                                                  ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                getIndexForVariant(variant, InsightType.TRENDS)
-                                                                ]
+                                                                      getIndexForVariant(variant, InsightType.TRENDS)
+                                                                  ]
                                                         }
                                                     />
                                                     <div>
