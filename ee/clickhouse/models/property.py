@@ -12,10 +12,8 @@ from typing import (
 )
 
 from clickhouse_driver.util.escape import escape_param
-from django.utils import timezone
 from rest_framework import exceptions
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
     format_filter_query,
@@ -23,7 +21,6 @@ from ee.clickhouse.models.cohort import (
     format_static_cohort_query,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
-from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
@@ -33,8 +30,7 @@ from ee.clickhouse.sql.person import (
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
-from posthog.models.team import Team
-from posthog.utils import is_valid_regex, relative_date_parse
+from posthog.utils import is_valid_regex
 
 
 def parse_prop_clauses(
@@ -425,41 +421,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
     if not isinstance(value, List):
         value = [value]
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
-
-
-def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
-
-    property_string_expr, _ = get_property_string_expr("events", key, "%(key)s", "properties", True)
-
-    if value:
-        return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
-                property_string_expr=property_string_expr,
-                parsed_date_from=parsed_date_from,
-                parsed_date_to=parsed_date_to,
-            ),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-
-    if "FROM JSONExtractRaw" in property_string_expr:
-        # only include rows which have the desired key in the properties blob
-        existence_check = "AND JSONHas(properties, %(key)s)"
-    else:
-        # `property_string_expr` is either a table level column or a materialized column
-        # so only include rows where the value is present
-        existence_check = f"AND isNotNull(NULLIF({property_string_expr}, ''))"
-
-    return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(
-            property_string_expr=property_string_expr,
-            existence_check=existence_check,
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-        ),
-        {"team_id": team.pk, "key": key,},
-    )
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
