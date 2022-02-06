@@ -82,7 +82,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             props.initialMetrics,
             {
                 addNewMetric: (metrics, { metric }) => {
-                    console.log('metric', metric)
                     return [...metrics, { ...metric }]
                 },
                 deleteMetric: (metrics, { metricId }) => metrics.filter((_, idx) => idx !== metricId),
@@ -175,10 +174,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
         },
         deleteMetric: () => {
             props.onMetricsChange(values.metrics)
-        },
-        updateMetricFilters: () => {
-            // props.onMetricsChange(values.metrics)
-            // props.onMetricsChange([values.currentMetric])
         },
         changeInsightType: () => actions.createPreviewInsight(values.currentMetric.filters),
     }),
