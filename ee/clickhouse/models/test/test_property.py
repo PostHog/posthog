@@ -951,17 +951,17 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
 TEST_RESERVED_WORDS = [
     pytest.param(
         Property(type="event", key="timestamp", value="2000-04-02 18:00:00", operator="is_date_after"),
-        range(0, 22),
+        range(0, 27),
         id="most events have time of execution set as timestamp, they are all matched by this filter",
     ),
     pytest.param(
         Property(type="event", key="timestamp", value="2000-04-02 18:00:00", operator="is_date_before"),
-        [22],
-        id="most events have time of execution set as timestamp, they are all not matched by this filter",
+        [27],
+        id="most events have time of execution set as timestamp, they are almost all after and so not matched by this filter",
     ),
     pytest.param(
         Property(type="event", key="distinct_id", value="some_guid", operator="exact"),
-        [0, 22],
+        [0, 27],
         id="can select by the distinct id column",
     ),
 ]

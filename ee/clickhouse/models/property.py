@@ -233,13 +233,17 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
+        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+            date_query = f"""{prop.key}"""
+        else:
+            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
         # if we're comparing against a date with no time,
         # truncate the values in the DB which may have times
         granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
-        query = f"""AND date_trunc('{granularity}', coalesce(
-            parseDateTimeBestEffortOrNull({property_expr}),
-            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-        )) = %({prop_value_param_key})s"""
+        query = f"""AND date_trunc('{granularity}', {date_query}) = %({prop_value_param_key})s"""
 
         return (
             query,
@@ -250,21 +254,24 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
+        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+            date_query = f"""{prop.key}"""
+        else:
+            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
         # if we're comparing against a date with no time,
         # then instead of 2019-01-01 (implied 00:00:00)
         # use 2019-01-01 23:59:59
         is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
-
-        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
 
         if is_date_only:
             adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
         else:
             adjusted_value = f"%({prop_value_param_key})s"
 
-        query = f"""AND {first_of_date_or_timestamp} > {adjusted_value}"""
+        query = f"""AND {date_query} > {adjusted_value}"""
 
         return (
             query,
@@ -274,10 +281,15 @@ def prop_filter_json_extract(
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-        query = f"""AND {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
+
+        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+            date_query = f"""{prop.key}"""
+        else:
+            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
+        query = f"""AND {date_query} < %({prop_value_param_key})s"""
 
         return (
             query,
