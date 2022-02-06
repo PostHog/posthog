@@ -31,7 +31,7 @@ const selectDateTimeOperator = (operator, openPopUp) => {
     }
 
     cy.get('.taxonomic-operator').click()
-    cy.get('.operator-value-option').its('length').should('eql', 4)
+    cy.get('.operator-value-option').its('length').should('eql', 5)
     cy.get('.operator-value-option').contains('< before').should('be.visible')
     cy.get('.operator-value-option').contains('> after').should('be.visible')
 
@@ -120,8 +120,9 @@ describe('Events', () => {
         const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
         selectDateTimeOperator('< before', undefined)
         cy.get('.taxonomic-value-select').click()
+        cy.get('.ant-picker-footer-extra button.LemonSwitch').click({ force: true })
         cy.get('.filter-date-picker').type(oneDayAgo)
-        cy.get('.ant-picker-footer button').click({ scrollBehavior: false, force: true })
+        cy.get('.ant-picker-footer .ant-picker-ok button').click({ scrollBehavior: false, force: true })
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Timestamp < ')
 
         cy.wait('@getEvents').then(() => {
@@ -142,7 +143,7 @@ describe('Events', () => {
                 cy.get('tr.event-row').should((rows) => {
                     // test data setup is slightly random so...
                     expect(rows.length).to.be.greaterThan(5)
-                    expect(rows.length).to.be.lessThan(50)
+                    expect(rows.length).to.be.lessThan(60)
                 })
             })
         })
