@@ -148,7 +148,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 },
                 setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    const metrics = secondaryMetrics.map((metric) => metric)
                     return {
                         ...state,
                         secondary_metrics: metrics,
@@ -632,6 +632,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
+                    actions.setSecondaryMetrics([])
                 }
 
                 actions.setEditExperiment(false)
