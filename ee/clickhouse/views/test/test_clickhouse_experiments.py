@@ -4,6 +4,7 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 
@@ -629,6 +630,8 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
+        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_for_three_test_variants(self):
@@ -734,10 +737,12 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertEqual(result[1][1]["count"], 1)
         self.assertEqual("test", result[1][1]["breakdown_value"][0])
 
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=2)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=2)
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=1)
+        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=1)
+        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=1)
+        self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=1)
+        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
 
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
