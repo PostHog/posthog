@@ -1,7 +1,8 @@
 # name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings
   '
   
-  SELECT aggregation_target AS actor_id
+  SELECT aggregation_target AS actor_id,
+         array() as matching_events
   FROM
     (SELECT aggregation_target,
             steps,
