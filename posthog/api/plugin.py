@@ -270,8 +270,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         _fix_formdata_config_json(self.context["request"], validated_data)
         existing_config = PluginConfig.objects.filter(team=validated_data["team"], plugin_id=validated_data["plugin"])
-        if existing_config.exists() and existing_config.first():
-            return self.update(existing_config.first(), validated_data)
+        if existing_config.exists():
+            return self.update(existing_config.first(), validated_data)  # type: ignore
         plugin_config = super().create(validated_data)
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
