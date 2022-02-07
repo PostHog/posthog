@@ -6,14 +6,26 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
-import { IconCopy } from 'lib/components/icons'
+import { IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardRestrictionLevel } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+
+const RESTRICTION_OPTIONS: LemonSelectOptions = {
+    [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
+        label: 'Everyone in the project can edit',
+        icon: <IconLockOpen />,
+    },
+    [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
+        label: 'Only those invited to this dashboard can edit',
+        icon: <IconLock />,
+    },
+}
 
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element | null {
     const { dashboard } = useValues(dashboardLogic)
@@ -30,60 +42,22 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
                     <>
                         <h5>Dashboard collaboration</h5>
-                        <LemonButtonWithPopup
-                            fullWidth
+                        <LemonSelect
+                            value={dashboard.restriction_level}
+                            onChange={(newValue) =>
+                                triggerDashboardUpdate({
+                                    restriction_level: newValue,
+                                })
+                            }
+                            options={RESTRICTION_OPTIONS}
+                            loading={dashboardLoading}
                             type="stealth"
-                            popup={{
-                                overlay: (
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            type={
-                                                dashboard.restriction_level ===
-                                                DashboardRestrictionLevel.EveryoneInProjectCanEdit
-                                                    ? 'highlighted'
-                                                    : 'stealth'
-                                            }
-                                            onClick={() =>
-                                                triggerDashboardUpdate({
-                                                    restriction_level:
-                                                        DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-                                                })
-                                            }
-                                        >
-                                            Everyone in the project can view
-                                        </LemonButton>
-                                        <LemonButton
-                                            fullWidth
-                                            type={
-                                                dashboard.restriction_level ===
-                                                DashboardRestrictionLevel.OnlyCollaboratorsCanEdit
-                                                    ? 'highlighted'
-                                                    : 'stealth'
-                                            }
-                                            onClick={() =>
-                                                triggerDashboardUpdate({
-                                                    restriction_level:
-                                                        DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
-                                                })
-                                            }
-                                        >
-                                            Only those invited to this dashboard can edit
-                                        </LemonButton>
-                                    </>
-                                ),
-                                actionable: true,
-                                sameWidth: true,
-                            }}
+                            outlined
                             style={{
                                 height: '3rem',
-                                border: '1px solid var(--border)',
+                                width: '100%',
                             }}
-                        >
-                            {dashboard.restriction_level === DashboardRestrictionLevel.OnlyCollaboratorsCanEdit
-                                ? 'Only those invited to this dashboard can edit'
-                                : 'Everyone in the project can view'}
-                        </LemonButtonWithPopup>
+                        />
                         <LemonSpacer />
                     </>
                 )}
@@ -97,7 +71,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 onChange={(active) => {
                     setIsSharedDashboard(dashboard.id, active)
                 }}
-                outlinedBlock
+                type="primary"
             />
             {dashboard.is_shared ? (
                 <>

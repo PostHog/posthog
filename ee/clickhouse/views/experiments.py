@@ -38,6 +38,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "feature_flag_key",
+            # get the FF id as well to link to FF UI
+            "feature_flag",
             "parameters",
             "secondary_metrics",
             "filters",
@@ -51,6 +53,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "feature_flag",
         ]
 
     def validate_parameters(self, value):
@@ -146,6 +149,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     != 1
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
+
+        feature_flag_properties = validated_data.get("filters", {}).get("properties", [])
+        if feature_flag_properties:
+            feature_flag.filters["groups"][0]["properties"] = feature_flag_properties
+            feature_flag.save()
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

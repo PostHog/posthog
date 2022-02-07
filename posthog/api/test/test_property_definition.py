@@ -44,7 +44,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.json()["property_type"] == "DateTime"
 
     def test_list_property_definitions(self):
-
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
@@ -55,6 +54,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
+
+    def test_list_numerical_property_definitions(self):
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+
+        self.assertEqual(len(response.json()["results"]), 3)
+        properties = sorted([_i["name"] for _i in response.json()["results"]])
+
+        self.assertEqual(properties, ["app_rating", "purchase", "purchase_value"])
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(

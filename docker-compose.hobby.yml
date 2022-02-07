@@ -65,6 +65,7 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
+            DEPLOYMENT: hobby
         depends_on:
             - db
             - redis

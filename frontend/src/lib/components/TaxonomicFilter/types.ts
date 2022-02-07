@@ -35,6 +35,8 @@ export interface TaxonomicFilterGroup {
     valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
+    getPopupHeader: (instance: any) => string
+    getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
 }
 
@@ -45,6 +47,7 @@ export enum TaxonomicFilterGroupType {
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
+    NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
     Screens = 'screens',

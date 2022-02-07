@@ -1,4 +1,3 @@
-import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
 import {
     Button,
     Card,
@@ -39,7 +38,14 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { CaretDownOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import {
+    CaretDownOutlined,
+    PlusOutlined,
+    DeleteOutlined,
+    InfoCircleOutlined,
+    SaveOutlined,
+    CloseOutlined,
+} from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -55,13 +61,16 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExperimentWorkflow } from './ExperimentWorkflow'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: Experiment_,
     logic: experimentLogic,
 }
 
-export function Experiment(): JSX.Element {
+export function Experiment_(): JSX.Element {
     const {
         newExperimentData,
         experimentData,
@@ -79,6 +88,8 @@ export function Experiment(): JSX.Element {
         experimentId,
         conversionRateForVariant,
         getIndexForVariant,
+        significanceBannerDetails,
+        areTrendResultsConfusing,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -531,6 +542,18 @@ export function Experiment(): JSX.Element {
                                     >
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
+                                    {experimentResults && experimentData.end_date && (
+                                        <Tag
+                                            style={{ alignSelf: 'center' }}
+                                            color={areResultsSignificant ? 'green' : 'geekblue'}
+                                        >
+                                            <b className="uppercase">
+                                                {areResultsSignificant
+                                                    ? 'Significant Results'
+                                                    : 'Results not significant'}
+                                            </b>
+                                        </Tag>
+                                    )}
                                 </Row>
                                 <span className="exp-description">
                                     {experimentData.start_date ? (
@@ -577,11 +600,13 @@ export function Experiment(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {showWarning && experimentResults && areResultsSignificant && (
+                        {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
-                                    Your results are <b>statistically significant</b>. You can end this experiment now
-                                    or let it run to completion.
+                                    Your results are <b>statistically significant</b>.{' '}
+                                    {experimentData.end_date
+                                        ? ''
+                                        : 'You can end this experiment now or let it run to completion.'}
                                 </Col>
                                 <Col span={5}>
                                     <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
@@ -590,22 +615,40 @@ export function Experiment(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experimentResults && !areResultsSignificant && (
+                        {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="not-significant-results">
-                                <Col span={19} style={{ color: '#f96132' }}>
-                                    Your results are <b>not statistically significant</b>. We don't recommend ending
-                                    this experiment yet.
-                                    <Tooltip
-                                        placement="right"
-                                        title="This can be because the number of people exposed to the experiment is less than 100, or the results are not statistically significant."
-                                    >
-                                        <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
-                                    </Tooltip>
+                                <Col span={23} style={{ color: '#2D2D2D' }}>
+                                    <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
+                                    {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
+                                    See our{' '}
+                                    <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                        {' '}
+                                        experimentation guide{' '}
+                                    </a>
+                                    for more information.{' '}
                                 </Col>
-                                <Col span={5}>
-                                    <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
-                                        Dismiss
-                                    </Button>
+                                <Col span={1}>
+                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                </Col>
+                            </Row>
+                        )}
+                        {showWarning && experimentData.end_date && (
+                            <Row align="middle" className="feature-flag-mods">
+                                <Col span={23}>
+                                    <b>Your experiment is complete.</b> We recommend removing the feature flag from your
+                                    code completely, instead of relying on this distribution:{' '}
+                                    <Link
+                                        to={
+                                            experimentData.feature_flag
+                                                ? urls.featureFlag(experimentData.feature_flag)
+                                                : undefined
+                                        }
+                                    >
+                                        <b>Adjust feature flag distribution.</b>
+                                    </Link>
+                                </Col>
+                                <Col span={1}>
+                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                 </Col>
                             </Row>
                         )}
@@ -619,7 +662,7 @@ export function Experiment(): JSX.Element {
                                     trendExposure={experimentData?.parameters.recommended_running_time}
                                     funnelSampleSize={experimentData?.parameters.recommended_sample_size}
                                     funnelConversionRate={conversionRate}
-                                    funnelEntrants={funnelResultsPersonsTotal}
+                                    funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
                                 />
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
@@ -688,6 +731,16 @@ export function Experiment(): JSX.Element {
                                                                 </Row>
                                                             </b>{' '}
                                                             {countDataForVariant(variant)}{' '}
+                                                            {areTrendResultsConfusing && idx === 0 && (
+                                                                <Tooltip
+                                                                    placement="right"
+                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                                                                >
+                                                                    <InfoCircleOutlined
+                                                                        style={{ padding: '4px 2px' }}
+                                                                    />
+                                                                </Tooltip>
+                                                            )}
                                                         </Row>
                                                     ) : (
                                                         <Row>
@@ -1071,6 +1124,8 @@ export function ExperimentPreview({
             </Col>
             {experimentId !== 'new' && !editingExistingExperiment && (
                 <Col span={12} className="pl">
+                    {!experiment?.start_date && <ExperimentWorkflow />}
+
                     <div className="card-secondary mb">Feature flag usage and implementation</div>
                     <Row justify="space-between" className="mb-05">
                         <div>

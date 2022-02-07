@@ -35,6 +35,8 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
 export interface DashboardLogicProps {
     id?: number
     shareToken?: string
@@ -97,6 +99,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
+        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
     },
 
     loaders: ({ actions, props }) => ({
@@ -121,7 +125,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
-                        eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -309,6 +312,16 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             { persist: true },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
+            },
+        ],
+        shouldReportOnAPILoad: [
+            /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
+            We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard) 
+            */
+            false,
+            {
+                setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
             },
         ],
     }),
@@ -711,6 +724,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             // Initial load of actual data for dashboard items after general dashboard is fetched
             const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
             actions.refreshAllDashboardItems(notYetLoadedItems)
+            if (values.shouldReportOnAPILoad) {
+                actions.setShouldReportOnAPILoad(false)
+                actions.reportDashboardViewed()
+            }
+        },
+        reportDashboardViewed: async (_, breakpoint) => {
+            if (values.allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
+                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                }
+            } else {
+                // allItems has not loaded yet, report after API request is completed
+                actions.setShouldReportOnAPILoad(true)
+            }
         },
     }),
 })

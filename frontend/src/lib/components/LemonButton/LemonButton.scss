@@ -70,6 +70,15 @@
     }
 }
 
+.LemonRow--outlined.LemonButton {
+    &:not(:disabled):hover,
+    &.LemonButton--active,
+    &:not(:disabled):active {
+        background: inherit;
+        border-color: var(--primary);
+    }
+}
+
 .LemonButtonWithSideAction {
     position: relative;
     .side-button {

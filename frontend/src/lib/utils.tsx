@@ -14,6 +14,7 @@ import {
     ActorType,
     ActionType,
     PropertyFilterValue,
+    PropertyType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -79,6 +80,18 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )
+}
+
+// taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
+export const humanizeBytes = (fileSizeInBytes: number): string => {
+    let i = -1
+    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    do {
+        fileSizeInBytes = fileSizeInBytes / 1024
+        i++
+    } while (fileSizeInBytes > 1024)
+
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -371,6 +384,28 @@ export const genericOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const stringOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export const numericOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    gt: '> greater than',
+    lt: '< lower than',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const dateTimeOperatorMap: Record<string, string> = {
     is_date_exact: '= equals',
     is_date_before: '< before',
@@ -379,9 +414,42 @@ export const dateTimeOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const booleanOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
+    ...stringOperatorMap,
+    ...numericOperatorMap,
     ...genericOperatorMap,
+    ...booleanOperatorMap,
+    // slight overkill to spread all of these into the map
+    // but gives freedom for them to diverge more over time
+}
+
+const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, string>> = {
+    DateTime: dateTimeOperatorMap,
+    String: stringOperatorMap,
+    Numeric: numericOperatorMap,
+    Boolean: booleanOperatorMap,
+}
+
+export function chooseOperatorMap(
+    propertyType: PropertyType | undefined,
+    allowQueryingEventsByDateTime: boolean
+): Record<string, string> {
+    let choice = genericOperatorMap
+    if (propertyType) {
+        choice = operatorMappingChoice[propertyType] || genericOperatorMap
+        if (choice === dateTimeOperatorMap && !allowQueryingEventsByDateTime) {
+            choice = genericOperatorMap
+        }
+    }
+    return choice
 }
 
 export function isOperatorMulti(operator: string): boolean {

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Button, Col, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -11,37 +11,133 @@ import { EyeOutlined } from '@ant-design/icons'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { webPerformanceLogic } from 'scenes/performance/webPerformanceLogic'
+import {
+    MinimalPerformanceResourceTiming,
+    ResourceTiming,
+    webPerformanceLogic,
+} from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { getChartColors } from 'lib/colors'
+import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
+import { Popup } from 'lib/components/Popup/Popup'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 interface PerfBlockProps {
-    start: number
-    end: number
+    resourceTiming: ResourceTiming
     max: number | undefined
-    color?: string
 }
 
-function PerfBlock({ start, end, max, color }: PerfBlockProps): JSX.Element {
+const toPositionStyle = (
+    start: number,
+    end: number,
+    max: number
+): { right: number; blockSides: { left: string; right: string } } | null => {
+    if (!start && !end) {
+        return null
+    }
+    const left = (start / max) * 100
+    const right = 100 - (end / max) * 100
+    const blockSides = { left: `${left}%`, right: `${right}%` }
+
+    return { right, blockSides }
+}
+const colors = getChartColors('green')
+
+const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
+    const title = typeof resourceTiming.item == 'string' ? resourceTiming.item : resourceTiming.item.pathname
+    const url = typeof resourceTiming.item == 'string' ? null : resourceTiming.item.host
+    const asResourceTiming = resourceTiming.entry as PerformanceResourceTiming
+    return (
+        <>
+            {url && <Typography.Text type="secondary">{url}</Typography.Text>}
+            <h2>{title}</h2>
+            <hr />
+            <p>
+                started at {resourceTiming.entry.startTime || resourceTiming.entry.fetchStart}ms and took{' '}
+                {resourceTiming.entry.duration}ms to complete
+            </p>
+            {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
+                <p key={index}>
+                    {key}: from: {part.start}ms to {part.end}ms (
+                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(2)}%)
+                </p>
+            ))}
+            {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
+                <>
+                    <hr />
+                    Resource is {humanizeBytes(asResourceTiming.decodedBodySize)}
+                    {asResourceTiming.encodedBodySize !== asResourceTiming.decodedBodySize && (
+                        <p>
+                            Was compressed. Sent {humanizeBytes(asResourceTiming.encodedBodySize)}. Saving{' '}
+                            {((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
+                                asResourceTiming.decodedBodySize) *
+                                100}
+                            %
+                        </p>
+                    )}
+                </>
+            )}
+            <hr />
+        </>
+    )
+}
+
+export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element => {
     if (max) {
-        const left = (start / max) * 100
-        const right = 100 - (end / max) * 100
-        const blockSides = { left: `${left}%`, right: `${right}%` }
+        let right = 0
+        let end = 0
+        let blocks: JSX.Element[]
+
+        if (areObjectValuesEmpty(resourceTiming.performanceParts)) {
+            const minimalEntry = resourceTiming.entry as MinimalPerformanceResourceTiming
+            const style = toPositionStyle(minimalEntry.fetchStart, minimalEntry.responseEnd, max)
+            right = style?.right ?? 100
+            end = minimalEntry.responseEnd
+
+            blocks = [
+                <div
+                    key={minimalEntry.name}
+                    className="performance-block positioned"
+                    data-attr-name={minimalEntry.name}
+                    style={{ ...style?.blockSides, backgroundColor: resourceTiming.color }}
+                />,
+            ]
+        } else {
+            blocks = Object.entries(resourceTiming.performanceParts).map(([name, measure], index) => {
+                const style = toPositionStyle(measure.start, measure.end, max)
+                right = style?.right ?? 100
+                end = measure.end
+                return (
+                    <div
+                        key={name}
+                        className={clsx('performance-block positioned', measure.reducedHeight && 'reduced-height')}
+                        data-attr-name={name}
+                        style={{ ...style?.blockSides, backgroundColor: colors[index] }}
+                    />
+                )
+            })
+        }
+
+        const [mouseIsOver, setMouseIsOver] = useState(false)
+
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <>
-                <div className="performance-block positioned" style={{ ...blockSides, backgroundColor: color }} />
-                <div className="positioned" style={textPosition}>
-                    {Math.round(end)}ms
+            <Popup overlay={overlayFor(resourceTiming)} visible={mouseIsOver}>
+                <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
+                    {blocks}
+                    <div className="positioned" style={textPosition}>
+                        {Math.round(end)}ms
+                    </div>
                 </div>
-            </>
+            </Popup>
         )
     } else {
         return <></>
     }
 }
 
-function VerticalMarker({
+const VerticalMarker = ({
     max,
     position,
     color,
@@ -51,7 +147,7 @@ function VerticalMarker({
     position: number
     color: string
     bringToFront?: boolean
-}): JSX.Element {
+}): JSX.Element => {
     if (max) {
         const left = (position / max) * 100
         return (
@@ -65,7 +161,7 @@ function VerticalMarker({
     }
 }
 
-function WaterfallChart(): JSX.Element {
+const WaterfallChart = (): JSX.Element => {
     const { eventToDisplay } = useValues(webPerformanceLogic)
     return (
         <>
@@ -87,10 +183,11 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                     <Row>
                         <Col span={8}>
-                            {Object.entries(eventToDisplay.durations).map(([marker]) => {
+                            {eventToDisplay.resourceTimings.map((timing) => {
+                                const name = typeof timing.item === 'string' ? timing.item : timing.item.pathname
                                 return (
-                                    <Row key={marker} className="marker-name marker-row">
-                                        {marker}
+                                    <Row key={name} className="marker-name marker-row">
+                                        {name}
                                     </Row>
                                 )
                             })}
@@ -113,15 +210,14 @@ function WaterfallChart(): JSX.Element {
                                     color={'var(--border-light)'}
                                 />
                             ))}
-                            {Object.entries(eventToDisplay.durations).map(([marker, measure]) => {
+                            {eventToDisplay.resourceTimings.map((resourceTiming) => {
+                                const name =
+                                    typeof resourceTiming.item === 'string'
+                                        ? resourceTiming.item
+                                        : resourceTiming.item.pathname
                                 return (
-                                    <Row key={marker} className={'marker-row'}>
-                                        <PerfBlock
-                                            start={measure.start}
-                                            end={measure.end}
-                                            max={eventToDisplay?.maxTime}
-                                            color={measure.color}
-                                        />
+                                    <Row key={name} className={'marker-row'}>
+                                        <PerfBlock resourceTiming={resourceTiming} max={eventToDisplay?.maxTime} />
                                     </Row>
                                 )
                             })}
@@ -133,9 +229,11 @@ function WaterfallChart(): JSX.Element {
     )
 }
 
-function EventsWithPerformanceTable(): JSX.Element {
-    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(webPerformanceLogic)
+const EventsWithPerformanceTable = (): JSX.Element => {
+    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
+    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(logic)
     const { setEventToDisplay } = useActions(webPerformanceLogic)
+
     const columns: LemonTableColumns<EventType> = [
         {
             title: 'URL / Screen',
@@ -220,7 +318,7 @@ function EventsWithPerformanceTable(): JSX.Element {
     )
 }
 
-function DebugPerfData(): JSX.Element {
+const DebugPerfData = (): JSX.Element => {
     const { currentEvent } = useValues(webPerformanceLogic)
     return (
         <pre>
@@ -229,7 +327,10 @@ function DebugPerfData(): JSX.Element {
     )
 }
 
-export function WebPerformance(): JSX.Element {
+export const WebPerformance = (): JSX.Element => {
+    const logic = webPerformanceLogic({ sceneUrl: urls.webPerformance() })
+    const { properties } = useValues(logic)
+    const { setProperties } = useActions(logic)
     return (
         <div className="performance-waterfall">
             <PageHeader
@@ -241,8 +342,20 @@ export function WebPerformance(): JSX.Element {
                         </LemonTag>
                     </Row>
                 }
+                caption={
+                    'Shows page view events where performance information has been captured. Not all events have all performance information.'
+                }
             />
             <Row gutter={[0, 32]}>
+                <Col span={24}>
+                    <PropertyFilters
+                        propertyFilters={properties}
+                        onChange={setProperties}
+                        pageKey={'web-performance-table'}
+                        style={{ marginBottom: 0 }}
+                        eventNames={[]}
+                    />
+                </Col>
                 <Col span={24}>
                     <EventsWithPerformanceTable />
                 </Col>

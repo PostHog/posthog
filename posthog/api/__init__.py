@@ -4,28 +4,22 @@ from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
-    action,
     annotation,
     async_migration,
     authentication,
-    cohort,
     dashboard,
-    element,
-    event,
+    dead_letter_queue,
     event_definition,
     feature_flag,
-    insight,
     instance_settings,
     instance_status,
     organization,
     organization_invite,
     organization_member,
-    person,
     personal_api_key,
     plugin,
     plugin_log_entry,
     property_definition,
-    session_recording,
     tagged_item,
     team,
     user,
@@ -95,6 +89,7 @@ router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
+router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")

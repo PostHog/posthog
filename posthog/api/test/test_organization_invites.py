@@ -1,6 +1,7 @@
 import random
 from unittest.mock import ANY, patch
 
+from constance.test import override_config
 from django.core import mail
 from rest_framework import status
 
@@ -59,11 +60,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         mock_capture.assert_not_called()
 
+    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email(self, mock_capture):
         email = "x@x.com"
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
             response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -133,12 +135,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Bulk create invites
 
+    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_allow_bulk_creating_invites(self, mock_capture):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(7)
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
