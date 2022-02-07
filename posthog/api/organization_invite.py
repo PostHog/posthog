@@ -60,7 +60,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             current_member_count=OrganizationMembership.objects.filter(
                 organization_id=self.context["organization_id"],
             ).count(),
-            is_bulk=self.context.get("bulk_create"),
+            is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
         )
 
