@@ -57,7 +57,7 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraphLinear",
+    "ActionsLineGraph",
     "ActionsLineGraphCumulative",
     "ActionsTable",
     "ActionsPieChart",

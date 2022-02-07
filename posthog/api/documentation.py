@@ -1,18 +1,28 @@
 import re
 from typing import Dict, get_args
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from numpy import require  # for export
 from rest_framework import serializers
 
 from posthog.models.property import OperatorType, Property, PropertyType
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class ValueField(serializers.Field):
+    def to_representation(self, value):
+        return value
+
+    def to_internal_value(self, data):
+        return data
+
+
 class PropertySerializer(serializers.Serializer):
     key = serializers.CharField(
         help_text="Key of the property you're filtering on. For example `email` or `$current_url`"
     )
-    value = serializers.CharField(
+    value = ValueField(
         help_text='Value of your filter. Can be an array. For example `test@example.com` or `https://example.com/test/`. Can be an array, like `["test@example.com","ok@example.com"]`'
     )
     operator = serializers.ChoiceField(choices=get_args(OperatorType), required=False, default="exact")
