@@ -1,13 +1,13 @@
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from celery import states
 from celery.result import AsyncResult
+from constance.test import override_config
 
 from posthog.async_migrations.examples.test import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
-from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.tasks.async_migrations import check_async_migration_health
@@ -43,6 +43,7 @@ class TestAsyncMigrations(BaseTest):
         return super().setUp()
 
     @pytest.mark.ee
+    @override_config(AUTO_START_ASYNC_MIGRATIONS=True)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
@@ -63,7 +64,6 @@ class TestAsyncMigrations(BaseTest):
         run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
-        self.assertTrue(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 
@@ -74,6 +74,8 @@ class TestAsyncMigrations(BaseTest):
         self.assertEqual(sm.progress, 100)
 
     @pytest.mark.ee
+    @override_config(AUTO_START_ASYNC_MIGRATIONS=False)
+    @override_config(ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK=False)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
@@ -91,7 +93,6 @@ class TestAsyncMigrations(BaseTest):
         run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
-        self.assertFalse(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 

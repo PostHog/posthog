@@ -1,9 +1,8 @@
 from celery import states
 from celery.result import AsyncResult
-from sentry_sdk.integrations import celery
+from constance import config
 
 from posthog.async_migrations.runner import (
-    is_current_operation_resumable,
     run_async_migration_operations,
     run_migration_healthcheck,
     start_async_migration,
@@ -59,7 +58,7 @@ def check_async_migration_health() -> None:
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
-        if is_current_operation_resumable(migration_instance):
+        if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
             trigger_migration(migration_instance, fresh_start=False)
         else:
             process_error(migration_instance, "Celery worker crashed while running migration.")
