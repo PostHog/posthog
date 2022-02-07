@@ -60,6 +60,7 @@ import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 
@@ -656,7 +657,7 @@ export function Experiment_(): JSX.Element {
                                     trendExposure={experimentData?.parameters.recommended_running_time}
                                     funnelSampleSize={experimentData?.parameters.recommended_sample_size}
                                     funnelConversionRate={conversionRate}
-                                    funnelEntrants={funnelResultsPersonsTotal}
+                                    funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
                                 />
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
@@ -1118,6 +1119,8 @@ export function ExperimentPreview({
             </Col>
             {experimentId !== 'new' && !editingExistingExperiment && (
                 <Col span={12} className="pl">
+                    {!experiment?.start_date && <ExperimentWorkflow />}
+
                     <div className="card-secondary mb">Feature flag usage and implementation</div>
                     <Row justify="space-between" className="mb-05">
                         <div>
