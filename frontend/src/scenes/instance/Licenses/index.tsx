@@ -89,11 +89,14 @@ export function Licenses(): JSX.Element {
                         </a>{' '}
                         to grab a license key (first 1 million events free!). Contact{' '}
                         <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you have any issues with a license.
-                        {billable_events > -1 && licenses.length === 0 && !licensesLoading && systemStatus && (
+                        {billable_events > -1 && !licensesLoading && systemStatus && (
                             <p>
                                 <br />
-                                When you activate a license, you'll be billed based on usage. To give you an indication,
-                                you've used <strong>{humanFriendlyNumber(billable_events)}</strong> events this month.
+                                {licenses.length === 0
+                                    ? "When you activate a license, you'll be billed based on usage. "
+                                    : 'You are billed based on usage. '}
+                                To give you an indication, you've used{' '}
+                                <strong>{humanFriendlyNumber(billable_events)}</strong> events this month.
                             </p>
                         )}
                     </>
