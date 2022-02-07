@@ -66,7 +66,7 @@ export function InsightsTable({
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
-    isMainInsightView,
+    isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
