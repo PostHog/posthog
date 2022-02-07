@@ -499,7 +499,9 @@ class ClickhouseFunnelBase(ABC):
     def _get_funnel_person_step_events(self):
         if self._filter.include_recordings:
             step_num = self._filter.funnel_step
-            if step_num is None:
+            if self._filter.include_final_matching_events:
+                return ", final_matching_events as matching_events"
+            elif step_num is None:
                 raise ValueError("Missing funnel_step filter property")
             if step_num >= 0:
                 # None drop off case
@@ -526,6 +528,17 @@ class ClickhouseFunnelBase(ABC):
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
 
+    def _get_final_matching_event(self, max_steps: int):
+        statement = None
+        for i in range(max_steps - 1, -1, -1):
+            if i == max_steps - 1:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+            elif i == 0:
+                statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
+            else:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+        return f",{statement} as final_matching_event" if statement else ""
+
     def _get_matching_events(self, max_steps: int):
         if self._filter.include_recordings:
             events = []
@@ -534,7 +547,12 @@ class ClickhouseFunnelBase(ABC):
                 event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(event_clause)
-            return "," + ", ".join(events)
+            matching_event_select_statements = "," + ", ".join(events)
+
+            final_matching_event_statement = self._get_final_matching_event(max_steps)
+
+            return matching_event_select_statements + final_matching_event_statement
+
         return ""
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
@@ -566,6 +584,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             for i in range(0, max_steps):
                 select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
+            select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
         return select_clause
 
     def get_query(self) -> str:

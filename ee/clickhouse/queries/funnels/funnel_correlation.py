@@ -122,17 +122,22 @@ class FunnelCorrelation:
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
+
+        filter_data = {
+            key: value
+            for key, value in self._filter.to_dict().items()
+            # NOTE: we want to filter anything about correlation, as the
+            # funnel persons endpoint does not understand or need these
+            # params.
+            if not key.startswith("funnel_correlation_")
+        }
+        # NOTE: we always use the final matching event for the recording because this
+        # is the the right event for both drop off and successful funnels
+        filter_data.update(
+            {"include_final_matching_events": self._filter.include_recordings,}
+        )
         self._funnel_actors_generator = ClickhouseFunnelActors(
-            Filter(
-                data={
-                    key: value
-                    for key, value in self._filter.to_dict().items()
-                    # NOTE: we want to filter anything about correlation, as the
-                    # funnel persons endpoint does not understand or need these
-                    # params.
-                    if not key.startswith("funnel_correlation_")
-                }
-            ),
+            Filter(data=filter_data),
             self._team,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
