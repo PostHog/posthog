@@ -50,7 +50,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -63,6 +63,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -105,6 +106,8 @@ export function Experiment_(): JSX.Element {
         setExperimentInsightType,
         archiveExperiment,
     } = useActions(experimentLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -485,10 +488,12 @@ export function Experiment_(): JSX.Element {
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
                                             </Col>
-                                            <SecondaryMetrics
-                                                onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                initialMetrics={parsedSecondaryMetrics}
-                                            />
+                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                                <SecondaryMetrics
+                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                    initialMetrics={parsedSecondaryMetrics}
+                                                />
+                                            )}
                                         </Row>
                                     </Col>
                                     <Col span={12}>
