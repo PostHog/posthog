@@ -13,8 +13,9 @@ import { successToast } from 'lib/utils'
  * Displays a banner from the bottom of the screen to prompt users to join us for a call.
  */
 
-const FEEDBACK_CALL_KEY = '<this_should_be_changed>'
+const FEEDBACK_CALL_KEY = '<this_should_be_changed_when_in_use>'
 const APPEAR_TIMEOUT = 15000
+const FULLY_DISABLED = true
 
 const COPY = [
     {
@@ -87,9 +88,13 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
     }),
 })
 
-export function FeedbackCallCTA(): JSX.Element {
+export function FeedbackCallCTA(): JSX.Element | null {
     const { hidden, copy } = useValues(feedbackCallLogic)
     const { reportAndDismiss } = useActions(feedbackCallLogic)
+
+    if (FULLY_DISABLED) {
+        return null
+    }
 
     return (
         <div className={`nps-prompt${hidden ? ' hide' : ''}`}>
