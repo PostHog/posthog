@@ -529,6 +529,7 @@ export interface CohortType {
     description?: string
     created_by?: UserBasicType | null
     created_at?: string
+    updated_at?: string
     deleted?: boolean
     id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean

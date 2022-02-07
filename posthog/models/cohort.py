@@ -12,7 +12,7 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.models.utils import sane_repr
+from posthog.models.utils import UUIDT, sane_repr
 
 from .action import Action
 from .event import Event
@@ -79,10 +79,12 @@ class Cohort(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
-    version: models.IntegerField = models.IntegerField(default=0)
+    version: models.UUIDField = models.UUIDField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
@@ -110,17 +112,12 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, batch_size=50000, pg_batch_size=1000):
+    def calculate_people(
+        self, updated_at: datetime, new_version: UUIDT = UUIDT(), batch_size=50000, pg_batch_size=1000
+    ):
         if self.is_static:
             return
         try:
-            start_time = time.time()
-            # Get or wait to update cohort version
-            with transaction.atomic():
-                cohort = self.queryset().select_for_update().get()
-                cohort.version = cohort.version + 1
-                cohort.save(update_fields=["version"])
-                new_version = cohort.version
 
             # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
             cursor = 0
@@ -132,19 +129,29 @@ class Cohort(models.Model):
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
 
-            logger.info("Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+            Cohort.objects.filter(pk=self.pk).filter(Q(updated_at__lt=updated_at) | Q(updated_at__isnull=True)).update(
+                version=new_version
+            )
+
         except Exception as err:
             raise err
 
-    def calculate_people_ch(self):
+    def calculate_people_ch(self, updated_at: datetime = timezone.now()):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
         try:
+            start_time = time.time()
+            new_version = UUIDT()  # generate new uuid
+            logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=new_version)
+
             recalculate_cohortpeople(self)
-            self.calculate_people()
+            self.calculate_people(new_version=new_version, updated_at=updated_at)
             self.refresh_from_db()
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            logger.info(
+                "cohort_calculation_completed", id=self.pk, version=new_version, duration=(time.time() - start_time)
+            )
         except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
             raise e
@@ -268,7 +275,7 @@ class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    version: models.IntegerField = models.IntegerField(default=0)
+    version: models.UUIDField = models.UUIDField(blank=True, null=True)
 
     class Meta:
         indexes = [

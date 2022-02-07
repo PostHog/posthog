@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 
 import structlog
 from celery import shared_task
+from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.models import F
@@ -32,9 +33,9 @@ def calculate_cohorts() -> None:
 
 
 @shared_task(ignore_result=True, max_retries=2)
-def calculate_cohort_ch(cohort_id: int) -> None:
+def calculate_cohort_ch(cohort_id: int, updated_at: str) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people_ch()
+    cohort.calculate_people_ch(updated_at=parser.parse(updated_at))
 
 
 @shared_task(ignore_result=True, max_retries=1)
