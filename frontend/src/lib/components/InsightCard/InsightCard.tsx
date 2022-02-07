@@ -37,6 +37,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     apiError?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
+    editable?: boolean
     showResizeHandles?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
@@ -53,6 +54,7 @@ interface InsightMetaProps
     extends Pick<
         InsightCardProps,
         | 'insight'
+        | 'editable'
         | 'updateColor'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
@@ -72,6 +74,7 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
+    editable = true,
     updateColor,
     removeFromDashboard,
     deleteWithUndo,
@@ -162,7 +165,7 @@ function InsightMeta({
                                                         Refresh
                                                     </LemonButton>
                                                 )}
-                                                {updateColor && (
+                                                {editable && updateColor && (
                                                     <LemonButtonWithPopup
                                                         type="stealth"
                                                         popup={{
@@ -203,7 +206,7 @@ function InsightMeta({
                                                         Set color
                                                     </LemonButtonWithPopup>
                                                 )}
-                                                {moveToDashboard && otherDashboards.length > 0 && (
+                                                {editable && moveToDashboard && otherDashboards.length > 0 && (
                                                     <LemonButtonWithPopup
                                                         type="stealth"
                                                         popup={{
@@ -227,34 +230,46 @@ function InsightMeta({
                                                     </LemonButtonWithPopup>
                                                 )}
                                                 <LemonSpacer />
-                                                <LemonButton type="stealth" to={urls.insightEdit(short_id)} fullWidth>
-                                                    Edit
-                                                </LemonButton>
-                                                <LemonButton type="stealth" onClick={rename} fullWidth>
-                                                    Rename
-                                                </LemonButton>
+                                                {editable && (
+                                                    <LemonButton
+                                                        type="stealth"
+                                                        to={urls.insightEdit(short_id)}
+                                                        fullWidth
+                                                    >
+                                                        Edit
+                                                    </LemonButton>
+                                                )}
+                                                {editable && (
+                                                    <LemonButton type="stealth" onClick={rename} fullWidth>
+                                                        Rename
+                                                    </LemonButton>
+                                                )}
                                                 <LemonButton type="stealth" onClick={duplicate} fullWidth>
                                                     Duplicate
                                                 </LemonButton>
-                                                <LemonSpacer />
-                                                {removeFromDashboard ? (
-                                                    <LemonButton
-                                                        type="stealth"
-                                                        status="danger"
-                                                        onClick={removeFromDashboard}
-                                                        fullWidth
-                                                    >
-                                                        Remove from dashboard
-                                                    </LemonButton>
-                                                ) : (
-                                                    <LemonButton
-                                                        type="stealth"
-                                                        status="danger"
-                                                        onClick={deleteWithUndo}
-                                                        fullWidth
-                                                    >
-                                                        Delete insight
-                                                    </LemonButton>
+                                                {editable && (
+                                                    <>
+                                                        <LemonSpacer />
+                                                        {removeFromDashboard ? (
+                                                            <LemonButton
+                                                                type="stealth"
+                                                                status="danger"
+                                                                onClick={removeFromDashboard}
+                                                                fullWidth
+                                                            >
+                                                                Remove from dashboard
+                                                            </LemonButton>
+                                                        ) : (
+                                                            <LemonButton
+                                                                type="stealth"
+                                                                status="danger"
+                                                                onClick={deleteWithUndo}
+                                                                fullWidth
+                                                            >
+                                                                Delete insight
+                                                            </LemonButton>
+                                                        )}
+                                                    </>
                                                 )}
                                             </>
                                         }
@@ -317,6 +332,7 @@ function InsightCardInternal(
         loading,
         apiError,
         highlighted,
+        editable = true,
         showResizeHandles,
         updateColor,
         removeFromDashboard,
@@ -350,19 +366,10 @@ function InsightCardInternal(
             {...divProps}
             ref={ref}
         >
-            <InsightMeta
-                insight={insight}
-                updateColor={updateColor}
-                removeFromDashboard={removeFromDashboard}
-                deleteWithUndo={deleteWithUndo}
-                refresh={refresh}
-                rename={rename}
-                duplicate={duplicate}
-                moveToDashboard={moveToDashboard}
-            />
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
+                    editable={editable}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}

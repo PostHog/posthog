@@ -18,6 +18,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 export function DashboardItems(): JSX.Element {
     const {
         dashboard,
+        canEditDashboard,
         items,
         layouts,
         layoutForItem,
@@ -112,6 +113,7 @@ export function DashboardItems(): JSX.Element {
                             moveToDashboard={(dashboardId: DashboardType['id']) =>
                                 duplicateInsight(item, dashboardId, true)
                             }
+                            editable={canEditDashboard}
                         />
                     ) : (
                         <div key={item.short_id} className="dashboard-item-wrapper">
