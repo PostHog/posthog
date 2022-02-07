@@ -134,13 +134,13 @@ class TestUserAPI(APIBaseTest):
 
         user = self._create_user("newtest@posthog.com")
         response = self.client.get(f"/api/users/{user.uuid}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
             {
-                "type": "validation_error",
-                "code": "invalid_parameter",
-                "detail": "Currently this endpoint only supports retrieving `@me` instance or updates by staff users.",
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "As a non-staff user you're only allowed to access the `@me` user instance.",
                 "attr": None,
             },
         )
@@ -221,7 +221,9 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"is_staff": True},)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        self.assertEqual(
+            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+        )
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_staff, False)
@@ -627,13 +629,13 @@ class TestStaffUserAPI(APIBaseTest):
         self.user.save()
 
         response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": True})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
             {
-                "type": "validation_error",
-                "code": "invalid_parameter",
-                "detail": "Currently this endpoint only supports retrieving `@me` instance or updates by staff users.",
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "As a non-staff user you're only allowed to access the `@me` user instance.",
                 "attr": None,
             },
         )

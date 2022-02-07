@@ -8,14 +8,14 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -118,7 +118,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_is_staff(self, value: bool) -> bool:
         if not self.context["request"].user.is_staff:
-            raise PermissionDenied("You are not a staff user, contact your instance admin.")
+            raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
         return value
 
     def update(self, instance: models.Model, validated_data: Any) -> Any:
@@ -180,9 +180,8 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
             return self.request.user
 
         if not self.request.user.is_staff:
-            raise serializers.ValidationError(
-                "Currently this endpoint only supports retrieving `@me` instance or updates by staff users.",
-                code="invalid_parameter",
+            raise exceptions.PermissionDenied(
+                "As a non-staff user you're only allowed to access the `@me` user instance."
             )
 
         return super().get_object()
