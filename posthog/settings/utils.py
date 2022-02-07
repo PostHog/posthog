@@ -10,7 +10,7 @@ __all__ = ["print_warning", "get_from_env", "get_list", "str_to_bool"]
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
     value = os.getenv(key)
-    if value is None:
+    if value is None or value == "":
         if optional:
             return None
         if default is not None:
