@@ -267,7 +267,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
-    def test_funnel_correlation_with_recordings(self):
+    def test_funnel_correlation_on_event_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
             event="$pageview",
@@ -360,6 +360,196 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                     "session_id": "s2",
+                }
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
+    @freeze_time("2021-01-02 00:00:00.000Z")
+    def test_funnel_correlation_on_properties_with_recordings(self):
+        p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
+        _create_event(
+            event="$pageview",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$session_id": "s2", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight analyzed",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=3)),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="21111111-1111-1111-1111-111111111111",
+        )
+
+        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 2, 0, 0, 0))
+
+        # Success filter
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "funnel_correlation_type": "properties",
+                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "include_recordings": "true",
+                "funnel_correlation_property_values": [
+                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                ],
+                "funnel_correlation_person_converted": "True",
+            }
+        )
+        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "events": [
+                        {
+                            "timestamp": timezone.now() + timedelta(minutes=3),
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "window_id": "w2",
+                        }
+                    ],
+                    "session_id": "s2",
+                }
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
+    @freeze_time("2021-01-02 00:00:00.000Z")
+    def test_strict_funnel_correlation_with_recordings(self):
+
+        # First use that successfully completes the strict funnel
+        p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
+        _create_event(
+            event="$pageview",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$session_id": "s2", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight analyzed",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=3)),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="31111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight analyzed",  # Second event should not be returned
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=4)),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="41111111-1111-1111-1111-111111111111",
+        )
+        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 2, 0, 0, 0))
+
+        # Second user with strict funnel drop off, but completed the step events for a normal funnel
+        p2 = _create_person(distinct_ids=["user_2"], team=self.team, properties={"foo": "bar"})
+        _create_event(
+            event="$pageview",
+            distinct_id="user_2",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$session_id": "s3", "$window_id": "w1"},
+            event_uuid="51111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight loaded",  # Interupting event
+            distinct_id="user_2",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=3)),
+            properties={"$session_id": "s3", "$window_id": "w2"},
+            event_uuid="61111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight analyzed",
+            distinct_id="user_2",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=4)),
+            properties={"$session_id": "s3", "$window_id": "w2"},
+            event_uuid="71111111-1111-1111-1111-111111111111",
+        )
+        _create_session_recording_event(self.team.pk, "user_2", "s3", datetime(2021, 1, 2, 0, 0, 0))
+
+        # Success filter
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "funnel_order_type": "strict",
+                "funnel_correlation_type": "properties",
+                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "include_recordings": "true",
+                "funnel_correlation_property_values": [
+                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                ],
+                "funnel_correlation_person_converted": "True",
+            }
+        )
+        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "events": [
+                        {
+                            "timestamp": timezone.now() + timedelta(minutes=3),
+                            "uuid": UUID("31111111-1111-1111-1111-111111111111"),
+                            "window_id": "w2",
+                        }
+                    ],
+                    "session_id": "s2",
+                }
+            ],
+        )
+
+        # Drop off filter
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "funnel_order_type": "strict",
+                "funnel_correlation_type": "properties",
+                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "include_recordings": "true",
+                "funnel_correlation_property_values": [
+                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                ],
+                "funnel_correlation_person_converted": "False",
+            }
+        )
+        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+
+        self.assertEqual(results[0]["id"], p2.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "events": [
+                        {
+                            "timestamp": timezone.now(),
+                            "uuid": UUID("51111111-1111-1111-1111-111111111111"),
+                            "window_id": "w1",
+                        }
+                    ],
+                    "session_id": "s3",
                 }
             ],
         )

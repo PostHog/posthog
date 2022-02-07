@@ -1,5 +1,6 @@
 from typing import Type
 
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels import ClickhouseFunnelBase
 from posthog.constants import FunnelOrderType
 from posthog.models.filters import Filter
@@ -13,3 +14,17 @@ def get_funnel_order_class(filter: Filter) -> Type[ClickhouseFunnelBase]:
     elif filter.funnel_order_type == FunnelOrderType.STRICT:
         return ClickhouseFunnelStrict
     return ClickhouseFunnel
+
+
+def get_funnel_order_actor_class(filter: Filter):
+    from ee.clickhouse.queries.funnels import (
+        ClickhouseFunnelActors,
+        ClickhouseFunnelStrictActors,
+        ClickhouseFunnelUnorderedActors,
+    )
+
+    if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+        return ClickhouseFunnelUnorderedActors
+    elif filter.funnel_order_type == FunnelOrderType.STRICT:
+        return ClickhouseFunnelStrictActors
+    return ClickhouseFunnelActors
