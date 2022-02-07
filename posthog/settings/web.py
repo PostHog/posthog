@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "constance",
     "constance.backends.database",
     "drf_spectacular",
+    "reversion",
 ]
 
 

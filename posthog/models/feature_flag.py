@@ -2,7 +2,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
+import reversion
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -32,6 +32,7 @@ class FeatureFlagMatch:
     variant: Optional[str] = None
 
 
+@reversion.register()
 class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
