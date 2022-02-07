@@ -13,7 +13,7 @@ from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import make_ch_pool, sync_execute
 from ee.clickhouse.models.event import (
-    get_billable_event_count_month_to_date,
+    get_billable_event_count_last_30_days,
     get_event_count,
     get_event_count_for_last_month,
     get_event_count_month_to_date,
@@ -49,9 +49,9 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": get_event_count_month_to_date(),
     }
     yield {
-        "key": "clickhouse_billing_event_count_month_to_date",
-        "metric": "Billable events (only with active license key), month to date",
-        "value": get_billable_event_count_month_to_date(),
+        "key": "clickhouse_billing_event_count_last_30_days",
+        "metric": "Billable events (only with active license key), last 30 days",
+        "value": get_billable_event_count_last_30_days(),
     }
 
     disk_status = sync_execute(

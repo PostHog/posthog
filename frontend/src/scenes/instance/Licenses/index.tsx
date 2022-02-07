@@ -73,7 +73,7 @@ export function Licenses(): JSX.Element {
     const { createLicense } = useActions(licenseLogic)
     const { systemStatus } = useValues(systemStatusLogic)
     const billable_events = systemStatus?.overview.filter(
-        ({ key }) => key === 'clickhouse_billing_event_count_month_to_date'
+        ({ key }) => key === 'clickhouse_billing_event_count_last_30_days'
     )[0].value as number
 
     return (
@@ -96,7 +96,8 @@ export function Licenses(): JSX.Element {
                                     ? "When you activate a license, you'll be billed based on usage. "
                                     : 'You are billed based on usage. '}
                                 To give you an indication, you've used{' '}
-                                <strong>{humanFriendlyNumber(billable_events)}</strong> events this month.
+                                <strong>{humanFriendlyNumber(billable_events)}</strong> events in the last 30 days. The
+                                exact amount you are billed depends on the day you subscribed for a license.
                             </p>
                         )}
                     </>

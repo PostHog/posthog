@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
 import celery
@@ -284,10 +285,11 @@ def get_event_count_month_to_date() -> int:
     return result
 
 
-def get_billable_event_count_month_to_date() -> int:
-    month_first_day = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def get_billable_event_count_last_30_days() -> int:
+    last_30_days = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    last_30_days = last_30_days - timedelta(days=30)
 
-    result = sync_execute(BILLABLE_EVENTS_COUNT, {"date_from": month_first_day, "date_to": timezone.now()})[0][0]
+    result = sync_execute(BILLABLE_EVENTS_COUNT, {"date_from": last_30_days, "date_to": timezone.now()})[0][0]
     return result
 
 
