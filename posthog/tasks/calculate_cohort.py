@@ -29,7 +29,7 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        calculate_cohort_ch.delay(cohort.id)
+        calculate_cohort_ch.delay(cohort.id, updated_at=timezone.now().isoformat())
 
 
 @shared_task(ignore_result=True, max_retries=2)
