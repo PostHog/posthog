@@ -19,7 +19,6 @@ import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
 
 export function LemonDashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
@@ -52,21 +51,16 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 minLength={1}
                                 maxLength={400} // Sync with Dashboard model
                                 mode={!canEditDashboard ? 'view' : undefined}
+                                notice={
+                                    !canEditDashboard
+                                        ? {
+                                              icon: <IconLock />,
+                                              tooltip:
+                                                  "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
+                                          }
+                                        : undefined
+                                }
                             />
-                            {!canEditDashboard && (
-                                <Tooltip
-                                    title="You don't have edit permissions in this dashboard. Ask a dashboard collaborators with edit access to add you."
-                                    placement="right"
-                                >
-                                    <IconLock
-                                        style={{
-                                            marginLeft: '0.5rem',
-                                            fontSize: '1.5rem',
-                                            color: 'var(--muted)',
-                                        }}
-                                    />
-                                </Tooltip>
-                            )}
                         </div>
                     }
                     buttons={

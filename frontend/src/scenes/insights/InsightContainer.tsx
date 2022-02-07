@@ -48,6 +48,7 @@ export function InsightContainer(
     const {
         insightProps,
         lastRefresh,
+        canEditInsight,
         isLoading,
         activeView,
         loadedView,
@@ -147,6 +148,7 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
+                            disabled={!canEditInsight}
                         />
                     )
                 }

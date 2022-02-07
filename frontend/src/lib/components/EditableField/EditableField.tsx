@@ -27,6 +27,11 @@ interface EditableFieldProps {
     className?: string
     'data-attr'?: string
     saveButtonText?: string
+    /** Extra information shown next to the field. */
+    notice?: {
+        icon: React.ReactElement
+        tooltip: string
+    }
 }
 
 export function EditableField({
@@ -45,6 +50,7 @@ export function EditableField({
     className,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
+    notice,
 }: EditableFieldProps): JSX.Element {
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
@@ -176,6 +182,14 @@ export function EditableField({
                     )}
                 </div>
             </Tooltip>
+            {!isEditing && notice && (
+                <Tooltip title={notice.tooltip} placement="right">
+                    {React.cloneElement(notice.icon, {
+                        ...notice.icon.props,
+                        className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                    })}
+                </Tooltip>
+            )}
         </div>
     )
 }

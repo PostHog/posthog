@@ -115,8 +115,8 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                     {(!canEditDashboard || !canRestrictDashboard) && (
                         <InfoMessage>
                             {canEditDashboard
-                                ? "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."
-                                : "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."}
+                                ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
+                                : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
                         </InfoMessage>
                     )}
                     <LemonSelect
