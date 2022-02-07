@@ -191,8 +191,8 @@ class InsightSerializer(InsightBasicSerializer):
             insight.refresh_from_db()
         return None
 
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        return dashboard.get_effective_privilege_level(self.context["request"].user)
+    def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
+        return insight.get_effective_privilege_level(self.context["request"].user)
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
