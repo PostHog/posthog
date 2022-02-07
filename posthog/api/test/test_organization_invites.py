@@ -187,7 +187,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture call for invitee
         mock_capture.assert_any_call(
-            f"invite_{OrganizationInvite.objects.last().id}",
+            f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
             "user invited",
             properties={
                 "name_provided": True,
