@@ -91,6 +91,7 @@ export function Experiment_(): JSX.Element {
         getIndexForVariant,
         significanceBannerDetails,
         areTrendResultsConfusing,
+        taxonomicGroupTypesForSelection,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -363,10 +364,7 @@ export function Experiment_(): JSX.Element {
                                                             })
                                                         }}
                                                         style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={[
-                                                            TaxonomicFilterGroupType.PersonProperties,
-                                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                        ]}
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                         popoverPlacement="top"
                                                         taxonomicPopoverPlacement="auto"
                                                     />
