@@ -35,10 +35,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     @contextmanager
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH",))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
         queries = []
         original_get_client = ch_pool.get_client
 
