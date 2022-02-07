@@ -108,7 +108,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                                                             Looks like you have some old events in this project. The
                                                             "All time" filter will consider all events from Jan 1, 2015
                                                             onwards. If you wish to analyze data from before 2015,
-                                                            please reach out.
+                                                            please reach out by clicking the help icon in the top bar.
                                                         </>
                                                     }
                                                 >

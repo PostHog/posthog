@@ -534,10 +534,13 @@ describe('eventsTableLogic', () => {
             })
 
             it('fires two actions to change state, but just one API.get', async () => {
+                ;(api.get as jest.Mock).mockClear()
+
                 await expectLogic(logic, () => {
                     const propertyFilter = makePropertyFilter()
                     router.actions.push(urls.events(), { properties: [propertyFilter], eventFilter: 'new event' })
                 }).toDispatchActions(['setProperties', 'fetchEvents', 'setEventFilter', 'fetchEvents'])
+                await expectLogic(logic).toFinishAllListeners()
                 expect(api.get).toHaveBeenCalledTimes(1)
             })
         })
