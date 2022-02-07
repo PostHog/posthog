@@ -24,6 +24,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.constants import BREAKDOWN_TYPES
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
@@ -101,7 +102,7 @@ def get_breakdown_prop_values(
 
 
 def _to_value_expression(
-    breakdown_type: Union[Literal["event", "person", "cohort", "group"], None],
+    breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
 ) -> str:

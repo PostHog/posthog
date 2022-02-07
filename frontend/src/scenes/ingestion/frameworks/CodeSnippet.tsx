@@ -1,5 +1,4 @@
 import React from 'react'
-import { CopyOutlined } from '@ant-design/icons'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
@@ -21,13 +20,9 @@ import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
-
-export interface Action {
-    Icon: any
-    title: string
-    callback: () => void
-    popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
-}
+import './CodeSnippet.scss'
+import { IconCopy } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export enum Language {
     Text = 'text',
@@ -70,6 +65,13 @@ SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 
+export interface Action {
+    icon: React.ReactElement
+    title: string
+    callback: () => void
+    popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
+}
+
 export interface CodeSnippetProps {
     children?: string
     language?: Language
@@ -84,7 +86,7 @@ export function CodeSnippet({
     children,
     language = Language.Text,
     wrap = false,
-    style = {},
+    style,
     actions,
     copyDescription = 'code snippet',
     hideCopyButton = false,
@@ -93,34 +95,27 @@ export function CodeSnippet({
         <div className="code-container" style={style}>
             <div className="action-icon-container">
                 {actions &&
-                    actions.map(({ Icon, callback, popconfirmProps, title }, index) =>
+                    actions.map(({ icon, callback, popconfirmProps, title }, index) =>
                         !popconfirmProps ? (
-                            <Icon
-                                key={`snippet-action-${index}`}
-                                className="action-icon"
-                                onClick={callback}
-                                title={title}
-                            />
+                            <LemonButton key={`snippet-action-${index}`} onClick={callback} title={title} />
                         ) : (
                             <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <Icon className="action-icon" title={title} />
+                                <LemonButton icon={icon} title={title} />
                             </Popconfirm>
                         )
                     )}
                 {!hideCopyButton && (
-                    <CopyOutlined
-                        className="action-icon"
+                    <LemonButton
+                        icon={<IconCopy />}
                         onClick={() => {
                             children && copyToClipboard(children, copyDescription)
                         }}
-                        title="Copy"
                     />
                 )}
             </div>
             <SyntaxHighlighter
                 style={okaidia}
                 language={language}
-                customStyle={{ borderRadius: 2 }}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
             >

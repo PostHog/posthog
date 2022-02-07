@@ -11,6 +11,7 @@ import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
 
 import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
+import { Hub } from './../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -697,4 +698,29 @@ export function intToBase(num: number, base: number): string {
 // concerning race conditions across threads
 export class RaceConditionError extends Error {
     name = 'RaceConditionError'
+}
+
+export interface StalenessCheckResult {
+    isServerStale: boolean
+    timeSinceLastActivity: number | null
+    lastActivity?: string | null
+    lastActivityType?: string
+    instanceId?: string
+}
+
+export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): StalenessCheckResult {
+    let isServerStale = false
+
+    const timeSinceLastActivity = hub?.lastActivity ? new Date().valueOf() - hub.lastActivity : null
+    if (timeSinceLastActivity && timeSinceLastActivity > stalenessSeconds * 1000) {
+        isServerStale = true
+    }
+
+    return {
+        isServerStale,
+        timeSinceLastActivity,
+        instanceId: hub?.instanceId.toString(),
+        lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
+        lastActivityType: hub?.lastActivityType,
+    }
 }

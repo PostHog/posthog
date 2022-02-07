@@ -30,6 +30,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_PASSWORD: null,
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: false,
         KAFKA_ENABLED: false,
         KAFKA_HOSTS: null,
         KAFKA_CLIENT_CERT_B64: null,
@@ -73,6 +74,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
+        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         CAPTURE_INTERNAL_METRICS: false,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
@@ -94,6 +96,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_PASSWORD: 'ClickHouse password',
         CLICKHOUSE_CA: 'ClickHouse CA certs',
         CLICKHOUSE_SECURE: 'whether to secure ClickHouse connection',
+        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS:
+            'whether to disallow external schemas like protobuf for clickhouse kafka engine',
         REDIS_URL: 'Redis store URL',
         BASE_DIR: 'base path for resolving local plugins',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
@@ -131,6 +135,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE:
             'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
+        HEALTHCHECK_MAX_STALE_SECONDS:
+            'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails',
         CAPTURE_INTERNAL_METRICS: 'capture internal metrics for posthog in posthog',
         PISCINA_USE_ATOMICS:
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',

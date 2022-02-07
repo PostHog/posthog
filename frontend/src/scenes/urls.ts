@@ -13,12 +13,13 @@ export const urls = {
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
-    insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
+    insightNew: (filters?: Partial<FilterType>) =>
+        `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
     sessionRecordings: () => '/recordings',
@@ -60,4 +61,5 @@ export const urls = {
     systemStatus: () => '/instance/status',
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     asyncMigrations: () => '/instance/async_migrations',
+    deadLetterQueue: () => '/instance/dead_letter_queue',
 }
