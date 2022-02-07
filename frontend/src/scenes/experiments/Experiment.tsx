@@ -662,7 +662,7 @@ export function Experiment_(): JSX.Element {
                                     trendExposure={experimentData?.parameters.recommended_running_time}
                                     funnelSampleSize={experimentData?.parameters.recommended_sample_size}
                                     funnelConversionRate={conversionRate}
-                                    funnelEntrants={funnelResultsPersonsTotal}
+                                    funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
                                 />
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
