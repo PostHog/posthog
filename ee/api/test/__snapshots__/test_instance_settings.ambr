@@ -1,0 +1,8 @@
+# name: TestInstanceSettings.test_update_recordings_ttl_setting
+  '
+  SELECT engine_full
+  FROM system.tables
+  WHERE database = 'posthog_test'
+    AND name = 'session_recording_events'
+  '
+---

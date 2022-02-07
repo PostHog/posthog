@@ -91,4 +91,6 @@ DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = (
     f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 )
 
-UPDATE_RECORDINGS_TABLE_TTL_SQL = "ALTER TABLE session_recording_events TTL toDate(created_at) + INTERVAL {weeks} WEEK"
+UPDATE_RECORDINGS_TABLE_TTL_SQL = (
+    "ALTER TABLE session_recording_events MODIFY TTL toDate(created_at) + toIntervalWeek(%(weeks)s)"
+)

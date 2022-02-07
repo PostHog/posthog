@@ -1,9 +1,8 @@
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Union
 
 from constance import config, settings
-from rest_framework import exceptions, mixins, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from rest_framework import exceptions, mixins, serializers, viewsets
 
 from posthog.permissions import StaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
@@ -66,9 +65,11 @@ class InstanceSettingsSerializer(serializers.Serializer):
         new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
 
         if instance.key == "RECORDINGS_TTL_WEEKS":
-            from ee.clickhouse.models.session_recording_event import update_recordings_ttl
+            # TODO: Move to top-level imports once CH is moved out of `ee`
+            from ee.clickhouse.client import sync_execute
+            from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
-            update_recordings_ttl(new_value_parsed)
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
 
         setattr(config, instance.key, new_value_parsed)
         instance.value = new_value_parsed
