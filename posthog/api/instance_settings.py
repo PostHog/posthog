@@ -71,13 +71,14 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
 
+        setattr(config, instance.key, new_value_parsed)
+        instance.value = new_value_parsed
+
         if instance.key.startswith("EMAIL_") and "request" in self.context:
             from posthog.tasks.email import send_canary_email
 
             send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
 
-        setattr(config, instance.key, new_value_parsed)
-        instance.value = new_value_parsed
         return instance
 
 
