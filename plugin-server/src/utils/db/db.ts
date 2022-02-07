@@ -855,7 +855,7 @@ export class DB {
                 cohort.last_calculation ?? new Date().toISOString(),
                 cohort.errors_calculating ?? 0,
                 cohort.is_static ?? false,
-                cohort.version ?? '',
+                cohort.version,
             ],
             'createCohort'
         )
