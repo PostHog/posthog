@@ -4,7 +4,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
@@ -14,7 +14,7 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
         self.user.is_staff = True
         self.user.save()
 
-    @snapshot_clickhouse_queries
+    @snapshot_clickhouse_alter_queries
     def test_update_recordings_ttl_setting(self):
         response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
