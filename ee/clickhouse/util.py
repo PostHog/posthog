@@ -33,7 +33,6 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
         return self._assertNumQueries(func)
 
-    @contextmanager
     def capture_select_queries(self):
         return self.capture_queries(("SELECT", "WITH",))
 
