@@ -164,8 +164,13 @@ export async function runPluginTask(
         response = await (payload ? task?.exec(payload) : task?.exec())
     } catch (error) {
         await processError(server, pluginConfig || null, error)
+        let teamIdStr = '?'
+        if (pluginConfig != null) {
+            teamIdStr = pluginConfig.team_id.toString()
+        }
+
         server.statsd?.increment(`plugin.task.${taskType}.${taskName}.${pluginConfigId}.ERROR`, {
-            teamId: pluginConfig.team_id.toString() ?? '?',
+            teamId: teamIdStr,
         })
     }
     captureTimeSpentRunning(pluginConfig?.team_id || 0, timer, 'pluginTask')
