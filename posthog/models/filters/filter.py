@@ -18,7 +18,6 @@ from posthog.models.filters.mixins.common import (
     EntityTypeMixin,
     FilterTestAccountsMixin,
     FormulaMixin,
-    IncludeFinalMatchingEventsMixin,
     IncludeRecordingsMixin,
     InsightMixin,
     LimitMixin,
@@ -80,7 +79,6 @@ class Filter(
     FunnelCorrelationActorsMixin,
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
-    IncludeFinalMatchingEventsMixin,
     BaseFilter,
 ):
     """

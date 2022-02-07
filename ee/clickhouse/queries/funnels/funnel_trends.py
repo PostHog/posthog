@@ -163,13 +163,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step+1}"
         return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
 
-    def get_final_step_events(self):
-        if self._filter.include_recordings:
-            to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
-            self.params.update({"matching_events_step_num": to_step - 1})
-            return ", step_%(matching_events_step_num)s_matching_events as matching_events"
-        return ""
-
     def _summarize_data(self, results):
 
         breakdown_clause = self._get_breakdown_prop()

@@ -1,6 +1,5 @@
 from typing import Type
 
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels import ClickhouseFunnelBase
 from posthog.constants import FunnelOrderType
 from posthog.models.filters import Filter

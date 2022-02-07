@@ -500,6 +500,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             step_num = self._filter.funnel_step
             if self._filter.include_final_matching_events:
+                # Always returns the user's final step of the funnel
                 return ", final_matching_events as matching_events"
             elif step_num is None:
                 raise ValueError("Missing funnel_step filter property")
