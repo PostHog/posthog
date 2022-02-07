@@ -146,6 +146,7 @@ class Cohort(models.Model):
 
             recalculate_cohortpeople(self)
             self.calculate_people(new_version=new_version, updated_at=updated_at)
+            self.refresh_from_db()
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             logger.info(
