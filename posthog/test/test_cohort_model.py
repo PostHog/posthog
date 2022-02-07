@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
+from posthog.models.cohort import CohortPeople
 from posthog.test.base import BaseTest
 
 
@@ -23,7 +25,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people()
+        cohort.calculate_people(updated_at=timezone.now())
         self.assertEqual(cohort.people.count(), 2)
 
         # if we add people again, don't increase the number of people in cohort
@@ -45,7 +47,7 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
         )
 
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(updated_at=timezone.now())
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person3])
         uuids = [
@@ -61,5 +63,5 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
         )
 
-        cohort2.calculate_people()
+        cohort2.calculate_people(updated_at=timezone.now())
         self.assertFalse(Cohort.objects.get().is_calculating)

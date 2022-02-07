@@ -2,6 +2,7 @@
 # Needs to be first to set up django environment
 from .helpers import *
 
+from django.utils import timezone
 from datetime import timedelta
 from typing import List, Tuple
 
@@ -637,5 +638,5 @@ class QuerySuite:
                 name="benchmarking cohort",
                 groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
             )
-            cohort.calculate_people_ch()
+            cohort.calculate_people_ch(updated_at=timezone.now())
         self.cohort = cohort
