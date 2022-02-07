@@ -104,10 +104,14 @@ class PropertyDefinitionViewSet(
         }
 
         if use_entreprise_taxonomy:
-            # Select all columns except `tags` specifically so that queryset doesn't try to fetch one-to-many tags
+            # Select all columns except `tags` so that queryset doesn't try to fetch one-to-many tags
+            property_definition_fields = ", ".join(
+                [f.column for f in EnterprisePropertyDefinition._meta.get_fields() if f.name != "tags"]
+            )
+
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
-                SELECT propertydefinition_ptr_id, description, updated_at, updated_by_id, id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format,
+                SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
                 FROM ee_enterprisepropertydefinition
                 FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id

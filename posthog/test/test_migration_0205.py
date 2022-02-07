@@ -27,23 +27,28 @@ class TagsTestCase(TestMigrations):
         )
 
     def test_tags_migrated(self):
-        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")  # type: ignore
+        Tag = self.apps.get_model("posthog", "Tag")  # type: ignore
+        TaggedItem = self.apps.get_model("posthog", "TaggedItem")  # type: ignore
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
 
         dashboard = Dashboard.objects.get(id=self.dashboard.id)
         self.assertEqual(dashboard.tags.count(), 3)
-        self.assertEqual(list(dashboard.tags.order_by("tag").values_list("tag", flat=True)), ["a", "b", "c"])
+        self.assertEqual(
+            list(dashboard.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
+        )
 
         insight_with_tags = Insight.objects.get(id=self.insight_with_tags.id)
         self.assertEqual(insight_with_tags.tags.count(), 2)
-        self.assertEqual(list(insight_with_tags.tags.values_list("tag", flat=True)), ["c", "d"])
+        self.assertEqual(
+            list(insight_with_tags.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["c", "d"]
+        )
 
         insight_without_tags = Insight.objects.get(id=self.insight_without_tags.id)
         self.assertEqual(insight_without_tags.tags.count(), 0)
 
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 5)
-        self.assertEqual(EnterpriseTaggedItem.objects.order_by("tag").values("tag").distinct().count(), 4)
+        self.assertEqual(TaggedItem.objects.all().count(), 5)
+        self.assertEqual(Tag.objects.all().count(), 4)
 
     def tearDown(self):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore

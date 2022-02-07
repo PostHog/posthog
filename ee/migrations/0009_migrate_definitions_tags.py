@@ -2,40 +2,50 @@
 from django.db import migrations
 from django.db.models import Q
 
-from posthog.models.tagged_item import EnterpriseTaggedItem
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
 
 
 def forwards(apps, schema_editor):
+    tags_to_create = []
+    tagged_items_to_create = []
+
     # Create new event definition tags
     EnterpriseEventDefinition = apps.get_model("ee", "EnterpriseEventDefinition")
     for instance in EnterpriseEventDefinition.objects.exclude(deprecated_tags__isnull=True, deprecated_tags=[]):
         if instance.deprecated_tags:
             for tag in instance.deprecated_tags:
-                new_tag = EnterpriseTaggedItem(
-                    event_definition_id=instance.eventdefinition_ptr_id, tag=tag, team_id=instance.team_id
+                new_tag = Tag(name=tag, team_id=instance.team_id)
+                tags_to_create.append(new_tag)
+                tagged_items_to_create.append(
+                    TaggedItem(event_definition_id=instance.eventdefinition_ptr_id, tag_id=new_tag.id)
                 )
-                new_tag.save()
 
     # Create new property definition tags
     EnterprisePropertyDefinition = apps.get_model("ee", "EnterprisePropertyDefinition")
     for instance in EnterprisePropertyDefinition.objects.exclude(deprecated_tags__isnull=True, deprecated_tags=[]):
         if instance.deprecated_tags:
             for tag in instance.deprecated_tags:
-                new_tag = EnterpriseTaggedItem(
-                    property_definition_id=instance.propertydefinition_ptr_id, tag=tag, team_id=instance.team_id
+                new_tag = next(filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None)
+                if not new_tag:
+                    new_tag = Tag(name=tag, team_id=instance.team_id)
+                    tags_to_create.append(new_tag)
+                tagged_items_to_create.append(
+                    TaggedItem(property_definition_id=instance.propertydefinition_ptr_id, tag_id=new_tag.id)
                 )
-                new_tag.save()
+
+    Tag.objects.bulk_create(tags_to_create)
+    TaggedItem.objects.bulk_create(tagged_items_to_create)
 
 
 def reverse(apps, schema_editor):
-    EnterpriseTaggedItem = apps.get_model("posthog", "EnterpriseTaggedItem")
+    EnterpriseTaggedItem = apps.get_model("posthog", "TaggedItem")
     EnterpriseTaggedItem.objects.filter(
         Q(event_definition_id__isnull=False) | Q(property_definition_id__isnull=False)
     ).delete()
 
 
 class Migration(migrations.Migration):
-
     dependencies = [("ee", "0008_global_tags_setup"), ("posthog", "0204_global_tags_setup")]
 
     operations = [

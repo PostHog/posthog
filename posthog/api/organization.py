@@ -1,8 +1,6 @@
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
-from django.db import models
 from django.db.models import Model, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, response, serializers, viewsets
@@ -14,7 +12,6 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed, report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.tagged_item import EnterpriseTaggedItem
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,

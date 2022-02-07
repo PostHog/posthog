@@ -29,27 +29,33 @@ class TagsTestCase(TestMigrations):
         )
 
     def test_tags_migrated(self):
-        EnterpriseTaggedItem = self.apps.get_model("posthog", "EnterpriseTaggedItem")  # type: ignore
+        Tag = self.apps.get_model("posthog", "Tag")  # type: ignore
+        TaggedItem = self.apps.get_model("posthog", "TaggedItem")  # type: ignore
         EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")  # type: ignore
         EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")  # type: ignore
 
         event_definition = EnterpriseEventDefinition.objects.get(id=self.event_definition.id)
         self.assertEqual(event_definition.tags.count(), 3)
-        self.assertEqual(list(event_definition.tags.values_list("tag", flat=True)), ["a", "b", "c"])
+        self.assertEqual(
+            list(event_definition.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
+        )
 
         property_definition_with_tags = EnterprisePropertyDefinition.objects.get(
             id=self.property_definition_with_tags.id
         )
         self.assertEqual(property_definition_with_tags.tags.count(), 4)
-        self.assertEqual(list(property_definition_with_tags.tags.values_list("tag", flat=True)), ["b", "c", "d", "e"])
+        self.assertEqual(
+            list(property_definition_with_tags.tags.order_by("tag__name").values_list("tag__name", flat=True)),
+            ["b", "c", "d", "e"],
+        )
 
         property_definition_without_tags = EnterprisePropertyDefinition.objects.get(
             id=self.property_definition_without_tags.id
         )
         self.assertEqual(property_definition_without_tags.tags.count(), 0)
 
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 7)
-        self.assertEqual(EnterpriseTaggedItem.objects.order_by("tag").values("tag").distinct().count(), 5)
+        self.assertEqual(TaggedItem.objects.all().count(), 7)
+        self.assertEqual(Tag.objects.all().count(), 5)
 
     def tearDown(self):
         EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")  # type: ignore

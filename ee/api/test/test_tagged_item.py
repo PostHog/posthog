@@ -4,8 +4,8 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Dashboard
-from posthog.models.tagged_item import EnterpriseTaggedItem
+from posthog.models import Dashboard, Tag
+from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
 # This serializer only tests the business logic of getting and setting of ee descriptions. It uses the dashboard model
@@ -22,7 +22,8 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="random", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag.id)  # type: ignore
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
@@ -38,10 +39,12 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="a", team_id=self.team.id)  # type: ignore
-        dashboard.tags.create(tag="b", team_id=self.team.id)  # type: ignore
+        tag_a = Tag.objects.create(name="a", team_id=self.team.id)
+        tag_b = Tag.objects.create(name="b", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag_a.id)  # type: ignore
+        dashboard.tags.create(tag_id=tag_b.id)  # type: ignore
 
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 2)
+        self.assertEqual(TaggedItem.objects.all().count(), 2)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -50,7 +53,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["b", "c", "d", "e"])
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 4)
+        self.assertEqual(TaggedItem.objects.all().count(), 4)
 
     @pytest.mark.ee
     def test_create_and_update_object_with_tags(self):
@@ -64,13 +67,13 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 0)
+        self.assertEqual(TaggedItem.objects.all().count(), 0)
 
         id = response.json()["id"]
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{id}", {"tags": ["b", "c", "d", "e"]})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["b", "c", "d", "e"])
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 4)
+        self.assertEqual(TaggedItem.objects.all().count(), 4)
 
     def test_create_with_tags(self):
         from ee.models.license import License, LicenseManager
@@ -85,4 +88,4 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["tags"], ["nightly"])
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
+        self.assertEqual(TaggedItem.objects.all().count(), 1)

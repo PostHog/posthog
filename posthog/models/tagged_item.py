@@ -22,7 +22,7 @@ def build_check():
     return Q(*built_check_list, _connector="OR")
 
 
-class EnterpriseTaggedItem(UUIDModel):
+class TaggedItem(UUIDModel):
     """
     Taggable describes global tag-object relationships.
 
@@ -45,9 +45,7 @@ class EnterpriseTaggedItem(UUIDModel):
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
     """
 
-    tag: models.SlugField = models.SlugField()
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    tag: models.ForeignKey = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="taggeditems")
 
     # A column is created to hold the foreign keys of each model that is taggable. At most one of the columns below
     # can be populated at any time.

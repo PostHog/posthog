@@ -4,6 +4,8 @@ describe('Dashboards Premium Features', () => {
         cy.location('pathname').should('include', '/dashboard')
     })
 
+    // Taggables are an enterprise feature. Cypress isn't setup with a scale license so these
+    // tests should fail now that we make that license check in the backend and return a 402.
     xit('Tag dashboard', () => {
         const newTag = `test-${Math.floor(Math.random() * 10000)}`
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()

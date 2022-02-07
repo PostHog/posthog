@@ -5,7 +5,7 @@ import pytest
 from django.utils.text import slugify
 from rest_framework import status
 
-from posthog.models import Team, User
+from posthog.models import Tag, Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
@@ -99,20 +99,24 @@ class TestUserAPI(APIBaseTest):
         enterprise_event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user
         )
-        enterprise_event.tags.create(tag="deprecated", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+        enterprise_event.tags.create(tag_id=tag.id)  # type: ignore
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
         timestamp_property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
         )
-        timestamp_property.tags.create(tag="test", team_id=self.team.id)  # type: ignore
-        timestamp_property.tags.create(tag="official", team_id=self.team.id)  # type: ignore
+        tag_test = Tag.objects.create(name="test", team_id=self.team.id)
+        tag_official = Tag.objects.create(name="official", team_id=self.team.id)
+        timestamp_property.tags.create(tag_id=tag_test.id)  # type: ignore
+        timestamp_property.tags.create(tag_id=tag_official.id)  # type: ignore
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
         tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
-        tagged_property.tags.create(tag="test2", team_id=self.team.id)  # type: ignore
+        tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
+        tagged_property.tags.create(tag_id=tag_test2.id)  # type: ignore
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="some_prop",  # I shouldn't be counted
         )

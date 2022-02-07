@@ -1,7 +1,7 @@
 from rest_framework import status
 
-from posthog.models import Dashboard
-from posthog.models.tagged_item import EnterpriseTaggedItem
+from posthog.models import Dashboard, Tag
+from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
 # This serializer only tests that enterprise functionality is not exposed on non-ee requests. It uses the dashboard
@@ -12,13 +12,14 @@ from posthog.test.base import APIBaseTest
 class TestTaggedItemSerializerMixin(APIBaseTest):
     def test_get_tags_on_non_ee_returns_empty_list(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="random", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag.id)  # type: ignore
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
+        self.assertEqual(TaggedItem.objects.all().count(), 1)
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
@@ -30,7 +31,8 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
     def test_update_tags_on_non_ee_not_allowed(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="random", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag.id)  # type: ignore
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -46,7 +48,8 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
     def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="random", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag.id)  # type: ignore
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -59,9 +62,10 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
     def test_empty_tags_does_not_delete_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        dashboard.tags.create(tag="random", team_id=self.team.id)  # type: ignore
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        dashboard.tags.create(tag_id=tag.id)  # type: ignore
 
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
+        self.assertEqual(TaggedItem.objects.all().count(), 1)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -69,4 +73,4 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(EnterpriseTaggedItem.objects.all().count(), 1)
+        self.assertEqual(TaggedItem.objects.all().count(), 1)

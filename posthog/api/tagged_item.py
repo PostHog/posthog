@@ -16,7 +16,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         return (
             "request" in self.context
             and not self.context["request"].user.is_anonymous
-            and self.context["request"].user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
+            and self.context["request"].user.organization.is_feature_available(AvailableFeature.DASHBOARD_COLLABORATION)
         )
 
     def get_tags(self, obj):
