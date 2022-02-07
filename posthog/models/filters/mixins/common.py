@@ -394,7 +394,7 @@ class IncludeRecordingsMixin(BaseParamMixin):
 
     @include_dict
     def include_recordings_to_dict(self):
-        return {"include_recordings": self.include_recordings} if self.include_recordings is not None else {}
+        return {"include_recordings": self.include_recordings} if self.include_recordings else {}
 
 
 class IncludeFinalMatchingEventsMixin(BaseParamMixin):
