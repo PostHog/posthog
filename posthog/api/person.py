@@ -440,7 +440,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
             .values("cohort_id")
             .annotate(count=Count("person_id", distinct=True))
-            .order_by("count")
             .values("count")
         )
 

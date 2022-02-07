@@ -153,8 +153,8 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         cohort_people_count = (
-            CohortPeople.objects.filter(version=OuterRef("version"))
-            .values("person_id")
+            CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
+            .values("cohort_id")
             .annotate(count=Count("person_id", distinct=True))
             .values("count")
         )
