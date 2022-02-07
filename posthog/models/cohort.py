@@ -1,6 +1,8 @@
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
+import structlog
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
@@ -16,6 +18,8 @@ from .action import Action
 from .event import Event
 from .filters import Filter
 from .person import Person
+
+logger = structlog.get_logger(__name__)
 
 DELETE_QUERY = """
 DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
@@ -110,7 +114,7 @@ class Cohort(models.Model):
         if self.is_static:
             return
         try:
-
+            start_time = time.time()
             # Get or wait to update cohort version
             with transaction.atomic():
                 cohort = self.queryset().select_for_update().get()
@@ -128,6 +132,7 @@ class Cohort(models.Model):
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
 
+            logger.info("Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
         except Exception as err:
             raise err
 
