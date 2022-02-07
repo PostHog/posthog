@@ -184,6 +184,8 @@ const EXAMPLE_TRENDS: InsightModel = {
         },
     ],
     created_at: '2021-12-14T11:05:45.815141Z',
+    last_modified_at: '2021-12-19T14:42:21.815141Z',
+    last_modified_by: null,
     description: 'Shows the number of unique users that use your app every day.',
     updated_at: '2021-12-14T12:58:26.665942Z',
     tags: ['demo', 'faux'],

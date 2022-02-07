@@ -27,6 +27,8 @@ import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
+const FUNNEL_STEP_COUNT_LIMIT = 20
+
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
@@ -37,7 +39,7 @@ export function FunnelTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
-    const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
+    const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] === 'test'
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
     useMountedLogic(funnelCommandLogic)
 
@@ -82,6 +84,7 @@ export function FunnelTab(): JSX.Element {
                                 buttonType="link"
                                 showSeriesIndicator={!isStepsEmpty}
                                 seriesIndicatorType="numeric"
+                                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}

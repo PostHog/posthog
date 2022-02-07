@@ -74,7 +74,7 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
     events: ({ actions, values, cache }) => ({
         afterMount: () => {
             if (
-                values.featureFlagGroup?.startsWith('variant') &&
+                values.featureFlagGroup?.startsWith?.('variant') &&
                 !localStorage.getItem(FEEDBACK_CALL_LOCALSTORAGE_KEY)
             ) {
                 cache.timeout = window.setTimeout(() => actions.show(), APPEAR_TIMEOUT)

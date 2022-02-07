@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import { createMemoryHistory } from 'history'
 import { Provider } from 'kea'
-import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/mocks'
 import { FEATURE_FLAGS, OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { rest } from 'msw'
 import React from 'react'

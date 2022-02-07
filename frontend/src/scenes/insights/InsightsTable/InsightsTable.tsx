@@ -267,7 +267,7 @@ export function InsightsTable({
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={resultsLoading}
-            emptyState="No insight results yet…"
+            emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"
         />

@@ -150,7 +150,7 @@ describe('savedInsightsLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightView(Insight42) }),
-                    searchParams: partial({ insight: InsightType.TRENDS }),
+                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
                 })
         })
 
@@ -162,7 +162,7 @@ describe('savedInsightsLogic', () => {
                 .delay(1)
                 .toMatchValues({
                     location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    searchParams: partial({ insight: InsightType.TRENDS }),
+                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
                 })
         })
 
@@ -170,7 +170,7 @@ describe('savedInsightsLogic', () => {
             router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
             await expectLogic(router).toMatchValues({
                 location: partial({ pathname: urls.insightNew() }),
-                searchParams: partial({ insight: InsightType.FUNNELS }),
+                hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
             })
         })
     })

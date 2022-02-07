@@ -1,13 +1,13 @@
 import json
 import secrets
-from typing import Any, Dict, Sequence, Type, Union
+from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import exceptions, mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
 from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
@@ -18,8 +18,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ObjectExistsInOtherProject
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -29,6 +31,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
+    effective_privilege_level = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -48,6 +51,8 @@ class DashboardSerializer(serializers.ModelSerializer):
             "use_dashboard",
             "filters",
             "tags",
+            "restriction_level",
+            "effective_privilege_level",
         ]
         read_only_fields = ("creation_mode",)
 
@@ -114,6 +119,18 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
+        user = cast(User, self.context["request"].user)
+        does_user_have_inherent_restriction_rights = instance.does_user_have_inherent_restriction_rights(user)
+        can_user_edit = does_user_have_inherent_restriction_rights or instance.can_user_edit(user)
+        if not can_user_edit:
+            raise exceptions.PermissionDenied(
+                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
+            )
+        if "restriction_level" in validated_data and not does_user_have_inherent_restriction_rights:
+            raise exceptions.PermissionDenied(
+                "Only the dashboard owner and project admins have the inherent restriction rights required to change the dashboard's restriction level."
+            )
+
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
@@ -121,7 +138,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if "request" in self.context:
-            report_user_action(self.context["request"].user, "dashboard updated", instance.get_analytics_metadata())
+            report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
 
@@ -151,6 +168,9 @@ class DashboardSerializer(serializers.ModelSerializer):
                 item.save()
         return InsightSerializer(items, many=True, context=self.context).data
 
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+        return dashboard.get_effective_privilege_level(self.context["request"].user)
+
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -179,7 +199,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = super().get_queryset().order_by("name")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        queryset = queryset.prefetch_related(
+        queryset = queryset.select_related("team__organization").prefetch_related(
             Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"),)
         )
         return queryset
@@ -187,7 +207,18 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
-        dashboard = get_object_or_404(queryset, pk=pk)
+        try:
+            dashboard = get_object_or_404(queryset, pk=pk)
+        except Http404 as e:
+            user = cast(User, request.user)
+            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams, pk=pk)
+            if alternative_team.exists():
+                raise ObjectExistsInOtherProject(
+                    alternative_team_id=alternative_team.first().team_id,  # type: ignore
+                    feature="Dashboard",
+                )
+            raise e
+
         dashboard.last_accessed_at = now()
         dashboard.save()
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})

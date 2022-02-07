@@ -100,6 +100,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
+    HEALTHCHECK_MAX_STALE_SECONDS: number
     CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
@@ -498,6 +499,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }
@@ -715,6 +717,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean
@@ -800,8 +803,6 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
@@ -817,7 +818,6 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {

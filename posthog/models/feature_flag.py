@@ -269,11 +269,11 @@ class FeatureFlagMatcher:
 
 # Return a Dict with all active flags and their values
 def get_active_feature_flags(
-    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
 ) -> Dict[str, Union[bool, str, None]]:
-    cache = FlagsMatcherCache(team.pk)
+    cache = FlagsMatcherCache(team_id)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
+    feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
     )
 
@@ -289,16 +289,16 @@ def get_active_feature_flags(
 
 # Return feature flags with per-user overrides
 def get_overridden_feature_flags(
-    team: Team, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
 ) -> Dict[str, Union[bool, str, None]]:
-    feature_flags = get_active_feature_flags(team, distinct_id, groups)
+    feature_flags = get_active_feature_flags(team_id, distinct_id, groups)
 
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
-    person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
+    person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id).values_list("person_id")[:1]
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
     user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
     feature_flag_overrides = FeatureFlagOverride.objects.filter(
-        user_id__in=Subquery(user_id), team=team
+        user_id__in=Subquery(user_id), team_id=team_id
     ).select_related("feature_flag")
     feature_flag_overrides = feature_flag_overrides.only("override_value", "feature_flag__key")
 

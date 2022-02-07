@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
-from django.db.models.expressions import F, Subquery
+from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -21,7 +21,6 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     TRENDS_STICKINESS,
-    FunnelOrderType,
     FunnelVizType,
 )
 from posthog.decorators import CacheType
@@ -35,14 +34,8 @@ PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = structlog.get_logger(__name__)
 
-from ee.clickhouse.queries.funnels import (
-    ClickhouseFunnel,
-    ClickhouseFunnelBase,
-    ClickhouseFunnelStrict,
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-    ClickhouseFunnelUnordered,
-)
+from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
@@ -169,17 +162,12 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
     team = Team(pk=team_id)
 
-    funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-    if filter.funnel_order_type == FunnelOrderType.UNORDERED:
-        funnel_order_class = ClickhouseFunnelUnordered
-    elif filter.funnel_order_type == FunnelOrderType.STRICT:
-        funnel_order_class = ClickhouseFunnelStrict
-
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
-        result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+        result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-        result = ClickhouseFunnelTimeToConvert(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+        result = ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()
     else:
+        funnel_order_class = get_funnel_order_class(filter)
         result = funnel_order_class(team=team, filter=filter).run()
 
     return result

@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "axes",
     "constance",
     "constance.backends.database",
+    "drf_spectacular",
 ]
 
 
@@ -202,6 +203,13 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "POSTPROCESSING_HOOKS": ["posthog.api.documentation.custom_postprocessing_hook"],
 }
 
 EXCEPTIONS_HOG = {
