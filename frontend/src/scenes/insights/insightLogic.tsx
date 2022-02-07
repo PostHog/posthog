@@ -442,7 +442,7 @@ export const insightLogic = kea<insightLogicType>({
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
-                !!insight.effective_privilege_level &&
+                !('effective_privilege_level' in insight) ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],

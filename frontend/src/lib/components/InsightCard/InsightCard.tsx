@@ -24,6 +24,7 @@ import { IconSubtitles, IconSubtitlesOff } from '../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -37,7 +38,6 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     apiError?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
-    editable?: boolean
     showResizeHandles?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
@@ -54,7 +54,6 @@ interface InsightMetaProps
     extends Pick<
         InsightCardProps,
         | 'insight'
-        | 'editable'
         | 'updateColor'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
@@ -74,7 +73,6 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
-    editable = true,
     updateColor,
     removeFromDashboard,
     deleteWithUndo,
@@ -102,6 +100,7 @@ function InsightMeta({
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
 
+    const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
     const transitionStyles = primaryHeight
         ? {
               entering: {
@@ -332,7 +331,6 @@ function InsightCardInternal(
         loading,
         apiError,
         highlighted,
-        editable = true,
         showResizeHandles,
         updateColor,
         removeFromDashboard,
@@ -369,7 +367,6 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
-                    editable={editable}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}
