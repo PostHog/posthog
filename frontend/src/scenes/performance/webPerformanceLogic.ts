@@ -330,7 +330,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
     loaders: ({ values }) => ({
         pageViewEvents: {
             loadEvents: async () => {
-                const loadResult = await api.events.list({ ...eventApiProps, ...values.properties }, 10)
+                const combinedProperties = [...(eventApiProps.properties || []), ...values.properties]
+                const loadResult = await api.events.list({ properties: combinedProperties }, 10)
                 return loadResult?.results || []
             },
         },
