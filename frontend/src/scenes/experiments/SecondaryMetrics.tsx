@@ -234,7 +234,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             </Card>
                         </Row>
                     ))}
-                    {metrics && !(metrics.length > 3) && (
+                    {metrics && !(metrics.length > 2) && (
                         <Col>
                             <div className="mb-05 mt">
                                 <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
