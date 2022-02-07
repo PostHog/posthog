@@ -47,7 +47,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
     connect: { values: [teamLogic, ['currentTeamId']] },
     actions: {
         setSecondaryMetrics: (secondaryMetrics: any) => ({ secondaryMetrics }),
-        createNewMetric: (metricType: InsightType) => ({ metricType }),
+        createNewMetric: true,
         addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
         updateMetricFilters: (filters: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
@@ -100,12 +100,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             },
         ],
         currentMetric: [
-            {
-                filters: {
-                    insight: InsightType.TRENDS as InsightType,
-                    events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                },
-            },
+            BASIC_TRENDS_INSIGHT as SecondaryExperimentMetric,
             {
                 changeInsightType: (metric, { type }) => {
                     if (type === InsightType.TRENDS) {

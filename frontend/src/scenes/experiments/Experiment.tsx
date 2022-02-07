@@ -477,24 +477,24 @@ export function Experiment_(): JSX.Element {
                                                 </Row>
                                             </Col>
                                         </Row>
-                                        <Row className="mt">
-                                            <Col>
-                                                <div>
-                                                    <b>Secondary metrics</b>
-                                                    <span className="text-muted ml-05">(optional)</span>
-                                                </div>
-                                                <div className="text-muted" style={{ marginTop: 4 }}>
-                                                    Use secondary metrics to monitor metrics related to your experiment
-                                                    goal. You can add up to three secondary metrics.{' '}
-                                                </div>
-                                            </Col>
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                            <Row className="mt">
+                                                <Col>
+                                                    <div>
+                                                        <b>Secondary metrics</b>
+                                                        <span className="text-muted ml-05">(optional)</span>
+                                                    </div>
+                                                    <div className="text-muted" style={{ marginTop: 4 }}>
+                                                        Use secondary metrics to monitor metrics related to your
+                                                        experiment goal. You can add up to three secondary metrics.{' '}
+                                                    </div>
+                                                </Col>
                                                 <SecondaryMetrics
                                                     onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
                                                     initialMetrics={parsedSecondaryMetrics}
                                                 />
-                                            )}
-                                        </Row>
+                                            </Row>
+                                        )}
                                     </Col>
                                     <Col span={12}>
                                         <Card className="experiment-preview">

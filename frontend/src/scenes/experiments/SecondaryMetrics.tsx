@@ -42,7 +42,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                 destroyOnClose={true}
                 onCancel={hideModal}
                 onOk={() => {
-                    createNewMetric(currentMetric.filters.insight)
+                    createNewMetric()
                     hideModal()
                 }}
                 okText="Save"
@@ -166,7 +166,11 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                 <div className="metric-name">
                                     {metric.name ? metric.name : `${metric.filters.insight} metric`}
                                 </div>
-                                <DeleteOutlined onClick={() => deleteMetric(idx)} />
+                                <DeleteOutlined
+                                    className="text-danger"
+                                    style={{ padding: 8 }}
+                                    onClick={() => deleteMetric(idx)}
+                                />
                             </Row>
                             <Card className="full-width" style={{ borderTop: 'none' }} bodyStyle={{ padding: 0 }}>
                                 {metric.filters.insight === InsightType.FUNNELS && (
@@ -230,7 +234,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             </Card>
                         </Row>
                     ))}
-                    {metrics.length < 3 && (
+                    {metrics && !(metrics.length > 3) && (
                         <Col>
                             <div className="mb-05 mt">
                                 <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>

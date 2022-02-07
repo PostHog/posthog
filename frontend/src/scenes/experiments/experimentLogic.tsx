@@ -418,9 +418,8 @@ export const experimentLogic = kea<experimentLogicType>({
         parsedSecondaryMetrics: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics: Partial<FilterType>[] =
-                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
-                return secondaryMetrics.map((metric) => ({ filters: metric }))
+                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics
             },
         ],
         minimumDetectableChange: [
