@@ -11,20 +11,20 @@ export function CohortMatchingCriteriaSection({ logic }: { logic: BuiltLogic<coh
     const { setCohort, onCriteriaChange } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
     const onAddGroup = (): void => {
-        cohort.groups = [
-            ...cohort.groups,
-            {
-                id: Math.random().toString().substr(2, 5),
-                matchType: PROPERTY_MATCH_TYPE,
-                properties: [],
-            },
-        ]
-        setCohort({ ...cohort })
+        setCohort({
+            ...cohort,
+            groups: [
+                ...cohort.groups,
+                {
+                    id: Math.random().toString().substr(2, 5),
+                    matchType: PROPERTY_MATCH_TYPE,
+                    properties: [],
+                },
+            ],
+        })
     }
-
     const onRemoveGroup = (index: number): void => {
-        cohort.groups.splice(index, 1)
-        setCohort({ ...cohort })
+        setCohort({ ...cohort, groups: cohort.groups.filter((_, i) => i !== index) })
     }
     const addButton = (
         <div style={{ marginTop: 8, marginBottom: 8 }}>

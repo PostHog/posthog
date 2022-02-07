@@ -37,6 +37,7 @@ export enum AvailableFeature {
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
+    EXPERIMENTATION = 'experimentation',
 }
 
 export enum Realm {
@@ -220,7 +221,8 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
-    name: string
+    name: string | null
+    description?: string
     post_to_slack?: boolean
     slack_message_format?: string
     steps?: ActionStepType[]
@@ -306,6 +308,7 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
 }
@@ -314,6 +317,12 @@ export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+}
+
+export enum ExperimentsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -661,19 +670,33 @@ export interface InsightModel {
     deleted: boolean
     saved: boolean
     created_at: string
+    created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
     last_refresh: string
     refreshing: boolean
-    created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number | null
     dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+}
+
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -689,6 +712,8 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
+    restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -802,7 +827,6 @@ export enum ChartDisplayType {
     FunnelViz = 'FunnelViz',
 }
 
-export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
@@ -856,7 +880,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsType
+    shown_as?: ShownAsValue
+    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -926,7 +951,7 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string
+    value: string | number
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
@@ -987,7 +1012,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties: PropertyFilter[]
+    properties?: PropertyFilter[]
     type: EntityType
 }
 
@@ -1324,6 +1349,17 @@ export interface EventDefinition {
     last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
+}
+
+// TODO duplicated from plugin server. Follow-up to de-duplicate
+export enum PropertyType {
+    DateTime = 'DateTime',
+    String = 'String',
+    Numeric = 'Numeric',
+    Boolean = 'Boolean',
 }
 
 export interface PropertyDefinition {
@@ -1337,8 +1373,9 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
-    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
-    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
+    property_type?: PropertyType
+    created_at?: string // TODO: Implement
+    last_seen_at?: string // TODO: Implement
 }
 
 export interface PersonProperty {
@@ -1363,14 +1400,23 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | null
+    id: number
     name: string
     description?: string
     feature_flag_key: string
+    // ID of feature flag
+    feature_flag: number
     filters: FilterType
-    parameters: Record<string, any>
+    parameters: {
+        minimum_detectable_effect?: number
+        recommended_running_time?: number
+        recommended_sample_size?: number
+        feature_flag_variants?: MultivariateFlagVariant[]
+    }
     start_date?: string
     end_date?: string
+    archived?: boolean
+    secondary_metrics: FilterType[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1379,7 +1425,15 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    significant: boolean
     noData?: boolean
+    significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
+}
+
+export interface SecondaryExperimentMetric {
+    filters: Partial<FilterType>
 }
 
 export interface SelectOption {
@@ -1447,6 +1501,14 @@ export interface FunnelCorrelation {
         | FunnelCorrelationResultsType.Events
         | FunnelCorrelationResultsType.Properties
         | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum SignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
 export enum FunnelCorrelationType {

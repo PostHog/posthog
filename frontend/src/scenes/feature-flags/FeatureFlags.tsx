@@ -198,11 +198,11 @@ function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
             return (
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                     <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} greyBadges />
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} />
                 </div>
             )
         } else if (properties?.length > 0) {
-            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} greyBadges />
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} />
         } else if (rollout_percentage !== null) {
             return `${rollout_percentage}% of all users`
         } else {

@@ -32,7 +32,7 @@ GROUPS_TABLE_SQL = lambda: (
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_GROUPS_TABLE_SQL = GROUPS_TABLE_BASE_SQL.format(
+KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
     table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields="",
 )
 

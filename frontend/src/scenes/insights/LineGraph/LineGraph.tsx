@@ -17,7 +17,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
-import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
+import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
@@ -26,7 +26,7 @@ import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType, GraphPoint } from '~/types'
+import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType, IntervalType } from '~/types'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -60,17 +60,23 @@ interface LineGraphProps {
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
+    labelGroupType: number | 'people' | 'none'
 }
 
 const noop = (): void => {}
 
 export function LineGraph(props: LineGraphProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
-        // @ts-ignore
+
+    if (featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
+        return <LineGraphV2 {...props} />
+    } else {
+        // @ts-expect-error
         return <LEGACY_LineGraph {...props} />
     }
+}
 
+function LineGraphV2(props: LineGraphProps): JSX.Element {
     const {
         datasets: _datasets,
         hiddenLegendKeys,
@@ -87,6 +93,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         isCompare = false,
         incompletenessOffsetFromEnd = -1,
         tooltip: tooltipConfig,
+        labelGroupType,
     } = props
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
@@ -221,8 +228,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (isHorizontal) {
-                // If series are nested (for ActionsHorizontalBar only), filter out the series by index
+            if (isHorizontal || type === GraphType.Pie) {
+                // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
                 const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
                 datasets = datasets.map((_data) => {
                     // Performs a filter transformation on properties that contain arrayed data
@@ -351,11 +358,16 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                         seriesData={seriesData}
-                                        hideColorCol={isHorizontal}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         groupTypeLabel={
-                                            aggregationLabel(seriesData?.[0]?.action?.math_group_type_index).plural
+                                            labelGroupType === 'people'
+                                                ? 'people'
+                                                : labelGroupType === 'none'
+                                                ? ''
+                                                : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
                                     />
@@ -416,8 +428,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 if (onClick && point.length) {
                     target.style.cursor = 'pointer'
-                } else {
-                    target.style.cursor = 'default'
                 }
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {

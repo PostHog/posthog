@@ -46,7 +46,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
@@ -119,7 +119,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter
+                                entitiesLimit={1}
                                 hideMathSelector
                                 hideFilter
                                 hideRename
@@ -159,6 +159,8 @@ export function RetentionTab(): JSX.Element {
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
                     <PropertyFilters
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => setFilters({ properties })}
                         pageKey="insight-retention"
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,

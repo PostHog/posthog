@@ -16,6 +16,7 @@ from typing import (
 from django.db.models.query import QuerySet
 
 from ee.clickhouse.client import sync_execute
+from posthog.constants import INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -94,7 +95,7 @@ class ActorBaseQuery:
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        if hasattr(self._filter, "include_recordings") and self._filter.include_recordings:  # type: ignore
+        if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS]:  # type: ignore
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors

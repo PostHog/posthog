@@ -1,7 +1,7 @@
-import logging
 import time
 from typing import Any, Dict, List
 
+import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from posthog.models import Cohort
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 
@@ -57,7 +57,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 
 @shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any]) -> None:
-    from ee.clickhouse.views.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
+    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
 
     cohort = Cohort.objects.get(pk=cohort_id)
 

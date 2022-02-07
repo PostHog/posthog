@@ -20,6 +20,7 @@ from posthog.api import (
     user,
 )
 from posthog.demo import demo
+from posthog.health import livez, readyz
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
@@ -63,9 +64,20 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
     return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
 urlpatterns = [
-    # internals
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    # Optional UI:
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    # Health check probe endpoints for K8s
+    # NOTE: We have _health, livez, and _readyz. _health is deprecated and
+    # is only included for compatability with old installations. For new
+    # operations livez and readyz should be used.
     opt_slash_path("_health", health),
+    opt_slash_path("_livez", livez),
+    opt_slash_path("_readyz", readyz),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     # ee

@@ -1,11 +1,8 @@
 import {
     sessionRecordingsTableLogic,
-    PersonUUID,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
-import { BuiltLogic } from 'kea'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -16,7 +13,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID>>
+    let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings`) {

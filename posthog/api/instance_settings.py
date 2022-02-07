@@ -2,9 +2,9 @@ import re
 from typing import Any, Dict, Union
 
 from constance import config, settings
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
-from posthog.permissions import StaffUser
+from posthog.permissions import IsStaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
@@ -71,16 +71,20 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
 
+        if instance.key.startswith("EMAIL_") and "request" in self.context:
+            from posthog.tasks.email import send_canary_email
+
+            send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
+
         setattr(config, instance.key, new_value_parsed)
         instance.value = new_value_parsed
-
         return instance
 
 
 class InstanceSettingsViewset(
     viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin
 ):
-    permission_classes = [StaffUser]
+    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
 
