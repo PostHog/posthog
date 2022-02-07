@@ -197,7 +197,7 @@
 .CollaboratorRow__details {
     display: flex;
     align-items: center;
-    button {
-        margin-left: 0.5rem;
+    > span {
+        margin-right: 0.5rem;
     }
 }

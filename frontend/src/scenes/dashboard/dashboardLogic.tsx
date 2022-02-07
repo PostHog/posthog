@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ, DashboardPrivilegeLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -350,6 +350,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             (sharedDashboard, dashboards): DashboardType | null => {
                 return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
             },
+        ],
+        canEditDashboard: [
+            (s) => [s.dashboard],
+            (dashboard) => !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         sizeKey: [
             (s) => [s.columns],

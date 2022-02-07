@@ -18,9 +18,11 @@ import { userLogic } from 'scenes/userLogic'
 import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { IconLock } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function LemonDashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardMode } = useValues(dashboardLogic)
+    const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -41,14 +43,31 @@ export function LemonDashboardHeader(): JSX.Element | null {
                 )}
                 <PageHeader
                     title={
-                        <EditableField
-                            name="name"
-                            value={dashboard.name || ''}
-                            placeholder="Name this dashboard"
-                            onSave={(value) => updateDashboard({ id: dashboard.id, name: value })}
-                            minLength={1}
-                            maxLength={400} // Sync with Dashboard model
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <EditableField
+                                name="name"
+                                value={dashboard.name || ''}
+                                placeholder="Name this dashboard"
+                                onSave={(value) => updateDashboard({ id: dashboard.id, name: value })}
+                                minLength={1}
+                                maxLength={400} // Sync with Dashboard model
+                                mode={!canEditDashboard ? 'view' : undefined}
+                            />
+                            {!canEditDashboard && (
+                                <Tooltip
+                                    title="You don't have edit permissions in this dashboard. Ask a dashboard collaborators with edit access to add you."
+                                    placement="right"
+                                >
+                                    <IconLock
+                                        style={{
+                                            marginLeft: '0.5rem',
+                                            fontSize: '1.5rem',
+                                            color: 'var(--muted)',
+                                        }}
+                                    />
+                                </Tooltip>
+                            )}
+                        </div>
                     }
                     buttons={
                         dashboardMode === DashboardMode.Edit ? (
@@ -85,18 +104,20 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                     <LemonSpacer />
                                                 </>
                                             )}
-                                            <LemonButton
-                                                onClick={() =>
-                                                    setDashboardMode(
-                                                        DashboardMode.Edit,
-                                                        DashboardEventSource.MoreDropdown
-                                                    )
-                                                }
-                                                type="stealth"
-                                                fullWidth
-                                            >
-                                                Edit layout (E)
-                                            </LemonButton>
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        setDashboardMode(
+                                                            DashboardMode.Edit,
+                                                            DashboardEventSource.MoreDropdown
+                                                        )
+                                                    }
+                                                    type="stealth"
+                                                    fullWidth
+                                                >
+                                                    Edit layout (E)
+                                                </LemonButton>
+                                            )}
                                             <LemonButton
                                                 onClick={() =>
                                                     setDashboardMode(
@@ -109,27 +130,34 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                             >
                                                 Go full screen (F)
                                             </LemonButton>
-                                            {dashboard.pinned ? (
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        unpinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)
-                                                    }
-                                                    type="stealth"
-                                                    fullWidth
-                                                >
-                                                    Unpin dashboard
-                                                </LemonButton>
-                                            ) : (
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        pinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)
-                                                    }
-                                                    type="stealth"
-                                                    fullWidth
-                                                >
-                                                    Pin dashboard
-                                                </LemonButton>
-                                            )}
+                                            {canEditDashboard &&
+                                                (dashboard.pinned ? (
+                                                    <LemonButton
+                                                        onClick={() =>
+                                                            unpinDashboard(
+                                                                dashboard.id,
+                                                                DashboardEventSource.MoreDropdown
+                                                            )
+                                                        }
+                                                        type="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Unpin dashboard
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        onClick={() =>
+                                                            pinDashboard(
+                                                                dashboard.id,
+                                                                DashboardEventSource.MoreDropdown
+                                                            )
+                                                        }
+                                                        type="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Pin dashboard
+                                                    </LemonButton>
+                                                ))}
                                             <LemonSpacer />
                                             <LemonButton
                                                 onClick={() =>
@@ -144,19 +172,28 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
-                                                status="danger"
-                                                type="stealth"
-                                                fullWidth
-                                            >
-                                                Delete dashboard
-                                            </LemonButton>
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        deleteDashboard({ id: dashboard.id, redirect: true })
+                                                    }
+                                                    status="danger"
+                                                    type="stealth"
+                                                    fullWidth
+                                                >
+                                                    Delete dashboard
+                                                </LemonButton>
+                                            )}
                                         </>
                                     }
                                 />
                                 <LemonSpacer vertical />
-                                {dashboard && <CollaboratorBubbles dashboard={dashboard} />}
+                                {dashboard && (
+                                    <CollaboratorBubbles
+                                        dashboard={dashboard}
+                                        onClick={() => setIsShareModalVisible((state) => !state)}
+                                    />
+                                )}
                                 <LemonButton
                                     type="secondary"
                                     data-attr="dashboard-share-button"
@@ -164,35 +201,49 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 >
                                     Share
                                 </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => addGraph()}
-                                    data-attr="dashboard-add-graph-header"
-                                >
-                                    New insight
-                                </LemonButton>
+                                {canEditDashboard && (
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => addGraph()}
+                                        data-attr="dashboard-add-graph-header"
+                                    >
+                                        New insight
+                                    </LemonButton>
+                                )}
                             </>
                         )
                     }
                     caption={
                         <>
-                            <EditableField
-                                multiline
-                                name="description"
-                                value={dashboard.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                compactButtons
-                                isGated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                            />
-                            <ObjectTags
-                                tags={dashboard.tags}
-                                onTagSave={saveNewTag}
-                                onTagDelete={deleteTag}
-                                saving={dashboardLoading}
-                                tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                                className="insight-metadata-tags"
-                            />
+                            {!!(canEditDashboard || dashboard.description) && (
+                                <EditableField
+                                    multiline
+                                    name="description"
+                                    value={dashboard.description || ''}
+                                    placeholder="Description (optional)"
+                                    onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                    compactButtons
+                                    mode={!canEditDashboard ? 'view' : undefined}
+                                    gated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                />
+                            )}
+                            {canEditDashboard ? (
+                                <ObjectTags
+                                    tags={dashboard.tags}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={dashboardLoading}
+                                    tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                                    className="insight-metadata-tags"
+                                />
+                            ) : dashboard.tags.length ? (
+                                <ObjectTags
+                                    tags={dashboard.tags}
+                                    saving={dashboardLoading}
+                                    staticOnly
+                                    className="insight-metadata-tags"
+                                />
+                            ) : null}
                         </>
                     }
                     delimited
@@ -202,14 +253,24 @@ export function LemonDashboardHeader(): JSX.Element | null {
     )
 }
 
-function CollaboratorBubbles({ dashboard }: { dashboard: DashboardType }): JSX.Element | null {
+function CollaboratorBubbles({
+    dashboard,
+    onClick,
+}: {
+    dashboard: DashboardType
+    onClick: () => void
+}): JSX.Element | null {
     const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
 
     if (!dashboard) {
         return null
     }
 
-    const tooltipParts: string[] = [DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level].label || '?']
+    const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
+    const tooltipParts: string[] = []
+    if (effectiveRestrictionLevelOption?.label) {
+        tooltipParts.push(effectiveRestrictionLevelOption.label)
+    }
     if (dashboard.is_shared) {
         tooltipParts.push('Shared publicly')
     }
@@ -222,6 +283,7 @@ function CollaboratorBubbles({ dashboard }: { dashboard: DashboardType }): JSX.E
                 title: `${collaborator.user.first_name} (${privilegeLevelToName(collaborator.level)})`,
             }))}
             tooltip={tooltipParts.join(' • ')}
+            onClick={onClick}
         />
     )
 }
