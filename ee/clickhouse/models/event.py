@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import BILLABLE_EVENTS_COUNT, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
@@ -281,6 +281,13 @@ def get_event_count_month_to_date() -> int:
         WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
     """
     )[0][0]
+    return result
+
+
+def get_billable_event_count_month_to_date() -> int:
+    month_first_day = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    result = sync_execute(BILLABLE_EVENTS_COUNT, {"date_from": month_first_day, "date_to": timezone.now()})[0][0]
     return result
 
 

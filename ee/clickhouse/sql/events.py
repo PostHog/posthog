@@ -235,3 +235,7 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 """
 
 GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+
+
+# Query we use to figure out how much to bill
+BILLABLE_EVENTS_COUNT = "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')"

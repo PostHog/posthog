@@ -4,6 +4,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.events import EVENTS_FOR_BILLING_QUERY
 from ee.models.license import License
 from posthog.models import User
 from posthog.settings import SITE_URL
@@ -18,10 +19,7 @@ def send_license_usage():
     try:
         date_from = (timezone.now() - relativedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        events_count = sync_execute(
-            "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')",
-            {"date_from": date_from, "date_to": date_to},
-        )[0][0]
+        events_count = sync_execute(EVENTS_FOR_BILLING_QUERY, {"date_from": date_from, "date_to": date_to},)[0][0]
         response = requests.post(
             "https://license.posthog.com/licenses/usage",
             data={"date": date_from.strftime("%Y-%m-%d"), "key": license.key, "events_count": events_count,},
