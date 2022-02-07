@@ -93,5 +93,5 @@ class Dashboard(models.Model):
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
-            "tags_count": self.tags.count(),  # type: ignore
+            "tags_count": self.tags.count(),
         }

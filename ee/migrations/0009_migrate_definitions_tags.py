@@ -26,7 +26,7 @@ def forwards(apps, schema_editor):
     for instance in EnterprisePropertyDefinition.objects.exclude(deprecated_tags__isnull=True, deprecated_tags=[]):
         if instance.deprecated_tags:
             for tag in instance.deprecated_tags:
-                new_tag = next(filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None)
+                new_tag = next(filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None)  # type: ignore
                 if not new_tag:
                     new_tag = Tag(name=tag, team_id=instance.team_id)
                     tags_to_create.append(new_tag)

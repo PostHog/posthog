@@ -368,7 +368,7 @@ class TestFeatureFlag(APIBaseTest):
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
         tag = Tag.objects.create(name="hello", team_id=self.team.id)
-        instance.tags.create(tag_id=tag.id)  # type: ignore
+        instance.tags.create(tag_id=tag.id)
         self.client.force_login(new_user)
 
         self.assertEqual(TaggedItem.objects.all().count(), 1)
