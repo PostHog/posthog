@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import pytest
+from django.http import HttpResponse
 from django.test import Client
 from freezegun import freeze_time
 
@@ -132,7 +133,7 @@ class TrendsRequestBreakdown(TrendsRequest):
     breakdown_type: Optional[str] = None
 
 
-def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
+def get_trends(client: Client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team) -> HttpResponse:
     data: Dict[str, Any] = {
         "date_from": request.date_from,
         "date_to": request.date_to,
@@ -153,7 +154,7 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
     return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
 
-def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
+def get_trends_ok(client: Client, request: TrendsRequest, team: Team) -> Any:
     response = get_trends(client=client, request=request, team=team)
     assert response.status_code == 200, response.content
     return response.json()

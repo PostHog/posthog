@@ -233,7 +233,7 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
             date_query = f"""{prop.key}"""
         else:
             try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
@@ -254,7 +254,7 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
             date_query = f"""{prop.key}"""
         else:
             try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
@@ -282,7 +282,7 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        if prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
+        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
             date_query = f"""{prop.key}"""
         else:
             try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
@@ -412,11 +412,19 @@ def get_property_string_expr(
     :param table_alias:
         (optional) alias of the table being queried
     :return:
+        either the events table column name, the materialized column name,
+        or the query to read the key from the tables' property blob
+        (each optionally with a table alias prepended appropriately)
     """
 
     table_string = f"{table_alias}." if table_alias != None else ""
 
     if table == "events":
+        """
+        First check if the property is "metadata" of events 
+            These are columns in the events table in ClickHouse
+            that users should be able to query as if they were in the properties JSON blob.
+        """
         for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
             if property_name in reserved_words:
                 return f"{table_string}{property_name}", False
