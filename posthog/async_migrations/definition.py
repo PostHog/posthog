@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
@@ -27,7 +27,7 @@ class AsyncMigrationOperation:
         fn: Callable[[str], None],
         rollback_fn: Callable[[str], None] = lambda _: None,
         resumable=False,
-        sql: Optional[str] = None,
+        debug_context: Optional[Any] = None,
     ):
         self.fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
@@ -39,6 +39,8 @@ class AsyncMigrationOperation:
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
+
+        self.debug_context = debug_context
 
     @classmethod
     def simple_op(
@@ -53,6 +55,7 @@ class AsyncMigrationOperation:
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             resumable=resumable,
+            debug_context={"sql": sql, "rollback": rollback, "database": database},
         )
 
     @classmethod

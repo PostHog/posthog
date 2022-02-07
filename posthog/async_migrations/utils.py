@@ -28,7 +28,7 @@ def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     try:
         sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
     except Exception as e:
-        raise Exception(f"Failed to execute ClickHouse op: sql={sql}, query_id={query_id}, exception={str(e)}")
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def execute_op_postgres(sql: str, query_id: str):
@@ -38,7 +38,7 @@ def execute_op_postgres(sql: str, query_id: str):
         with connection.cursor() as cursor:
             cursor.execute(f"/* {query_id} */ " + sql)
     except Exception as e:
-        raise Exception(f"Failed to execute postgres op: sql={sql}, query_id={query_id}, exception={str(e)}")
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True, alert: bool = False):
