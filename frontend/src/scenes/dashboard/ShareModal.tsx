@@ -86,7 +86,7 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
 
 function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, canRestrictDashboard } = useValues(dashboardLogic)
     const { triggerDashboardUpdate } = useActions(dashboardLogic)
     const { allCollaborators, explicitCollaboratorsLoading, addableMembers, explicitCollaboratorsToBeAdded } =
         useValues(dashboardCollaboratorsLogic({ dashboardId }))
@@ -112,9 +112,11 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
             <>
                 <section>
                     <h5>Dashboard restrictions</h5>
-                    {!canEditDashboard && (
+                    {(!canEditDashboard || !canRestrictDashboard) && (
                         <InfoMessage>
-                            You can't change sharing settings as you don't have dashboard edit permissions.
+                            {canEditDashboard
+                                ? "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."
+                                : "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."}
                         </InfoMessage>
                     )}
                     <LemonSelect
@@ -132,7 +134,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                             height: '3rem',
                             width: '100%',
                         }}
-                        disabled={!canEditDashboard}
+                        disabled={!canRestrictDashboard}
                     />
                 </section>
                 {dashboardCollaborationAvailable &&
