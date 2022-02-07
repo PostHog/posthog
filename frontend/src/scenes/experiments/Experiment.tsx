@@ -433,6 +433,7 @@ export function Experiment_(): JSX.Element {
                                                                     hideMathSelector={true}
                                                                     hideDeleteBtn={filterSteps.length === 1}
                                                                     buttonCopy="Add funnel step"
+                                                                    buttonType="link"
                                                                     showSeriesIndicator={!isStepsEmpty}
                                                                     seriesIndicatorType="numeric"
                                                                     fullWidth
@@ -448,7 +449,11 @@ export function Experiment_(): JSX.Element {
                                                                 />
                                                                 <div
                                                                     className="flex-center text-muted"
-                                                                    style={{ width: '100%', marginTop: 4 }}
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        marginTop: 4,
+                                                                        marginBottom: 4,
+                                                                    }}
                                                                 >
                                                                     <span style={{ margin: '4px 4px' }}>
                                                                         Aggregating by
