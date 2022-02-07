@@ -13,8 +13,9 @@ from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
+from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -61,7 +62,6 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
-            "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
 
@@ -116,6 +116,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         return password
 
+    def validate_is_staff(self, value: bool) -> bool:
+        if not self.context["request"].user.is_staff:
+            raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
     def update(self, instance: models.Model, validated_data: Any) -> Any:
 
         # Update current_organization and current_team
@@ -157,10 +162,14 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
     permission_classes = [
         permissions.IsAuthenticated,
+    ]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = [
+        "is_staff",
     ]
     queryset = User.objects.none()
     lookup_field = "uuid"
@@ -169,9 +178,18 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return self.request.user
-        raise serializers.ValidationError(
-            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
-        )
+
+        if not self.request.user.is_staff:
+            raise exceptions.PermissionDenied(
+                "As a non-staff user you're only allowed to access the `@me` user instance."
+            )
+
+        return super().get_object()
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return User.objects.all()
+        return User.objects.filter(id=self.request.user.id)
 
 
 @authenticate_secondarily

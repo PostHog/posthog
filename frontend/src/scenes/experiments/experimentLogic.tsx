@@ -33,6 +33,8 @@ import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -443,30 +445,38 @@ export const experimentLogic = kea<experimentLogicType>({
                 return experimentResults?.significant || false
             },
         ],
-        significanceTooltip: [
+        significanceBannerDetails: [
             (s) => [s.experimentResults],
             (experimentResults): string | ReactElement => {
                 if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
                     return (
-                        <div>
-                            This is because the expected loss in conversion is greater than 1%.{' '}
-                            <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
-                                {' '}
-                                See our Experimentation docs for more information.{' '}
-                            </a>
-                        </div>
+                        <>
+                            This is because the expected loss in conversion is greater than 1%
+                            <Tooltip
+                                placement="right"
+                                title={
+                                    <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
+                                }
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
                     )
                 }
 
                 if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
                     return (
-                        <div>
-                            This is because the p value is greater than 0.05.{' '}
-                            <a href="https://posthog.com/docs/user-guides/experimentation#trend-experiment-calculations">
-                                {' '}
-                                See our Experimentation docs for more information.{' '}
-                            </a>
-                        </div>
+                        <>
+                            This is because the p value is greater than 0.05
+                            <Tooltip
+                                placement="right"
+                                title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
                     )
                 }
 

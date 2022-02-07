@@ -257,13 +257,30 @@ export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
 }
 
 /** Material Design Task Alt icon. */
-export function IconCheckmark(): JSX.Element {
+export function IconCheckmark({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="m21 5.862-10.269 10.278-3.816-3.816 1.269-1.269 2.547 2.547 9-9zm-1.989 4.536c.117.513.189 1.053.189 1.602 0 3.978-3.222 7.2-7.2 7.2s-7.2-3.222-7.2-7.2 3.222-7.2 7.2-7.2c1.422 0 2.736.414 3.852 1.125l1.296-1.296c-1.458-1.026-3.231-1.629-5.148-1.629-4.968 0-9 4.032-9 9s4.032 9 9 9 9-4.032 9-9c0-1.071-.198-2.097-.54-3.051z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design Radio Button Unchecked icon. */
+export function IconRadioButtonUnchecked({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="24px"
+            viewBox="0 0 24 24"
+            width="24px"
+            fill="#00000080"
+            style={style}
+        >
+            <path d="M0 0h24v24H0z" fill="none" />
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" />
         </svg>
     )
 }

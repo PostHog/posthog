@@ -33,6 +33,8 @@ interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
+    /* whether this table is below another insight or the insight is in table view */
+    isMainInsightView?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -64,6 +66,7 @@ export function InsightsTable({
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
+    isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
@@ -177,7 +180,10 @@ export function InsightsTable({
             render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
                 const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
-                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                    <SeriesToggleWrapper
+                        id={item.id}
+                        toggleVisibility={isMainInsightView ? undefined : toggleVisibility}
+                    >
                         {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>
                 )

@@ -213,7 +213,7 @@ const api = {
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: Record<string, any> = { ...filters, limit }
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
     },
