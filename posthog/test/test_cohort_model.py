@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
-from posthog.models.cohort import CohortPeople
+from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
 from posthog.test.base import BaseTest
 
 
@@ -65,3 +65,21 @@ class TestCohort(BaseTest):
 
         cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+    def test_batch_delete_cohort_people(self):
+        person1 = Person.objects.create(
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        person3 = Person.objects.create(
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(len(CohortPeople.objects.all()), 2)
+        batch_delete_cohort_people(cohort_id=cohort.pk, version=0, batch_size=1)
+        self.assertEqual(len(CohortPeople.objects.all()), 0)

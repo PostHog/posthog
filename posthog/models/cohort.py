@@ -128,9 +128,7 @@ class Cohort(models.Model):
 
         except Exception as err:
             # Clear the pending version people if there's an error
-            while batch := CohortPeople.objects.filter(cohort_id=self.pk, version=new_version)[:1000]:
-                CohortPeople.objects.filter(id__in=batch)._raw_delete()
-                time.sleep(1)
+            batch_delete_cohort_people(self.pk, new_version)
 
             raise err
 
@@ -294,3 +292,9 @@ class CohortPeople(models.Model):
         indexes = [
             models.Index(fields=["cohort_id", "person_id"]),
         ]
+
+
+def batch_delete_cohort_people(cohort_id: int, version: int, batch_size: int = 1000):
+    while batch := CohortPeople.objects.filter(cohort_id=cohort_id, version=version).values("id")[:batch_size]:
+        CohortPeople.objects.filter(id__in=batch)._raw_delete(batch.db)
+        time.sleep(1)
