@@ -1,5 +1,8 @@
 import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeFormat } from '../../types'
 
+// magic copied from https://stackoverflow.com/a/54930905
+// allows candidate to be typed as any
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const isNumericString = (candidate: any): boolean => {
     return !(candidate instanceof Array) && candidate - parseFloat(candidate) + 1 >= 0
 }
@@ -27,7 +30,7 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
     let propertyType: PropertyType | null = null
 
     /**
-     * Auto detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
+     * Auto-detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
      *
      * This tries to detect the most likely cases.
      *
