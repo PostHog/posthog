@@ -1,12 +1,11 @@
 import copy
 import os
+import uuid
 from typing import Dict, cast
 
 import pytest
-from celery import uuid
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
