@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from django.conf import settings
+import reversion
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.db.models import Q
@@ -94,6 +94,7 @@ def events_column_config_default() -> Dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+@reversion.register(exclude=("events_column_config", "email"))
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []

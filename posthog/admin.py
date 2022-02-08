@@ -23,7 +23,11 @@ admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(Insight)
+
+
+@admin.register(Insight)
+class InsightAdmin(VersionAdmin):
+    pass
 
 
 @admin.register(FeatureFlag)
@@ -32,7 +36,7 @@ class FeatureFlagAdmin(VersionAdmin):
 
 
 @admin.register(Plugin)
-class PluginAdmin(admin.ModelAdmin):
+class PluginAdmin(VersionAdmin, admin.ModelAdmin):
     list_display = (
         "id",
         "name",
@@ -45,7 +49,7 @@ class PluginAdmin(admin.ModelAdmin):
 
 
 @admin.register(Team)
-class TeamAdmin(admin.ModelAdmin):
+class TeamAdmin(VersionAdmin, admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
     search_fields = ("name", "organization__id", "organization__name")
 
@@ -56,7 +60,7 @@ class TeamAdmin(admin.ModelAdmin):
 
 
 @admin.register(PluginConfig)
-class PluginConfigAdmin(admin.ModelAdmin):
+class PluginConfigAdmin(VersionAdmin, admin.ModelAdmin):
     list_display = (
         "plugin_id",
         "team_id",
@@ -79,7 +83,7 @@ class EventAdmin(admin.ModelAdmin):
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin):
+class UserAdmin(VersionAdmin, DjangoUserAdmin):
     """Define admin model for custom User model with no email field."""
 
     change_form_template = "loginas/change_form.html"
@@ -156,7 +160,7 @@ class OrganizationTeamInline(admin.TabularInline):
 
 
 @admin.register(Organization)
-class OrganizationAdmin(admin.ModelAdmin):
+class OrganizationAdmin(VersionAdmin, admin.ModelAdmin):
     fields = [
         "name",
         "personalization",

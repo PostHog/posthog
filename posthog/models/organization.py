@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import reversion
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -48,6 +49,7 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
+@reversion.register()
 class Organization(UUIDModel):
     class Meta:
         constraints = [

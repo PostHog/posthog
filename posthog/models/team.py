@@ -2,7 +2,7 @@ import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytz
-from django.conf import settings
+import reversion
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -84,6 +84,16 @@ def get_default_data_attributes() -> Any:
     return ["data-attr"]
 
 
+@reversion.register(
+    exclude=(
+        "api_token",
+        "session_recording_retention_period_days",
+        "plugins_opt_in",
+        "opt_out_capture",
+        "event_names",
+        "event_properties",
+    )
+)
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
