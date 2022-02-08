@@ -73,7 +73,6 @@ function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList
             }
 
             // Ignore typing on inputs (default behavior); except Esc key
-            console.log('EBENt', event.target as HTMLElement)
             const isDOMInput = IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())
             if (key !== 'Escape' && (isDOMInput || isToolbarInput(event, IGNORE_INPUTS))) {
                 return
