@@ -50,18 +50,19 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.AllowIP",
+    "posthog.middleware.allow_ip.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.ToolbarCookieMiddleware",
+    "posthog.middleware.toolbar_cookie_middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "posthog.middleware.CsrfOrKeyViewMiddleware",
+    "posthog.middleware.csrf_or_key_view.CsrfOrKeyViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.CSVNeverCacheMiddleware",
+    "posthog.middleware.csv_never_cache.CSVNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
+    "posthog.middleware.team_aware_versioning.TeamAwareVersioning",
 ]
 
 if STATSD_HOST is not None:
