@@ -5,7 +5,7 @@ from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.permissions import IsStaffUser
-from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import CLICKHOUSE_REPLICATION, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
 
@@ -65,6 +65,12 @@ class InstanceSettingsSerializer(serializers.Serializer):
         new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
 
         if instance.key == "RECORDINGS_TTL_WEEKS":
+
+            if CLICKHOUSE_REPLICATION:
+                # On cloud the TTL is set on the session_recording_events_sharded table,
+                # so this command should never be run
+                raise serializers.ValidationError("This setting cannot be updated with sharded tables.")
+
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from ee.clickhouse.client import sync_execute
             from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
