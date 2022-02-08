@@ -277,7 +277,7 @@ function DefinitionEdit(): JSX.Element {
                         />
                     </>
                 )}
-                {definition && 'owner' in localDefinition && (
+                {definition && definition.name && !isPostHogProp(definition.name) && 'owner' in localDefinition && (
                     <>
                         <label className="definition-popup-edit-form-label" htmlFor="owner">
                             <span className="label-text">Owner</span>
