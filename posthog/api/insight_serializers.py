@@ -222,9 +222,7 @@ class FunnelSerializer(GenericInsightsSerializer, BreakdownMixin):
     )
     breakdown_limit = serializers.IntegerField(help_text="", required=False, default=10)
     funnel_window_days = serializers.IntegerField(
-        help_text="(DEPRECATED) Funnel window size in days.", required=False, default=14
-    )
-    breakdowns = BreakdownField(
+        help_text="(DEPRECATED) Funnel window size in days. Use `funnel_window_interval` and `funnel_window_interval_type`",
         required=False,
-        help_text='**Experimental**. Alternative to `breakdown`, where you can pass through an object with different types of breakdowns.\nFor example: `[{property: 291, type: "cohort"}, {property: "email", type: "person"}]`',
+        default=14,
     )
