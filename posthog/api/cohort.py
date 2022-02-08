@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from dateutil import parser
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, QuerySet
 from django.db.models.expressions import F, OuterRef
 from django.utils import timezone
@@ -95,7 +96,14 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort_ch.delay(cohort.id)
+
+            with transaction.atomic():
+                cohort = Cohort.objects.filter(pk=cohort.pk).select_for_update().get()
+                cohort.pending_version = cohort.pending_version + 1
+                cohort.save(update_fields=["pending_version"])
+                pending_version = cohort.pending_version
+
+            calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -128,7 +136,14 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                calculate_cohort_ch.delay(cohort.id)
+                # Increment based on pending versions
+                with transaction.atomic():
+                    cohort = Cohort.objects.filter(pk=cohort.pk).select_for_update().get()
+                    cohort.pending_version = cohort.pending_version + 1
+                    cohort.save(update_fields=["pending_version"])
+                    pending_version = cohort.pending_version
+
+                calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(
             request.user,

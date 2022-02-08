@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 import structlog
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.core.exceptions import EmptyResultSet
-from django.db import connection, models, transaction
+from django.db import connection, models
 from django.db.models import Q
 from django.db.models.expressions import F
 from django.utils import timezone
@@ -128,20 +127,15 @@ class Cohort(models.Model):
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
 
         except Exception as err:
+            # Clear the pending version people if there's an error
+            CohortPeople.objects.filter(cohort_id=self.pk, version=new_version).delete()
             raise err
 
-    def calculate_people_ch(self):
+    def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
         try:
             start_time = time.time()
-
-            # Increment based on pending versions
-            with transaction.atomic():
-                cohort = self.queryset().select_for_update().get()
-                cohort.pending_version = cohort.pending_version + 1
-                cohort.save(update_fields=["pending_version"])
-                pending_version = cohort.pending_version
 
             logger.info(
                 "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version

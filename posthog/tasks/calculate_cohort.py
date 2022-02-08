@@ -5,6 +5,7 @@ import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -28,13 +29,20 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        calculate_cohort_ch.delay(cohort.id)
+
+        with transaction.atomic():
+            cohort = Cohort.objects.filter(pk=cohort.pk).select_for_update().get()
+            cohort.pending_version = cohort.pending_version + 1
+            cohort.save(update_fields=["pending_version"])
+            pending_version = cohort.pending_version
+
+        calculate_cohort_ch.delay(cohort.id, pending_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)
-def calculate_cohort_ch(cohort_id: int) -> None:
+def calculate_cohort_ch(cohort_id: int, pending_version: int) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people_ch()
+    cohort.calculate_people_ch(pending_version)
 
 
 @shared_task(ignore_result=True, max_retries=1)
