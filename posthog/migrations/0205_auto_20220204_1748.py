@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0203_dashboard_permissions"),
+        ("posthog", "0204_remove_duplicate_plugin_configs"),
     ]
 
     operations = [

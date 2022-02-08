@@ -710,3 +710,21 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.insight.capture_exception")
+    def test_serializer(self, patch_capture_exception):
+        """
+        Various regression tests for the serializer
+        """
+        # Display
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+        self.assertEqual(patch_capture_exception.call_count, 0)
+
+        # Properties with an array
+        events = [{"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps(events)}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)

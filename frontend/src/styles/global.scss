@@ -287,6 +287,10 @@ code.code {
     margin-left: $default_spacing;
 }
 
+.ml-2 {
+    margin-left: $default_spacing * 2;
+}
+
 .mr-05 {
     margin-right: $default_spacing * 0.5;
 }
@@ -354,6 +358,11 @@ code.code {
 .flex-center {
     display: flex;
     align-items: center;
+}
+
+.border-all {
+    border: 1px solid $border;
+    border-radius: 4px;
 }
 
 // Vendor-specific adjustments

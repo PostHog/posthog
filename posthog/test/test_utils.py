@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.exceptions import RequestParsingError
 from posthog.models import EventDefinition
+from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -67,6 +68,14 @@ class TestGeneralUtils(TestCase):
 
         for start_url, params, expected in test_to_expected:
             self.assertEqual(expected, format_query_params_absolute_url(Request(build_req, start_url), *params))
+
+    @patch("os.getenv")
+    def test_fetching_env_var_parsed_as_int(self, mock_env):
+        mock_env.return_value = ""
+        self.assertEqual(get_from_env("test_key", optional=True, type_cast=int), None)
+
+        mock_env.return_value = "4"
+        self.assertEqual(get_from_env("test_key", type_cast=int), 4)
 
 
 class TestRelativeDateParse(TestCase):
