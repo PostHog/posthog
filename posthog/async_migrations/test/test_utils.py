@@ -16,9 +16,11 @@ from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
 from posthog.test.base import BaseTest
 
-DEFAULT_CH_OP = AsyncMigrationOperation.simple_op(sql="SELECT 1", timeout_seconds=10)
+DEFAULT_CH_OP = AsyncMigrationOperation.simple_op(description="Test", sql="SELECT 1", timeout_seconds=10)
 
-DEFAULT_POSTGRES_OP = AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",)
+DEFAULT_POSTGRES_OP = AsyncMigrationOperation.simple_op(
+    description="Test", database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",
+)
 
 
 class TestUtils(BaseTest):

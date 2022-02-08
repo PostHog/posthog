@@ -24,6 +24,7 @@ class AsyncMigrationType:
 class AsyncMigrationOperation:
     def __init__(
         self,
+        description: str,
         fn: Callable[[str], None],
         rollback_fn: Callable[[str], None] = lambda _: None,
         debug_context: Optional[Any] = None,
@@ -34,13 +35,22 @@ class AsyncMigrationOperation:
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
 
+        # This is displayed in the UI
+        self.description = description
+
         self.debug_context = debug_context
 
     @classmethod
     def simple_op(
-        cls, sql, rollback=None, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60,
+        cls,
+        description: str,
+        sql,
+        rollback=None,
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
+        timeout_seconds: int = 60,
     ):
         return cls(
+            description=description,
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             debug_context={"sql": sql, "rollback": rollback, "database": database},

@@ -35,6 +35,7 @@ Migration Summary
 def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
     lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
     op = AsyncMigrationOperation.simple_op(
+        description=f"Inserting events WHERE toYYYYMM(timestamp) >= {partition_gte} {lt_expression}",
         database=AnalyticsDBMS.CLICKHOUSE,
         sql=f"""
         INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -69,6 +70,7 @@ class Migration(AsyncMigrationDefinition):
 
         create_table_op = [
             AsyncMigrationOperation.simple_op(
+                description="Create temporary table",
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                 CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
@@ -89,10 +91,12 @@ class Migration(AsyncMigrationDefinition):
 
         detach_mv_ops = [
             AsyncMigrationOperation(
+                description="Disable ingestion from Kafka to ClickHouse",
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
             AsyncMigrationOperation.simple_op(
+                description="Detatch materialized view",
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
@@ -103,6 +107,7 @@ class Migration(AsyncMigrationDefinition):
 
         post_insert_ops = [
             AsyncMigrationOperation.simple_op(
+                description="Rename the current table to `events_backup_0002_events_sample_by` and rename the new table to `events` (the table we use for querying)",
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                     RENAME TABLE
@@ -118,14 +123,19 @@ class Migration(AsyncMigrationDefinition):
                 """,
             ),
             AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", rollback="",
+                description="Optimize the table to remove duplicates",
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                rollback="",
             ),
             AsyncMigrationOperation.simple_op(
+                description="Attatch materialized view",
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             ),
             AsyncMigrationOperation(
+                description="Re-enable ingestion from Kafka to ClickHouse",
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             ),

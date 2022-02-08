@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
+from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
 from posthog.models.async_migration import (
     AsyncMigration,
@@ -157,3 +158,9 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
             ]
         )
+
+    @action(methods=["GET"], detail=True)
+    def operations(self, request, **kwargs):
+        migration_instance = self.get_object()
+        migration_definition = get_async_migration_definition(migration_instance.name)
+        return response.Response([op.description for op in migration_definition.operations])

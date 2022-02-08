@@ -55,6 +55,7 @@ class Migration(AsyncMigrationDefinition):
 
     def migrate_team_operation(self, team_id: int):
         return AsyncMigrationOperation.simple_op(
+            description=f"Migrating team {team_id}",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 INSERT INTO person_distinct_id2(team_id, distinct_id, person_id, is_deleted, version)

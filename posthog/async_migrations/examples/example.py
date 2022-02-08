@@ -36,21 +36,25 @@ class Migration(AsyncMigrationDefinition):
 
     operations = [
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 INSERT INTO {TEMPORARY_TABLE_NAME} (distinct_id, person_id, team_id, _sign, _timestamp, _offset)
@@ -66,6 +70,7 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME}",
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
@@ -81,16 +86,18 @@ class Migration(AsyncMigrationDefinition):
             """,
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
             rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation.simple_op(
+            description="Test",
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
             rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
-        AsyncMigrationOperation(fn=example_fn, rollback_fn=example_rollback_fn),
+        AsyncMigrationOperation(description="Test", fn=example_fn, rollback_fn=example_rollback_fn),
     ]
 
     def healthcheck(self):
