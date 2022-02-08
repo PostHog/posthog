@@ -6,7 +6,7 @@ from dateutil import parser
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, QuerySet
-from django.db.models.expressions import F, OuterRef
+from django.db.models.expressions import Case, F, OuterRef, When
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -28,7 +28,7 @@ from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
-from posthog.models.cohort import CohortPeople
+from posthog.models.cohort import CohortPeople, get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -96,9 +96,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            cohort.pending_version = 1
-            cohort.save()
-            pending_version = cohort.pending_version
+            pending_version = get_and_update_pending_version(cohort)
 
             calculate_cohort_ch.delay(cohort.id, pending_version)
 
@@ -134,10 +132,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
                 # Increment based on pending versions
-                cohort.pending_version = F("pending_version") + 1
-                cohort.save()
-                cohort.refresh_from_db()
-                pending_version = cohort.pending_version
+                pending_version = get_and_update_pending_version(cohort)
 
                 calculate_cohort_ch.delay(cohort.id, pending_version)
 

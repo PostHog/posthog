@@ -6,7 +6,7 @@ import structlog
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Q
+from django.db.models import Case, Q, When
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -78,8 +78,8 @@ class Cohort(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
-    version: models.IntegerField = models.IntegerField(default=0)
-    pending_version: models.IntegerField = models.IntegerField(default=0)
+    version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
@@ -145,7 +145,9 @@ class Cohort(models.Model):
             self.calculate_people(new_version=pending_version)
 
             # Update filter to match pending version if still valid
-            Cohort.objects.filter(pk=self.pk).filter(version__lt=pending_version).update(version=pending_version)
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                version=pending_version
+            )
             self.refresh_from_db()
 
             self.last_calculation = timezone.now()
@@ -272,11 +274,18 @@ class Cohort(models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
+def get_and_update_pending_version(cohort: Cohort):
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    cohort.save()
+    cohort.refresh_from_db()
+    return cohort.pending_version
+
+
 class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    version: models.IntegerField = models.IntegerField(default=0)
+    version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     class Meta:
         indexes = [

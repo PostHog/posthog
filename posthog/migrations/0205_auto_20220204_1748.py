@@ -10,7 +10,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="cohort", name="version", field=models.IntegerField(default=0),),
-        migrations.AddField(model_name="cohort", name="pending_version", field=models.IntegerField(default=0),),
-        migrations.AddField(model_name="cohortpeople", name="version", field=models.IntegerField(default=0),),
+        migrations.AddField(model_name="cohort", name="version", field=models.IntegerField(blank=True, null=True),),
+        migrations.AddField(
+            model_name="cohort", name="pending_version", field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="cohortpeople", name="version", field=models.IntegerField(blank=True, null=True),
+        ),
     ]
