@@ -176,7 +176,7 @@ export async function runPluginTask(
             teamIdStr = pluginConfig.team_id.toString()
         }
 
-        server.statsd?.increment(`plugin.task.${taskType}.${taskName}.${pluginConfigId}.ERROR`, {
+        server.statsd?.increment(`plugin.task.ERROR`, {
             taskType: taskType,
             taskName: taskName,
             pluginConfigId: pluginConfigId.toString(),
