@@ -85,7 +85,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
 
         cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"$browser": "test"}}])
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         entity_params = [
             {

@@ -55,7 +55,7 @@ class TestFilters(PGTestFilters):
             team=self.team,
             groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
