@@ -65,7 +65,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError("Cannot add collaborators that have no access to the project.")
         if dashboard.can_user_restrict(validated_data["user"].id):
             raise exceptions.ValidationError(
-                "A user with dashboard restriction rights (the dashboard owner or a project admins) cannot be added as a collaborator."
+                "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
             )
         validated_data["dashboard_id"] = self.context["dashboard_id"]
         try:

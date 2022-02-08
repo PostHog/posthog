@@ -169,7 +169,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                gated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                                 notice={
                                     !canEditInsight
                                         ? {

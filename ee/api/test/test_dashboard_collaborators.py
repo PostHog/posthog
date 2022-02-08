@@ -92,7 +92,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(
             response_data,
             self.validation_error_response(
-                "A user with dashboard restriction rights (the dashboard owner or a project admins) cannot be added as a collaborator."
+                "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
             ),
         )
 

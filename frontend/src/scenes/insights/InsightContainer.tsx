@@ -129,7 +129,7 @@ export function InsightContainer(
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        disabled={!canEditInsight}
+                        canCheckUncheckSeries={!canEditInsight}
                     />
                 </BindLogic>
             )

@@ -33,8 +33,8 @@ interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
-    /** Whether actions that would result in the insight being updated in the backend should be disabled. */
-    disabled?: boolean
+    /** (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired. */
+    canCheckUncheckSeries?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -66,7 +66,7 @@ export function InsightsTable({
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
-    disabled,
+    canCheckUncheckSeries,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
@@ -126,7 +126,7 @@ export function InsightsTable({
                         color={colorList[item.id]}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
-                        disabled={disabled}
+                        disabled={canCheckUncheckSeries}
                     />
                 )
             },

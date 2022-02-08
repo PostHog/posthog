@@ -21,7 +21,7 @@ interface EditableFieldProps {
     multiline?: boolean
     compactButtons?: boolean
     /** Whether this field should be gated behind a "paywall". */
-    gated?: boolean
+    paywall?: boolean
     /** Controlled mode. */
     mode?: 'view' | 'edit'
     className?: string
@@ -45,7 +45,7 @@ export function EditableField({
     autoFocus = true,
     multiline = false,
     compactButtons = false,
-    gated = false,
+    paywall = false,
     mode,
     className,
     'data-attr': dataAttr,
@@ -71,7 +71,7 @@ export function EditableField({
         setLocalIsEditing(false)
     }
 
-    const isEditing = !gated && (mode === 'edit' || localIsEditing)
+    const isEditing = !paywall && (mode === 'edit' || localIsEditing)
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (isEditing) {
@@ -101,7 +101,7 @@ export function EditableField({
             <Tooltip
                 placement="right"
                 title={
-                    gated
+                    paywall
                         ? "This field is part of PostHog's collaboration feature set and requires a premium plan."
                         : undefined
                 }
@@ -175,7 +175,7 @@ export function EditableField({
                                     compact={compactButtons}
                                     onClick={() => setLocalIsEditing(true)}
                                     data-attr={`edit-prop-${name}`}
-                                    disabled={gated}
+                                    disabled={paywall}
                                 />
                             )}
                         </>

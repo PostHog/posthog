@@ -218,7 +218,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
                                     compactButtons
                                     mode={!canEditDashboard ? 'view' : undefined}
-                                    gated={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                    paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                                 />
                             )}
                             {canEditDashboard ? (

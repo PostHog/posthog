@@ -97,7 +97,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         data-attr="action-description"
                         compactButtons
                         maxLength={600} // No limit on backend model, but enforce shortish description
-                        gated={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                        paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
                         saveButtonText="Set"
                     />
                 }
