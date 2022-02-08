@@ -6,7 +6,7 @@
 
 .react-grid-layout {
     position: relative;
-    transition: height 200ms ease;
+    transition: height 100ms ease;
     margin-bottom: 2rem;
 
     /* remove initial loading animation, animations are only needed in edit mode */
@@ -15,7 +15,7 @@
     }
 }
 .react-grid-item {
-    transition: all 200ms ease;
+    transition: all 100ms ease;
     transition-property: left, top;
 }
 .react-grid-item.cssTransforms {
@@ -41,7 +41,7 @@
 }
 
 .react-grid-item.react-grid-placeholder {
-    transition: 200ms ease;
+    transition: 100ms ease;
     max-width: 100%;
     position: relative;
     border: 1px solid var(--primary);
