@@ -16,12 +16,13 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 import * as zlib from 'zlib'
 
-import { writeToFile } from './extensions/test-utils'
+import { async, writeToFile } from './extensions/test-utils'
 
 export const imports = {
     ...(process.env.NODE_ENV === 'test'
         ? {
               'test-utils/write-to-file': writeToFile,
+              'test-utils/async-op': async,
           }
         : {}),
     '@google-cloud/bigquery': bigquery,

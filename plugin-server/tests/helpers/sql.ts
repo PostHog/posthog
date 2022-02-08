@@ -13,6 +13,7 @@ import {
     Team,
 } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
+import { DB } from './../../src/utils/db/db'
 import {
     commonOrganizationId,
     commonOrganizationMembershipId,
@@ -181,32 +182,8 @@ export async function createUserTeamAndOrganization(
         joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     })
-    await insertRow(db, 'posthog_team', {
-        id: teamId,
-        organization_id: organizationId,
-        app_urls: [],
-        name: 'TEST PROJECT',
-        event_names: [],
-        event_names_with_usage: [],
-        event_properties: [],
-        event_properties_with_usage: [],
-        event_properties_numerical: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        anonymize_ips: false,
-        completed_snippet_onboarding: true,
-        ingested_event: true,
-        uuid: new UUIDT().toString(),
-        session_recording_opt_in: true,
-        plugins_opt_in: false,
-        opt_out_capture: false,
-        is_demo: false,
-        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
-        test_account_filters: [],
-        timezone: 'UTC',
-        data_attributes: ['data-attr'],
-        access_control: false,
-    })
+
+    await createTeam(db, teamId, organizationId)
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
@@ -251,4 +228,39 @@ export async function getErrorForPluginConfig(id: number): Promise<any> {
 
     await db.end()
     return error
+}
+
+export async function createTeam(
+    db: Pool,
+    teamId: number,
+    orgId: string,
+    rowOverrides: Record<string, any> = {}
+): Promise<void> {
+    await insertRow(db, 'posthog_team', {
+        id: teamId,
+        organization_id: orgId,
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        access_control: false,
+        ...rowOverrides,
+    })
 }

@@ -29,3 +29,11 @@ export const writeToFile = {
         },
     },
 }
+
+export const async = {
+    wait: (ms = 1000): Promise<any> => {
+        return new Promise((resolve) => {
+            setTimeout(resolve, ms)
+        })
+    },
+}

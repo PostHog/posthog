@@ -61,7 +61,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
     void loadSchedule(server)
 }
 
-async function loadPluginsFromDB(
+export async function loadPluginsFromDB(
     server: Hub
 ): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const pluginRows = await getPluginRows(server)
