@@ -9,7 +9,6 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
-import { LazyPluginVM } from 'worker/vm/lazy'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
@@ -65,13 +64,19 @@ export async function createHub(
         eventLoopLagInterval = setInterval(() => {
             const time = new Date()
             setImmediate(() => {
-                statsd?.timing('event_loop_lag', time)
+                statsd?.timing('event_loop_lag', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
             })
         }, 2000)
         eventLoopLagSetTimeoutInterval = setInterval(() => {
             const time = new Date()
             setTimeout(() => {
-                statsd?.timing('event_loop_lag_set_timeout', time)
+                statsd?.timing('event_loop_lag_set_timeout', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
             }, 0)
         }, 2000)
         // don't repeat the same info in each thread
