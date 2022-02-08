@@ -21,11 +21,9 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
-function isBooleanString(value: string) {
-    return ['true', 'false'].includes(value.toLowerCase())
-}
+const isBooleanString = (value: string) => ['true', 'false'].includes(value.toLowerCase())
 
-export function detectPropertyDefinitionTypes(value: unknown, key: string): PropertyType | null {
+export const detectPropertyDefinitionTypes = (value: unknown, key: string): PropertyType | null => {
     let propertyType: PropertyType | null = null
 
     /**
