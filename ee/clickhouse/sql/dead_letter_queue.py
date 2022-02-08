@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     raw_payload VARCHAR,
     error_timestamp DateTime64(6, 'UTC'),
     error_location VARCHAR,
-    error VARCHAR
+    error VARCHAR,
+    tags Array(VARCHAR)
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -69,6 +70,7 @@ raw_payload,
 error_timestamp,
 error_location,
 error,
+tags,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -95,6 +97,7 @@ SELECT
 %(error_timestamp)s,
 %(error_location)s,
 %(error)s,
+['some_tag'],
 0,
 now()
 """

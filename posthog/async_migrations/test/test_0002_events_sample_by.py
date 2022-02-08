@@ -92,13 +92,19 @@ class Test0002EventsSampleBy(BaseTest):
         migration_successful = start_async_migration(MIGRATION_NAME)
         sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
+        self.assertTrue(migration_successful)
+        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
+        self.assertEqual(sm.progress, 100)
+        self.assertEqual(sm.current_operation_index, 9)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)
+
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
         backup_events_count_res = sync_execute(
             f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
         )
 
-        self.assertTrue(migration_successful)
         self.assertTrue(
             "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
             in create_table_res[0][0]
@@ -106,8 +112,3 @@ class Test0002EventsSampleBy(BaseTest):
 
         self.assertEqual(events_count_res[0][0], 5)
         self.assertEqual(backup_events_count_res[0][0], 5)
-        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.current_operation_index, 9)
-        errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)
