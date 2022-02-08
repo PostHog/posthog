@@ -1,5 +1,9 @@
 import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeFormat } from '../../types'
 
+export const isNumericString = (candidate: any): boolean => {
+    return !(candidate instanceof Array) && candidate - parseFloat(candidate) + 1 >= 0
+}
+
 export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
     UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
     UNIX_TIMESTAMP_MILLISECONDS: /^\d{13}$/,
@@ -15,6 +19,10 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
     // see https://datatracker.ietf.org/doc/html/rfc2822#section-3.3
     RFC_822:
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
+}
+
+function isBooleanString(value: string) {
+    return ['true', 'false'].includes(value.toLowerCase())
 }
 
 export function detectPropertyDefinitionTypes(value: unknown, key: string): PropertyType | null {
@@ -75,6 +83,14 @@ export function detectPropertyDefinitionTypes(value: unknown, key: string): Prop
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
+        if (isNumericString(value)) {
+            propertyType = PropertyType.Numeric
+        }
+
+        if (isBooleanString(value)) {
+            propertyType = PropertyType.Boolean
+        }
+
         Object.values(dateTimePropertyTypeFormatPatterns).find((pattern) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
@@ -83,6 +99,10 @@ export function detectPropertyDefinitionTypes(value: unknown, key: string): Prop
         })
 
         detectUnixTimestamps()
+    }
+
+    if (typeof value == 'boolean') {
+        propertyType = PropertyType.Boolean
     }
 
     return propertyType
