@@ -937,7 +937,7 @@ describe('LazyPluginVmManager', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
 
-        hub = { ...hub, TASKS_PER_WORKER: 10 }
+        hub = { ...hub, TASKS_PER_WORKER: 5 }
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
@@ -994,7 +994,7 @@ describe('LazyPluginVmManager', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
 
-        hub = { ...hub, TASKS_PER_WORKER: 10 }
+        hub = { ...hub, TASKS_PER_WORKER: 5 }
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
