@@ -21,7 +21,7 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, isViewedOnDashboard } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
@@ -54,6 +54,7 @@ export function RetentionLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 insightId={insight.id}
                 inSharedMode={!!inSharedMode}
+                showPersonsModal={!isViewedOnDashboard}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
                 percentage={true}
                 tooltip={{
@@ -72,7 +73,7 @@ export function RetentionLineGraph({
                     },
                 }}
                 onClick={
-                    dashboardItemId
+                    isViewedOnDashboard
                         ? undefined
                         : (payload) => {
                               const { points } = payload

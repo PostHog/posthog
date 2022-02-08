@@ -10,11 +10,11 @@ import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 export function FunnelLineGraph({
-    dashboardItemId,
     inSharedMode,
     color = 'white',
+    showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, isViewedOnDashboard } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
@@ -29,6 +29,7 @@ export function FunnelLineGraph({
             isInProgress={incompletenessOffsetFromEnd < 0}
             insightId={insight.id}
             inSharedMode={!!inSharedMode}
+            showPersonsModal={!isViewedOnDashboard && showPersonsModal}
             tooltip={{
                 showHeader: false,
                 hideColorCol: true,
@@ -46,7 +47,7 @@ export function FunnelLineGraph({
             labelGroupType={filters.aggregation_group_type_index ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                dashboardItemId
+                isViewedOnDashboard || !showPersonsModal
                     ? undefined
                     : (payload) => {
                           const { points, index } = payload

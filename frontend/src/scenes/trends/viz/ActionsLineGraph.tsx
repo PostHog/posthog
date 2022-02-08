@@ -38,7 +38,7 @@ export function ActionsLineGraph({
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             interval={filters.interval}
-            showPersonsModal={showPersonsModal}
+            showPersonsModal={!isViewedOnDashboard && showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
@@ -57,7 +57,7 @@ export function ActionsLineGraph({
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
+                dashboardItemId || !showPersonsModal || isMultiSeriesFormula(filters.formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset, seriesId } = payload
