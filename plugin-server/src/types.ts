@@ -615,6 +615,7 @@ export interface Cohort {
     errors_calculating: number
     is_static: boolean
     version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
