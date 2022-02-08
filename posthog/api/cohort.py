@@ -96,12 +96,9 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-
-            with transaction.atomic():
-                cohort = Cohort.objects.filter(pk=cohort.pk).select_for_update().get()
-                cohort.pending_version = cohort.pending_version + 1
-                cohort.save(update_fields=["pending_version"])
-                pending_version = cohort.pending_version
+            cohort.pending_version = 1
+            cohort.save()
+            pending_version = cohort.pending_version
 
             calculate_cohort_ch.delay(cohort.id, pending_version)
 
@@ -137,11 +134,10 @@ class CohortSerializer(serializers.ModelSerializer):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
                 # Increment based on pending versions
-                with transaction.atomic():
-                    cohort = Cohort.objects.filter(pk=cohort.pk).select_for_update().get()
-                    cohort.pending_version = cohort.pending_version + 1
-                    cohort.save(update_fields=["pending_version"])
-                    pending_version = cohort.pending_version
+                cohort.pending_version = F("pending_version") + 1
+                cohort.save()
+                cohort.refresh_from_db()
+                pending_version = cohort.pending_version
 
                 calculate_cohort_ch.delay(cohort.id, pending_version)
 
