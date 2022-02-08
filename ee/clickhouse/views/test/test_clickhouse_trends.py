@@ -4,14 +4,13 @@ from freezegun.api import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_trends import (
     TrendsRequest,
     TrendsRequestBreakdown,
     get_people_from_url_ok,
     get_trends_aggregate_ok,
-    get_trends_ok,
     get_trends_time_series_ok,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping

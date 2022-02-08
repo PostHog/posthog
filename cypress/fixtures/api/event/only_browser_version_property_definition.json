@@ -8,8 +8,7 @@
             "name": "$browser_version",
             "is_numerical": true,
             "query_usage_30_day": null,
-            "property_type": "Number",
-            "property_type_format": null,
+            "property_type": null,
             "is_event_property": null
         }
     ]

@@ -12,8 +12,10 @@ from typing import (
 )
 
 from clickhouse_driver.util.escape import escape_param
+from django.utils import timezone
 from rest_framework import exceptions
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
     format_filter_query,
@@ -21,6 +23,7 @@ from ee.clickhouse.models.cohort import (
     format_static_cohort_query,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
+from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
@@ -30,7 +33,8 @@ from ee.clickhouse.sql.person import (
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
-from posthog.utils import is_valid_regex
+from posthog.models.team import Team
+from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_clauses(
@@ -233,17 +237,13 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
-            date_query = f"""{prop.key}"""
-        else:
-            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-
         # if we're comparing against a date with no time,
         # truncate the values in the DB which may have times
         granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
-        query = f"""AND date_trunc('{granularity}', {date_query}) = %({prop_value_param_key})s"""
+        query = f"""AND date_trunc('{granularity}', coalesce(
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        )) = %({prop_value_param_key})s"""
 
         return (
             query,
@@ -254,24 +254,21 @@ def prop_filter_json_extract(
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
-            date_query = f"""{prop.key}"""
-        else:
-            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-
         # if we're comparing against a date with no time,
         # then instead of 2019-01-01 (implied 00:00:00)
         # use 2019-01-01 23:59:59
         is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
+
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
 
         if is_date_only:
             adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
         else:
             adjusted_value = f"%({prop_value_param_key})s"
 
-        query = f"""AND {date_query} > {adjusted_value}"""
+        query = f"""AND {first_of_date_or_timestamp} > {adjusted_value}"""
 
         return (
             query,
@@ -281,15 +278,10 @@ def prop_filter_json_extract(
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-
-        if prop.type == "event" and prop.key in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE["DateTime"]:
-            date_query = f"""{prop.key}"""
-        else:
-            try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-            try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-            date_query = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-
-        query = f"""AND {date_query} < %({prop_value_param_key})s"""
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""AND {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
         return (
             query,
@@ -373,21 +365,6 @@ def get_single_or_multi_property_string_expr(
     return f"{expression} AS {query_alias}"
 
 
-"""
-These are "metadata" of events (columns in the events table in ClickHouse
-    that users should be able to query as if they were in the properties JSON blob.
-
-They are separated by type to allow type-aware processing.
-
-For example: when using date queries ClickHouse's `parseDateTime...` functions are used. 
-These fail if given a DateTime value. So parsing can be skipped when an attribute is known to be a DateTime. 
-"""
-EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE: Dict[str, List[str]] = {
-    "DateTime": ["timestamp"],
-    "String": ["distinct_id"],
-}
-
-
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
@@ -401,8 +378,6 @@ def get_property_string_expr(
     :param table:
         the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
-        this is either a key expected to be found in a properties JSON blob, the name of a materialized column,
-        or a reserved property known to be a column on the events table
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
         If a flat value it should be escaped before being passed to this function
@@ -412,24 +387,10 @@ def get_property_string_expr(
     :param table_alias:
         (optional) alias of the table being queried
     :return:
-        either the events table column name, the materialized column name,
-        or the query to read the key from the tables' property blob
-        (each optionally with a table alias prepended appropriately)
     """
+    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias != None else ""
-
-    if table == "events":
-        """
-        First check if the property is "metadata" of events 
-            These are columns in the events table in ClickHouse
-            that users should be able to query as if they were in the properties JSON blob.
-        """
-        for reserved_words in EVENT_ATTRIBUTE_RESERVED_PROPERTIES_BY_TYPE.values():
-            if property_name in reserved_words:
-                return f"{table_string}{property_name}", False
-
-    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     if allow_denormalized_props and property_name in materialized_columns:
         return f"{table_string}{materialized_columns[property_name]}", True
@@ -441,6 +402,21 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
     if not isinstance(value, List):
         value = [value]
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
+
+
+def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
+    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
+
+    if value:
+        return sync_execute(
+            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+        )
+    return sync_execute(
+        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+        {"team_id": team.pk, "key": key},
+    )
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:

@@ -13,7 +13,7 @@
         },
         {
             "id": "017dde0e-1cc9-0000-ed91-26909937767f",
-            "name": "timestamp",
+            "name": "$time",
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": "DateTime",
