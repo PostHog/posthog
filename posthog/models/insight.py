@@ -84,6 +84,21 @@ class Insight(models.Model):
         else:
             return self.filters
 
+    @property
+    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
+        return (
+            self.dashboard.effective_restriction_level
+            if self.dashboard is not None
+            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+    def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
+        return (
+            self.dashboard.get_effective_privilege_level(user_id)
+            if self.dashboard is not None
+            else Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
 
 @receiver(pre_save, sender=Dashboard)
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
