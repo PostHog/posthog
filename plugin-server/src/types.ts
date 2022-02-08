@@ -24,6 +24,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
+import { LazyPluginVmManager } from './worker/vm/manager'
 
 export enum LogLevel {
     None = 'none',
@@ -255,7 +256,7 @@ export interface PluginConfig {
     config: Record<string, unknown>
     error?: PluginError
     attachments?: Record<string, PluginAttachment>
-    vm?: LazyPluginVM | null
+    vm?: LazyPluginVmManager | null
     created_at: string
     updated_at: string
 }
@@ -839,7 +840,7 @@ export enum PropertyUpdateOperation {
     SetOnce = 'set_once',
 }
 
-export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+export type StatelessVmMap = Record<PluginId, LazyPluginVmManager>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,

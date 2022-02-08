@@ -12,7 +12,7 @@ import {
 } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
-import { LazyPluginVM } from '../vm/lazy'
+import { LazyPluginVmManager } from '../vm/manager'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'
 
@@ -35,7 +35,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
         } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
-            pluginConfig.vm = new LazyPluginVM()
+            pluginConfig.vm = new LazyPluginVmManager(server, plugin?.is_stateless)
             pluginVMLoadPromises.push(loadPlugin(server, pluginConfig))
 
             if (prevConfig) {
@@ -129,11 +129,14 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getTasks(PluginTaskType.Schedule)) ?? {}
-        for (const [taskName, task] of Object.entries(tasks)) {
-            if (task && taskName in pluginSchedule) {
-                pluginSchedule[taskName].push(id)
-                count++
+        const vm = pluginConfig.vm?.getVm()
+        if (vm) {
+            const tasks = (await vm.getTasks(PluginTaskType.Schedule)) ?? {}
+            for (const [taskName, task] of Object.entries(tasks)) {
+                if (task && taskName in pluginSchedule) {
+                    pluginSchedule[taskName].push(id)
+                    count++
+                }
             }
         }
     }

@@ -73,8 +73,8 @@ test('setupPlugins and runProcessEvent', async () => {
             contents: pluginAttachment1.contents,
         },
     })
-    expect(pluginConfig.vm).toBeDefined()
-    const vm = await pluginConfig.vm!.resolveInternalVm
+    expect(pluginConfig.vm!.getVm()).toBeDefined()
+    const vm = await pluginConfig.vm!.getVm().resolveInternalVm
     expect(Object.keys(vm!.methods).sort()).toEqual([
         'exportEvents',
         'handleAlert',
@@ -134,10 +134,10 @@ test('stateless plugins', async () => {
     expect(pluginConfigTeam1.plugin).toEqual(plugin)
     expect(pluginConfigTeam2.plugin).toEqual(plugin)
 
-    expect(pluginConfigTeam1.vm).toBeDefined()
-    expect(pluginConfigTeam2.vm).toBeDefined()
+    expect(pluginConfigTeam1.vm!.getVm()).toBeDefined()
+    expect(pluginConfigTeam2.vm!.getVm()).toBeDefined()
 
-    expect(pluginConfigTeam1.vm).toEqual(pluginConfigTeam2.vm)
+    expect(pluginConfigTeam1.vm!.getVm()).toEqual(pluginConfigTeam2.vm!.getVm())
 })
 
 test('plugin returns null', async () => {
@@ -206,9 +206,9 @@ test('archive plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
-    pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+    pluginConfig.vm!.getVm().totalInitAttemptsCounter = 20 // prevent more retries
     await delay(4000) // processError is called at end of retries
-    expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfig.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -233,9 +233,9 @@ test('local plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
-    pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+    pluginConfig.vm!.getVm().totalInitAttemptsCounter = 20 // prevent more retries
     await delay(4000) // processError is called at end of retries
-    expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfig.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -304,7 +304,7 @@ test('plugin throwing error does not prevent ingestion and failure is noted in e
     await setupPlugins(hub)
     const { pluginConfigs } = hub
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -338,7 +338,7 @@ test('events have property $plugins_succeeded set to the plugins that succeeded'
     await setupPlugins(hub)
     const { pluginConfigs } = hub
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -372,7 +372,7 @@ test('events have property $plugins_deferred set to the plugins that run after p
     await setupPlugins(hub)
     const { pluginConfigs } = hub
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -411,7 +411,7 @@ test('archive plugin with broken plugin.json does not do much', async () => {
         `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
     )
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test('local plugin with broken plugin.json does not do much', async () => {
@@ -435,7 +435,7 @@ test('local plugin with broken plugin.json does not do much', async () => {
         pluginConfigs.get(39)!,
         expect.stringContaining('Could not load posthog config at ')
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 
     unlink()
 })
@@ -458,7 +458,7 @@ test('plugin with http urls must have an archive', async () => {
         pluginConfigs.get(39)!,
         `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test("plugin with broken archive doesn't load", async () => {
@@ -479,7 +479,7 @@ test("plugin with broken archive doesn't load", async () => {
         pluginConfigs.get(39)!,
         Error('Could not read archive as .zip or .tgz')
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getVm().getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test('plugin config order', async () => {
@@ -538,7 +538,7 @@ test('plugin with archive loads capabilities', async () => {
 
     const pluginConfig = pluginConfigs.get(39)!
 
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
 
     expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['processEvent', 'setupPlugin'])
@@ -568,7 +568,7 @@ test('plugin with archive loads all capabilities, no random caps', async () => {
 
     const pluginConfig = pluginConfigs.get(39)!
 
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
 
     expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
@@ -592,7 +592,7 @@ test('plugin with source file loads capabilities', async () => {
 
     const pluginConfig = pluginConfigs.get(39)!
 
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
 
     expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
@@ -618,7 +618,7 @@ test('plugin with source code loads capabilities', async () => {
 
     const pluginConfig = pluginConfigs.get(39)!
 
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
 
     expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
@@ -713,7 +713,7 @@ test("capabilities don't reload without changes", async () => {
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
 
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
     expect(setPluginCapabilities.mock.calls.length).toBe(1)
 
@@ -723,7 +723,7 @@ test("capabilities don't reload without changes", async () => {
     await setupPlugins(hub)
     const newPluginConfig = hub.pluginConfigs.get(39)!
 
-    await newPluginConfig.vm?.resolveInternalVm
+    await newPluginConfig.vm!.getVm()?.resolveInternalVm
     // async loading of capabilities
 
     expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
@@ -803,7 +803,7 @@ test('plugin vm is not setup if metric type is unsupported', async () => {
 
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
-    const vm = await pluginConfig.vm?.resolveInternalVm
+    const vm = await pluginConfig.vm!.getVm()?.resolveInternalVm
 
     expect(vm).toEqual(null)
     expect(pluginConfig.plugin!.metrics).toEqual({})
@@ -835,7 +835,7 @@ test('metrics API works as expected', async () => {
 
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     await runProcessEvent(hub, testEvent)
 
     expect(hub.pluginMetricsManager.metricsPerPluginConfig[39].metrics).toEqual({
@@ -863,7 +863,7 @@ test('metrics method will fail for wrongly specified metric type', async () => {
 
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     await runProcessEvent(hub, testEvent)
 
     expect(processError).toHaveBeenCalledWith(
@@ -892,7 +892,7 @@ test('metrics methods only support numbers', async () => {
 
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
-    await pluginConfig.vm?.resolveInternalVm
+    await pluginConfig.vm!.getVm()?.resolveInternalVm
     await runProcessEvent(hub, testEvent)
 
     expect(processError).toHaveBeenCalledWith(
@@ -904,7 +904,7 @@ test('metrics methods only support numbers', async () => {
 })
 
 describe('loadSchedule()', () => {
-    const mockConfig = (tasks: any) => ({ vm: { getTasks: () => Promise.resolve(tasks) } })
+    const mockConfig = (tasks: any) => ({ vm: { getVm: () => ({ getTasks: () => Promise.resolve(tasks) }) } })
 
     const hub = {
         pluginConfigs: new Map(
@@ -927,5 +927,93 @@ describe('loadSchedule()', () => {
             runEveryHour: ['2'],
             runEveryDay: [],
         })
+    })
+})
+
+describe('LazyPluginVmManager', () => {
+    test('stateless plugins', async () => {
+        const plugin = { ...plugin60, is_stateless: true }
+        getPluginRows.mockReturnValueOnce([plugin])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
+
+        hub = { ...hub, TASKS_PER_WORKER: 10 }
+        await setupPlugins(hub)
+        const { pluginConfigs } = hub
+
+        expect(getPluginRows).toHaveBeenCalled()
+        expect(getPluginAttachmentRows).toHaveBeenCalled()
+        expect(getPluginConfigRows).toHaveBeenCalled()
+
+        expect(Array.from(pluginConfigs.keys())).toEqual([39, 40])
+
+        const pluginConfigTeam1 = pluginConfigs.get(40)!
+        const pluginConfigTeam2 = pluginConfigs.get(39)!
+
+        expect(pluginConfigTeam1.vm!.stateless).toEqual(true)
+        expect(pluginConfigTeam2.vm!.stateless).toEqual(true)
+
+        expect(pluginConfigTeam1.vm!.vmsList.length).toEqual(10)
+        expect(pluginConfigTeam2.vm!.vmsList.length).toEqual(10)
+
+        pluginConfigTeam1.vm!.nextVmIndex = 0
+
+        expect(pluginConfigTeam2.vm!.nextVmIndex).toEqual(0)
+        expect(pluginConfigTeam1.vm!.nextVmIndex).toEqual(0)
+
+        pluginConfigTeam1.vm!.getVm()
+        expect(pluginConfigTeam1.vm!.nextVmIndex).toEqual(1)
+        expect(pluginConfigTeam2.vm!.nextVmIndex).toEqual(1)
+
+        pluginConfigTeam2.vm!.getVm()
+        expect(pluginConfigTeam1.vm!.nextVmIndex).toEqual(2)
+        expect(pluginConfigTeam2.vm!.nextVmIndex).toEqual(2)
+
+        // test that we go back to 0 after going over the last index
+        pluginConfigTeam1.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+        pluginConfigTeam1.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+        pluginConfigTeam1.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+        pluginConfigTeam2.vm!.getVm()
+
+        // when we request an index above the last, we'll return the vm at
+        // index 0 and update the upcoming index to 1
+        expect(pluginConfigTeam1.vm!.nextVmIndex).toEqual(1)
+
+        // test that we've indeed spun up distinct vms
+        expect(pluginConfigTeam1.vm!.vmsList[0]).not.toEqual(pluginConfigTeam1.vm!.vmsList[1])
+    })
+
+    test('non-stateless plugins', async () => {
+        const plugin = { ...plugin60 }
+        getPluginRows.mockReturnValueOnce([plugin])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+
+        hub = { ...hub, TASKS_PER_WORKER: 10 }
+        await setupPlugins(hub)
+        const { pluginConfigs } = hub
+
+        expect(Array.from(pluginConfigs.keys())).toEqual([39])
+
+        const pluginConfig = pluginConfigs.get(39)!
+
+        expect(pluginConfig.vm!.stateless).toEqual(false)
+
+        // non-stateless plugins will always have only one vm
+        expect(pluginConfig.vm!.vmsList.length).toEqual(1)
+
+        // index should always stay at 0 as there's only one vm
+        expect(pluginConfig.vm!.nextVmIndex).toEqual(0)
+
+        pluginConfig.vm!.getVm()
+        expect(pluginConfig.vm!.nextVmIndex).toEqual(0)
+
+        pluginConfig.vm!.getVm()
+        expect(pluginConfig.vm!.nextVmIndex).toEqual(0)
     })
 })

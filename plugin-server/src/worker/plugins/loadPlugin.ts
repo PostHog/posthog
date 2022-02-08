@@ -9,7 +9,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
     const { plugin } = pluginConfig
 
     if (!plugin) {
-        pluginConfig.vm?.failInitialization!()
+        pluginConfig.vm?.getVm()?.failInitialization!()
         return false
     }
 
@@ -24,7 +24,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                     const jsonBuffer = fs.readFileSync(configPath)
                     config = JSON.parse(jsonBuffer.toString())
                 } catch (e) {
-                    pluginConfig.vm?.failInitialization!()
+                    pluginConfig.vm?.getVm()?.failInitialization!()
                     await processError(
                         server,
                         pluginConfig,
@@ -35,7 +35,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             }
 
             if (!config['main'] && !fs.existsSync(path.resolve(pluginPath, 'index.js'))) {
-                pluginConfig.vm?.failInitialization!()
+                pluginConfig.vm?.getVm()?.failInitialization!()
                 await processError(
                     server,
                     pluginConfig,
@@ -47,7 +47,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             const jsPath = path.resolve(pluginPath, config['main'] || 'index.js')
             const indexJs = fs.readFileSync(jsPath).toString()
 
-            void pluginConfig.vm?.initialize!(
+            void pluginConfig.vm?.getVm()?.initialize!(
                 server,
                 pluginConfig,
                 indexJs,
@@ -62,7 +62,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
                 try {
                     config = JSON.parse(json)
                 } catch (error) {
-                    pluginConfig.vm?.failInitialization!()
+                    pluginConfig.vm?.getVm()?.failInitialization!()
                     await processError(server, pluginConfig, `Can not load plugin.json for ${pluginDigest(plugin)}`)
                     return false
                 }
@@ -71,17 +71,17 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             const indexJs = await getFileFromArchive(archive, config['main'] || 'index.js')
 
             if (indexJs) {
-                void pluginConfig.vm?.initialize!(server, pluginConfig, indexJs, pluginDigest(plugin))
+                void pluginConfig.vm?.getVm()?.initialize!(server, pluginConfig, indexJs, pluginDigest(plugin))
                 return true
             } else {
-                pluginConfig.vm?.failInitialization!()
+                pluginConfig.vm?.getVm()?.failInitialization!()
                 await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source' && plugin.source) {
-            void pluginConfig.vm?.initialize!(server, pluginConfig, plugin.source, pluginDigest(plugin))
+            void pluginConfig.vm?.getVm()?.initialize!(server, pluginConfig, plugin.source, pluginDigest(plugin))
             return true
         } else {
-            pluginConfig.vm?.failInitialization!()
+            pluginConfig.vm?.getVm()?.failInitialization!()
             await processError(
                 server,
                 pluginConfig,
@@ -89,7 +89,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             )
         }
     } catch (error) {
-        pluginConfig.vm?.failInitialization!()
+        pluginConfig.vm?.getVm()?.failInitialization!()
         await processError(server, pluginConfig, error)
     }
     return false

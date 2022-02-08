@@ -9,6 +9,7 @@ import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
 import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
+import { LazyPluginVmManager } from './../../src/worker/vm/manager'
 import { plugin70 } from './../helpers/plugins'
 
 jest.mock('../../src/worker/vm/vm')
@@ -24,7 +25,6 @@ const mockConfig = {
 }
 
 describe('LazyPluginVM', () => {
-    const createVM = () => new LazyPluginVM()
     const baseDb = {
         queuePluginLogEntry: jest.fn(),
         batchInsertPostgresLogs: jest.fn(),
@@ -36,7 +36,9 @@ describe('LazyPluginVM', () => {
         postgresLogsWrapper,
     }
 
-    const mockServer: any = { db }
+    const mockServer: any = { db, WORKER_CONCURRENCY: 1, TASKS_PER_WORKER: 1 }
+    const createVM = () => new LazyPluginVmManager(mockServer)
+
     const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, mockConfig as any, '', 'some plugin')
 
     const mockVM = {
@@ -57,7 +59,7 @@ describe('LazyPluginVM', () => {
         })
 
         it('returns correct values for get methods', async () => {
-            const vm = createVM()
+            const vm = createVM().getVm()
             void initializeVm(vm)
 
             expect(await vm.getProcessEvent()).toEqual('processEvent')
@@ -67,7 +69,7 @@ describe('LazyPluginVM', () => {
         })
 
         it('logs info and clears errors on success', async () => {
-            const vm = createVM()
+            const vm = createVM().getVm()
             void initializeVm(vm)
             await vm.resolveInternalVm
 
@@ -88,7 +90,7 @@ describe('LazyPluginVM', () => {
     describe('VM creation fails', () => {
         const error = new Error()
         const retryError = new RetryError('I failed, please retry me!')
-        let vm = createVM()
+        let vm = createVM().getVm()
         jest.useFakeTimers()
 
         const mockFailureConfig = {
@@ -99,7 +101,7 @@ describe('LazyPluginVM', () => {
         }
 
         beforeEach(() => {
-            vm = createVM()
+            vm = createVM().getVm()
         })
 
         afterEach(() => {

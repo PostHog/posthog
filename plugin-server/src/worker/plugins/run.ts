@@ -16,7 +16,7 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const onEvent = await pluginConfig.vm?.getOnEvent()
+            const onEvent = await pluginConfig.vm?.getVm()?.getOnEvent()
             if (onEvent) {
                 const timer = new Date()
                 try {
@@ -37,7 +37,7 @@ export async function runOnAction(server: Hub, action: Action, event: PluginEven
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const onAction = await pluginConfig.vm?.getOnAction()
+            const onAction = await pluginConfig.vm?.getVm()?.getOnAction()
             if (onAction) {
                 const timer = new Date()
                 try {
@@ -58,7 +58,7 @@ export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<vo
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
+            const onSnapshot = await pluginConfig.vm?.getVm()?.getOnSnapshot()
             if (onSnapshot) {
                 const timer = new Date()
                 try {
@@ -83,7 +83,13 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
     const pluginsFailed = []
     const pluginsDeferred = []
     for (const pluginConfig of pluginsToRun) {
-        const processEvent = await pluginConfig.vm?.getProcessEvent()
+        const vm = pluginConfig.vm?.getVm()
+
+        if (!vm) {
+            continue
+        }
+
+        const processEvent = await vm.getProcessEvent()
 
         if (processEvent) {
             const timer = new Date()
@@ -111,8 +117,8 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
             }
         }
 
-        const onEvent = await pluginConfig.vm?.getOnEvent()
-        const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
+        const onEvent = await vm.getOnEvent()
+        const onSnapshot = await vm.getOnSnapshot()
         if (onEvent || onSnapshot) {
             pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
         }
@@ -141,7 +147,7 @@ export async function runPluginTask(
     let response
     const pluginConfig = server.pluginConfigs.get(pluginConfigId)
     try {
-        const task = await pluginConfig?.vm?.getTask(taskName, taskType)
+        const task = await pluginConfig?.vm?.getVm()?.getTask(taskName, taskType)
         if (!task) {
             throw new Error(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
@@ -162,7 +168,7 @@ export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const handleAlert = await pluginConfig.vm?.getHandleAlert()
+            const handleAlert = await pluginConfig.vm?.getVm()?.getHandleAlert()
             if (handleAlert) {
                 const timer = new Date()
                 try {
