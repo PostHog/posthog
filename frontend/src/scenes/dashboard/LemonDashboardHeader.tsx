@@ -15,10 +15,11 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function LemonDashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
@@ -28,6 +29,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
 
@@ -182,7 +184,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     }
                                 />
                                 <LemonSpacer vertical />
-                                {dashboard && (
+                                {dashboard && featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
                                     <CollaboratorBubbles
                                         dashboard={dashboard}
                                         onClick={() => setIsShareModalVisible((state) => !state)}
