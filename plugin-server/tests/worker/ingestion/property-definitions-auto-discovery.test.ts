@@ -26,17 +26,5 @@ describe('property definitions auto discovery', () => {
         it('can detect decimals in strings', () => {
             expect(detectPropertyDefinitionTypes('1.23', 'anything')).toEqual(PropertyType.Numeric)
         })
-
-        it('can detect booleans', () => {
-            expect(detectPropertyDefinitionTypes(true, 'anything')).toEqual(PropertyType.Boolean)
-            expect(detectPropertyDefinitionTypes(false, 'anything')).toEqual(PropertyType.Boolean)
-        })
-
-        it('can detect booleans in strings', () => {
-            expect(detectPropertyDefinitionTypes('true', 'anything')).toEqual(PropertyType.Boolean)
-            expect(detectPropertyDefinitionTypes('false', 'anything')).toEqual(PropertyType.Boolean)
-            expect(detectPropertyDefinitionTypes('False', 'anything')).toEqual(PropertyType.Boolean)
-            expect(detectPropertyDefinitionTypes('True', 'anything')).toEqual(PropertyType.Boolean)
-        })
     })
 })

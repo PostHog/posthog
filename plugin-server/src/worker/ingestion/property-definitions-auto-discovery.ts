@@ -24,8 +24,6 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
-const isBooleanString = (value: string) => ['true', 'false'].includes(value.toLowerCase())
-
 export const detectPropertyDefinitionTypes = (value: unknown, key: string): PropertyType | null => {
     let propertyType: PropertyType | null = null
 
@@ -88,10 +86,6 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
             propertyType = PropertyType.Numeric
         }
 
-        if (isBooleanString(value)) {
-            propertyType = PropertyType.Boolean
-        }
-
         Object.values(dateTimePropertyTypeFormatPatterns).find((pattern) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
@@ -100,10 +94,6 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
         })
 
         detectUnixTimestamps()
-    }
-
-    if (typeof value == 'boolean') {
-        propertyType = PropertyType.Boolean
     }
 
     return propertyType
