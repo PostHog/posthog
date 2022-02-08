@@ -720,11 +720,24 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties=%5B%5D&display=ActionsLineGraph"
         )
-        self.assertEqual(patch_capture_exception.call_count, 0)
+
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
 
         # Properties with an array
         events = [{"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]}]
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps(events)}&properties=%5B%5D&display=ActionsLineGraph"
         )
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+        # Breakdown with ints in funnels
+        events = [
+            {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
+            {"id": "$pageview"},
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
+        )
+        # self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
