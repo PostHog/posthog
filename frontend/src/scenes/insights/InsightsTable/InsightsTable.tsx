@@ -33,6 +33,8 @@ interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
+    /** (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired. */
+    canCheckUncheckSeries?: boolean
     /* whether this table is below another insight or the insight is in table view */
     isMainInsightView?: boolean
 }
@@ -65,7 +67,8 @@ export function InsightsTable({
     embedded = false,
     showTotalCount = false,
     filterKey,
-    canEditSeriesNameInline,
+    canEditSeriesNameInline = false,
+    canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -126,6 +129,7 @@ export function InsightsTable({
                         color={colorList[item.id]}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
+                        disabled={!canCheckUncheckSeries}
                     />
                 )
             },

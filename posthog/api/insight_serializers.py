@@ -1,11 +1,15 @@
 import json
-from typing import Optional, get_args
+from typing import get_args
 
-from django.forms import ValidationError
-from numpy import require
 from rest_framework import serializers
 
-from posthog.api.documentation import FilterActionSerializer, FilterEventSerializer, PropertySerializer
+from posthog.api.documentation import (
+    FilterActionSerializer,
+    FilterEventSerializer,
+    OpenApiTypes,
+    PropertySerializer,
+    extend_schema_field,
+)
 from posthog.constants import (
     ACTIONS,
     BREAKDOWN_TYPES,
@@ -64,14 +68,45 @@ class GenericInsightsSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class BreakdownField(serializers.Field):
+    def to_representation(self, value):
+        return value
+
+    def to_internal_value(self, data):
+        return data
+
+
 class BreakdownMixin(serializers.Serializer):
-    breakdown = serializers.CharField(
+    breakdown = BreakdownField(
         required=False,
-        help_text="A property to break down on. You can select the type of the property with breakdown_type.",
+        help_text="A property or cohort to break down on. You can select the type of the property with breakdown_type.\n- **event** (default): A property key\n- **person**: A person property key\n- **cohort**: An array of cohort IDs (ie [9581,5812])",
     )
     breakdown_type = serializers.ChoiceField(
-        choices=get_args(BREAKDOWN_TYPES), required=False, help_text="Type of property to break down on."
+        choices=get_args(BREAKDOWN_TYPES),
+        required=False,
+        help_text="Type of property to break down on.",
+        default="event",
     )
+
+    def validate(self, data):
+        breakdown_type = data.get("breakdown_type", "event")
+
+        if breakdown_type == "cohort":
+            if (
+                data.get("breakdown")
+                and not isinstance(data["breakdown"], list)
+                or any([not isinstance(item, int) for item in data["breakdown"]])
+            ):
+                raise serializers.ValidationError("If breakdown_type is cohort, breakdown must be a list of numbers")
+
+        if (
+            (breakdown_type == "event" or data["breakdown_type"] == "person")
+            and data.get("breakdown")
+            and not isinstance(data["breakdown"], str)
+        ):
+            raise serializers.ValidationError("If breakdown_type is event or person, breakdown must be a property key")
+        return super().validate(data)
 
 
 class ResultsMixin(serializers.Serializer):
@@ -103,7 +138,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
     display = serializers.ChoiceField(
         choices=get_args(DISPLAY_TYPES),
         required=False,
-        default="ActionsLineGraphLinear",
+        default="ActionsLineGraph",
         help_text="How to display the data. Will change how the data is returned.",
     )
 
@@ -187,5 +222,7 @@ class FunnelSerializer(GenericInsightsSerializer, BreakdownMixin):
     )
     breakdown_limit = serializers.IntegerField(help_text="", required=False, default=10)
     funnel_window_days = serializers.IntegerField(
-        help_text="(DEPRECATED) Funnel window size in days.", required=False, default=14
+        help_text="(DEPRECATED) Funnel window size in days. Use `funnel_window_interval` and `funnel_window_interval_type`",
+        required=False,
+        default=14,
     )

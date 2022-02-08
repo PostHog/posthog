@@ -6,7 +6,13 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    FEATURE_FLAGS,
+    PATHS_VIZ,
+    DashboardPrivilegeLevel,
+    OrganizationMembershipLevel,
+} from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -26,6 +32,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { getInsightId } from 'scenes/insights/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -363,6 +370,20 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             (sharedDashboard, dashboards): DashboardType | null => {
                 return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
             },
+        ],
+        canEditDashboard: [
+            (s) => [s.dashboard],
+            (dashboard) => !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+        ],
+        canRestrictDashboard: [
+            // Sync conditions with backend can_user_restrict
+            (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
+            (dashboard, user, currentTeam): boolean =>
+                !!dashboard &&
+                !!user &&
+                (user.id == dashboard.created_by?.id ||
+                    (!!currentTeam?.effective_membership_level &&
+                        currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin)),
         ],
         sizeKey: [
             (s) => [s.columns],

@@ -4,13 +4,18 @@ import { CloseOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { feedbackCallLogicType } from './FeedbackCallCTAType'
 import posthog from 'posthog-js'
 import { successToast } from 'lib/utils'
 
-const FEEDBACK_CALL_LOCALSTORAGE_KEY = 'call-cta-exp-2201'
+/**
+ * CURRENTLY DISABLED. To enable, set a new `FEEDBACK_CALL_KEY` and create either a multivariate FF or an experiment on PostHog.
+ * Displays a banner from the bottom of the screen to prompt users to join us for a call.
+ */
+
+const FEEDBACK_CALL_KEY = '<this_should_be_changed_when_in_use>'
 const APPEAR_TIMEOUT = 15000
+const FULLY_DISABLED = true
 
 const COPY = [
     {
@@ -36,7 +41,7 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
         featureFlagGroup: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags): null | 'control' | 'variant-0' | 'variant-1' =>
-                featureFlags[FEATURE_FLAGS.FEEDBACK_CALL_CTA] as null | 'control' | 'variant-0' | 'variant-1',
+                featureFlags[FEEDBACK_CALL_KEY] as null | 'control' | 'variant-0' | 'variant-1',
         ],
         copy: [
             (s) => [s.featureFlagGroup],
@@ -61,7 +66,7 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
     listeners: ({ actions }) => ({
         reportAndDismiss: ({ result }) => {
             posthog.capture('experimentation call prompt action', { result })
-            localStorage.setItem(FEEDBACK_CALL_LOCALSTORAGE_KEY, 'true')
+            localStorage.setItem(FEEDBACK_CALL_KEY, 'true')
             actions.hide()
             if (result === 'more-info') {
                 successToast(
@@ -73,10 +78,7 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
     }),
     events: ({ actions, values, cache }) => ({
         afterMount: () => {
-            if (
-                values.featureFlagGroup?.startsWith?.('variant') &&
-                !localStorage.getItem(FEEDBACK_CALL_LOCALSTORAGE_KEY)
-            ) {
+            if (values.featureFlagGroup && !localStorage.getItem(FEEDBACK_CALL_KEY)) {
                 cache.timeout = window.setTimeout(() => actions.show(), APPEAR_TIMEOUT)
             }
         },
@@ -86,9 +88,13 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
     }),
 })
 
-export function FeedbackCallCTA(): JSX.Element {
+export function FeedbackCallCTA(): JSX.Element | null {
     const { hidden, copy } = useValues(feedbackCallLogic)
     const { reportAndDismiss } = useActions(feedbackCallLogic)
+
+    if (FULLY_DISABLED) {
+        return null
+    }
 
     return (
         <div className={`nps-prompt${hidden ? ' hide' : ''}`}>

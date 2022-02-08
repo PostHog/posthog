@@ -904,6 +904,18 @@ export function IconClose(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
+/** Material Design Cncel icon. */
+export function IconCancel(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m12 2c-5.53 0-10 4.47-10 10s4.47 10 10 10 10-4.47 10-10-4.47-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13-3.59 3.59-3.59-3.59-1.41 1.41 3.59 3.59-3.59 3.59 1.41 1.41 3.59-3.59 3.59 3.59 1.41-1.41-3.59-3.59 3.59-3.59z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Delete icon. */
 export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -970,6 +982,18 @@ export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Ele
         <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path
                 d="m14.12 10.47-2.12 2.12-2.13-2.12-1.41 1.41 2.13 2.12-2.12 2.12 1.41 1.41 2.12-2.12 2.12 2.12 1.41-1.41-2.12-2.12 2.12-2.12zm1.38-6.47-1-1h-5l-1 1h-3.5v2h14v-2zm-9.5 15c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-12h-12zm2-10h8v10h-8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Workspace Premium icon. */
+export function IconPremium(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m9.68 13.69 2.32-1.76 2.31 1.76-.88-2.85 2.32-1.84h-2.84l-.91-2.81-.91 2.81h-2.84l2.31 1.84zm10.32-3.69c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 2.03.76 3.87 2 5.28v7.72l6-2 6 2v-7.72c1.24-1.41 2-3.25 2-5.28zm-8-6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6 2.69-6 6-6zm0 15-4 1.02v-3.1c1.18.68 2.54 1.08 4 1.08s2.82-.4 4-1.08v3.1z"
                 fill="currentColor"
             />
         </svg>

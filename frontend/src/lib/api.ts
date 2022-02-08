@@ -1,10 +1,22 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, ActorType, CohortType, EventType, FilterType, PluginLogEntry, TeamType } from '../types'
+import {
+    ActionType,
+    ActorType,
+    CohortType,
+    DashboardCollaboratorType,
+    DashboardType,
+    EventType,
+    FilterType,
+    PluginLogEntry,
+    TeamType,
+    UserType,
+} from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
+import { DashboardPrivilegeLevel } from './constants'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -62,8 +74,8 @@ class ApiRequest {
 
     // Generic endpoint composition
 
-    private addPathComponent(component: string): ApiRequest {
-        this.pathComponents.push(component)
+    private addPathComponent(component: string | number): ApiRequest {
+        this.pathComponents.push(component.toString())
         return this
     }
 
@@ -83,33 +95,51 @@ class ApiRequest {
     }
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.projects().addPathComponent(id.toString())
+        return this.projects().addPathComponent(id)
     }
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
-        return this.addPathComponent('plugin_configs')
-            .addPathComponent(pluginConfigId.toString())
-            .addPathComponent('logs')
+        return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
 
-    public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
 
-    public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.actions(teamId).addPathComponent(actionId.toString())
+    public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.actions(teamId).addPathComponent(actionId)
     }
 
-    public events(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
-    public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+    public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
 
-    public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.cohorts(teamId).addPathComponent(cohortId.toString())
+    public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+
+    public dashboards(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboards')
+    }
+
+    public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboards(teamId).addPathComponent(dashboardId)
+    }
+
+    public dashboardCollaborators(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
+    }
+
+    public dashboardCollaboratorsDetail(
+        dashboardId: DashboardType['id'],
+        userUuid: UserType['uuid'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
     // Request finalization
@@ -241,6 +271,29 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
+        },
+    },
+
+    dashboards: {
+        collaborators: {
+            async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
+                return await new ApiRequest().dashboardCollaborators(dashboardId).get()
+            },
+            async create(
+                dashboardId: DashboardType['id'],
+                userUuid: UserType['uuid'],
+                level: DashboardPrivilegeLevel
+            ): Promise<DashboardCollaboratorType> {
+                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
+                    data: {
+                        user_uuid: userUuid,
+                        level,
+                    },
+                })
+            },
+            async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
+            },
         },
     },
 
