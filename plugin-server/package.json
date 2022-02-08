@@ -15,6 +15,7 @@
         "benchmark:postgres": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/postgres/",
         "benchmark:vm:memory": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/vm/memory.benchmark.ts",
         "benchmark:vm:worker": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/vm/worker.benchmark.ts",
+        "benchmark:stateless": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/postgres/vms.benchmark.ts",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
