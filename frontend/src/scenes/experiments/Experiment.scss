@@ -221,6 +221,14 @@
     }
 }
 
+.metric-name {
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 8px 8px 8px 16px;
+    margin-left: $default_spacing / 2;
+    flex: 1;
+}
+
 .experiment-workflow {
     border-color: $dark-grey;
     .ant-card-head {
