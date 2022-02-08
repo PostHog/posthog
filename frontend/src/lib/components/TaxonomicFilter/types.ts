@@ -61,7 +61,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 }
 
 export interface ListStorage {
-    results: (EventDefinition | CohortType)[]
+    results: TaxonomicDefinitionTypes[]
     searchQuery?: string // Query used for the results currently in state
     count: number
     queryChanged?: boolean

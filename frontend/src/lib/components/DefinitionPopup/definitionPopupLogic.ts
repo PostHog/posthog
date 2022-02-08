@@ -12,6 +12,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { toast } from 'react-toastify'
+import equal from 'fast-deep-equal'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -20,8 +21,10 @@ export enum DefinitionPopupState {
 
 interface DefinitionPopupLogicProps {
     type: TaxonomicFilterGroupType
-    item: TaxonomicDefinitionTypes // Clean definition loaded from server
+    item: TaxonomicDefinitionTypes
     hasTaxonomyFeatures?: boolean
+    /* Callback to update specific item in in-memory list */
+    updateRemoteItem: (item: Partial<TaxonomicDefinitionTypes>) => void
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
@@ -29,11 +32,13 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPopupLogic'],
     actions: {
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
+        setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         saveDefinition: true,
         setPopupState: (state: DefinitionPopupState) => ({ state }),
         setNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         handleView: true,
+        handleCancel: true,
     },
     reducers: {
         state: [
@@ -42,34 +47,40 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 setPopupState: (_, { state }) => state,
             },
         ],
-    },
-    loaders: ({ values, props, actions }) => ({
-        definition: [
-            null as TaxonomicDefinitionTypes | null,
+        localDefinition: [
+            {} as Partial<TaxonomicDefinitionTypes>,
             {
-                setDefinition: ({ item }) => ({ ...values.definition, ...item } as TaxonomicDefinitionTypes),
-                handleCancel: () => {
-                    // Reset to original definition
-                    actions.setPopupState(DefinitionPopupState.View)
-                    return props.item
-                },
+                setDefinition: (_, { item }) => item,
+                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+                handleCancel: () => ({}),
+            },
+        ],
+    },
+    loaders: ({ values, actions, props }) => ({
+        definition: [
+            {} as Partial<TaxonomicDefinitionTypes>,
+            {
+                setDefinition: ({ item }) => item as TaxonomicDefinitionTypes,
                 handleSave: async (_, breakpoint) => {
                     await breakpoint(100)
 
                     if (!values.definition) {
-                        return null
+                        return {}
                     }
 
-                    let definition = values.definition
+                    let definition = {
+                        ...values.definition,
+                        ...values.localDefinition,
+                    } as Partial<TaxonomicDefinitionTypes>
                     try {
                         if (values.isAction) {
                             // Action Definitions
-                            const _action = values.definition as ActionType
+                            const _action = definition as ActionType
                             definition = await api.actions.update(_action.id, _action)
                             actionsModel.actions.updateAction(definition as ActionType)
                         } else if (values.isEvent) {
                             // Event Definitions
-                            const _event = values.definition as EventDefinition
+                            const _event = definition as EventDefinition
                             definition = await api.update(
                                 `api/projects/@current/event_definitions/${_event.id}`,
                                 _event
@@ -77,7 +88,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.EventProperties) {
                             // Event Property Definitions
-                            const _eventProperty = values.definition as PropertyDefinition
+                            const _eventProperty = definition as PropertyDefinition
                             definition = await api.update(
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
@@ -85,7 +96,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             propertyDefinitionsModel.actions.updatePropertyDefinition(definition as PropertyDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
-                            const _cohort = values.definition as CohortType
+                            const _cohort = definition as CohortType
                             definition = await api.cohorts.update(_cohort.id, _cohort)
                             cohortsModel.actions.updateCohort(definition as CohortType)
                         }
@@ -100,7 +111,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     // Disregard save attempts for any other types of taxonomy groups
                     toast(`${capitalizeFirstLetter(values.singularType)} definition saved`)
                     actions.setPopupState(DefinitionPopupState.View)
-                    return values.definition
+                    // Update item in infinite list
+                    props.updateRemoteItem(definition)
+                    return definition
                 },
             },
         ],
@@ -108,6 +121,10 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
         singularType: [(s) => [s.type], (type) => getSingularType(type)],
+        dirty: [
+            (s) => [s.definition, s.localDefinition],
+            (definition, localDefinition) => !equal(definition, localDefinition),
+        ],
         hasTaxonomyFeatures: [
             () => [(_, props) => props.hasTaxonomyFeatures],
             (hasTaxonomyFeatures) => hasTaxonomyFeatures,
@@ -131,13 +148,21 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         isProperty: [
             (s) => [s.type],
             (type) =>
-                [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.EventProperties].includes(type) ||
-                type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
+                [
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.NumericalEventProperties,
+                ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isElement: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Elements],
     },
     listeners: ({ actions, selectors, values }) => ({
+        setPopupState: () => {
+            if (values.state === DefinitionPopupState.Edit) {
+                actions.setLocalDefinition(values.definition)
+            }
+        },
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (values.definition?.name !== selectors.definition(previousState)?.name) {
@@ -149,20 +174,20 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 return
             }
             await breakpoint(100)
-            const _definition = values.definition as EventDefinition | PropertyDefinition | ActionType
+            const _definition = values.localDefinition as EventDefinition | PropertyDefinition | ActionType
             if (_definition.tags?.includes(tag)) {
                 errorToast('Oops! This tag is already set', `This ${values.singularType} already includes this tag.`)
                 return
             }
-            actions.setDefinition({ tags: _definition?.tags ? [..._definition.tags, tag] : [tag] })
+            actions.setLocalDefinition({ tags: _definition?.tags ? [..._definition.tags, tag] : [tag] })
         },
         deleteTag: async ({ tag }, breakpoint) => {
             if (!values.definition || !('tags' in values.definition)) {
                 return
             }
             await breakpoint(100)
-            const _definition = values.definition as EventDefinition | PropertyDefinition | ActionType
-            actions.setDefinition({ tags: _definition.tags?.filter((_tag: string) => _tag !== tag) || [] })
+            const _definition = values.localDefinition as EventDefinition | PropertyDefinition | ActionType
+            actions.setLocalDefinition({ tags: _definition.tags?.filter((_tag: string) => _tag !== tag) || [] })
         },
         handleView: () => {
             // Redirect to the correct full definition page
@@ -181,6 +206,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             }
         },
         handleSave: () => {
+            actions.setPopupState(DefinitionPopupState.View)
+        },
+        handleCancel: () => {
             actions.setPopupState(DefinitionPopupState.View)
         },
     }),

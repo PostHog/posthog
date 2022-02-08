@@ -58,6 +58,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
+        updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
     },
 
     reducers: {
@@ -130,6 +131,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         searchQuery: values.searchQuery,
                         queryChanged,
                         count: response.count || response.length || 0,
+                    }
+                },
+                updateRemoteItem: ({ item }) => {
+                    return {
+                        ...values.remoteItems,
+                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
                     }
                 },
             },

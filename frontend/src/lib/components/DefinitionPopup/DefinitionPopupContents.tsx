@@ -7,7 +7,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import React, { useEffect } from 'react'
-import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
@@ -221,9 +221,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 }
 
 function DefinitionEdit(): JSX.Element {
-    const { definition, definitionLoading, singularType, hasTaxonomyFeatures, isViewable, type } =
-        useValues(definitionPopupLogic)
-    const { setDefinition, setNewTag, deleteTag, handleView, handleCancel, handleSave } =
+    const {
+        definition,
+        localDefinition,
+        definitionLoading,
+        singularType,
+        hasTaxonomyFeatures,
+        isViewable,
+        type,
+        dirty,
+    } = useValues(definitionPopupLogic)
+    const { setLocalDefinition, setNewTag, deleteTag, handleView, handleCancel, handleSave } =
         useActions(definitionPopupLogic)
 
     if (!definition || !hasTaxonomyFeatures) {
@@ -234,7 +242,7 @@ function DefinitionEdit(): JSX.Element {
         <>
             <DefinitionPopup.HorizontalLine />
             <form className="definition-popup-edit-form">
-                {definition && 'description' in definition && (
+                {definition && 'description' in localDefinition && (
                     <>
                         <label className="definition-popup-edit-form-label" htmlFor="description">
                             <span className="label-text">Description</span>
@@ -245,16 +253,16 @@ function DefinitionEdit(): JSX.Element {
                             className="definition-popup-edit-form-value"
                             autoFocus
                             placeholder={`There is no description for this ${singularType}.`}
-                            value={definition.description || ''}
+                            value={localDefinition.description || ''}
                             onChange={(e) => {
-                                setDefinition({ description: e.target.value })
+                                setLocalDefinition({ description: e.target.value })
                             }}
                             autoSize={{ minRows: 3, maxRows: 4 }}
                             data-attr="definition-popup-edit-description"
                         />
                     </>
                 )}
-                {definition && 'tags' in definition && (
+                {definition && 'tags' in localDefinition && (
                     <>
                         <label className="definition-popup-edit-form-label" htmlFor="description">
                             <span className="label-text">Tags</span>
@@ -262,14 +270,14 @@ function DefinitionEdit(): JSX.Element {
                         </label>
                         <ObjectTags
                             className="definition-popup-edit-form-value"
-                            tags={definition.tags || []}
+                            tags={localDefinition.tags || []}
                             onTagSave={setNewTag}
                             onTagDelete={deleteTag}
                             saving={false}
                         />
                     </>
                 )}
-                {definition && 'owner' in definition && (
+                {definition && 'owner' in localDefinition && (
                     <>
                         <label className="definition-popup-edit-form-label" htmlFor="owner">
                             <span className="label-text">Owner</span>
@@ -277,15 +285,15 @@ function DefinitionEdit(): JSX.Element {
                         </label>
                         <DefinitionOwnerDropdown
                             className="definition-popup-edit-form-value"
-                            owner={definition.owner ?? null}
+                            owner={localDefinition.owner ?? null}
                         />
                     </>
                 )}
-                {definition && 'verified' in definition && (
+                {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
                     <Checkbox
-                        checked={definition.verified}
+                        checked={localDefinition.verified}
                         onChange={() => {
-                            setDefinition({ verified: !definition.verified })
+                            setLocalDefinition({ verified: !localDefinition.verified })
                         }}
                     >
                         <div className="definition-popup-edit-form-label">
@@ -325,7 +333,7 @@ function DefinitionEdit(): JSX.Element {
                             type="primary"
                             onClick={handleSave}
                             className="definition-popup-edit-form-buttons-primary"
-                            disabled={definitionLoading}
+                            disabled={definitionLoading || !dirty}
                         >
                             Save
                         </Button>
