@@ -6,7 +6,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { useEffect } from 'react'
+import React, { CSSProperties, useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { LockOutlined } from '@ant-design/icons'
@@ -19,6 +19,7 @@ import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
 import { Button, Checkbox, Input } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { DefinitionOwnerDropdown } from 'scenes/events/definitions/DefinitionOwnerDropdown'
+import { CSSTransition } from 'react-transition-group'
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -344,12 +345,18 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
-interface ItemPopupInterface {
+interface DefinitionPopupContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
+    popper: {
+        styles: CSSProperties
+        attributes?: Record<string, any>
+        setRef: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>
+        ref: HTMLDivElement | null
+    }
 }
 
-export function DefinitionPopupContents({ item, group }: ItemPopupInterface): JSX.Element {
+export function DefinitionPopupContents({ item, group, popper }: DefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue(item)
 
@@ -368,23 +375,59 @@ export function DefinitionPopupContents({ item, group }: ItemPopupInterface): JS
     }, [item])
 
     return (
-        <DefinitionPopup.Wrapper>
-            <DefinitionPopup.Header
-                title={
-                    <PropertyKeyInfo
-                        value={item.name ?? ''}
-                        type={isElement ? 'element' : undefined}
-                        disablePopover
-                        disableIcon={!!icon}
+        <>
+            <CSSTransition
+                in={state === DefinitionPopupState.Edit}
+                timeout={100}
+                classNames="definition-popup-overlay-"
+                mountOnEnter
+                unmountOnExit
+            >
+                <div
+                    className="definition-popup-overlay click-outside-block hotkey-block"
+                    // zIndex: 1062 ensures definition popup overlay is between infinite list (1061) and definition popup (1063)
+                    // If not in edit mode, bury it.
+                    style={{
+                        zIndex: 1062,
+                        opacity: state === DefinitionPopupState.Edit ? 0.2 : 0,
+                    }}
+                    onClick={() => {
+                        popper.ref?.focus()
+                    }}
+                />
+            </CSSTransition>
+            ,
+            <div
+                className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
+                tabIndex={-1} // Only programmatically focusable
+                ref={popper.setRef}
+                // zIndex: 1063 ensures it opens above the overlay which is 1062
+                style={{
+                    ...popper.styles,
+                    transition: 'none',
+                    zIndex: 1063,
+                }}
+                {...popper.attributes}
+            >
+                <DefinitionPopup.Wrapper>
+                    <DefinitionPopup.Header
+                        title={
+                            <PropertyKeyInfo
+                                value={item.name ?? ''}
+                                type={isElement ? 'element' : undefined}
+                                disablePopover
+                                disableIcon={!!icon}
+                            />
+                        }
+                        headerTitle={group.getPopupHeader(item)}
+                        editHeaderTitle={`Edit ${singularType}`}
+                        icon={icon}
+                        hideEdit={!isViewable}
+                        hideView={!isViewable}
                     />
-                }
-                headerTitle={group.getPopupHeader(item)}
-                editHeaderTitle={`Edit ${singularType}`}
-                icon={icon}
-                hideEdit={!isViewable}
-                hideView={!isViewable}
-            />
-            {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
-        </DefinitionPopup.Wrapper>
+                    {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+                </DefinitionPopup.Wrapper>
+            </div>
+        </>
     )
 }

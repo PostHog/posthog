@@ -1,3 +1,30 @@
+.definition-popup-overlay {
+}
+
+.definition-popup-overlay {
+    width: 100vw;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1062;
+
+    background-color: var(--bg-depth);
+    transition: opacity 550ms 500ms;
+    opacity: 0;
+
+    &.definition-popup-overlay--enter &,
+    .Popup--exit.Popup--exit-active & {
+        opacity: 0;
+        transform: rotateX(-12deg);
+    }
+    .Popup--enter.Popup--enter-active &,
+    .Popup--exit & {
+        opacity: 1;
+        transform: rotateX(0);
+    }
+}
+
 .definition-popup {
     width: 316px;
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
@@ -145,6 +172,7 @@
                             flex-wrap: wrap;
                             align-items: center;
                         }
+
                         pre {
                             background-color: var(--bg-mid);
                             padding: 0 4px;
@@ -170,6 +198,7 @@
         .definition-popup-edit-form-label {
             margin-bottom: 8px;
         }
+
         .definition-popup-edit-form-value {
             margin-bottom: 16px;
         }
@@ -180,6 +209,7 @@
 
             .definition-popup-edit-form-buttons-secondary {
                 color: var(--primary);
+
                 &:hover,
                 &:focus {
                     border-color: var(--primary);

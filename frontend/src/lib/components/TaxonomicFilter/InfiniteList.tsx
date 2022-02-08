@@ -351,52 +351,49 @@ export function InfiniteList(): JSX.Element {
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None ? (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        width: '100vw',
-                        height: '100vh',
-                        backgroundColor: 'green',
-                    }}
-                >
+                <Provider>
                     {ReactDOM.createPortal(
-                        <Provider>
-                            <div
-                                className="popper-tooltip click-outside-block Popup Popup__box"
-                                ref={setPopperElement}
-                                style={{ ...styles.popper, transition: 'none' }}
-                                {...attributes.popper}
-                            >
-                                {selectedItem && group ? (
-                                    showNewPopups ? (
-                                        <BindLogic
-                                            logic={definitionPopupLogic}
-                                            props={{
-                                                type: listGroupType,
-                                                item: selectedItem,
-                                                hasTaxonomyFeatures: hasAvailableFeature(
-                                                    AvailableFeature.INGESTION_TAXONOMY
-                                                ),
-                                                updateRemoteItem,
-                                            }}
-                                        >
-                                            <DefinitionPopupContents item={selectedItem} group={group} />
-                                        </BindLogic>
-                                    ) : (
-                                        renderItemPopupWithoutTaxonomy(
-                                            selectedItem as PropertyDefinition | CohortType | ActionType,
-                                            listGroupType,
-                                            group
-                                        )
-                                    )
-                                ) : null}
-                            </div>
-                        </Provider>,
+                        selectedItem && group ? (
+                            showNewPopups ? (
+                                <BindLogic
+                                    logic={definitionPopupLogic}
+                                    props={{
+                                        type: listGroupType,
+                                        item: selectedItem,
+                                        hasTaxonomyFeatures: hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
+                                        updateRemoteItem,
+                                    }}
+                                >
+                                    <DefinitionPopupContents
+                                        item={selectedItem}
+                                        group={group}
+                                        popper={{
+                                            styles: styles.popper,
+                                            attributes: attributes.popper,
+                                            setRef: setPopperElement,
+                                            ref: popperElement,
+                                        }}
+                                    />
+                                </BindLogic>
+                            ) : (
+                                <div
+                                    className="popper-tooltip click-outside-block Popup Popup__box"
+                                    ref={setPopperElement}
+                                    // zIndex: 1063 ensures it opens above the overlay and taxonomic filter
+                                    style={{ ...styles.popper, transition: 'none', zIndex: 1063 }}
+                                    {...attributes.popper}
+                                >
+                                    {renderItemPopupWithoutTaxonomy(
+                                        selectedItem as PropertyDefinition | CohortType | ActionType,
+                                        listGroupType,
+                                        group
+                                    )}
+                                </div>
+                            )
+                        ) : null,
                         document.querySelector('body') as HTMLElement
                     )}
-                </div>
+                </Provider>
             ) : null}
         </div>
     )

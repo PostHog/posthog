@@ -22,8 +22,8 @@ export function useOutsideClickHandler(
 
         if (allRefs.length > 0) {
             // Only attach event listeners if there's something to track
-            document.addEventListener('click', handleClick)
-            return () => document.removeEventListener('click', handleClick)
+            document.addEventListener('mouseup', handleClick)
+            return () => document.removeEventListener('mouseup', handleClick)
         }
     }, [...allRefs, ...extraDeps])
 }
