@@ -47,6 +47,7 @@ export async function createHub(
 
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
+    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -66,6 +67,12 @@ export async function createHub(
             setImmediate(() => {
                 statsd?.timing('event_loop_lag', time)
             })
+        }, 2000)
+        eventLoopLagSetTimeoutInterval = setInterval(() => {
+            const time = new Date()
+            setTimeout(() => {
+                statsd?.timing('event_loop_lag_set_timeout', time)
+            }, 0)
         }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
@@ -234,6 +241,11 @@ export async function createHub(
         if (eventLoopLagInterval) {
             clearInterval(eventLoopLagInterval)
         }
+
+        if (eventLoopLagSetTimeoutInterval) {
+            clearInterval(eventLoopLagSetTimeoutInterval)
+        }
+
         hub.mmdbUpdateJob?.cancel()
         await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
