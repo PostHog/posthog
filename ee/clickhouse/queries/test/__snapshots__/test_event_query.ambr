@@ -1,6 +1,36 @@
 # name: TestEventQuery.test_account_filters
   '
   
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestEventQuery.test_account_filters.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestEventQuery.test_account_filters.2
+  '
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -53,7 +83,7 @@
   LIMIT 50000
   '
 ---
-# name: TestEventQuery.test_account_filters.1
+# name: TestEventQuery.test_account_filters.3
   '
   
   SELECT DISTINCT p.id
@@ -109,7 +139,7 @@
   OFFSET 50000
   '
 ---
-# name: TestEventQuery.test_account_filters.2
+# name: TestEventQuery.test_account_filters.4
   '
   
   SELECT e.timestamp as timestamp,
