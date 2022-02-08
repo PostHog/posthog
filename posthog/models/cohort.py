@@ -128,7 +128,10 @@ class Cohort(models.Model):
 
         except Exception as err:
             # Clear the pending version people if there's an error
-            CohortPeople.objects.filter(cohort_id=self.pk, version=new_version).delete()
+            while batch := CohortPeople.objects.filter(cohort_id=self.pk, version=new_version)[:1000]:
+                CohortPeople.objects.filter(id__in=batch)._raw_delete()
+                time.sleep(1)
+
             raise err
 
     def calculate_people_ch(self, pending_version):
