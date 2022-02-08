@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
-from django.utils import timezone
 from rest_framework.test import APIClient
 
 from posthog.models import Person
@@ -196,9 +195,7 @@ email@example.org,
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
-    return client.post(
-        f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups), "updated_at": timezone.now()}
-    )
+    return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
 def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):

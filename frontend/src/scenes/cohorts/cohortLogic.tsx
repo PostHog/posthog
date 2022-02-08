@@ -144,8 +144,6 @@ export const cohortLogic = kea<cohortLogicType>({
                 }
             }
 
-            cohortFormData.append('updated_at', new Date().toISOString())
-
             try {
                 if (cohort.id !== 'new') {
                     cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>, filterParams)
