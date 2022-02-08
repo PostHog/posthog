@@ -49,7 +49,7 @@ export const experimentLogic = kea<experimentLogicType>({
             userLogic,
             ['hasAvailableFeature'],
             groupsModel,
-            ['groupsTaxonomicTypes'],
+            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
         ],
         actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
