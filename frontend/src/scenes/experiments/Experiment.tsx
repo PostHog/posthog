@@ -63,7 +63,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { AggregationSelect } from 'scenes/insights/AggregationSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
@@ -475,72 +474,30 @@ export function Experiment_(): JSX.Element {
                                                         bodyStyle={{ padding: 0 }}
                                                     >
                                                         {experimentInsightType === InsightType.FUNNELS && (
-                                                            <>
-                                                                <ActionFilter
-                                                                    filters={funnelsFilters}
-                                                                    setFilters={(payload) => {
-                                                                        setNewExperimentData({ filters: payload })
-                                                                        setFilters(payload)
-                                                                    }}
-                                                                    typeKey={`EditFunnel-action`}
-                                                                    hideMathSelector={true}
-                                                                    hideDeleteBtn={filterSteps.length === 1}
-                                                                    buttonCopy="Add funnel step"
-                                                                    buttonType="link"
-                                                                    showSeriesIndicator={!isStepsEmpty}
-                                                                    seriesIndicatorType="numeric"
-                                                                    fullWidth
-                                                                    sortable
-                                                                    showNestedArrow={true}
-                                                                    propertiesTaxonomicGroupTypes={[
-                                                                        TaxonomicFilterGroupType.EventProperties,
-                                                                        TaxonomicFilterGroupType.PersonProperties,
-                                                                        TaxonomicFilterGroupType.Cohorts,
-                                                                        TaxonomicFilterGroupType.Elements,
-                                                                    ]}
-                                                                    rowClassName="action-filters-bordered"
-                                                                />
-                                                                <div
-                                                                    className="flex-center text-muted"
-                                                                    style={{
-                                                                        width: '100%',
-                                                                        marginTop: 4,
-                                                                        marginBottom: 4,
-                                                                    }}
-                                                                >
-                                                                    <span style={{ margin: '4px 4px' }}>
-                                                                        Aggregating by
-                                                                    </span>
-                                                                    <AggregationSelect
-                                                                        aggregationGroupTypeIndex={
-                                                                            newExperimentData?.filters
-                                                                                ?.aggregation_group_type_index
-                                                                        }
-                                                                        onChange={(newValue) => {
-                                                                            if (
-                                                                                newValue !=
-                                                                                newExperimentData?.filters
-                                                                                    ?.aggregation_group_type_index
-                                                                            ) {
-                                                                                setNewExperimentData({
-                                                                                    filters: {
-                                                                                        aggregation_group_type_index:
-                                                                                            newValue,
-                                                                                        // :TRICKY: We reset property filters after changing what you're aggregating by.
-                                                                                        properties: [],
-                                                                                    },
-                                                                                })
-                                                                                setFilters({
-                                                                                    aggregation_group_type_index:
-                                                                                        newValue,
-                                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
-                                                                                    properties: [],
-                                                                                })
-                                                                            }
-                                                                        }}
-                                                                    />
-                                                                </div>
-                                                            </>
+                                                            <ActionFilter
+                                                                filters={funnelsFilters}
+                                                                setFilters={(payload) => {
+                                                                    setNewExperimentData({ filters: payload })
+                                                                    setFilters(payload)
+                                                                }}
+                                                                typeKey={`EditFunnel-action`}
+                                                                hideMathSelector={true}
+                                                                hideDeleteBtn={filterSteps.length === 1}
+                                                                buttonCopy="Add funnel step"
+                                                                buttonType="link"
+                                                                showSeriesIndicator={!isStepsEmpty}
+                                                                seriesIndicatorType="numeric"
+                                                                fullWidth
+                                                                sortable
+                                                                showNestedArrow={true}
+                                                                propertiesTaxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.EventProperties,
+                                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                                    TaxonomicFilterGroupType.Cohorts,
+                                                                    TaxonomicFilterGroupType.Elements,
+                                                                ]}
+                                                                rowClassName="action-filters-bordered"
+                                                            />
                                                         )}
                                                         {experimentInsightType === InsightType.TRENDS && (
                                                             <ActionFilter
