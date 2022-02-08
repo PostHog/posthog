@@ -1,8 +1,9 @@
 from contextlib import contextmanager
-from typing import List, Literal, Optional
+from typing import List, Optional
 from unittest.mock import patch
 
 import pytest
+from clickhouse_driver.errors import Error as ClickhouseError
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
@@ -10,6 +11,7 @@ from django.http import HttpResponse
 from django.test import Client
 from kafka.errors import KafkaError
 
+from ee.clickhouse.client import ch_pool
 from ee.kafka_client.client import TestKafkaProducer
 
 
@@ -86,6 +88,11 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
 
     assert resp.status_code == 200
 
+    with simulate_clickhouse_cannot_connect():
+        resp = get_readyz(client=client, role="events")
+
+    assert resp.status_code == 200
+
     # web role
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="web")
@@ -97,6 +104,11 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
 
     assert resp.status_code == 503
 
+    with simulate_clickhouse_cannot_connect():
+        resp = get_readyz(client=client, role="web")
+
+    assert resp.status_code == 200
+
     # worker role
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="worker")
@@ -104,6 +116,11 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
     assert resp.status_code == 200
 
     with simulate_postgres_error():
+        resp = get_readyz(client=client, role="worker")
+
+    assert resp.status_code == 503
+
+    with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
     assert resp.status_code == 503
@@ -156,4 +173,18 @@ def simulate_kafka_cannot_connect():
     """
     with patch.object(TestKafkaProducer, "__init__") as init_mock:
         init_mock.side_effect = KafkaError("failed to connect")
+        yield
+
+
+@contextmanager
+def simulate_clickhouse_cannot_connect():
+    """
+    Causes the clickhouse client to raise a `ClickhouseError`
+
+    TODO: ideally we'd simulate an error in a way that doesn't depend on the
+    internal details of the service, i.e. we could actually bring clickhouse
+    down, fail dns etc.
+    """
+    with patch.object(ch_pool, "get_client") as pool_mock:
+        pool_mock.side_effect = ClickhouseError("failed to connect")
         yield
