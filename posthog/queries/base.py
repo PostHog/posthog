@@ -200,23 +200,10 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
     if request.GET.get("id"):
         ids = request.GET["id"].split(",")
         queryset = queryset.filter(id__in=ids)
-    if request.GET.get("uuid"):
-        uuids = request.GET["uuid"].split(",")
-        queryset = queryset.filter(uuid__in=uuids)
-    if request.GET.get("search"):
-        queryset = queryset.filter(
-            Q(properties__icontains=request.GET["search"])
-            | Q(persondistinctid__distinct_id__icontains=request.GET["search"])
-        ).distinct("id")
-    if request.GET.get("cohort"):
-        queryset = queryset.filter(cohort__id=request.GET["cohort"])
-    if request.GET.get("properties"):
-        filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-        queryset = queryset.filter(
-            properties_to_Q(
-                [prop for prop in filter.properties if prop.type == "person"], team_id=team_id, is_direct_query=True
-            )
-        )
+
+    from posthog.api.person import PersonFilter
+
+    queryset = PersonFilter(data=request.GET, request=request, queryset=queryset).qs
 
     queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return queryset
