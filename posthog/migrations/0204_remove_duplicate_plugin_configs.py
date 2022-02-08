@@ -10,9 +10,13 @@ def remove_duplicate_plugin_configs(apps, schema_editor):
     PluginConfig = apps.get_model("posthog", "PluginConfig")
     configs = PluginConfig.objects.raw(
         """
-    select * from posthog_pluginconfig ou
-where (select count(*) from posthog_pluginconfig inr
-where inr.team_id = ou.team_id and inr.plugin_id = ou.plugin_id) > 1 order by enabled DESC, id"""
+        select * from posthog_pluginconfig ou
+        where (
+            select count(*) from posthog_pluginconfig inr
+            where
+                inr.team_id = ou.team_id and
+                inr.plugin_id = ou.plugin_id
+        ) > 1 order by enabled DESC, id"""
     )
     plugins_kept = []
     for config in configs:
