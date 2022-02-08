@@ -201,7 +201,9 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Insight.objects.all().prefetch_related("dashboard", "created_by")
+    queryset = Insight.objects.all().prefetch_related(
+        "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
+    )
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
