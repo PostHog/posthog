@@ -8,7 +8,6 @@ from django.db.models.query import Prefetch
 from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.person import PersonFilter
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
 from posthog.models.event import Event
@@ -201,6 +200,8 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
     if request.GET.get("id"):
         ids = request.GET["id"].split(",")
         queryset = queryset.filter(id__in=ids)
+
+    from posthog.api.person import PersonFilter
 
     queryset = PersonFilter(data=request.GET, request=request, queryset=queryset).qs
 

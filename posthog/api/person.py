@@ -52,7 +52,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.base import filter_persons, properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -131,6 +130,8 @@ class PersonFilter(filters.FilterSet):
 
     def properties_filter(self, queryset, attr, *args, **kwargs):
         filter = Filter(data={"properties": json.loads(args[0])})
+        from posthog.queries.base import properties_to_Q
+
         return queryset.filter(
             properties_to_Q(
                 [prop for prop in filter.properties if prop.type == "person"],
