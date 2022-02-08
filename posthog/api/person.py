@@ -109,27 +109,27 @@ class PersonFilter(filters.FilterSet):
         self.team_id = team_id
         return super().__init__(data=data, queryset=queryset, request=request, prefix=prefix)
 
-    def distinct_id_filter(self, queryset, attr, *args, **kwargs):
-        queryset = queryset.filter(persondistinctid__distinct_id=args[0], persondistinctid__team_id=self.team_id)
+    def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
+        queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
         return queryset
 
-    def key_identifier_filter(self, queryset, attr, *args, **kwargs):
+    def key_identifier_filter(self, queryset, attr, value, *args, **kwargs):
         """
         Filters persons by email or distinct ID
         """
-        return queryset.filter(Q(persondistinctid__distinct_id=args[0]) | Q(properties__email=args[0]))
+        return queryset.filter(Q(persondistinctid__distinct_id=value) | Q(properties__email=value))
 
-    def uuid_filter(self, queryset, attr, *args, **kwargs):
-        uuids = args[0].split(",")
+    def uuid_filter(self, queryset, attr, value, *args, **kwargs):
+        uuids = value.split(",")
         return queryset.filter(uuid__in=uuids)
 
-    def search_filter(self, queryset, attr, *args, **kwargs):
+    def search_filter(self, queryset, attr, value, *args, **kwargs):
         return queryset.filter(
-            Q(properties__icontains=args[0]) | Q(persondistinctid__distinct_id__icontains=args[0])
+            Q(properties__icontains=value) | Q(persondistinctid__distinct_id__icontains=value)
         ).distinct("id")
 
-    def properties_filter(self, queryset, attr, *args, **kwargs):
-        filter = Filter(data={"properties": json.loads(args[0])})
+    def properties_filter(self, queryset, attr, value, *args, **kwargs):
+        filter = Filter(data={"properties": json.loads(value)})
         from posthog.queries.base import properties_to_Q
 
         return queryset.filter(
