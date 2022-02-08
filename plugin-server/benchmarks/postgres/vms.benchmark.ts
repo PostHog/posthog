@@ -96,55 +96,6 @@ describe('Stateless VM Architecture', () => {
         await closeHub()
     })
 
-    test('1 VM overall', async () => {
-        const plugin = { ...plugin60, indexJs: geoip, is_stateless: true }
-        getPluginRows.mockReturnValueOnce([plugin])
-        getPluginAttachmentRows.mockReturnValueOnce([])
-
-        getPluginConfigRows.mockReturnValueOnce([
-            { ...pluginConfig39, team_id: 1, id: 39 },
-            { ...pluginConfig39, team_id: 2, id: 40 },
-            { ...pluginConfig39, team_id: 3, id: 41 },
-            { ...pluginConfig39, team_id: 4, id: 42 },
-            { ...pluginConfig39, team_id: 5, id: 43 },
-        ])
-
-        await setupPluginsMock(hub)
-
-        const processEventFunctions = []
-
-        for (let i = 39; i < 44; ++i) {
-            const processEvent = await hub.pluginConfigs.get(i)!.vm!.getVm().getProcessEvent()
-            processEventFunctions.push(processEvent)
-        }
-
-        const timerStart = new Date().getTime()
-        const promises = []
-        for (let i = 0; i < 100000; ++i) {
-            const func = processEventFunctions[i % 5]
-            if (func) {
-                promises.push(
-                    func({
-                        distinct_id: 'hello',
-                        ip: '127.0.0.1',
-                        team_id: (i % 5) + 1,
-                        event: 'some event',
-                        properties: {},
-                        uuid: new UUIDT().toString(),
-                        now: now.toISO(),
-                        site_url: 'mywebsite',
-                    })
-                )
-            }
-        }
-
-        await Promise.all(promises)
-
-        const timerEnd = new Date().getTime()
-
-        console.log('1 VM timer:', timerEnd - timerStart)
-    })
-
     test('Multiple VMs', async () => {
         const plugin = { ...plugin60, indexJs: geoip, is_stateless: true }
         getPluginRows.mockReturnValueOnce([plugin])
@@ -192,5 +143,54 @@ describe('Stateless VM Architecture', () => {
         const timerEnd = new Date().getTime()
 
         console.log('Multiple VMs timer:', timerEnd - timerStart)
+    })
+
+    test('1 VM overall', async () => {
+        const plugin = { ...plugin60, indexJs: geoip, is_stateless: true }
+        getPluginRows.mockReturnValueOnce([plugin])
+        getPluginAttachmentRows.mockReturnValueOnce([])
+
+        getPluginConfigRows.mockReturnValueOnce([
+            { ...pluginConfig39, team_id: 1, id: 39 },
+            { ...pluginConfig39, team_id: 2, id: 40 },
+            { ...pluginConfig39, team_id: 3, id: 41 },
+            { ...pluginConfig39, team_id: 4, id: 42 },
+            { ...pluginConfig39, team_id: 5, id: 43 },
+        ])
+
+        await setupPluginsMock(hub)
+
+        const processEventFunctions = []
+
+        for (let i = 39; i < 44; ++i) {
+            const processEvent = await hub.pluginConfigs.get(i)!.vm!.getVm().getProcessEvent()
+            processEventFunctions.push(processEvent)
+        }
+
+        const timerStart = new Date().getTime()
+        const promises = []
+        for (let i = 0; i < 100000; ++i) {
+            const func = processEventFunctions[i % 5]
+            if (func) {
+                promises.push(
+                    func({
+                        distinct_id: 'hello',
+                        ip: '127.0.0.1',
+                        team_id: (i % 5) + 1,
+                        event: 'some event',
+                        properties: {},
+                        uuid: new UUIDT().toString(),
+                        now: now.toISO(),
+                        site_url: 'mywebsite',
+                    })
+                )
+            }
+        }
+
+        await Promise.all(promises)
+
+        const timerEnd = new Date().getTime()
+
+        console.log('1 VM timer:', timerEnd - timerStart)
     })
 })
