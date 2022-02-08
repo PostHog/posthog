@@ -199,9 +199,14 @@ function OwnerDropdown(): JSX.Element {
                 const newOwner = members.find((mem) => mem.user.id === val)?.user
                 if (newOwner) {
                     setLocalDefinition({ owner: newOwner })
+                } else {
+                    setLocalDefinition({ owner: null })
                 }
             }}
         >
+            <Select.Option key="no-owner" value={-1}>
+                <Owner user={null} />
+            </Select.Option>
             {members.map((member) => (
                 <Select.Option key={member.user.id} value={member.user.id}>
                     <Owner user={member.user} />

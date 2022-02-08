@@ -79,10 +79,10 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
-                            definition = await api.update(
-                                `api/projects/@current/event_definitions/${_event.id}`,
-                                _event
-                            )
+                            definition = await api.update(`api/projects/@current/event_definitions/${_event.id}`, {
+                                ..._event,
+                                owner: _event.owner?.id ?? null,
+                            })
                             eventDefinitionsModel?.isMounted() &&
                                 eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.EventProperties) {
