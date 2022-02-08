@@ -1,27 +1,28 @@
 .definition-popup-overlay {
-}
-
-.definition-popup-overlay {
     width: 100vw;
     height: 100vh;
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 1062;
-
     background-color: var(--bg-depth);
-    transition: opacity 550ms 500ms;
-    opacity: 0;
+    opacity: 0.2;
 
-    &.definition-popup-overlay--enter &,
-    .Popup--exit.Popup--exit-active & {
+    &.definition-popup-overlay--enter {
         opacity: 0;
-        transform: rotateX(-12deg);
     }
-    .Popup--enter.Popup--enter-active &,
-    .Popup--exit & {
-        opacity: 1;
-        transform: rotateX(0);
+
+    &.definition-popup-overlay--enter-active {
+        opacity: 0.2;
+        transition: opacity 150ms;
+    }
+
+    &.definition-popup-overlay--exit {
+        opacity: 0.2;
+    }
+
+    &.definition-popup-overlay--exit-active {
+        opacity: 0;
+        transition: opacity 150ms;
     }
 }
 

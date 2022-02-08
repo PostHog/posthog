@@ -359,7 +359,6 @@ export function InfiniteList(): JSX.Element {
                                     logic={definitionPopupLogic}
                                     props={{
                                         type: listGroupType,
-                                        item: selectedItem,
                                         hasTaxonomyFeatures: hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
                                         updateRemoteItem,
                                     }}

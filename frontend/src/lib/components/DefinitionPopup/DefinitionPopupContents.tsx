@@ -378,7 +378,7 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
         <>
             <CSSTransition
                 in={state === DefinitionPopupState.Edit}
-                timeout={100}
+                timeout={150}
                 classNames="definition-popup-overlay-"
                 mountOnEnter
                 unmountOnExit
@@ -387,10 +387,7 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
                     className="definition-popup-overlay click-outside-block hotkey-block"
                     // zIndex: 1062 ensures definition popup overlay is between infinite list (1061) and definition popup (1063)
                     // If not in edit mode, bury it.
-                    style={{
-                        zIndex: 1062,
-                        opacity: state === DefinitionPopupState.Edit ? 0.2 : 0,
-                    }}
+                    style={{ zIndex: 1062 }}
                     onClick={() => {
                         popper.ref?.focus()
                     }}
