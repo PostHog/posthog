@@ -614,7 +614,7 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
-    version: string
+    version: number
 }
 
 /** Usable CohortPeople model. */

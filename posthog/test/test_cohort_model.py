@@ -25,7 +25,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people(updated_at=timezone.now())
+        cohort.calculate_people_ch()
         self.assertEqual(cohort.people.count(), 2)
 
         # if we add people again, don't increase the number of people in cohort
@@ -47,7 +47,7 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
         )
 
-        cohort.calculate_people_ch(updated_at=timezone.now())
+        cohort.calculate_people_ch()
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person3])
         uuids = [
@@ -63,5 +63,5 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
         )
 
-        cohort2.calculate_people(updated_at=timezone.now())
+        cohort2.calculate_people_ch()
         self.assertFalse(Cohort.objects.get().is_calculating)

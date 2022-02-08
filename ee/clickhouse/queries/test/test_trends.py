@@ -832,8 +832,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
         )
 
-        cohort1.calculate_people_ch(updated_at=timezone.now())
-        cohort2.calculate_people_ch(updated_at=timezone.now())
+        cohort1.calculate_people_ch()
+        cohort2.calculate_people_ch()
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -888,7 +888,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
 
-        cohort1.calculate_people_ch(updated_at=timezone.now())
+        cohort1.calculate_people_ch()
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):

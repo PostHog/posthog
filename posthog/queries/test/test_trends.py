@@ -2233,7 +2233,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 name="cohort1",
                 groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
             )
-            cohort.calculate_people_ch(updated_at=timezone.now())
+            cohort.calculate_people_ch()
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
                 response = trends().run(
                     Filter(
@@ -2262,7 +2262,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 name="cohort1",
                 groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
             )
-            cohort.calculate_people_ch(updated_at=timezone.now())
+            cohort.calculate_people_ch()
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
                 response = trends().run(

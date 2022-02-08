@@ -855,7 +855,7 @@ export class DB {
                 cohort.last_calculation ?? new Date().toISOString(),
                 cohort.errors_calculating ?? 0,
                 cohort.is_static ?? false,
-                cohort.version,
+                cohort.version ?? 0,
             ],
             'createCohort'
         )
@@ -887,7 +887,7 @@ export class DB {
         return psqlResult.rows[0].exists
     }
 
-    public async addPersonToCohort(cohortId: number, personId: Person['id'], version: string): Promise<CohortPeople> {
+    public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
         const insertResult = await this.postgresQuery(
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],

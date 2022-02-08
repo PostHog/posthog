@@ -1421,7 +1421,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         }
 
         # converts to precalculated-cohort due to simplify filters
-        cohort.calculate_people_ch(updated_at=timezone.now())
+        cohort.calculate_people_ch()
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()

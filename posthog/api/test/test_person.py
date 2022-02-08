@@ -107,7 +107,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["person_2"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
-        cohort.calculate_people(updated_at=timezone.now())
+        cohort.calculate_people_ch()
         response = self.client.get(f"/api/person/?cohort={cohort.pk}")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
@@ -320,9 +320,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
         cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
-        cohort1.calculate_people(updated_at=timezone.now())
-        cohort2.calculate_people(updated_at=timezone.now())
-        cohort3.calculate_people(updated_at=timezone.now())
+        cohort1.calculate_people_ch()
+        cohort2.calculate_people_ch()
+        cohort3.calculate_people_ch()
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])

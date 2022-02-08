@@ -55,7 +55,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "is_calculating",
             "created_by",
             "created_at",
-            "updated_at",
             "last_calculation",
             "errors_calculating",
             "count",
@@ -88,7 +87,6 @@ class CohortSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        updated_at = validated_data.pop("updated_at", None)
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -97,13 +95,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            if not updated_at:
-                if settings.DEBUG:
-                    raise ValueError(f"New cohorts must receive an updated_at argument")
-                else:
-                    capture_exception(Exception(f"New cohorts must receive an updated_at argument"))
-
-            calculate_cohort_ch.delay(cohort.id, updated_at)
+            calculate_cohort_ch.delay(cohort.id)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -116,7 +108,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        updated_at = validated_data.pop("updated_at", None)
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
@@ -137,13 +128,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                if not updated_at:
-                    if settings.DEBUG:
-                        raise ValueError(f"New cohorts must receive an updated_at argument")
-                    else:
-                        capture_exception(Exception(f"New cohorts must receive an updated_at argument"))
-
-                calculate_cohort_ch.delay(cohort.id, updated_at)
+                calculate_cohort_ch.delay(cohort.id)
 
         report_user_action(
             request.user,

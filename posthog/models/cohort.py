@@ -79,11 +79,11 @@ class Cohort(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
-    version: models.UUIDField = models.UUIDField(blank=True, null=True)
+    version: models.IntegerField = models.IntegerField(default=0)
+    pending_version: models.IntegerField = models.IntegerField(default=0)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
-    updated_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
 
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
@@ -112,9 +112,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(
-        self, updated_at: datetime, new_version: UUIDT = UUIDT(), batch_size=50000, pg_batch_size=1000
-    ):
+    def calculate_people(self, new_version: int, batch_size=50000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
@@ -129,28 +127,37 @@ class Cohort(models.Model):
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
 
-            Cohort.objects.filter(pk=self.pk).filter(Q(updated_at__lt=updated_at) | Q(updated_at__isnull=True)).update(
-                version=new_version
-            )
-
         except Exception as err:
             raise err
 
-    def calculate_people_ch(self, updated_at: datetime):
+    def calculate_people_ch(self):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
         try:
             start_time = time.time()
-            new_version = UUIDT()  # generate new uuid
-            logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=new_version)
+
+            # Increment based on pending versions
+            with transaction.atomic():
+                cohort = self.queryset().select_for_update().get()
+                cohort.pending_version = cohort.pending_version + 1
+                cohort.save(update_fields=["pending_version"])
+                pending_version = cohort.pending_version
+
+            logger.info(
+                "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
+            )
 
             recalculate_cohortpeople(self)
-            self.calculate_people(new_version=new_version, updated_at=updated_at)
+            self.calculate_people(new_version=pending_version)
+
+            # Update filter to match pending version if still valid
+            Cohort.objects.filter(pk=self.pk).filter(version__lt=pending_version).update(version=pending_version)
             self.refresh_from_db()
+
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             logger.info(
-                "cohort_calculation_completed", id=self.pk, version=new_version, duration=(time.time() - start_time)
+                "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
             )
         except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
@@ -181,7 +188,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "null"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version} FROM "posthog_person"', 1,
                     ),
                 )
                 cursor.execute(query, params)
@@ -210,7 +217,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "null"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version} FROM "posthog_person"', 1,
                     ),
                 )
                 cursor.execute(query, params)
@@ -275,7 +282,7 @@ class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    version: models.UUIDField = models.UUIDField(blank=True, null=True)
+    version: models.IntegerField = models.IntegerField(default=0)
 
     class Meta:
         indexes = [

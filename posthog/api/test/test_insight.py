@@ -497,7 +497,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             last_calculation=timezone.now(),
         )
 
-        whatever_cohort.calculate_people_ch(updated_at=timezone.now())
+        whatever_cohort.calculate_people_ch()
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             response_user_property = self.client.get(
