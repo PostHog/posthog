@@ -22,6 +22,7 @@ from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
 from .property import Property
 from .property_definition import PropertyDefinition
+from .revision_team_metadata import RevisionTeamMetadata
 from .session_recording_event import SessionRecordingEvent
 from .team import Team
 from .user import User, UserManager
@@ -62,4 +63,5 @@ __all__ = [
     "Team",
     "User",
     "UserManager",
+    "RevisionTeamMetadata",
 ]

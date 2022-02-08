@@ -1,54 +1,70 @@
+import typing
 from typing import Optional
 
+import reversion
 import structlog
 from django.http.request import HttpRequest
-from reversion.middleware import RevisionMiddleware
+from reversion.revisions import create_revision
+from reversion.views import get_user, set_user
 
-from posthog.api.utils import get_data, get_event_ingestion_context, get_token
+from posthog.models.revision_team_metadata import RevisionTeamMetadata
 
 VERSIONING_EXCLUSIONS = ["/e/", "/s/", "/decide/"]
 
 
-class TeamAwareVersioning(RevisionMiddleware):
+class TeamAwareVersioning:
+    """
+    Based on `from reversion.middleware import RevisionMiddleware`
+    But different enough to not beed to inherit from it
+    """
+
     def __init__(self, get_response):
-        super().__init__(get_response)
+        self.get_response = get_response
         self.logger = structlog.get_logger(__name__)
 
-    def request_creates_revision(self, request: HttpRequest):
+    def request_creates_revision(self, request: HttpRequest) -> typing.Tuple[bool, Optional[int]]:
         """
         Reversion tries to create a revision for any request that isn't OPTION, GET or HEAD
 
         There are some URLs that can be on a deny-list since we know they are called frequently
         but never generate a version
+
+        Returns whether this request might create a revision, and the detected team id
+
+        Must be able to detect a team id to create a revision
         """
-        reversion_would_create_a_revision = super().request_creates_revision(request)
+        reversion_would_by_default_create_a_revision = request.method not in ("OPTIONS", "GET", "HEAD")
 
         if request.path in VERSIONING_EXCLUSIONS:
-            return False
+            return False, None
 
-        if reversion_would_create_a_revision:
+        if reversion_would_by_default_create_a_revision:
             team_id = self._get_team_id_from_request(request)
-
-            self.logger.info(
-                f"[VERSIONING] maybe creating revision",
-                team_id=team_id,
-                reversion_would_create_a_revision=reversion_would_create_a_revision,
-                request_path=request.path,
-            )
-            return reversion_would_create_a_revision and team_id
+            return reversion_would_by_default_create_a_revision and team_id, team_id
         else:
-            return False
+            return False, None
 
-    def __call__(self, request):
-        response = self.get_response(request)
-        return response
+    def __call__(self, request, *args, **kwargs):
+        request_creates_revision, team_id = self.request_creates_revision(request)
+        if request_creates_revision:
+            with create_revision(manage_manually=False, using=None, atomic=True):
+                reversion.add_meta(RevisionTeamMetadata, team_id=team_id)
+                self.logger.info(
+                    f"[VERSIONING] creating revision", team_id=team_id, url=request.get_raw_uri(),
+                )
+                response = self.get_response(request, *args, **kwargs)
+                if getattr(request, "user", None) and request.user.is_authenticated and get_user() is None:
+                    set_user(request.user)
 
-    @staticmethod
-    def _get_team_id_from_request(request) -> Optional[int]:
+                return response
+
+        return self.get_response(request, *args, **kwargs)
+
+    def _get_team_id_from_request(self, request) -> Optional[int]:
         try:
-            data, error_response = get_data(request)
-            request_token = get_token(data, request)
-            ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, request_token)
-            return ingestion_context.team_id if ingestion_context else None
+            return request.user.current_team_id
         except:
+            self.logger.info(
+                "Error getting team_id from user", request_path=request.path, url=request.get_raw_uri(),
+            )
             return None
