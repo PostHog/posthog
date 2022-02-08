@@ -139,7 +139,3 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
             self.assertEqual(results[0].message, "Random error")
 
     return TestPluginLogEntry
-
-
-class TestEvent(factory_test_plugin_log_entry(PluginLogEntry.objects.create)):  # type: ignore
-    pass

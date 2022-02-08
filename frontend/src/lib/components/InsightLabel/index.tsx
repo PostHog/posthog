@@ -38,6 +38,7 @@ interface InsightsLabelProps {
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
     showEventName?: boolean // Override internally calculated to always show event name
+    showSingleName?: boolean // If label has default name and custom name, only show custom name. By default show both.
     pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
     pillMaxWidth?: number // Max width of each pill in px
 }
@@ -98,6 +99,7 @@ export function InsightLabel({
     onLabelClick,
     pillMidEllipsis = false,
     pillMaxWidth,
+    showSingleName = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -134,7 +136,11 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {action ? (
-                                <EntityFilterInfo filter={action} allowWrap={allowWrap} />
+                                <EntityFilterInfo
+                                    filter={action}
+                                    allowWrap={allowWrap}
+                                    showSingleName={showSingleName}
+                                />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}

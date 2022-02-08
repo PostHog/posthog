@@ -68,18 +68,6 @@ class TestFilters(PGTestFilters):
                 {"properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk, "operator": None},]},
             )
 
-    def test_simplify_not_ee(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
-        )
-        filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
-
-        self.assertEqual(
-            filter.simplify(self.team, is_clickhouse_enabled=False).properties_to_dict(),
-            {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
-        )
-
     def test_simplify_static_cohort(self):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})

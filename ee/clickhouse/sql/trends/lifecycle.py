@@ -106,7 +106,8 @@ FROM (
 
         SELECT start_of_period, count(DISTINCT person_id) counts, status
         FROM ({_LIFECYCLE_EVENTS_QUERY})
-        WHERE start_of_period <= toDateTime(%(date_to)s) AND start_of_period >= toDateTime(%(date_from)s)
+        WHERE start_of_period <= dateTrunc(%(interval)s, toDateTime(%(date_to)s))
+          AND start_of_period >= dateTrunc(%(interval)s, toDateTime(%(date_from)s))
         GROUP BY start_of_period, status
     )
     GROUP BY start_of_period, status

@@ -1,9 +1,7 @@
-import { BuiltLogic } from 'kea'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { trendsLogicType } from 'scenes/trends/trendsLogicType'
 import { InsightShortId } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -12,7 +10,7 @@ jest.mock('lib/api')
 const Insight123 = '123' as InsightShortId
 
 describe('trendsLogic', () => {
-    let logic: BuiltLogic<trendsLogicType>
+    let logic: ReturnType<typeof trendsLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights` || String(searchParams.short_id) === Insight123) {

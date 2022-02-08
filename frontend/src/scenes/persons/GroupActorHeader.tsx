@@ -21,7 +21,7 @@ export function GroupActorHeader({ actor }: GroupActorHeaderProps): JSX.Element 
 // Analogue to frontend/src/scenes/persons/PersonHeader.tsx#asDisplay
 export function groupDisplayId(groupKey: string, properties: Record<string, any>): string {
     if (properties.name) {
-        return properties.name.toString()
+        return String(properties.name)
     }
     return groupKey
 }

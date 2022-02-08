@@ -4,7 +4,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.utils import UUIDT
-from posthog.utils import is_clickhouse_enabled
 
 
 class PersonManager(models.Manager):
@@ -68,22 +67,21 @@ class Person(models.Model):
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
 
-                if is_clickhouse_enabled():
-                    from ee.clickhouse.models.person import create_person, create_person_distinct_id
+                from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
-                    create_person_distinct_id(
-                        team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
-                    )
-                    create_person_distinct_id(
-                        team_id=self.team_id,
-                        distinct_id=distinct_id,
-                        person_id=str(person.uuid),
-                        sign=1,
-                        version=pdi.version,
-                    )
-                    create_person(
-                        team_id=self.team_id, uuid=str(person.uuid),
-                    )
+                create_person_distinct_id(
+                    team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
+                )
+                create_person_distinct_id(
+                    team_id=self.team_id,
+                    distinct_id=distinct_id,
+                    person_id=str(person.uuid),
+                    sign=1,
+                    version=pdi.version,
+                )
+                create_person(
+                    team_id=self.team_id, uuid=str(person.uuid),
+                )
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)

@@ -32,6 +32,7 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     Licenses = 'Licenses',
     AsyncMigrations = 'AsyncMigrations',
+    DeadLetterQueue = 'DeadLetterQueue',
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
@@ -49,7 +50,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OnboardingSetup = 'OnboardingSetup',
     Personalization = 'Personalization',
-    APM = 'PerformanceWaterfall',
+    WebPerformance = 'WebPerformance',
 }
 
 export type SceneProps = Record<string, any>

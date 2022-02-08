@@ -1,5 +1,4 @@
 import { infiniteListLogic } from './infiniteListLogic'
-import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
@@ -8,7 +7,6 @@ import { mockEventDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
 import { AppContext } from '~/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { taxonomicFilterLogicType } from 'lib/components/TaxonomicFilter/taxonomicFilterLogicType'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsModel } from '~/models/actionsModel'
 
@@ -17,7 +15,7 @@ jest.mock('lib/api')
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('taxonomicFilterLogic', () => {
-    let logic: BuiltLogic<taxonomicFilterLogicType>
+    let logic: ReturnType<typeof taxonomicFilterLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {

@@ -42,12 +42,13 @@ export function InsightTooltip({
     seriesData = [],
     altTitle,
     altRightTitle,
-    renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
+    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
+            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
+    renderCount = (value: React.ReactNode) => <>{value}</>,
     hideColorCol = false,
     forceEntitiesAsColumns = false,
     rowCutoff = ROW_CUTOFF,
@@ -90,6 +91,7 @@ export function InsightTooltip({
                 truncatedCols.forEach((seriesColumn, colIdx) => {
                     columns.push({
                         key: `series-column-data-${colIdx}`,
+                        className: 'datum-counts-column',
                         align: 'right',
                         title:
                             (colIdx === 0 ? rightTitle : undefined) ||
@@ -100,6 +102,7 @@ export function InsightTooltip({
                                         action={seriesColumn.action}
                                         fallbackName={seriesColumn.label}
                                         hideBreakdown
+                                        showSingleName
                                         hideCompare
                                         hideIcon
                                         allowWrap
@@ -108,7 +111,11 @@ export function InsightTooltip({
                                     colIdx
                                 )),
                         render: function renderSeriesColumnData(_, datum) {
-                            return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
+                            return (
+                                <div className="series-data-cell">
+                                    {renderCount(datum.seriesData?.[colIdx]?.count ?? 0, datum, colIdx)}
+                                </div>
+                            )
                         },
                     })
                 })
@@ -158,6 +165,7 @@ export function InsightTooltip({
                         action={datum.action}
                         fallbackName={datum.label}
                         hideBreakdown
+                        showSingleName
                         hideCompare
                         hideIcon
                         allowWrap
@@ -174,8 +182,8 @@ export function InsightTooltip({
             width: 50,
             title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
             align: 'right',
-            render: function renderDatum(_, datum) {
-                return <div className="series-data-cell">{datum.count ?? 0}</div>
+            render: function renderDatum(_, datum, rowIdx) {
+                return <div className="series-data-cell">{renderCount(datum?.count ?? 0, datum, rowIdx)}</div>
             },
         })
 

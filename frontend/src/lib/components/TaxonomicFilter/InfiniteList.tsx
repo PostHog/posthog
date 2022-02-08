@@ -10,13 +10,13 @@ import {
     PropertyKeyInfo,
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
-import { useActions, useValues } from 'kea'
+import { Provider, useActions, useValues } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
+import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
@@ -26,6 +26,8 @@ import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+import { renderItemPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 
 enum ListTooltip {
     None = 0,
@@ -108,11 +110,13 @@ const renderItemContents = ({
 
     const isUnusedEventProperty =
         featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
-        listGroupType === TaxonomicFilterGroupType.EventProperties &&
+        (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
+            listGroupType === TaxonomicFilterGroupType.EventProperties) &&
         (item as PropertyDefinition).is_event_property !== null &&
         !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
+        listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
@@ -131,7 +135,7 @@ const renderItemContents = ({
     )
 }
 
-const renderItemPopup = (
+const renderItemPopupWithoutTaxonomy = (
     item: PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
     group: TaxonomicFilterGroup
@@ -196,8 +200,29 @@ const renderItemPopup = (
 const selectedItemHasPopup = (
     item?: PropertyDefinition | CohortType,
     listGroupType?: TaxonomicFilterGroupType,
-    group?: TaxonomicFilterGroup
+    group?: TaxonomicFilterGroup,
+    showNewPopups: boolean = false
 ): boolean => {
+    if (showNewPopups) {
+        return (
+            // NB: also update "renderItemPopup" above
+            !!item &&
+            !!group?.getValue(item) &&
+            !!listGroupType &&
+            ([
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.CustomEvents,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+            ].includes(listGroupType) ||
+                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+        )
+    }
+
     return (
         // NB: also update "renderItemPopup" above
         !!item &&
@@ -219,6 +244,7 @@ export function InfiniteList(): JSX.Element {
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -226,6 +252,7 @@ export function InfiniteList(): JSX.Element {
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalCount === 0 && !isLoading
+    const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -314,17 +341,28 @@ export function InfiniteList(): JSX.Element {
             )}
             {isActiveTab &&
             selectedItemInView &&
-            selectedItemHasPopup(selectedItem, listGroupType, group) &&
+            selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
-                      <div
-                          className="popper-tooltip click-outside-block Popup"
-                          ref={setPopperElement}
-                          style={styles.popper}
-                          {...attributes.popper}
-                      >
-                          {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
-                      </div>,
+                      <Provider>
+                          <div
+                              className="popper-tooltip click-outside-block Popup Popup__box"
+                              ref={setPopperElement}
+                              style={{ ...styles.popper, transition: 'none' }}
+                              {...attributes.popper}
+                          >
+                              {selectedItem && group
+                                  ? showNewPopups
+                                      ? renderItemPopup(
+                                            selectedItem,
+                                            listGroupType,
+                                            group,
+                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
+                                        )
+                                      : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
+                                  : null}
+                          </div>
+                      </Provider>,
                       document.querySelector('body') as HTMLElement
                   )
                 : null}

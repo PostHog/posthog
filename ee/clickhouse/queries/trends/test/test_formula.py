@@ -8,7 +8,6 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.test.base import APIBaseTest
 
 
@@ -17,7 +16,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFormula(AbstractIntervalTest, APIBaseTest):
+class TestFormula(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):

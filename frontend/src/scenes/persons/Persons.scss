@@ -1,36 +1,15 @@
 @import '~/vars';
 
-.person-detail {
-    .person-header {
-        svg {
-            height: 24px;
-        }
-        font-weight: bold;
-        font-size: 16px;
-    }
-
-    .item-group {
-        margin-top: $default_spacing;
-        padding-left: 4px;
-
-        label {
-            font-weight: bold;
-        }
-    }
-
-    .extra-ids {
-        cursor: pointer;
-        margin-left: 4px;
-        color: $primary;
-    }
-}
-
-.persons-page-props-table {
-    @media screen and (max-width: 1150px) {
-        table td,
-        table th {
-            max-width: 20px !important;
-            overflow: hidden;
-        }
+.extra-ids {
+    display: inline-flex;
+    align-items: center;
+    height: 1.25rem;
+    line-height: 1.125rem;
+    margin: 0 0 0 0.25rem;
+    padding: 0 0.25rem 0 0.375rem;
+    color: $primary;
+    cursor: pointer;
+    svg {
+        margin-left: 0.25rem;
     }
 }

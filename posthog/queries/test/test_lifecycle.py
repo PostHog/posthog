@@ -429,11 +429,8 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertTrue(
-                result[0]["days"]
-                == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
-                or result[0]["days"]
-                == ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+            self.assertEqual(
+                result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
 
             self.assertLifecycleResults(
@@ -442,7 +439,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
                     {"status": "new", "data": [0, 2, 0, 1, 0, 0]},
                     {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0]},
-                    {"status": "returning", "data": [0, 1, 1, 0, 1, 0]},
+                    {"status": "returning", "data": [1, 1, 1, 0, 1, 0]},
                 ],
             )
 

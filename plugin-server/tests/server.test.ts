@@ -60,6 +60,8 @@ describe('plugin server staleness check', () => {
                     lastActivity: expect.any(String),
                     lastActivityType: 'serverStart',
                     piscina: expect.any(String),
+                    isServerStale: true,
+                    timeSinceLastActivity: expect.any(Number),
                 },
             }
         )

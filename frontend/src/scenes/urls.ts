@@ -5,23 +5,24 @@ import { InstanceStatusTabName } from './instance/SystemStatus/systemStatusLogic
 
 export const urls = {
     default: () => '/',
-    notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
+    sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
-    insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
+    insightNew: (filters?: Partial<FilterType>) =>
+        `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
+        `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
     savedInsights: () => '/insights',
-    apm: () => '/apm/waterfall',
+    webPerformance: () => '/web-performance',
     sessionRecordings: () => '/recordings',
     person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
@@ -61,4 +62,5 @@ export const urls = {
     systemStatus: (tab?: InstanceStatusTabName) => (tab ? `/instance/status/${tab}` : '/instance/status'),
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     asyncMigrations: () => '/instance/async_migrations',
+    deadLetterQueue: () => '/instance/dead_letter_queue',
 }

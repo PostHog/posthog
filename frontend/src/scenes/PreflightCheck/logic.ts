@@ -41,7 +41,6 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
             (preflight): boolean =>
                 Boolean(preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length),
         ],
-        clickhouseEnabled: [(s) => [s.preflight], (preflight): boolean => !!preflight?.is_clickhouse_enabled],
         realm: [
             (s) => [s.preflight],
             (preflight): Realm | null => {
@@ -91,8 +90,6 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
                 posthog.register({
                     posthog_version: values.preflight.posthog_version,
                     realm: values.realm,
-                    is_clickhouse_enabled: values.preflight.is_clickhouse_enabled,
-                    ee_available: values.preflight.ee_available,
                     email_service_available: values.preflight.email_service_available,
                 })
 

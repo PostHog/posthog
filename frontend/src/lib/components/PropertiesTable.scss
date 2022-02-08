@@ -1,19 +1,17 @@
 @import '~/vars';
 
 .properties-table-key {
+    min-width: 12rem;
     display: flex;
     align-items: center;
-
-    .anticon-delete {
-        color: $primary;
-        margin-right: 4px;
-    }
+    justify-content: space-between;
 }
 
 .property-value-type {
     display: flex;
     align-items: center;
     width: fit-content;
+    height: 1.25rem;
     padding: 0.125rem 0.25rem;
     letter-spacing: 0.25px;
     border-radius: var(--radius);
@@ -30,6 +28,7 @@
 }
 
 .properties-table-value {
+    min-width: 12rem;
     max-width: fit-content;
     display: flex;
     align-items: center;

@@ -21,7 +21,7 @@
         "start:dev:ee": "KAFKA_ENABLED=true KAFKA_HOSTS=localhost:9092 yarn start:dev",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
-        "protobuf:compile": "cd src/config/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
+        "protobuf:compile": "cd src/config/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto --keep-case && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
         "compile": "yarn protobuf:compile && yarn typescript:compile",
@@ -35,9 +35,9 @@
         "setup:test:ee": "yarn setup:test:postgres && yarn setup:test:clickhouse",
         "setup:test:postgres": "cd .. && python manage.py setup_test_environment",
         "setup:test:clickhouse": "cd .. && unset KAFKA_URL && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && python manage.py migrate_clickhouse",
-        "services:start": "cd .. && docker-compose -f ee/docker-compose.ch.yml up zookeeper kafka clickhouse",
-        "services:stop": "cd .. && docker-compose -f ee/docker-compose.ch.yml down",
-        "services:clean": "cd .. && docker-compose -f ee/docker-compose.ch.yml rm -v zookeeper kafka clickhouse",
+        "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up zookeeper kafka clickhouse",
+        "services:stop": "cd .. && docker-compose -f docker-compose.dev.yml down",
+        "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v zookeeper kafka clickhouse",
         "services": "yarn services:stop && yarn services:clean && yarn services:start"
     },
     "bin": {

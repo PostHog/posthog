@@ -6,7 +6,6 @@ import { PopupProps } from '../Popup/Popup'
 export function More({ overlay }: Pick<PopupProps, 'overlay'>): JSX.Element {
     return (
         <LemonButtonWithPopup
-            compact
             data-attr="more-button"
             icon={<IconEllipsis />}
             type="stealth"

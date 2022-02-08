@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -17,6 +17,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { LemonDashboardHeader } from './LemonDashboardHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface Props {
     id?: string
@@ -48,7 +51,12 @@ function DashboardView(): JSX.Element {
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+    const { setDashboardMode, addGraph, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    useEffect(() => {
+        reportDashboardViewed()
+    }, [])
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -101,9 +109,11 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
+            {dashboardMode !== DashboardMode.Public &&
+                dashboardMode !== DashboardMode.Internal &&
+                (featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? <LemonDashboardHeader /> : <DashboardHeader />)}
             {receivedErrorsFromAPI ? (
-                <InsightErrorState title={'There was an error loading this dashboard'} />
+                <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
                 <EmptyDashboardComponent />
             ) : (

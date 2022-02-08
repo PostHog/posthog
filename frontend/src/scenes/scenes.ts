@@ -62,9 +62,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Events & Actions',
     },
-    [Scene.APM]: {
+    [Scene.WebPerformance]: {
         projectBased: true,
-        name: 'APM',
+        name: 'Web Performance',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
@@ -179,6 +179,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
     },
+    [Scene.DeadLetterQueue]: {
+        instanceLevel: true,
+    },
     // Personal routes
     [Scene.MySettings]: {
         personal: true,
@@ -217,7 +220,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
-    [urls.apm()]: Scene.APM,
+    [urls.webPerformance()]: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
@@ -241,6 +244,7 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes

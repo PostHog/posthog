@@ -33,6 +33,8 @@ interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
+    /* whether this table is below another insight or the insight is in table view */
+    isMainInsightView?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -53,7 +55,7 @@ export function DashboardInsightsTable({
 }): JSX.Element {
     return (
         <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
+            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -64,6 +66,7 @@ export function InsightsTable({
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
+    isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
@@ -177,7 +180,10 @@ export function InsightsTable({
             render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
                 const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
-                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                    <SeriesToggleWrapper
+                        id={item.id}
+                        toggleVisibility={isMainInsightView ? undefined : toggleVisibility}
+                    >
                         {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>
                 )
@@ -263,13 +269,13 @@ export function InsightsTable({
         <LemonTable
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
-            style={embedded ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={resultsLoading}
-            emptyState="No insight results yet…"
+            emptyState="No insight results"
             data-attr="insights-table-graph"
+            className="insights-table"
         />
     )
 }

@@ -30,7 +30,7 @@ def create_event_clickhouse(
     )
 
 
-class TestOrganizationUsageReport(ClickhouseTestMixin, factory_org_usage_report(create_person, create_event_clickhouse, send_all_org_usage_reports, {"EE_AVAILABLE": True, "USE_TZ": False, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE})):  # type: ignore
+class TestOrganizationUsageReport(ClickhouseTestMixin, factory_org_usage_report(create_person, create_event_clickhouse, send_all_org_usage_reports, {"USE_TZ": False, "PRIMARY_DB": AnalyticsDBMS.CLICKHOUSE})):  # type: ignore
     def test_groups_usage(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)

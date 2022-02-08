@@ -2,7 +2,6 @@ from freezegun import freeze_time
 
 from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person
 from posthog.models.event import Selector
-from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.test.base import BaseTest
 
 

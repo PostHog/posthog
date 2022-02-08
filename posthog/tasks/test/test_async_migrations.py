@@ -70,7 +70,7 @@ class TestAsyncMigrations(BaseTest):
         sm.refresh_from_db()
 
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertEqual(sm.current_operation_index, 4)
+        self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.progress, 100)
 
     @pytest.mark.ee

@@ -16,22 +16,13 @@ describe('<Person /> ', () => {
         helpers.setLocation('/person/01779064-53be-000c-683f-23b1a8c8eb4c')
     })
 
-    it('shows user properties and events', () => {
+    it('shows user properties', () => {
         mount()
 
         cy.wait('@api_person').map(helpers.getSearchParameters).should('eql', {
             distinct_id: '01779064-53be-000c-683f-23b1a8c8eb4c',
         })
 
-        cy.get('[data-test-person-details]').contains('smith.nunez@gmail.com').should('be.visible')
-
-        cy.wait('@api_event').map(helpers.getSearchParameters).should('eql', {
-            orderBy: '["-timestamp"]',
-            person_id: '1',
-            properties: '[]',
-            after: '2019-01-05T12:00:00.000Z',
-        })
-
-        cy.get('.event-row').should('have.length', 7)
+        cy.get('.page-title').contains('smith.nunez@gmail.com').should('be.visible')
     })
 })
