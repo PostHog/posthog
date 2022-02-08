@@ -1,4 +1,4 @@
-import { Row, Select } from 'antd'
+import { Card, Row, Select } from 'antd'
 import { IconOpenInNew } from 'lib/components/icons'
 import React, { useState } from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
@@ -14,8 +14,10 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
-        <>
-            <div className="card-secondary mb">Feature flag usage and implementation</div>
+        <Card
+            title={<span className="card-secondary">Feature flag usage and implementation</span>}
+            className="experiment-implementation-details"
+        >
             <Row justify="space-between" className="mb-05">
                 <div>
                     <span className="mr-05">Variant group</span>
@@ -49,6 +51,6 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                     <IconOpenInNew className="ml-05" />
                 </Row>
             </a>
-        </>
+        </Card>
     )
 }

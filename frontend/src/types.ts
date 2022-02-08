@@ -1433,7 +1433,7 @@ export interface ExperimentResults {
 }
 
 export interface SecondaryExperimentMetric {
-    name?: string
+    name: string
     filters: Partial<FilterType>
 }
 

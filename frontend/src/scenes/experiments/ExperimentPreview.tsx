@@ -5,7 +5,6 @@ import PropertyFilterButton from 'lib/components/PropertyFilters/components/Prop
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
 import { ActionFilter, Experiment, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
-import { ExperimentImplementationDetails } from './Experiment'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -55,14 +54,10 @@ export function ExperimentPreview({
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
     return (
-        <Row className="experiment-preview-row">
-            <Col span={experimentId === 'new' || editingExistingExperiment ? 24 : 12}>
-                <Row className="experiment-preview-row">
-                    {experimentId !== 'new' ? (
-                        <Col>
-                            <div className="card-secondary mb-05">Preview</div>
-                        </Col>
-                    ) : (
+        <Row>
+            <Col span={!experiment?.start_date && experimentId !== 'new' && !editingExistingExperiment ? 12 : 24}>
+                {experimentId === 'new' && (
+                    <Row className="experiment-preview-row">
                         <div>
                             <div>
                                 <b>Experiment preview</b>
@@ -73,8 +68,8 @@ export function ExperimentPreview({
                                 duration.{' '}
                             </div>
                         </div>
-                    )}
-                </Row>
+                    </Row>
+                )}
                 {(experimentId === 'new' || editingExistingExperiment) && (
                     <Row className="mb">
                         <Col span={24}>
@@ -122,7 +117,7 @@ export function ExperimentPreview({
                         </Col>
                     </Row>
                 )}
-                <Row className="experiment-preview-row">
+                <Row className={`experiment-preview-row ${experiment?.start_date ? 'mr' : ''}`}>
                     {experimentInsightType === InsightType.TRENDS ? (
                         <>
                             {!experiment?.start_date && (
@@ -274,10 +269,10 @@ export function ExperimentPreview({
                     </Row>
                 )}
             </Col>
-            {experimentId !== 'new' && !editingExistingExperiment && (
+
+            {experimentId !== 'new' && !editingExistingExperiment && !experiment?.start_date && (
                 <Col span={12} className="pl">
-                    {!experiment?.start_date && <ExperimentWorkflow />}
-                    <ExperimentImplementationDetails experiment={experiment} />
+                    <ExperimentWorkflow />
                 </Col>
             )}
         </Row>

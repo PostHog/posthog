@@ -45,6 +45,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
+import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -637,61 +638,133 @@ export function Experiment_(): JSX.Element {
                     <Row>
                         <Collapse className="full-width" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
-                                <ExperimentPreview
-                                    experiment={experimentData}
-                                    trendCount={trendCount}
-                                    trendExposure={experimentData?.parameters.recommended_running_time}
-                                    funnelSampleSize={experimentData?.parameters.recommended_sample_size}
-                                    funnelConversionRate={conversionRate}
-                                    funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
-                                />
-                                {experimentData?.secondary_metrics && (
-                                    <Row>
-                                        <div className="card-secondary">Secondary metrics</div>
-                                        <div>
-                                            {experimentData?.parameters?.feature_flag_variants?.map((variant, idx) => (
-                                                <li key={idx}>{variant.key}</li>
-                                            ))}
-                                        </div>
-                                    </Row>
-                                )}
-                                {experimentResults && (
-                                    <Col span={8} className="mt ml">
-                                        <div className="mb-05">
-                                            <b>Experiment progress</b>
-                                        </div>
-                                        <Progress
-                                            strokeWidth={20}
-                                            showInfo={false}
-                                            percent={experimentProgressPercent}
-                                            strokeColor="var(--success)"
+                                <Row>
+                                    <Col span={experimentData?.start_date ? 12 : 24}>
+                                        <ExperimentPreview
+                                            experiment={experimentData}
+                                            trendCount={trendCount}
+                                            trendExposure={experimentData?.parameters.recommended_running_time}
+                                            funnelSampleSize={experimentData?.parameters.recommended_sample_size}
+                                            funnelConversionRate={conversionRate}
+                                            funnelEntrants={
+                                                experimentData?.start_date ? funnelResultsPersonsTotal : entrants
+                                            }
                                         />
-                                        {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
-                                            <Row justify="space-between" className="mt-05">
-                                                <div>
-                                                    <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days running
-                                                </div>
-                                                <div>
-                                                    Goal: <b>{experimentData?.parameters?.recommended_running_time}</b>{' '}
-                                                    days
-                                                </div>
-                                            </Row>
-                                        )}
-                                        {experimentInsightType === InsightType.FUNNELS && (
-                                            <Row justify="space-between" className="mt-05">
-                                                <div>
-                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
-                                                </div>
-                                                <div>
-                                                    Goal: <b>{experimentData?.parameters?.recommended_sample_size}</b>{' '}
-                                                    participants
-                                                </div>
-                                            </Row>
-                                        )}
                                     </Col>
-                                )}
+                                    {!experimentResults && experimentData.start_date && (
+                                        <Col span={12}>
+                                            <ExperimentImplementationDetails experiment={experimentData} />
+                                        </Col>
+                                    )}
+                                    {(experimentResults || experimentData.secondary_metrics.length > 0) && (
+                                        <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
+                                            {!!experimentData?.secondary_metrics.length && (
+                                                <Col className="border-bottom">
+                                                    <Row align="middle" justify="space-between" className="mb-05">
+                                                        <div className="card-secondary">Secondary metrics</div>
+                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                            (variant, idx) => (
+                                                                <li
+                                                                    key={idx}
+                                                                    style={{
+                                                                        color: `${
+                                                                            experimentInsightType ===
+                                                                            InsightType.FUNNELS
+                                                                                ? getSeriesColor(
+                                                                                      getIndexForVariant(
+                                                                                          variant.key,
+                                                                                          InsightType.FUNNELS
+                                                                                      ) + 1
+                                                                                  ) // baseline takes 0th index
+                                                                                : getChartColors('white')[
+                                                                                      getIndexForVariant(
+                                                                                          variant.key,
+                                                                                          InsightType.TRENDS
+                                                                                      )
+                                                                                  ]
+                                                                        }`,
+                                                                    }}
+                                                                    className="pr"
+                                                                >
+                                                                    <span className="text-default">
+                                                                        {capitalizeFirstLetter(variant.key)}
+                                                                    </span>
+                                                                </li>
+                                                            )
+                                                        )}
+                                                    </Row>
+                                                    {experimentData?.secondary_metrics?.map((metric, idx) => (
+                                                        <Row
+                                                            className="border-top"
+                                                            key={idx}
+                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
+                                                        >
+                                                            {capitalizeFirstLetter(metric.name)}
+                                                        </Row>
+                                                    ))}
+                                                </Col>
+                                            )}
+                                            {experimentResults && (
+                                                <Col className="mt">
+                                                    <div className="mb-05">
+                                                        <b>Experiment progress</b>
+                                                    </div>
+                                                    <Progress
+                                                        strokeWidth={20}
+                                                        showInfo={false}
+                                                        percent={experimentProgressPercent}
+                                                        strokeColor="var(--success)"
+                                                    />
+                                                    {experimentInsightType === InsightType.TRENDS &&
+                                                        experimentData.start_date && (
+                                                            <Row justify="space-between" className="mt-05">
+                                                                <div>
+                                                                    <b>
+                                                                        {dayjs().diff(experimentData.start_date, 'day')}
+                                                                    </b>{' '}
+                                                                    days running
+                                                                </div>
+                                                                <div>
+                                                                    Goal:{' '}
+                                                                    <b>
+                                                                        {
+                                                                            experimentData?.parameters
+                                                                                ?.recommended_running_time
+                                                                        }
+                                                                    </b>{' '}
+                                                                    days
+                                                                </div>
+                                                            </Row>
+                                                        )}
+                                                    {experimentInsightType === InsightType.FUNNELS && (
+                                                        <Row justify="space-between" className="mt-05">
+                                                            <div>
+                                                                <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                            </div>
+                                                            <div>
+                                                                Goal:{' '}
+                                                                <b>
+                                                                    {
+                                                                        experimentData?.parameters
+                                                                            ?.recommended_sample_size
+                                                                    }
+                                                                </b>{' '}
+                                                                participants
+                                                            </div>
+                                                        </Row>
+                                                    )}
+                                                </Col>
+                                            )}
+                                        </Col>
+                                    )}
+                                </Row>
                             </Collapse.Panel>
                         </Collapse>
+                        {!experimentData?.start_date && (
+                            <div className="mt full-width">
+                                <ExperimentImplementationDetails experiment={experimentData} />
+                            </div>
+                        )}
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
@@ -767,15 +840,12 @@ export function Experiment_(): JSX.Element {
                                     }
                                 </Row>
                             </>
-                        ) : experimentResultsLoading ? (
-                            <div className="text-center">
-                                <Spinner />
-                            </div>
                         ) : (
-                            <span style={{ fontWeight: 500 }}>
-                                There are no results for this experiment yet.{' '}
-                                {!experimentData.start_date && 'Launch this experiment to start it!'}
-                            </span>
+                            experimentResultsLoading && (
+                                <div className="text-center">
+                                    <Spinner />
+                                </div>
+                            )
                         )}
                         {experimentResults ? (
                             <BindLogic
@@ -807,25 +877,23 @@ export function Experiment_(): JSX.Element {
                                 </div>
                             </BindLogic>
                         ) : (
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    marginTop: 16,
-                                    background: '#FAFAF9',
-                                    border: '1px solid var(--border)',
-                                    width: '100%',
-                                    minHeight: 320,
-                                    fontSize: 24,
-                                }}
-                            >
-                                {experimentResultsLoading ? (
-                                    <Spinner />
-                                ) : (
-                                    <b>There are no results for this experiment yet.</b>
-                                )}
-                            </div>
+                            experimentData.start_date && (
+                                <>
+                                    <div className="no-experiment-results">
+                                        {experimentResultsLoading ? (
+                                            <Spinner />
+                                        ) : (
+                                            <div className="text-center">
+                                                <b>There are no results for this experiment yet.</b>
+                                                <div className="text-default">
+                                                    Double check your feature flag implementation if you're still not
+                                                    seeing results.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )
                         )}
                     </div>
                 </div>
