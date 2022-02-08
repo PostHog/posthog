@@ -56,8 +56,8 @@ class Dashboard(models.Model):
         if (
             # Checks can be skipped if the dashboard in on the lowest restriction level
             self.effective_restriction_level == self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-            # Users with inherent restriction rights can do anything
-            or self.does_user_have_inherent_restriction_rights(user_id)
+            # Users with restriction rights can do anything
+            or self.can_user_restrict(user_id)
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
@@ -74,7 +74,8 @@ class Dashboard(models.Model):
             return True
         return self.get_effective_privilege_level(user_id) >= self.PrivilegeLevel.CAN_EDIT
 
-    def does_user_have_inherent_restriction_rights(self, user_id: int) -> bool:
+    def can_user_restrict(self, user_id: int) -> bool:
+        # Sync conditions with frontend hasInherentRestrictionsRights
         from posthog.models.organization import OrganizationMembership
 
         # The owner (aka creator) has full permissions

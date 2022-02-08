@@ -1,8 +1,6 @@
 import json
-from re import I
 from typing import Any, Dict, Type
 
-from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
@@ -38,7 +36,6 @@ from posthog.api.insight_serializers import (
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
-from posthog.celery import update_cache_item_task
 from posthog.constants import (
     FROM_DASHBOARD,
     INSIGHT,
@@ -53,11 +50,11 @@ from posthog.constants import (
 from posthog.decorators import CacheType, cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Event, Filter, Insight, Team
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries import paths, retention, stickiness, trends
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -98,6 +95,7 @@ class InsightSerializer(InsightBasicSerializer):
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    effective_privilege_level = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -126,6 +124,8 @@ class InsightSerializer(InsightBasicSerializer):
             "last_modified_at",
             "last_modified_by",
             "is_sample",
+            "effective_restriction_level",
+            "effective_privilege_level",
         ]
         read_only_fields = (
             "created_at",
@@ -135,6 +135,8 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "updated_at",
             "is_sample",
+            "effective_restriction_level",
+            "effective_privilege_level",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
@@ -189,6 +191,9 @@ class InsightSerializer(InsightBasicSerializer):
             insight.refresh_from_db()
         return None
 
+    def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
+        return insight.get_effective_privilege_level(self.context["request"].user)
+
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
@@ -196,7 +201,9 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Insight.objects.all().prefetch_related("dashboard", "created_by")
+    queryset = Insight.objects.all().prefetch_related(
+        "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
+    )
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]

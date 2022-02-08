@@ -1,14 +1,15 @@
+import clsx from 'clsx'
 import React from 'react'
 import { ProfilePicture } from '.'
 import { Tooltip } from '../Tooltip'
 
-export interface ProfileBubblesProps {
+export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
     people: { email: string; name?: string; title?: string }[]
     tooltip?: string
     limit?: number
 }
 
-export function ProfileBubbles({ people, tooltip, limit = 6 }: ProfileBubblesProps): JSX.Element {
+export function ProfileBubbles({ people, tooltip, limit = 6, ...divProps }: ProfileBubblesProps): JSX.Element {
     const overflowing = people.length > limit
 
     let shownPeople: ProfileBubblesProps['people'] = people
@@ -23,7 +24,7 @@ export function ProfileBubbles({ people, tooltip, limit = 6 }: ProfileBubblesPro
 
     return (
         <Tooltip title={tooltip} overlayStyle={{ maxWidth: 'none' }}>
-            <div className="ProfileBubbles">
+            <div className={clsx('ProfileBubbles', !!divProps.onClick && 'cursor-pointer')} {...divProps}>
                 {shownPeople.map(({ email, name, title }) => (
                     <ProfilePicture key={email} name={name} email={email} title={title || name || email} size="md" />
                 ))}

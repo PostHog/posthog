@@ -683,6 +683,8 @@ export interface InsightModel {
     tags: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    effective_restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
