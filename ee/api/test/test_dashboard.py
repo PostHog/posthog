@@ -114,7 +114,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertDictContainsSubset(
             {
-                "detail": "Only the dashboard owner and project admins have the inherent restriction rights required to change the dashboard's restriction level."
+                "detail": "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             },
             response_data,
         )

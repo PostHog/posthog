@@ -10,9 +10,18 @@ export interface ProfilePictureProps {
     showName?: boolean
     style?: React.CSSProperties
     className?: string
+    title?: string
 }
 
-export function ProfilePicture({ name, email, size, showName, style, className }: ProfilePictureProps): JSX.Element {
+export function ProfilePicture({
+    name,
+    email,
+    size,
+    showName,
+    style,
+    className,
+    title,
+}: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
     const pictureClass = clsx('profile-picture', size, className)
 
@@ -25,7 +34,7 @@ export function ProfilePicture({ name, email, size, showName, style, className }
                 className={pictureClass}
                 src={gravatarUrl}
                 onError={() => setDidImageError(true)}
-                title={`This is ${email}'s Gravatar.`}
+                title={title || `This is ${email}'s Gravatar.`}
                 alt=""
                 style={style}
             />
@@ -33,7 +42,7 @@ export function ProfilePicture({ name, email, size, showName, style, className }
     } else {
         const initialLetter = name ? name[0]?.toUpperCase() : email ? email[0]?.toUpperCase() : '?'
         pictureComponent = (
-            <div className={pictureClass} style={style}>
+            <div className={pictureClass} style={style} title={title}>
                 {initialLetter}
             </div>
         )
