@@ -29,7 +29,7 @@ from ee.kafka_client.client import can_connect as can_connect_to_kafka
 
 ServiceRole = Literal["events", "web", "worker"]
 
-service_dependendies: Dict[ServiceRole, List[str]] = {
+service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
     "web": ["http", "postgres", "postgres_migrations_uptodate"],
     "worker": ["http", "postgres", "postgres_migrations_uptodate"],
@@ -82,7 +82,7 @@ def readyz(request):
         # If we have a role, then limit the checks to a subset defined by the
         # service_dependencies for this specific role, defaulting to all if we
         # don't find a lookup
-        dependencies = service_dependendies.get(role, checks.keys())
+        dependencies = service_dependencies.get(role, checks.keys())
         checks = {name: result for name, result in checks.items() if name in dependencies}
 
     status = 200 if all(check_status for name, check_status in checks.items() if name not in exclude) else 503
