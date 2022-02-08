@@ -20,6 +20,9 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Key',
             dataIndex: 'key',
+            render: function render(value) {
+                return <code>{value}</code>
+            },
         },
         {
             title: 'Description',
@@ -28,13 +31,15 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Value',
             render: function renderValue(_, record) {
-                return RenderMetricValue({ value: record.value, key: record.key })
+                return RenderMetricValue({ value: record.value, key: record.key, emptyNullLabel: 'Unset' })
             },
+            width: 300,
         },
     ]
 
     const envColumns: LemonTableColumns<EnvironmentConfigOption> = [
         {
+            key: 'metric',
             title: 'Metric',
             dataIndex: 'metric',
         },

@@ -30,7 +30,18 @@ export type InstanceStatusTabName = 'overview' | 'internal_metrics' | 'configura
  * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
  * For example: async migrations settings are handled in their own page.
  */
-const EDITABLE_INSTANCE_SETTINGS = ['AUTO_START_ASYNC_MIGRATIONS']
+const EDITABLE_INSTANCE_SETTINGS = [
+    'RECORDINGS_TTL_WEEKS',
+    'EMAIL_ENABLED',
+    'EMAIL_HOST',
+    'EMAIL_PORT',
+    'EMAIL_HOST_USER',
+    'EMAIL_HOST_PASSWORD',
+    'EMAIL_USE_TLS',
+    'EMAIL_USE_SSL',
+    'EMAIL_DEFAULT_FROM',
+    'EMAIL_REPLY_TO',
+]
 
 export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName>>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
