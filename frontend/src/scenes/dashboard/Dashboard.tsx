@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -52,8 +52,12 @@ function DashboardView(): JSX.Element {
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, setDates } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    useEffect(() => {
+        reportDashboardViewed()
+    }, [])
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal

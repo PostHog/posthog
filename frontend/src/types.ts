@@ -460,12 +460,12 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter extends EntityFilter {
-    funnel_from_step: number
-    funnel_to_step: number
+export interface FunnelStepRangeEntityFilter {
+    funnel_from_step?: number
+    funnel_to_step?: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
     id?: number
@@ -1422,7 +1422,7 @@ export interface Experiment {
     start_date?: string
     end_date?: string
     archived?: boolean
-    secondary_metrics: FilterType[]
+    secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1434,9 +1434,12 @@ export interface ExperimentResults {
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
 }
 
 export interface SecondaryExperimentMetric {
+    name?: string
     filters: Partial<FilterType>
 }
 

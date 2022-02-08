@@ -103,7 +103,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
     display = serializers.ChoiceField(
         choices=get_args(DISPLAY_TYPES),
         required=False,
-        default="ActionsLineGraphLinear",
+        default="ActionsLineGraph",
         help_text="How to display the data. Will change how the data is returned.",
     )
 
