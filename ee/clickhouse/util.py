@@ -26,14 +26,6 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     @contextmanager
-    def _assertNumQueries(self, func):
-        yield
-
-    # Ignore assertNumQueries in clickhouse tests
-    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
-        return self._assertNumQueries(func)
-
-    @contextmanager
     def capture_select_queries(self):
         queries = []
         original_get_client = ch_pool.get_client
