@@ -8,6 +8,7 @@ def test_system_status(db):
         "clickhouse_event_count",
         "clickhouse_event_count_last_month",
         "clickhouse_event_count_month_to_date",
+        "clickhouse_billing_event_count_last_30_days",
         "clickhouse_disk_0_free_space",
         "clickhouse_disk_0_total_space",
         "clickhouse_table_sizes",
@@ -16,7 +17,6 @@ def test_system_status(db):
         "dead_letter_queue_size",
         "dead_letter_queue_events_last_day",
         "dead_letter_queue_ratio_ok",
-        "clickhouse_billing_event_count_last_30_days",
     ]
-    assert len(results[6]["subrows"]["rows"]) > 0
     assert len(results[7]["subrows"]["rows"]) > 0
+    assert len(results[8]["subrows"]["rows"]) > 0
