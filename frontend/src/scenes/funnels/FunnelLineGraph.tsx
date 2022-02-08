@@ -14,7 +14,7 @@ export function FunnelLineGraph({
     color = 'white',
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps, insight, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
@@ -29,7 +29,7 @@ export function FunnelLineGraph({
             isInProgress={incompletenessOffsetFromEnd < 0}
             insightId={insight.id}
             inSharedMode={!!inSharedMode}
-            showPersonsModal={!isViewedOnDashboard && showPersonsModal}
+            showPersonsModal={showPersonsModal}
             tooltip={{
                 showHeader: false,
                 hideColorCol: true,
@@ -47,7 +47,7 @@ export function FunnelLineGraph({
             labelGroupType={filters.aggregation_group_type_index ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                isViewedOnDashboard || !showPersonsModal
+                !showPersonsModal
                     ? undefined
                     : (payload) => {
                           const { points, index } = payload

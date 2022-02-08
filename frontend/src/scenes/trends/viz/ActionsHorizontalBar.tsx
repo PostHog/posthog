@@ -29,7 +29,7 @@ export function ActionsHorizontalBar({
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight, hiddenLegendKeys, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results, labelGroupType } = useValues(logic)
@@ -100,10 +100,10 @@ export function ActionsHorizontalBar({
             insightId={insight.id}
             totalValue={total}
             hiddenLegendKeys={hiddenLegendKeys}
-            showPersonsModal={!isViewedOnDashboard && showPersonsModal}
+            showPersonsModal={showPersonsModal}
             interval={filtersParam?.interval}
             onClick={
-                isViewedOnDashboard || !showPersonsModal || filtersParam.formula
+                !showPersonsModal || filtersParam.formula
                     ? undefined
                     : (point) => {
                           const { value: pointValue, index, points, seriesId } = point

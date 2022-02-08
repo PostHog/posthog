@@ -10,7 +10,6 @@ import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsPie({
-    dashboardItemId,
     filters: filtersParam,
     color = 'white',
     inSharedMode,
@@ -18,7 +17,7 @@ export function ActionsPie({
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results, labelGroupType, hiddenLegendKeys } = useValues(logic)
@@ -70,9 +69,9 @@ export function ActionsPie({
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
                         insightId={insight.id}
-                        showPersonsModal={!isViewedOnDashboard && showPersonsModal}
+                        showPersonsModal={showPersonsModal}
                         onClick={
-                            dashboardItemId || !showPersonsModal || filtersParam.formula
+                            !showPersonsModal || filtersParam.formula
                                 ? undefined
                                 : (payload) => {
                                       const { points, index, seriesId } = payload
