@@ -136,8 +136,6 @@ test('stateless plugins', async () => {
 
     expect(pluginConfigTeam1.vm!.getVm()).toBeDefined()
     expect(pluginConfigTeam2.vm!.getVm()).toBeDefined()
-
-    expect(pluginConfigTeam1.vm!.getVm()).toEqual(pluginConfigTeam2.vm!.getVm())
 })
 
 test('plugin returns null', async () => {
