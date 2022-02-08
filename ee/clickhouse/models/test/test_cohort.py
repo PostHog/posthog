@@ -352,7 +352,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people(batch_size=2, pg_batch_size=1)
+        cohort1.calculate_people(new_version=cohort1.version, batch_size=2, pg_batch_size=1)
 
         self.assertEqual(len(cohort1.people.all()), 15)
 
