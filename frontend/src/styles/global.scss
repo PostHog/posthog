@@ -360,6 +360,11 @@ code.code {
     align-items: center;
 }
 
+.border-all {
+    border: 1px solid $border;
+    border-radius: 4px;
+}
+
 // Vendor-specific adjustments
 
 input::-ms-clear {

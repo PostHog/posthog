@@ -157,10 +157,10 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 },
                 setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    const metrics = secondaryMetrics.map((metric) => metric)
                     return {
                         ...state,
-                        parameters: { ...state?.parameters, secondary_metrics: metrics },
+                        secondary_metrics: metrics,
                     }
                 },
                 resetNewExperiment: () => ({
@@ -440,9 +440,8 @@ export const experimentLogic = kea<experimentLogicType>({
         parsedSecondaryMetrics: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics: Partial<FilterType>[] =
-                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
-                return secondaryMetrics.map((metric) => ({ filters: metric }))
+                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics
             },
         ],
         minimumDetectableChange: [
@@ -654,6 +653,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
+                    actions.setSecondaryMetrics([])
                 }
 
                 actions.setEditExperiment(false)
