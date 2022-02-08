@@ -1,18 +1,4 @@
-import {
-    Button,
-    Card,
-    Col,
-    Collapse,
-    Form,
-    Input,
-    InputNumber,
-    Progress,
-    Row,
-    Select,
-    Slider,
-    Tag,
-    Tooltip,
-} from 'antd'
+import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,19 +11,17 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
-    ActionFilter as ActionFilterType,
     FilterType,
     FunnelStep,
     FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
     PropertyFilter,
-    Experiment,
 } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
+import { IconJavascript } from 'lib/components/icons'
 import {
     CaretDownOutlined,
     PlusOutlined,
@@ -47,9 +31,7 @@ import {
     CloseOutlined,
 } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
-import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -58,12 +40,11 @@ import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ExperimentPreview } from './ExperimentPreview'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -664,6 +645,16 @@ export function Experiment_(): JSX.Element {
                                     funnelConversionRate={conversionRate}
                                     funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
                                 />
+                                {experimentData?.secondary_metrics && (
+                                    <Row>
+                                        <div className="card-secondary">Secondary metrics</div>
+                                        <div>
+                                            {experimentData?.parameters?.feature_flag_variants?.map((variant, idx) => (
+                                                <li key={idx}>{variant.key}</li>
+                                            ))}
+                                        </div>
+                                    </Row>
+                                )}
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
                                         <div className="mb-05">
@@ -854,322 +845,5 @@ export function CodeLanguageSelect(): JSX.Element {
                 </Row>
             </Select.Option>
         </Select>
-    )
-}
-
-interface ExperimentPreviewProps {
-    experiment: Partial<Experiment> | null
-    trendCount: number
-    trendExposure?: number
-    funnelSampleSize?: number
-    funnelConversionRate: number
-    funnelEntrants?: number
-}
-
-export function ExperimentPreview({
-    experiment,
-    trendCount,
-    funnelConversionRate,
-    trendExposure,
-    funnelSampleSize,
-    funnelEntrants,
-}: ExperimentPreviewProps): JSX.Element {
-    const {
-        experimentInsightType,
-        experimentId,
-        editingExistingExperiment,
-        minimumDetectableChange,
-        expectedRunningTime,
-    } = useValues(experimentLogic)
-    const { setNewExperimentData } = useActions(experimentLogic)
-    const [currentVariant, setCurrentVariant] = useState('control')
-    const sliderMaxValue =
-        experimentInsightType === InsightType.FUNNELS
-            ? 100 - funnelConversionRate < 50
-                ? 100 - funnelConversionRate
-                : 50
-            : 50
-
-    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
-
-    let runningTime = 0
-    if (experiment?.start_date) {
-        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
-    } else {
-        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
-    }
-
-    const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
-    const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
-
-    return (
-        <Row className="experiment-preview-row">
-            <Col span={experimentId === 'new' || editingExistingExperiment ? 24 : 12}>
-                <Row className="experiment-preview-row">
-                    {experimentId !== 'new' ? (
-                        <Col>
-                            <div className="card-secondary mb-05">Preview</div>
-                        </Col>
-                    ) : (
-                        <div>
-                            <div>
-                                <b>Experiment preview</b>
-                            </div>
-                            <div className="text-muted">
-                                Here are the baseline metrics for your experiment. Adjust your minimum detectible
-                                threshold to adjust for the smallest conversion value you’ll accept, and the experiment
-                                duration.{' '}
-                            </div>
-                        </div>
-                    )}
-                </Row>
-                {(experimentId === 'new' || editingExistingExperiment) && (
-                    <Row className="mb">
-                        <Col span={24}>
-                            <div>
-                                <b>Minimum acceptable improvement</b>
-                                <Tooltip
-                                    title={
-                                        'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
-                                    }
-                                >
-                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                                </Tooltip>
-                            </div>
-                            <Row className="mde-slider">
-                                <Col span={8}>
-                                    <Slider
-                                        defaultValue={5}
-                                        value={minimumDetectableChange}
-                                        min={1}
-                                        max={sliderMaxValue}
-                                        trackStyle={{ background: 'var(--primary)' }}
-                                        handleStyle={{ background: 'var(--primary)' }}
-                                        onChange={(value) => {
-                                            setNewExperimentData({
-                                                parameters: { minimum_detectable_effect: value },
-                                            })
-                                        }}
-                                        tipFormatter={(value) => `${value}%`}
-                                    />
-                                </Col>
-                                <InputNumber
-                                    min={1}
-                                    max={sliderMaxValue}
-                                    defaultValue={5}
-                                    formatter={(value) => `${value}%`}
-                                    style={{ margin: '0 16px' }}
-                                    value={minimumDetectableChange}
-                                    onChange={(value) => {
-                                        setNewExperimentData({
-                                            parameters: { minimum_detectable_effect: value },
-                                        })
-                                    }}
-                                />
-                            </Row>
-                        </Col>
-                    </Row>
-                )}
-                <Row className="experiment-preview-row">
-                    {experimentInsightType === InsightType.TRENDS ? (
-                        <>
-                            {!experiment?.start_date && (
-                                <>
-                                    <Col span={6}>
-                                        <div className="card-secondary">Baseline Count</div>
-                                        <div className="l4">{trendCount}</div>
-                                    </Col>
-                                    <Col span={6}>
-                                        <div className="card-secondary">Minimum Acceptable Count</div>
-                                        <div className="l4">
-                                            {trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100))}
-                                        </div>
-                                    </Col>
-                                </>
-                            )}
-                            <Col span={12}>
-                                <div className="card-secondary">Recommended running time</div>
-                                <div>
-                                    <span className="l4">~{trendExposure}</span> days
-                                </div>
-                            </Col>
-                        </>
-                    ) : (
-                        <>
-                            {!experiment?.start_date && (
-                                <>
-                                    <Col span={12}>
-                                        <div className="card-secondary">Baseline Conversion Rate</div>
-                                        <div className="l4">{funnelConversionRate.toFixed(1)}%</div>
-                                    </Col>
-                                    <Col span={12}>
-                                        <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
-                                        <div className="l4">
-                                            {(funnelConversionRate + minimumDetectableChange).toFixed(1)}%
-                                        </div>
-                                    </Col>
-                                </>
-                            )}
-                            <Col span={12}>
-                                <div className="card-secondary">Recommended Sample Size</div>
-                                <div className="pb">
-                                    <span className="l4">~{funnelSampleSize}</span> persons
-                                </div>
-                            </Col>
-                            {!experiment?.start_date && (
-                                <Col span={12}>
-                                    <div className="card-secondary">Recommended running time</div>
-                                    <div>
-                                        <span className="l4">~{runningTime}</span> days
-                                    </div>
-                                </Col>
-                            )}
-                        </>
-                    )}
-                    <Row className="full-width mt">
-                        <Col span={12}>
-                            <div className="card-secondary">Experiment variants</div>
-                            <ul className="variants-list">
-                                {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <li key={idx}>{variant.key}</li>
-                                    )
-                                )}
-                            </ul>
-                        </Col>
-                        <Col span={12}>
-                            <div className="card-secondary">Participants</div>
-                            <div>
-                                {!!experiment?.filters?.properties?.length ? (
-                                    <div>
-                                        {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                            return <PropertyFilterButton key={item.key} item={item} />
-                                        })}
-                                    </div>
-                                ) : (
-                                    '100% of users'
-                                )}
-                            </div>
-                        </Col>
-                    </Row>
-                    <Row>
-                        {experimentId !== 'new' && !editingExistingExperiment && (
-                            <>
-                                <Col className="mr">
-                                    <div className="card-secondary mt">Start date</div>
-                                    {experiment?.start_date ? (
-                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                    ) : (
-                                        <span className="description">Not started yet</span>
-                                    )}
-                                </Col>
-                                {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
-                                    <Col className="mr">
-                                        <div className="card-secondary mt">Expected end date</div>
-                                        <span>
-                                            {expectedEndDate.isAfter(dayjs())
-                                                ? expectedEndDate.format('D MMM YYYY')
-                                                : dayjs().format('D MMM YYYY')}
-                                        </span>
-                                    </Col>
-                                ) : null}
-                                {/* The null prevents showing a 0 while loading */}
-                            </>
-                        )}
-                        {experiment?.end_date && (
-                            <Col className="ml">
-                                <div className="card-secondary mt">Completed date</div>
-                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
-                            </Col>
-                        )}
-                    </Row>
-                </Row>
-                {experimentId !== 'new' && !editingExistingExperiment && (
-                    <Row className="experiment-preview-row">
-                        <Col>
-                            <div className="card-secondary mb-05">
-                                {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
-                            </div>
-                            {(
-                                [
-                                    ...(experiment?.filters?.events || []),
-                                    ...(experiment?.filters?.actions || []),
-                                ] as ActionFilterType[]
-                            )
-                                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                                .map((event: ActionFilterType, idx: number) => (
-                                    <Col key={idx} className="mb-05">
-                                        <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">
-                                                {experimentInsightType === InsightType.FUNNELS
-                                                    ? (event.order || 0) + 1
-                                                    : idx + 1}
-                                            </div>
-                                            <b>
-                                                <InsightLabel
-                                                    action={event}
-                                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
-                                                    hideIcon
-                                                />
-                                            </b>
-                                        </Row>
-                                        {event.properties?.map((prop: PropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} />
-                                        ))}
-                                    </Col>
-                                ))}
-                        </Col>
-                    </Row>
-                )}
-            </Col>
-            {experimentId !== 'new' && !editingExistingExperiment && (
-                <Col span={12} className="pl">
-                    {!experiment?.start_date && <ExperimentWorkflow />}
-
-                    <div className="card-secondary mb">Feature flag usage and implementation</div>
-                    <Row justify="space-between" className="mb-05">
-                        <div>
-                            <span className="mr-05">Variant group</span>
-                            <Select
-                                onChange={setCurrentVariant}
-                                defaultValue={'control'}
-                                suffixIcon={<CaretDownOutlined />}
-                            >
-                                {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Select.Option key={idx} value={variant.key}>
-                                            {variant.key}
-                                        </Select.Option>
-                                    )
-                                )}
-                            </Select>
-                        </div>
-                        <div>
-                            <CodeLanguageSelect />
-                        </div>
-                    </Row>
-                    <b>Implement your experiment in code</b>
-                    <CodeSnippet language={Language.JavaScript} wrap>
-                        {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
-    // where '${currentVariant}' is the variant, run your code here
-}`}
-                    </CodeSnippet>
-                    <b>Test that it works</b>
-                    <CodeSnippet language={Language.JavaScript}>
-                        {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
-                    </CodeSnippet>
-                    <a
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        href="https://posthog.com/docs/user-guides/feature-flags"
-                    >
-                        <Row align="middle">
-                            Experiment implementation guide
-                            <IconOpenInNew className="ml-05" />
-                        </Row>
-                    </a>
-                </Col>
-            )}
-        </Row>
     )
 }
