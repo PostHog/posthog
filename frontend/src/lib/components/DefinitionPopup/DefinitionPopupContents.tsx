@@ -18,7 +18,6 @@ import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
 import { Button, Checkbox, Input } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
-import { DefinitionOwnerDropdown } from 'scenes/events/definitions/DefinitionOwnerDropdown'
 import { CSSTransition } from 'react-transition-group'
 
 function TaxonomyIntroductionSection(): JSX.Element {
@@ -284,10 +283,7 @@ function DefinitionEdit(): JSX.Element {
                             <span className="label-text">Owner</span>
                             <span className="text-muted">(optional)</span>
                         </label>
-                        <DefinitionOwnerDropdown
-                            className="definition-popup-edit-form-value"
-                            owner={localDefinition.owner ?? null}
-                        />
+                        <DefinitionPopup.OwnerDropdown />
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (

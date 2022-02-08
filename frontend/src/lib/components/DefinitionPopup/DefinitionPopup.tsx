@@ -9,7 +9,8 @@ import { KeyMapping, UserBasicType } from '~/types'
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
-import { Divider, DividerProps } from 'antd'
+import { Divider, DividerProps, Select } from 'antd'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
@@ -183,6 +184,33 @@ function Card({ title, value }: { title: string; value: React.ReactNode }): JSX.
     )
 }
 
+function OwnerDropdown(): JSX.Element {
+    const { members } = useValues(membersLogic)
+    const { localDefinition } = useValues(definitionPopupLogic)
+    const { setLocalDefinition } = useActions(definitionPopupLogic)
+
+    return (
+        <Select
+            className={'definition-popup-owner-select definition-popup-edit-form-value'}
+            placeholder={<Owner user={'owner' in localDefinition ? localDefinition?.owner : null} />}
+            style={{ minWidth: 200 }}
+            dropdownClassName="owner-option"
+            onChange={(val) => {
+                const newOwner = members.find((mem) => mem.user.id === val)?.user
+                if (newOwner) {
+                    setLocalDefinition({ owner: newOwner })
+                }
+            }}
+        >
+            {members.map((member) => (
+                <Select.Option key={member.user.id} value={member.user.id}>
+                    <Owner user={member.user} />
+                </Select.Option>
+            ))}
+        </Select>
+    )
+}
+
 export const DefinitionPopup = {
     Wrapper,
     Header,
@@ -194,4 +222,5 @@ export const DefinitionPopup = {
     Grid,
     Section,
     Card,
+    OwnerDropdown,
 }

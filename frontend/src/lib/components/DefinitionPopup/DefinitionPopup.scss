@@ -202,6 +202,15 @@
 
         .definition-popup-edit-form-value {
             margin-bottom: 16px;
+
+            &.definition-popup-owner-select {
+                .ant-select-selector {
+                    .ant-select-selection-placeholder {
+                        color: black;
+                        font-weight: normal;
+                    }
+                }
+            }
         }
 
         .definition-popup-edit-form-buttons {
