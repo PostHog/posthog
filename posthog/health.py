@@ -19,20 +19,29 @@
 
 from typing import Dict, List, Literal, get_args
 
+from clickhouse_driver.errors import Error as ClickhouseError
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import JsonResponse
+from kombu.exceptions import ConnectionError
 
+from ee.clickhouse.client import sync_execute
 from ee.kafka_client.client import can_connect as can_connect_to_kafka
+from posthog.celery import app
 
 ServiceRole = Literal["events", "web", "worker"]
 
 service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
+    # NOTE: we do not include clickhouse for web, as even without clickhouse we
+    # want to be able to display something to the user.
     "web": ["http", "postgres", "postgres_migrations_uptodate"],
-    "worker": ["http", "postgres", "postgres_migrations_uptodate"],
+    # NOTE: we can be pretty picky about what the worker needs as by its nature
+    # of reading from a durable queue rather that being required to perform
+    # request/response, we are more resilient to service downtime.
+    "worker": ["http", "postgres", "postgres_migrations_uptodate", "clickhouse", "celery_broker"],
 }
 
 
@@ -73,9 +82,11 @@ def readyz(request):
 
     checks = {
         "http": True,
+        "clickhouse": is_clickhouse_connected(),
         "postgres": is_postgres_connected(),
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate(),
         "kafka_connected": is_kafka_connected(),
+        "celery_broker": is_celery_broker_connected(),
     }
 
     if role:
@@ -130,3 +141,32 @@ def are_postgres_migrations_uptodate() -> bool:
     except DjangoDatabaseError:
         return False
     return False if plan else True
+
+
+def is_clickhouse_connected() -> bool:
+    """
+    Check we can perform a super simple Clickhouse query.
+
+    Returns `True` if so, `False` otherwise
+    """
+    try:
+        sync_execute("SELECT 1")
+    except ClickhouseError:
+        return False
+
+    return True
+
+
+def is_celery_broker_connected() -> bool:
+    """
+    Check we can connect to the celery broker.
+
+    Returns `True` if so, `False` otherwise
+    """
+    try:
+        # NOTE: Possibly not the best way to test that celery broker, it is
+        # possibly testing more than just is the broker reachable.
+        app.connection_for_read().ensure_connection(timeout=0, max_retries=0)
+    except ConnectionError:
+        return False
+    return True
