@@ -693,13 +693,14 @@ export function Experiment_(): JSX.Element {
                                                             )
                                                         )}
                                                     </Row>
-                                                    {experimentData?.secondary_metrics?.map((metric, idx) => (
+                                                    {experimentResults?.secondary_metric_results?.map((metric, idx) => (
                                                         <Row
                                                             className="border-top"
                                                             key={idx}
                                                             style={{ paddingTop: 8, paddingBottom: 8 }}
                                                         >
                                                             {capitalizeFirstLetter(metric.name)}
+                                                            {metric.result.control}
                                                         </Row>
                                                     ))}
                                                 </Col>
