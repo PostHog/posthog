@@ -92,9 +92,6 @@ class Cohort(models.Model):
 
     objects = CohortManager()
 
-    def queryset(self):
-        return self.__class__.objects.filter(id=self.id)
-
     def get_analytics_metadata(self):
         action_groups_count: int = 0
         properties_groups_count: int = 0
