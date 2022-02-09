@@ -35,13 +35,22 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '~/models/groupsModel'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['hasAvailableFeature'],
+            groupsModel,
+            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+        ],
         actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
@@ -413,6 +422,19 @@ export const experimentLogic = kea<experimentLogicType>({
                     experimentData?.parameters?.feature_flag_variants ||
                     []
                 )
+            },
+        ],
+        taxonomicGroupTypesForSelection: [
+            (s) => [s.newExperimentData, s.groupsTaxonomicTypes],
+            (newExperimentData, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (
+                    newExperimentData?.filters?.aggregation_group_type_index != null &&
+                    groupsTaxonomicTypes.length > 0
+                ) {
+                    return [groupsTaxonomicTypes[newExperimentData.filters.aggregation_group_type_index]]
+                }
+
+                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
         parsedSecondaryMetrics: [

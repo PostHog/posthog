@@ -90,6 +90,9 @@ export function Experiment_(): JSX.Element {
         getIndexForVariant,
         significanceBannerDetails,
         areTrendResultsConfusing,
+        taxonomicGroupTypesForSelection,
+        groupTypes,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -336,7 +339,61 @@ export function Experiment_(): JSX.Element {
                                                 </Col>
                                             </Col>
                                         )}
-                                        <Form.Item label="Select participants" name="person-selection">
+                                        <Row className="person-selection">
+                                            <span>
+                                                <b>Select Participants</b>
+                                            </span>
+                                            <span>
+                                                <b>Participant Type</b>
+                                                <Select
+                                                    value={
+                                                        newExperimentData?.filters?.aggregation_group_type_index !=
+                                                        undefined
+                                                            ? newExperimentData.filters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    onChange={(value) => {
+                                                        const groupTypeIndex = value !== -1 ? value : undefined
+                                                        if (
+                                                            groupTypeIndex !=
+                                                            newExperimentData?.filters?.aggregation_group_type_index
+                                                        ) {
+                                                            setFilters({
+                                                                properties: [],
+                                                                aggregation_group_type_index: groupTypeIndex,
+                                                            })
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    aggregation_group_type_index: groupTypeIndex,
+                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                                                                    properties: [],
+                                                                },
+                                                            })
+                                                        }
+                                                    }}
+                                                    style={{ marginLeft: 8 }}
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    dropdownAlign={{
+                                                        // Align this dropdown by the right-hand-side of button
+                                                        points: ['tr', 'br'],
+                                                    }}
+                                                >
+                                                    <Select.Option key={-1} value={-1}>
+                                                        Users
+                                                    </Select.Option>
+                                                    {groupTypes.map((groupType) => (
+                                                        <Select.Option
+                                                            key={groupType.group_type_index}
+                                                            value={groupType.group_type_index}
+                                                        >
+                                                            {capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            )}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </span>
                                             <Col>
                                                 <div className="text-muted">
                                                     Select the entities who will participate in this experiment. If no
@@ -344,7 +401,6 @@ export function Experiment_(): JSX.Element {
                                                 </div>
                                                 <div style={{ flex: 3, marginRight: 5 }}>
                                                     <PropertyFilters
-                                                        endpoint="person"
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
@@ -362,16 +418,13 @@ export function Experiment_(): JSX.Element {
                                                             })
                                                         }}
                                                         style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={[
-                                                            TaxonomicFilterGroupType.PersonProperties,
-                                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                        ]}
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                         popoverPlacement="top"
                                                         taxonomicPopoverPlacement="auto"
                                                     />
                                                 </div>
                                             </Col>
-                                        </Form.Item>
+                                        </Row>
                                         <Row className="metrics-selection">
                                             <Col style={{ paddingRight: 8 }}>
                                                 <div className="mb-05">
@@ -431,6 +484,7 @@ export function Experiment_(): JSX.Element {
                                                                 hideMathSelector={true}
                                                                 hideDeleteBtn={filterSteps.length === 1}
                                                                 buttonCopy="Add funnel step"
+                                                                buttonType="link"
                                                                 showSeriesIndicator={!isStepsEmpty}
                                                                 seriesIndicatorType="numeric"
                                                                 fullWidth
@@ -880,6 +934,7 @@ export function ExperimentPreview({
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
@@ -1047,7 +1102,15 @@ export function ExperimentPreview({
                                         })}
                                     </div>
                                 ) : (
-                                    '100% of users'
+                                    <>
+                                        100% of{' '}
+                                        {experiment?.filters?.aggregation_group_type_index != undefined
+                                            ? capitalizeFirstLetter(
+                                                  aggregationLabel(experiment.filters.aggregation_group_type_index)
+                                                      .plural
+                                              )
+                                            : 'users'}
+                                    </>
                                 )}
                             </div>
                         </Col>
