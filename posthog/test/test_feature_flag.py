@@ -36,7 +36,7 @@ class TestFeatureFlagMatcher(BaseTest):
 
     def test_complicated_flag(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
+            send_to_clickhouse=True, team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
         )
 
         feature_flag = self.create_feature_flag(
@@ -59,10 +59,16 @@ class TestFeatureFlagMatcher(BaseTest):
 
     def test_multi_property_filters(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
         )
         feature_flag = self.create_feature_flag(
             filters={
@@ -79,7 +85,12 @@ class TestFeatureFlagMatcher(BaseTest):
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "false_id").get_match())
 
     def test_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
+        Person.objects.create(
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
         )
@@ -99,10 +110,16 @@ class TestFeatureFlagMatcher(BaseTest):
 
     def test_legacy_property_filters(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
         )
         feature_flag = self.create_feature_flag(filters={"properties": [{"key": "email", "value": "tim@posthog.com"}]},)
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
@@ -110,13 +127,22 @@ class TestFeatureFlagMatcher(BaseTest):
 
     def test_legacy_rollout_and_property_filter(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["another_id"], properties={"email": "tim@posthog.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "tim@posthog.com"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["id_number_3"], properties={"email": "example@example.com"},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["id_number_3"],
+            properties={"email": "example@example.com"},
         )
         feature_flag = self.create_feature_flag(
             rollout_percentage=50,
@@ -128,7 +154,12 @@ class TestFeatureFlagMatcher(BaseTest):
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "id_number_3").get_match())
 
     def test_legacy_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
+        Person.objects.create(
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id_2"],
+            properties={"$some_prop_2": "something_2"},
+        )
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
         )
@@ -218,6 +249,7 @@ class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
     def setUpTestData(cls):
         super().setUpTestData()
         person = Person.objects.create(
+            send_to_clickhouse=True,
             team=cls.team,
             distinct_ids=["distinct_id", "another_id"],
             properties={"email": "tim@posthog.com", "team": "posthog"},

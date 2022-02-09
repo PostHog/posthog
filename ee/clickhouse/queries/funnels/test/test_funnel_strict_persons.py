@@ -12,7 +12,7 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid, uuid=person.uuid)
 
 

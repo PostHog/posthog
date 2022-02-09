@@ -33,7 +33,7 @@ def identify(
 
     from ee.clickhouse.models.person import Person, PersonDistinctId
 
-    person = Person.objects.create(team_id=team_id, properties=properties)
+    person = Person.objects.create(send_to_clickhouse=True, team_id=team_id, properties=properties)
     PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
 
     capture_event(

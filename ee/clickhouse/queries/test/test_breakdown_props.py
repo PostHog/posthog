@@ -23,7 +23,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
     @test_with_materialized_columns(event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"])
     @snapshot_clickhouse_queries
     def test_breakdown_person_props(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"}
+        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -66,7 +68,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(res, ["test"])
 
     def test_breakdown_person_props_with_entity_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"}
+        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -74,7 +78,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
             properties={"key": "val"},
         )
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2"}
+        )
         _create_event(
             team=self.team,
             event="$pageview",

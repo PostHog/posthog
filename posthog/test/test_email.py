@@ -19,7 +19,7 @@ from posthog.test.base import BaseTest
 
 class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
-        person = Person.objects.create(team=team)
+        person = Person.objects.create(send_to_clickhouse=True, team=team)
         person.add_distinct_id(base_distinct_id)
         return person
 

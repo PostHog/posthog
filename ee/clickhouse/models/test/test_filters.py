@@ -36,7 +36,7 @@ def _filter_events(
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid)
 
 
@@ -195,7 +195,10 @@ class TestFiltering(
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
-            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": "something"}
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"$some_prop": "something"},
         )
 
         cohort1 = Cohort.objects.create(
@@ -206,7 +209,10 @@ class TestFiltering(
 
         person2_distinct_id = "person2"
         person2 = Person.objects.create(
-            team=self.team, distinct_ids=[person2_distinct_id], properties={"$some_prop": "different"}
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=[person2_distinct_id],
+            properties={"$some_prop": "different"},
         )
         cohort2 = Cohort.objects.create(
             team=self.team,

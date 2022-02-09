@@ -25,7 +25,7 @@ def _create_event(distinct_id: str, event: str, lib: str, created_at: datetime, 
 
 
 def _create_person(distinct_id: str, team: Team) -> Person:
-    person = Person.objects.create(team=team, distinct_ids=[distinct_id])
+    person = Person.objects.create(send_to_clickhouse=True, team=team, distinct_ids=[distinct_id])
     return Person(id=person.uuid)
 
 

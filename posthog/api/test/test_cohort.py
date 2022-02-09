@@ -17,8 +17,8 @@ class TestCohort(APIBaseTest):
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        Person.objects.create(send_to_clickhouse=True, team=self.team, properties={"team_id": 5})
+        Person.objects.create(send_to_clickhouse=True, team=self.team, properties={"team_id": 6})
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -78,9 +78,9 @@ class TestCohort(APIBaseTest):
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["123"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["456"])
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -145,9 +145,11 @@ User ID,
     def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        person = Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        person1 = Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
+        person = Person.objects.create(
+            send_to_clickhouse=True, team=self.team, properties={"email": "email@example.org"}
+        )
+        person1 = Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["123"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["456"])
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -181,8 +183,8 @@ email@example.org,
     def test_cohort_list(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"prop": 5})
-        Person.objects.create(team=self.team, properties={"prop": 6})
+        Person.objects.create(send_to_clickhouse=True, team=self.team, properties={"prop": 5})
+        Person.objects.create(send_to_clickhouse=True, team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},

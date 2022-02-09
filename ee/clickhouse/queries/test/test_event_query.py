@@ -19,7 +19,7 @@ from posthog.test.base import APIBaseTest
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid, uuid=person.uuid)
 
 
@@ -171,10 +171,14 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"}
+        )
         _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"}
+        )
         _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:01:00Z")
 
         self._run_query(filter)
@@ -199,8 +203,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
     def test_account_filters(self):
-        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        person1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"}
+        )
+        person2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"}
+        )
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -219,8 +227,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     def test_action_with_person_property_filter(self):
-        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        person1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"}
+        )
+        person2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"}
+        )
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -253,7 +265,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         materialize("events", "test_prop")
 
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"}
+        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -262,7 +276,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"test_prop": "hi"},
         )
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"}
+        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -342,9 +358,15 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"another": "value"})
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "foobar"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test"})
+        Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"}
+        )
+        Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "foobar"}
+        )
+        Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test"}
+        )
 
         _create_event(
             team=self.team,

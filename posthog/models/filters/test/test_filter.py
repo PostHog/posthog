@@ -475,7 +475,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.o
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
-            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 1}
+            send_to_clickhouse=True, team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 1}
         )
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 1}}], name="cohort1")
         cohort1.people.add(person1)

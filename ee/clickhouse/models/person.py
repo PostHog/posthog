@@ -23,30 +23,6 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
 
-if TEST:
-    # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
-
-    @receiver(post_save, sender=Person)
-    def person_created(sender, instance: Person, created, **kwargs):
-        create_person(
-            team_id=instance.team.pk,
-            properties=instance.properties,
-            uuid=str(instance.uuid),
-            is_identified=instance.is_identified,
-        )
-
-    @receiver(post_save, sender=PersonDistinctId)
-    def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid))
-
-    @receiver(post_delete, sender=Person)
-    def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
-
-    @receiver(post_delete, sender=PersonDistinctId)
-    def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
-
 
 def create_person(
     team_id: int,

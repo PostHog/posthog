@@ -107,7 +107,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_step_limit(self):
 
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake"])
         events = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -182,7 +182,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_step_conversion_times(self):
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -214,7 +214,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -257,7 +257,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_path_event_ordering(self):
         events = []
         for i in range(50):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             person_events = [
                 _create_event(
                     event="step one",
@@ -315,7 +315,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             self._create_groups()
 
         for i in range(5):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             full_funnel = [
                 _create_event(
                     event="step one",
@@ -363,7 +363,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             events.extend(full_funnel)
 
         for i in range(5, 15):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             two_step_funnel = [
                 _create_event(
                     event="step one",
@@ -411,7 +411,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             events.extend(two_step_funnel)
 
         for i in range(15, 35):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             funnel_branching = [
                 _create_event(
                     event="step one",
@@ -502,9 +502,9 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_path_by_grouping_replacement(self):
 
-        Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
-        Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
-        Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_1"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_2"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_3"], team=self.team)
         events = [
             {
                 "event": "$pageview",
@@ -691,11 +691,11 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
         _create_all_events(events)
 
-        Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_1"], team=self.team)
 
-        Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_2"], team=self.team)
 
-        Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_3"], team=self.team)
 
         correct_response = [
             {
@@ -866,7 +866,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         # note events happen after 1 day
         events = []
         for i in range(5):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             events.extend(
                 [
                     {
@@ -914,7 +914,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 ]
             )
         for i in range(15, 35):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             events.extend(
                 [
                     {
@@ -1051,7 +1051,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         events = []
         # add more than 100. Previously, the funnel limit at 100 was stopping all users from showing up
         for i in range(100, 200):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             person_events = [
                 _create_event(
                     event="step one",
@@ -1315,7 +1315,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     @test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_end(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_1"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1368,7 +1368,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/5"},
@@ -1386,7 +1386,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_3"])
         p3 = [
             _create_event(
                 properties={"$current_url": "/3"},
@@ -1446,7 +1446,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_event_inclusion_exclusion_filters(self):
 
         # P1 for pageview event
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1472,7 +1472,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P2 for screen event
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         p2 = [
             _create_event(
                 properties={"$screen_name": "/screen1"},
@@ -1498,7 +1498,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P3 for custom event
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"])
         p3 = [
             _create_event(distinct_id="p3", event="/custom1", team=self.team, timestamp="2012-01-01 03:21:34",),
             _create_event(distinct_id="p3", event="/custom2", team=self.team, timestamp="2012-01-01 03:22:34",),
@@ -1593,7 +1593,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_event_exclusion_filters_with_wildcards(self):
 
         # P1 for pageview event /2/bar/1/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1619,7 +1619,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P2 for pageview event /bar/2/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1645,7 +1645,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P3 for pageview event /bar/3/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"])
         p3 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1696,7 +1696,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_event_inclusion_exclusion_filters_across_single_person(self):
 
         # P1 for pageview event, screen event, and custom event all together
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         events = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1814,7 +1814,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_respect_session_limits(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake"])
         events = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1874,7 +1874,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_removes_duplicates(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1913,7 +1913,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["fake2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -1953,7 +1953,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     @test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_start_and_end(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_1"])
         events_p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2006,7 +2006,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"])
+        p2 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_2"])
         events_p2 = [
             _create_event(
                 properties={"$current_url": "/5"},
@@ -2024,7 +2024,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ),
         ]
 
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
+        p3 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_3"])
         events_p3 = [
             _create_event(
                 properties={"$current_url": "/3"},
@@ -2127,7 +2127,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_path_grouping_across_people(self):
 
         # P1 for pageview event /2/bar/1/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2153,7 +2153,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P2 for pageview event /bar/2/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2179,7 +2179,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P3 for pageview event /bar/3/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"])
         p3 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2228,7 +2228,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         evil_string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
         # P1 for pageview event /2/bar/1/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         p1 = [
             _create_event(
                 properties={"$current_url": evil_string},
@@ -2254,7 +2254,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P2 for pageview event /2/bar/2/foo
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         p2 = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2308,7 +2308,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         # 5 people do 2 events
         for i in range(5):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             two_step = [
                 _create_event(
                     event="step one",
@@ -2329,7 +2329,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         # 10 people do 3 events
         for i in range(5, 15):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             three_step = [
                 _create_event(
                     event="step one",
@@ -2357,7 +2357,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         # 20 people do 4 events
         for i in range(15, 35):
-            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=[f"user_{i}"], team=self.team)
             four_step = [
                 _create_event(
                     event="step one",
@@ -2421,7 +2421,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         events = []
         for i in range(5):
             # 5 people going through this route to increase weights
-            Person.objects.create(team_id=self.team.pk, distinct_ids=[f"person_{i}"])
+            Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=[f"person_{i}"])
             special_route = [
                 _create_event(
                     properties={"$current_url": "/1"},
@@ -2475,7 +2475,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ]
             events.extend(special_route)
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_r_2"])
+        p2 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_r_2"])
         events_p2 = [
             _create_event(
                 properties={"$current_url": "/2"},
@@ -2508,7 +2508,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
         events.extend(events_p2)
 
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_r_3"])
+        p3 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["person_r_3"])
         event_p3 = [
             _create_event(
                 properties={"$current_url": "/2"},
@@ -2655,7 +2655,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_path_groups_filtering(self):
         self._create_groups()
         # P1 for pageview event, org:5
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         p1 = [
             _create_event(
                 properties={"$current_url": "/1", "$group_0": "org:5"},
@@ -2681,7 +2681,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P2 for screen event, org:6
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         p2 = [
             _create_event(
                 properties={"$screen_name": "/screen1", "$group_0": "org:6"},
@@ -2707,7 +2707,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         ]
 
         # P3 for custom event, group_0 doesnt' exist, group_1 = company:1
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"])
         p3 = [
             _create_event(
                 distinct_id="p3",
@@ -2786,7 +2786,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording(self):
         # User with 2 matching paths with recordings
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         events = [
             _create_event(
                 properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
@@ -2825,7 +2825,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self._create_session_recording_event("p1", "s3", timezone.now(), window_id="w3")
 
         # User with path matches, but no recordings
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        p2 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"])
         events += [
             _create_event(
                 properties={"$current_url": "/1", "$session_id": "s5", "$window_id": "w1"},
@@ -2889,7 +2889,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_no_window_or_session_id(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         events = [
             _create_event(
                 properties={"$current_url": "/1"},
@@ -2928,7 +2928,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_start_and_end(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         events = [
             _create_event(
                 properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
@@ -2993,7 +2993,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_for_dropoff(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"])
         events = [
             _create_event(
                 properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},

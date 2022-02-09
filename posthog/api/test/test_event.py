@@ -37,7 +37,7 @@ def _create_event(**kwargs):
 
 
 def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+    return Person.objects.create(send_to_clickhouse=True, **kwargs)
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -126,17 +126,23 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_filter_events_by_precalculated_cohort(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"}
+        )
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z",
         )
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"}
+        )
         _create_event(
             team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z",
         )
 
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        p3 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"}
+        )
         _create_event(
             team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z",
         )

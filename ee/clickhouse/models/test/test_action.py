@@ -46,7 +46,7 @@ def _get_events_for_action(action: Action) -> List[Event]:
 
 
 def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid)
 
 

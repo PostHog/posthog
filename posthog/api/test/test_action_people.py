@@ -30,7 +30,7 @@ def _create_cohort(**kwargs):
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=str(person.uuid))
 
 

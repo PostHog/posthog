@@ -28,7 +28,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=str(person.uuid))
 
 

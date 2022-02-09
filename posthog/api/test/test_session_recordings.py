@@ -96,10 +96,16 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_get_session_recordings(self):
             p = Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["user2"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             base_time = now() - relativedelta(days=1)
             self.create_snapshot("user", "1", base_time)
@@ -132,12 +138,16 @@ def factory_test_session_recordings_api(session_recording_event_factory):
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             Person.objects.create(
+                send_to_clickhouse=True,
                 team=another_team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
 
             self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
@@ -152,6 +162,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
         def test_session_recording_for_user_with_multiple_distinct_ids(self):
             base_time = now() - timedelta(days=1)
             p = Person.objects.create(
+                send_to_clickhouse=True,
                 team=self.team,
                 distinct_ids=["d1", "d2"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -166,7 +177,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_viewed_state_of_session_recording(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["u1"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             base_time = now() - timedelta(days=1)
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
@@ -182,7 +196,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_setting_viewed_state_of_session_recording(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["u1"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             self.create_snapshot("u1", "1", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
@@ -209,7 +226,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_get_single_session_recording_metadata(self):
             p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["d1"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             session_recording_id = "session_1"
             base_time = now() - relativedelta(days=1)
@@ -296,7 +316,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 p = Person.objects.create(
-                    team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                    send_to_clickhouse=True,
+                    team=self.team,
+                    distinct_ids=["d1"],
+                    properties={"$some_prop": "something", "email": "bob@bob.com"},
                 )
                 chunked_session_id = "chunked_session_id"
                 num_chunks = 60

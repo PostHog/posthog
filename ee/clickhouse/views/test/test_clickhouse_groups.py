@@ -249,9 +249,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 
-        p1 = Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
+        p1 = Person.objects.create(send_to_clickhouse=True, uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
+        p2 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["3"])
+        p3 = Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["4"])
 
         create_group(self.team.pk, 0, "0::0")
         create_group(self.team.pk, 0, "0::1")

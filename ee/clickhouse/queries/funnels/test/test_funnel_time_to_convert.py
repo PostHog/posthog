@@ -14,7 +14,7 @@ FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid, uuid=person.uuid)
 
 

@@ -282,12 +282,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertIn(user3.uuid, results)
 
     def test_insert_by_distinct_id_or_email(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["2"])
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["1"])
+        Person.objects.create(send_to_clickhouse=True, team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["1", "123"])
@@ -297,7 +297,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
         # test SQLi
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
+        Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"]
+        )
         cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
         results = sync_execute(
             "select count(1) from person_static_cohort where team_id = %(team_id)s", {"team_id": self.team.pk}
@@ -316,11 +318,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohortpeople_basic(self):
         p1 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
         p2 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -342,6 +346,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
         p1 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -356,6 +361,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         p2 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -390,6 +396,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
     def test_cohortpeople_timestamp(self):
         action = _create_action(team=self.team, name="$pageview")
         p1 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -404,6 +411,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         p2 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -433,6 +441,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
     def _setup_actions_with_different_counts(self):
         action = _create_action(team=self.team, name="$pageview")
         p1 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -454,6 +463,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         p2 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -476,6 +486,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         p3 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["3"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -490,12 +501,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         p4 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["4"],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
 
         p5 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["5"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -562,11 +575,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
         p2 = Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -585,11 +600,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
     def test_cohortpeople_prop_changed(self):
         with freeze_time("2020-01-10"):
             p1 = Person.objects.create(
+                send_to_clickhouse=True,
                 team_id=self.team.pk,
                 distinct_ids=["1"],
                 properties={"$some_prop": "something", "$another_prop": "something"},
             )
             p2 = Person.objects.create(
+                send_to_clickhouse=True,
                 team_id=self.team.pk,
                 distinct_ids=["2"],
                 properties={"$some_prop": "something", "$another_prop": "something"},
@@ -620,11 +637,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
     def test_cohort_change(self):
         with freeze_time("2020-01-10"):
             p1 = Person.objects.create(
+                send_to_clickhouse=True,
                 team_id=self.team.pk,
                 distinct_ids=["1"],
                 properties={"$some_prop": "something", "$another_prop": "something"},
             )
             p2 = Person.objects.create(
+                send_to_clickhouse=True,
                 team_id=self.team.pk,
                 distinct_ids=["2"],
                 properties={"$some_prop": "another", "$another_prop": "another"},
@@ -659,12 +678,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(results[0][0], p2.uuid)
 
     def test_static_cohort_precalculated(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["2"])
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["1"])
+        Person.objects.create(send_to_clickhouse=True, team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
         cohort.insert_users_by_list(["1", "123"])
@@ -677,8 +696,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort0: Cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"foo": "bar"}}], name="cohort0",
@@ -699,8 +722,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(count_result, 1)
 
     def test_cohortpeople_with_nonexistent_other_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1",
@@ -714,8 +741,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(count_result, 0)
 
     def test_cohortpeople_with_cyclic_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        p1 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        p2 = Person.objects.create(
+            send_to_clickhouse=True, team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team, groups=[], name="cohort1",

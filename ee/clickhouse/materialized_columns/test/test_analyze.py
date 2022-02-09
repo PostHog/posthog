@@ -21,6 +21,7 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         PropertyDefinition.objects.create(team=self.team, name="another_prop")
 
         Person.objects.create(
+            send_to_clickhouse=True,
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"person_prop": "something", "$another_prop": "something"},

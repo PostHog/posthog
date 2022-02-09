@@ -62,7 +62,7 @@ class Person(models.Model):
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
-                    person = Person.objects.create(team_id=self.team_id)
+                    person = Person.objects.create(send_to_clickhouse=True, team_id=self.team_id)
                     pdi.person_id = str(person.id)
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])

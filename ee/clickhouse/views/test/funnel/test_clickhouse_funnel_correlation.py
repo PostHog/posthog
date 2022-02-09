@@ -635,7 +635,7 @@ def create_team(organization):
 
 
 def create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+    return Person.objects.create(send_to_clickhouse=True, **kwargs)
 
 
 def _create_event(**kwargs):

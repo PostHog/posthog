@@ -149,7 +149,7 @@ def factory_org_usage_report(
 
 
 def create_person(distinct_id: str, team: Team) -> Person:
-    return Person.objects.create(team=team, distinct_ids=[distinct_id])
+    return Person.objects.create(send_to_clickhouse=True, team=team, distinct_ids=[distinct_id])
 
 
 def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> Event:

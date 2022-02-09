@@ -44,10 +44,10 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
         create_group(self.team.pk, group_type_index=0, group_key="out", properties={"key": "othervalue"})
 
         with freeze_time("2020-01-11T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=["person1"], team_id=self.team.pk)
 
         with freeze_time("2020-01-09T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=["person2"], team_id=self.team.pk)
 
         journeys_for(
             {
@@ -91,7 +91,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
     def test_lifecycle_edge_cases(self):
         # This test tests behavior when created_at is different from first matching event and dormant/resurrecting/returning logic
         with freeze_time("2020-01-11T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=["person1"], team_id=self.team.pk)
 
         journeys_for(
             {
@@ -200,7 +200,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
 
     def _setup_returning_lifecycle_data(self, days):
         with freeze_time("2019-01-01T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            Person.objects.create(send_to_clickhouse=True, distinct_ids=["person1"], team_id=self.team.pk)
 
         journeys_for(
             {

@@ -780,7 +780,10 @@ class TestCapture(BaseTest):
             team=self.team, created_by=self.user, key="test-ff", rollout_percentage=0
         )
         Person.objects.create(
-            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=[self.user.distinct_id],
+            properties={"email": self.user.email},
         )
         FeatureFlagOverride.objects.create(
             team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True

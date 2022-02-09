@@ -105,10 +105,16 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
         def test_month_interval(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person1", "alias1"],
+                properties={"email": "person1@test.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person2"],
+                properties={"email": "person2@test.com"},
             )
 
             self._create_events(
@@ -185,10 +191,16 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
         def test_week_interval(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person1", "alias1"],
+                properties={"email": "person1@test.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person2"],
+                properties={"email": "person2@test.com"},
             )
 
             self._create_events(
@@ -239,10 +251,16 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
         def test_hour_interval(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person1", "alias1"],
+                properties={"email": "person1@test.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person2"],
+                properties={"email": "person2@test.com"},
             )
 
             self._create_events(
@@ -320,10 +338,16 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
         # ensure that the first interval is properly rounded acoording to the specified period
         def test_interval_rounding(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person1", "alias1"],
+                properties={"email": "person1@test.com"},
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"},
+                send_to_clickhouse=True,
+                team=self.team,
+                distinct_ids=["person2"],
+                properties={"email": "person2@test.com"},
             )
 
             self._create_events(

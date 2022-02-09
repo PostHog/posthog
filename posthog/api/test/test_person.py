@@ -7,6 +7,7 @@ from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_ID_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
@@ -19,7 +20,7 @@ def _create_event(**kwargs):
 
 
 def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+    return Person.objects.create(send_to_clickhouse=True, send_to_clickhouse=True, send_to_clickhouse=True, **kwargs)
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -354,3 +355,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+    def test_update_person(self):
+        with self.settings(TEST=False):
+            person = _create_person(
+                team=self.team, distinct_ids=["1"], properties={"test": "ok", "deleted_prop": "yes"}
+            )
+            response = self.client.patch(
+                "/api/person/%s/" % person.pk,
+                {"distinct_ids": ["1"], "properties": {"test": "ok", "another_prop": "okok"}},
+            )
+            self.assertEqual(response.status_code, 200)
+
+            person_ch = sync_execute(
+                "select properties from person where id IN ({query})".format(
+                    query=GET_LATEST_PERSON_ID_SQL.format(query="")
+                ),
+                {"team_id": self.team.pk},
+            )
+            self.maxDiff = None
+            import ipdb
+
+            ipdb.set_trace()
+            self.assertEqual(person_ch, {"test": "ok", "another_prop": "okok"})

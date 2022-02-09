@@ -14,7 +14,7 @@ from posthog.tasks.test.test_org_usage_report import factory_org_usage_report
 
 
 def create_person(distinct_id: str, team: Team) -> Person:
-    return Person.objects.create(team=team, distinct_ids=[distinct_id])
+    return Person.objects.create(send_to_clickhouse=True, team=team, distinct_ids=[distinct_id])
 
 
 def create_event_clickhouse(

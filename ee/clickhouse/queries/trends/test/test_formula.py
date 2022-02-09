@@ -23,7 +23,10 @@ class TestFormula(APIBaseTest):
         super().setUp()
 
         Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            send_to_clickhouse=True,
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val"},
         )
         with freeze_time("2020-01-02T13:01:01Z"):
             _create_event(

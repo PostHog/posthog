@@ -129,7 +129,12 @@ class TestDecide(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
@@ -174,7 +179,12 @@ class TestDecide(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
@@ -229,10 +239,16 @@ class TestDecide(BaseTest):
         self.team.save()
         self.client.logout()
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "realm": "cloud"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["hosted_id"], properties={"email": "sam@posthog.com", "realm": "hosted"}
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["hosted_id"],
+            properties={"email": "sam@posthog.com", "realm": "hosted"},
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -293,6 +309,7 @@ class TestDecide(BaseTest):
         self.team.save()
         self.client.logout()
         Person.objects.create(
+            send_to_clickhouse=True,
             team=self.team,
             distinct_ids=[self.user.distinct_id, "not-canonical-distinct-id"],
             properties={"email": self.user.email},
@@ -427,7 +444,10 @@ class TestDecide(BaseTest):
         self.client.logout()
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
+            send_to_clickhouse=True,
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "realm": "cloud"},
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -448,7 +468,7 @@ class TestDecide(BaseTest):
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
@@ -469,7 +489,7 @@ class TestDecide(BaseTest):
     def test_personal_api_key_without_project_id(self):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["example_id"])
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -486,7 +506,7 @@ class TestDecide(BaseTest):
     def test_missing_token(self):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )

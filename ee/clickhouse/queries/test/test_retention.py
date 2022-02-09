@@ -30,7 +30,7 @@ def _create_action(**kwargs):
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return person
 
 
@@ -45,9 +45,9 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
-        Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
-        Person.objects.create(team=self.team, distinct_ids=["person2"])
-        Person.objects.create(team=self.team, distinct_ids=["person3"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["person1", "alias1"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["person2"])
+        Person.objects.create(send_to_clickhouse=True, team=self.team, distinct_ids=["person3"])
 
         self._create_events(
             [

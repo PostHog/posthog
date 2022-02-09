@@ -20,7 +20,7 @@ def _create_event(**kwargs):
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
+    person = Person.objects.create(send_to_clickhouse=True, **kwargs)
     return Person(id=person.uuid)
 
 

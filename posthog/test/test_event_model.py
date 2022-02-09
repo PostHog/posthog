@@ -478,7 +478,9 @@ class TestActions(BaseTest):
         )
 
         # events
-        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
+        person_stopped_after_signup = Person.objects.create(
+            send_to_clickhouse=True, distinct_ids=["stopped_after_signup"], team=self.team
+        )
         event_sign_up_1 = self._signup_event("stopped_after_signup")
         self.assertEqual(event_sign_up_1.actions, [action_sign_up])
 
@@ -487,7 +489,7 @@ class TestActions(BaseTest):
         ActionStep.objects.create(
             action=action_watch_movie, text="Watch now", selector="div > a.watch_movie", event="$autocapture",
         )
-        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=["watched_movie"], team=self.team)
         event = self._movie_event("watched_movie")
         self.assertEqual(event.actions, [action_watch_movie])
 
@@ -496,7 +498,7 @@ class TestActions(BaseTest):
         ActionStep.objects.create(action=action, selector="a[data-id='whatever']")
         action2 = Action.objects.create(team=self.team, name="watch movie2")
         ActionStep.objects.create(action=action2, selector="a[somethingelse='whatever']")
-        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=["watched_movie"], team=self.team)
         event = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
@@ -507,14 +509,14 @@ class TestActions(BaseTest):
     def test_event_filter(self):
         action_user_paid = Action.objects.create(team=self.team, name="user paid")
         ActionStep.objects.create(action=action_user_paid, event="user paid")
-        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=["user_paid"], team=self.team)
         event = Event.objects.create(event="user paid", distinct_id="user_paid", team=self.team)
         self.assertEqual(event.actions, [action_user_paid])
 
     def test_element_class_set_to_none(self):
         action_user_paid = Action.objects.create(team=self.team, name="user paid")
         ActionStep.objects.create(action=action_user_paid, selector="a.something")
-        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        Person.objects.create(send_to_clickhouse=True, distinct_ids=["user_paid"], team=self.team)
         event = Event.objects.create(
             event="$autocapture",
             distinct_id="user_paid",
@@ -558,7 +560,9 @@ class TestPreCalculation(BaseTest):
         self.assertEqual([e for e in action.events.all().order_by("id")], [])
 
     def test_empty(self):
-        Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
+        Person.objects.create(
+            send_to_clickhouse=True, team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"}
+        )
         action = Action.objects.create(name="pageview", team=self.team)
         ActionStep.objects.create(
             action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
