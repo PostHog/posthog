@@ -1,4 +1,5 @@
-import { Input, Switch } from 'antd'
+import { Checkbox, Input } from 'antd'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
 import { MetricValueInterface } from './RenderMetricValue'
 
@@ -13,7 +14,14 @@ export function RenderMetricValueEdit({
     onValueChanged,
 }: MetricValueEditInterface): JSX.Element | string {
     if (value_type === 'bool') {
-        return <Switch defaultChecked={value} onChange={(val) => onValueChanged(key, val)} />
+        return (
+            <>
+                <Checkbox defaultChecked={value} onChange={(e) => onValueChanged(key, e.target.checked)} />
+                <LemonTag style={{ marginLeft: 4 }} type={value ? 'success' : 'danger'}>
+                    {value ? 'Yes' : 'No'}
+                </LemonTag>
+            </>
+        )
     }
 
     return (

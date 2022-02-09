@@ -10,6 +10,7 @@ import { InstanceSetting } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
+import { WarningOutlined } from '@ant-design/icons'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -21,6 +22,10 @@ export function InstanceConfigTab(): JSX.Element {
         e: {
             action: () => setInstanceConfigMode(ConfigMode.Edit),
             disabled: instanceConfigMode !== ConfigMode.View,
+        },
+        escape: {
+            action: () => setInstanceConfigMode(ConfigMode.View),
+            disabled: instanceConfigMode !== ConfigMode.Edit,
         },
     })
 
@@ -106,9 +111,14 @@ export function InstanceConfigTab(): JSX.Element {
                     </>
                 ) : (
                     <>
+                        {Object.keys(instanceConfigEditingState).length > 0 && (
+                            <span style={{ color: 'var(--warning)' }}>
+                                <WarningOutlined /> You have <b>{Object.keys(instanceConfigEditingState).length}</b>{' '}
+                                unapplied changes
+                            </span>
+                        )}
                         <Button
                             type="link"
-                            style={{ color: 'var(--danger)' }}
                             disabled={instanceSettingsLoading}
                             onClick={() => setInstanceConfigMode(ConfigMode.View)}
                         >
