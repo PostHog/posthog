@@ -125,6 +125,7 @@ class Migration(AsyncMigrationDefinition):
                 sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
                 rollback="",
                 resumable=True,
+                timeout_seconds=24 * 60 * 60,  # one day
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
