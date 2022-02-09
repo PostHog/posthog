@@ -3,6 +3,7 @@ import urllib
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
+from django.db.models.query import Prefetch
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -156,6 +157,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
