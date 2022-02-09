@@ -4,29 +4,22 @@ from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
-    action,
     annotation,
     async_migration,
     authentication,
-    cohort,
     dashboard,
     dead_letter_queue,
-    element,
-    event,
     event_definition,
     feature_flag,
-    insight,
     instance_settings,
     instance_status,
     organization,
     organization_invite,
     organization_member,
-    person,
     personal_api_key,
     plugin,
     plugin_log_entry,
     property_definition,
-    session_recording,
     team,
     user,
 )
@@ -61,7 +54,9 @@ projects_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
-projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
+project_dashboards_router = projects_router.register(
+    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
+)
 
 
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

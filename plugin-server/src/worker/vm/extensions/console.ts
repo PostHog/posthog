@@ -1,4 +1,3 @@
-import { createBuffer } from '@posthog/plugin-contrib'
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'

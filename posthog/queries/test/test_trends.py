@@ -2179,7 +2179,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="cohort1",
             groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             response = ClickhouseTrends().run(
                 Filter(
@@ -2208,7 +2208,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="cohort1",
             groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             response = ClickhouseTrends().run(
@@ -2748,11 +2748,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
         )
 
-        cohort1.calculate_people()
-        cohort1.calculate_people_ch()
-
-        cohort2.calculate_people()
-        cohort2.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -2807,8 +2804,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
 
-        cohort1.calculate_people()
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):

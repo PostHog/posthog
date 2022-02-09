@@ -257,7 +257,11 @@ export const eventUsageLogic = kea<
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean, delay?: number) => ({
+            dashboard,
+            hasShareToken,
+            delay,
+        }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
@@ -470,8 +474,25 @@ export const eventUsageLogic = kea<
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
                 properties.has_end_point = !!filters.end_point
-                properties.has_funnel_filter = !!filters.funnel_filter
+                properties.has_funnel_filter = Object.keys(filters.funnel_filter || {}).length > 0
                 properties.funnel_paths = filters.funnel_paths
+                properties.has_min_edge_weight = !!filters.min_edge_weight
+                properties.has_max_edge_weight = !!filters.max_edge_weight
+                properties.has_edge_limit = !!filters.edge_limit
+                properties.has_local_cleaning_filters = (filters.local_path_cleaning_filters || []).length > 0
+                properties.has_path_replacements = !!filters.path_replacements
+                properties.has_wildcards = (filters.path_groupings || []).length > 0
+                properties.using_advanced_features =
+                    properties.has_min_edge_weight ||
+                    properties.has_max_edge_weight ||
+                    properties.has_edge_limit ||
+                    properties.has_local_cleaning_filters ||
+                    properties.has_path_replacements
+                properties.using_basic_features =
+                    properties.has_start_point ||
+                    properties.has_end_point ||
+                    properties.has_funnel_filter ||
+                    properties.has_wildcards
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
@@ -504,8 +525,10 @@ export const eventUsageLogic = kea<
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
-        reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+        reportDashboardViewed: async ({ dashboard, hasShareToken, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+            }
             const { created_at, is_shared, pinned, creation_mode } = dashboard
             const properties: Record<string, any> = {
                 created_at,
@@ -528,7 +551,8 @@ export const eventUsageLogic = kea<
                 properties.sample_items_count += item.is_sample ? 1 : 0
             }
 
-            posthog.capture('viewed dashboard', properties)
+            const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+            posthog.capture(eventName, properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
             await breakpoint(500)

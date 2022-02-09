@@ -6,7 +6,13 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    FEATURE_FLAGS,
+    PATHS_VIZ,
+    DashboardPrivilegeLevel,
+    OrganizationMembershipLevel,
+} from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -26,6 +32,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { getInsightId } from 'scenes/insights/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -34,6 +41,8 @@ export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
+
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
     id?: number
@@ -97,6 +106,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
+        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
     },
 
     loaders: ({ actions, props }) => ({
@@ -121,7 +132,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
-                        eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
@@ -311,6 +321,16 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
         ],
+        shouldReportOnAPILoad: [
+            /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
+            We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard) 
+            */
+            false,
+            {
+                setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
+            },
+        ],
     }),
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
@@ -350,6 +370,20 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             (sharedDashboard, dashboards): DashboardType | null => {
                 return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
             },
+        ],
+        canEditDashboard: [
+            (s) => [s.dashboard],
+            (dashboard) => !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+        ],
+        canRestrictDashboard: [
+            // Sync conditions with backend can_user_restrict
+            (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
+            (dashboard, user, currentTeam): boolean =>
+                !!dashboard &&
+                !!user &&
+                (user.id == dashboard.created_by?.id ||
+                    (!!currentTeam?.effective_membership_level &&
+                        currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin)),
         ],
         sizeKey: [
             (s) => [s.columns],
@@ -711,6 +745,22 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             // Initial load of actual data for dashboard items after general dashboard is fetched
             const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
             actions.refreshAllDashboardItems(notYetLoadedItems)
+            if (values.shouldReportOnAPILoad) {
+                actions.setShouldReportOnAPILoad(false)
+                actions.reportDashboardViewed()
+            }
+        },
+        reportDashboardViewed: async (_, breakpoint) => {
+            if (values.allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
+                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                }
+            } else {
+                // allItems has not loaded yet, report after API request is completed
+                actions.setShouldReportOnAPILoad(true)
+            }
         },
     }),
 })

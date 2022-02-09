@@ -1,9 +1,9 @@
-import { createBuffer } from '@posthog/plugin-contrib'
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { status } from '../../../utils/status'
 import { determineNodeEnv, stringClamp } from '../../../utils/utils'
+import { createBuffer } from '../utils'
 import { NodeEnv } from './../../../utils/utils'
 
 const MAXIMUM_RETRIES = 15
@@ -76,19 +76,22 @@ export function upgradeExportEvents(
             : null
     )
 
-    meta.global.exportEventsBuffer = createBuffer({
-        limit: uploadBytes,
-        timeoutSeconds: uploadSeconds,
-        onFlush: async (batch) => {
-            const jobPayload = {
-                batch,
-                batchId: Math.floor(Math.random() * 1000000),
-                retriesPerformedSoFar: 0,
-            }
-            // Running the first export code directly, without a job in between
-            await meta.global.exportEventsWithRetry(jobPayload, meta)
+    meta.global.exportEventsBuffer = createBuffer(
+        {
+            limit: uploadBytes,
+            timeoutSeconds: uploadSeconds,
+            onFlush: async (batch) => {
+                const jobPayload = {
+                    batch,
+                    batchId: Math.floor(Math.random() * 1000000),
+                    retriesPerformedSoFar: 0,
+                }
+                // Running the first export code directly, without a job in between
+                await meta.global.exportEventsWithRetry(jobPayload, meta)
+            },
         },
-    })
+        hub.statsd
+    )
 
     meta.global.exportEventsWithRetry = async (
         payload: ExportEventsJobPayload,

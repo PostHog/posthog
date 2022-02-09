@@ -117,7 +117,7 @@
         "eslint-plugin-promise": "^5.1.0",
         "eslint-plugin-react": "^7.24.0",
         "eslint-plugin-simple-import-sort": "^7.0.0",
-        "jest": "^27.0.4",
+        "jest": "^27.5.0",
         "prettier": "^2.3.1",
         "rimraf": "^3.0.2",
         "ts-jest": "^27.0.3",

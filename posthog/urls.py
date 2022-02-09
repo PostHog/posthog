@@ -7,6 +7,7 @@ from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from posthog.api import (
     api_not_found,
@@ -14,6 +15,7 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    project_dashboards_router,
     projects_router,
     router,
     signup,
@@ -24,6 +26,15 @@ from posthog.health import livez, readyz
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
+
+ee_urlpatterns: List[Any] = []
+try:
+    from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+except ImportError:
+    pass
+else:
+    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
 
 def home(request, *args, **kwargs):
@@ -50,21 +61,11 @@ def authorize_and_redirect(request):
     )
 
 
-# Try to include EE endpoints
-ee_urlpatterns: List[Any] = []
-from ee.urls import extend_api_router
-from ee.urls import urlpatterns as ee_urlpatterns
-
-extend_api_router(router, projects_router=projects_router)
-
-
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
     return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
-
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

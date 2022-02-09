@@ -4,6 +4,7 @@ import { Provider as KeaProvider } from 'kea'
 import { initKea } from '~/initKea'
 import { InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 const EXAMPLE_TRENDS: InsightModel = {
     id: 1,
@@ -193,6 +194,8 @@ const EXAMPLE_TRENDS: InsightModel = {
     saved: false,
     created_by: null,
     is_sample: false,
+    effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
+    effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
 export default {
