@@ -1,3 +1,5 @@
+from typing import Dict
+
 from rest_framework import status
 from reversion import is_registered
 from reversion.models import Version
@@ -8,7 +10,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestTeamAwareVersioningMiddleware(APIBaseTest):
-    def _create_feature_flag(self, details: dict[str, str] = {"name": "Beta feature", "key": "red_button"}) -> int:
+    def _create_feature_flag(self, details: Dict[str, str] = {"name": "Beta feature", "key": "red_button"}) -> int:
         response = self.client.post(f"/api/projects/{self.team.pk}/feature_flags", details)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()["id"]
