@@ -1,5 +1,5 @@
 from rest_framework import status
-from reversion.errors import RegistrationError
+from reversion import is_registered
 from reversion.models import Version
 
 from posthog.models import FeatureFlag, Insight, Person
@@ -82,10 +82,13 @@ class TestTeamAwareVersioningMiddleware(APIBaseTest):
         self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(Version.objects.get_for_object(Insight.objects.get(pk=insight_id))), 2)
 
-    def test_no_revisions_for_person_model(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["1"])
-        with self.assertRaises(RegistrationError) as ctx:
-            Version.objects.get_for_object(Person.objects.get(pk=person.pk))
-        self.assertEqual(
-            "<class 'posthog.models.person.Person'> has not been registered with django-reversion", str(ctx.exception)
-        )
+    def test_no_revisions_other_than_for_known_models(self):
+        from django.apps import apps
+
+        all_models = apps.all_models["posthog"]
+
+        registered_models = ["insight", "team", "organization", "user", "featureflag", "plugin", "pluginconfig"]
+
+        for model in [m for m in all_models.items() if m[0] not in registered_models]:
+            is_model_registered = is_registered(model[1])
+            self.assertFalse(is_model_registered, msg=f"expected {model[0]} not to be registered with reversion")
