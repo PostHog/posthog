@@ -45,6 +45,7 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.cohort import Cohort
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -368,10 +369,11 @@ def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
 
 def _filter_cohort_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        cohort = Cohort.objects.get(pk=int(cast(str, filter.breakdown_value)))
         events = events.filter(
             Exists(
                 CohortPeople.objects.filter(
-                    cohort_id=int(cast(str, filter.breakdown_value)), person_id=OuterRef("person_id"),
+                    cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
                 ).only("id")
             )
         )

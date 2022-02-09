@@ -99,8 +99,17 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
+            from posthog.models.cohort import Cohort
+
             cohort_id = int(cast(Union[str, int], value))
-            return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
+            cohort = Cohort.objects.get(pk=cohort_id)
+            return Q(
+                Exists(
+                    CohortPeople.objects.filter(
+                        cohort_id=cohort.pk, person_id=OuterRef("id"), version=cohort.version
+                    ).only("id")
+                )
+            )
 
         column = "group_properties" if self.type == "group" else "properties"
 
