@@ -14,16 +14,22 @@ def forwards(apps, schema_editor):
     Insight = apps.get_model("posthog", "Insight")
     for instance in Insight.objects.exclude(deprecated_tags__isnull=True, deprecated_tags=[]):
         if instance.deprecated_tags:
-            for tag in instance.deprecated_tags:
-                new_tag = Tag(name=tag, team_id=instance.team_id)
-                tags_to_create.append(new_tag)
+            unique_tags = set([t.lower() for t in instance.deprecated_tags])
+            for tag in unique_tags:
+                new_tag = next(
+                    filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None  # type: ignore
+                )
+                if not new_tag:
+                    new_tag = Tag(name=tag, team_id=instance.team_id)
+                    tags_to_create.append(new_tag)
                 tagged_items_to_create.append(TaggedItem(insight_id=instance.id, tag_id=new_tag.id))
 
     # Create new dashboard tags
     Dashboard = apps.get_model("posthog", "Dashboard")
     for instance in Dashboard.objects.exclude(deprecated_tags__isnull=True, deprecated_tags=[]):
         if instance.deprecated_tags:
-            for tag in instance.deprecated_tags:
+            unique_tags = set([t.lower() for t in instance.deprecated_tags])
+            for tag in unique_tags:
                 new_tag = next(
                     filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None  # type: ignore
                 )
@@ -43,7 +49,7 @@ def reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0204_global_tags_setup"),
+        ("posthog", "0206_global_tags_setup"),
     ]
 
     operations = [migrations.RunPython(forwards, reverse)]

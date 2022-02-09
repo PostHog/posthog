@@ -19,6 +19,15 @@
         }
     }
 
+    .person-selection {
+        width: 100%;
+        border-top: 1px solid $border;
+        padding-top: $default_spacing;
+        margin-top: $default_spacing;
+        align-items: center;
+        justify-content: space-between;
+    }
+
     .insights-graph-container {
         margin-bottom: $default_spacing;
         background-color: #fff;
@@ -219,6 +228,14 @@
         padding-bottom: 0;
         margin-bottom: 0;
     }
+}
+
+.metric-name {
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 8px 8px 8px 16px;
+    margin-left: $default_spacing / 2;
+    flex: 1;
 }
 
 .experiment-workflow {

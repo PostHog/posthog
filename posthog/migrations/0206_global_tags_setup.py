@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0203_dashboard_permissions"),
+        ("posthog", "0205_auto_20220204_1748"),
     ]
 
     operations = [

@@ -474,8 +474,25 @@ export const eventUsageLogic = kea<
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
                 properties.has_end_point = !!filters.end_point
-                properties.has_funnel_filter = !!filters.funnel_filter
+                properties.has_funnel_filter = Object.keys(filters.funnel_filter || {}).length > 0
                 properties.funnel_paths = filters.funnel_paths
+                properties.has_min_edge_weight = !!filters.min_edge_weight
+                properties.has_max_edge_weight = !!filters.max_edge_weight
+                properties.has_edge_limit = !!filters.edge_limit
+                properties.has_local_cleaning_filters = (filters.local_path_cleaning_filters || []).length > 0
+                properties.has_path_replacements = !!filters.path_replacements
+                properties.has_wildcards = (filters.path_groupings || []).length > 0
+                properties.using_advanced_features =
+                    properties.has_min_edge_weight ||
+                    properties.has_max_edge_weight ||
+                    properties.has_edge_limit ||
+                    properties.has_local_cleaning_filters ||
+                    properties.has_path_replacements
+                properties.using_basic_features =
+                    properties.has_start_point ||
+                    properties.has_end_point ||
+                    properties.has_funnel_filter ||
+                    properties.has_wildcards
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
