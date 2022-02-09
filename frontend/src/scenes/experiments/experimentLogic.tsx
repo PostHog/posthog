@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import React from 'react'
+import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { errorToast } from 'lib/utils'
@@ -24,6 +24,7 @@ import {
     FunnelStep,
     SecondaryExperimentMetric,
     AvailableFeature,
+    SignificanceCode,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -32,6 +33,8 @@ import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -145,10 +148,10 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 },
                 setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    const metrics = secondaryMetrics.map((metric) => metric)
                     return {
                         ...state,
-                        parameters: { ...state?.parameters, secondary_metrics: metrics },
+                        secondary_metrics: metrics,
                     }
                 },
                 resetNewExperiment: () => ({
@@ -415,9 +418,8 @@ export const experimentLogic = kea<experimentLogicType>({
         parsedSecondaryMetrics: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics: Partial<FilterType>[] =
-                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
-                return secondaryMetrics.map((metric) => ({ filters: metric }))
+                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics
             },
         ],
         minimumDetectableChange: [
@@ -440,6 +442,52 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults): boolean => {
                 return experimentResults?.significant || false
+            },
+        ],
+        significanceBannerDetails: [
+            (s) => [s.experimentResults],
+            (experimentResults): string | ReactElement => {
+                if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
+                    return (
+                        <>
+                            This is because the expected loss in conversion is greater than 1%
+                            <Tooltip
+                                placement="right"
+                                title={
+                                    <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
+                                }
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
+                    )
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
+                    return (
+                        <>
+                            This is because the p value is greater than 0.05
+                            <Tooltip
+                                placement="right"
+                                title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
+                    )
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.LowWinProbability) {
+                    return 'This is because the win probability of all test variants combined is less than 90%.'
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.NotEnoughExposure) {
+                    return 'This is because we need at least 100 people per variant to declare significance.'
+                }
+
+                return ''
             },
         ],
         recommendedExposureForCountData: [
@@ -491,6 +539,8 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string, insightType: InsightType): number => {
+                    // Ensures we get the right index from results, so the UI can
+                    // display the right colour for the variant
                     if (!experimentResults) {
                         return 0
                     }
@@ -544,6 +594,28 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             },
         ],
+        areTrendResultsConfusing: [
+            (s) => [s.experimentResults, s.highestProbabilityVariant],
+            (experimentResults, highestProbabilityVariant): boolean => {
+                // Results are confusing when the top variant has a lower
+                // absolute count than other variants. This happens because
+                // exposure is invisible to the user
+                if (!experimentResults) {
+                    return false
+                }
+                // find variant with highest count
+                const variantResults: TrendResult = (experimentResults?.insight as TrendResult[]).reduce(
+                    (bestVariant, currentVariant) =>
+                        currentVariant.count > bestVariant.count ? currentVariant : bestVariant,
+                    { count: 0, breakdown_value: '' } as TrendResult
+                )
+                if (!variantResults.count) {
+                    return false
+                }
+
+                return variantResults.breakdown_value !== highestProbabilityVariant
+            },
+        ],
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
@@ -559,6 +631,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
+                    actions.setSecondaryMetrics([])
                 }
 
                 actions.setEditExperiment(false)

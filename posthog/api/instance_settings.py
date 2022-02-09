@@ -1,11 +1,11 @@
 import re
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Union
 
 from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.permissions import IsStaffUser
-from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import CLICKHOUSE_REPLICATION, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
 
@@ -48,20 +48,43 @@ def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting
 
 
 class InstanceSettingsSerializer(serializers.Serializer):
-    key = serializers.CharField()
+    key = serializers.CharField(read_only=True)
     value = serializers.JSONField()  # value can be bool, int, or str
     value_type = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
-    editable = serializers.BooleanField()
+    editable = serializers.BooleanField(read_only=True)
 
     def update(self, instance: InstanceSetting, validated_data: Dict[str, Any]) -> InstanceSetting:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
-        if validated_data["value"]:
-            target_type = settings.CONFIG[instance.key][2]
-            new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
-            setattr(config, instance.key, new_value_parsed)
-            instance.value = new_value_parsed
+
+        if not validated_data["value"]:
+            raise serializers.ValidationError({"value": "This field is required."}, code="required")
+
+        target_type = settings.CONFIG[instance.key][2]
+        new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
+
+        if instance.key == "RECORDINGS_TTL_WEEKS":
+
+            if CLICKHOUSE_REPLICATION:
+                # On cloud the TTL is set on the session_recording_events_sharded table,
+                # so this command should never be run
+                raise serializers.ValidationError("This setting cannot be updated with sharded tables.")
+
+            # TODO: Move to top-level imports once CH is moved out of `ee`
+            from ee.clickhouse.client import sync_execute
+            from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
+
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
+
+        setattr(config, instance.key, new_value_parsed)
+        instance.value = new_value_parsed
+
+        if instance.key.startswith("EMAIL_") and "request" in self.context:
+            from posthog.tasks.email import send_canary_email
+
+            send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
+
         return instance
 
 

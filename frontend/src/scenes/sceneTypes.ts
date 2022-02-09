@@ -32,6 +32,7 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     Licenses = 'Licenses',
     AsyncMigrations = 'AsyncMigrations',
+    DeadLetterQueue = 'DeadLetterQueue',
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',

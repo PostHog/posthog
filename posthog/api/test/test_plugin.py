@@ -569,6 +569,7 @@ class TestPluginAPI(APIBaseTest):
             {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
             format="multipart",
         )
+        self.assertEqual(response.status_code, 201, response.content)
         plugin_config_id = response.json()["id"]
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(PluginConfig.objects.count(), 1)
@@ -584,6 +585,15 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
             },
         )
+
+        # If we're trying to create another plugin config for the same plugin, just return the original
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            format="multipart",
+        )
+        self.assertEqual(response.json()["id"], plugin_config_id)
+
         response = self.client.patch(
             f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},

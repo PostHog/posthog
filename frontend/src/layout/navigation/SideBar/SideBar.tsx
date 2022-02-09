@@ -20,7 +20,13 @@ import {
     IconSettings,
     IconTools,
 } from 'lib/components/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithPopup,
+    LemonButtonWithSideAction,
+    SideAction,
+} from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -50,7 +56,7 @@ function ProjectSwitcherInternal(): JSX.Element {
     return (
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
-            <LemonButton
+            <LemonButtonWithPopup
                 icon={<Lettermark name={currentOrganization?.name} />}
                 fullWidth
                 type="stealth"
@@ -64,7 +70,7 @@ function ProjectSwitcherInternal(): JSX.Element {
                 }}
             >
                 <strong>{currentTeam ? currentTeam.name : <i>Choose project</i>}</strong>
-            </LemonButton>
+            </LemonButtonWithPopup>
         </div>
     )
 }

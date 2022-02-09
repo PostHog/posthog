@@ -37,7 +37,7 @@ const options: BinOption[] = [
     },
 ]
 
-export function FunnelBinsPicker(): JSX.Element {
+export function FunnelBinsPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters, numericBinCount } = useValues(funnelLogic(insightProps))
     const { setBinCount } = useActions(funnelLogic(insightProps))
@@ -78,6 +78,7 @@ export function FunnelBinsPicker(): JSX.Element {
             dropdownMatchSelectWidth={false}
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             optionLabelProp="label"
+            disabled={disabled}
         >
             <Select.OptGroup label="Bin Count">
                 {options.map((option) => {

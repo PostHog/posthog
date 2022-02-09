@@ -1,0 +1,150 @@
+.definition-popup {
+    width: 316px;
+    padding: 0.5rem;
+
+    .definition-popup-header {
+        display: flex;
+        flex-direction: column;
+
+        .definition-popup-header-row {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            margin-bottom: 4px;
+
+            .definition-popup-header-row-title {
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+
+            .definition-popup-header-row-buttons {
+                display: flex;
+                flex-direction: row;
+                font-size: 14px;
+            }
+        }
+
+        .definition-popup-title {
+            display: flex;
+            align-items: center;
+            font-weight: 600;
+            font-size: 20px;
+            line-height: 24px;
+            margin-bottom: 4px;
+
+            svg {
+                margin-right: 8px;
+
+                &.taxonomy-icon-muted {
+                    path {
+                        fill: var(--primary-alt);
+                    }
+                }
+
+                &.taxonomy-icon-verified {
+                    path {
+                        fill: var(--success);
+                    }
+                }
+            }
+
+            // Override property key inside popup
+            .property-key-info {
+                display: flex;
+                white-space: unset;
+                align-items: center;
+                font-size: 20px;
+                line-height: 24px;
+
+                .property-key-info-logo {
+                    width: 26px;
+                    height: 24px;
+                    margin-right: 8px;
+                }
+            }
+        }
+    }
+
+    .definition-popup-description {
+        font-weight: 400;
+        margin-bottom: 4px;
+
+        &.empty {
+            font-style: italic;
+            color: var(--text-muted);
+        }
+    }
+
+    .definition-popup-examples {
+        margin-bottom: 4px;
+        font-style: italic;
+    }
+
+    .ant-tag {
+        margin-top: 0 !important;
+    }
+
+    .definition-popup-timemeta {
+        display: flex;
+        margin-top: 4px;
+        margin-bottom: 4px;
+
+        span.definition-popup-timemeta-spacer {
+            margin-right: 4px;
+            margin-left: 4px;
+        }
+    }
+
+    .definition-popup-divider {
+        width: 100%;
+        margin-top: 16px;
+        margin-bottom: 16px;
+        align-items: flex-start;
+        text-transform: uppercase;
+        font-size: 11px;
+    }
+
+    .definition-popup-grid {
+        display: grid;
+        grid-gap: 8px;
+
+        .definition-popup-grid-card {
+            display: flex;
+            flex-direction: column;
+
+            .definition-popup-grid-card-title {
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--text-muted);
+                margin-bottom: 4px;
+            }
+
+            .definition-popup-grid-card-content {
+                ul {
+                    padding-inline-start: 1rem;
+                    margin-bottom: 0;
+
+                    > li {
+                        span {
+                            display: flex;
+                            flex-wrap: wrap;
+                            align-items: center;
+                        }
+                        pre {
+                            background-color: var(--bg-mid);
+                            padding: 0 4px;
+                            font-size: 12px;
+                            margin: 2px 0.25rem 1px;
+                            border-radius: 4px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

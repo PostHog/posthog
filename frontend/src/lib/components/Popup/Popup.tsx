@@ -15,7 +15,7 @@ export interface PopupProps {
     /** Popover trigger element. */
     children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     /** Content of the overlay. */
-    overlay: React.ReactNode
+    overlay: React.ReactNode | React.ReactNode[]
     /** Where the popover should start relative to children. */
     placement?: Placement
     /** Where the popover should start relative to children if there's insufficient space for original placement. */

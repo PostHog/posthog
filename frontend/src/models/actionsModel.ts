@@ -7,6 +7,10 @@ interface ActionsModelProps {
     params?: string
 }
 
+export function findActionName(id: number): string | null {
+    return actionsModel.findMounted()?.values.actions.find((a) => a.id === id)?.name || null
+}
+
 export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
     path: ['models', 'actionsModel'],
     props: {} as ActionsModelProps,

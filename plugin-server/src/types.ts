@@ -499,6 +499,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }

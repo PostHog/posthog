@@ -13,7 +13,7 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -460,12 +460,12 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter extends EntityFilter {
-    funnel_from_step: number
-    funnel_to_step: number
+export interface FunnelStepRangeEntityFilter {
+    funnel_from_step?: number
+    funnel_to_step?: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
     id?: number
@@ -683,20 +683,10 @@ export interface InsightModel {
     tags: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    effective_restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
-}
-
-/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
-export enum DashboardRestrictionLevel {
-    EveryoneInProjectCanEdit = 21,
-    OnlyCollaboratorsCanEdit = 37,
-}
-
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -713,6 +703,7 @@ export interface DashboardType {
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
+    effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
@@ -720,6 +711,21 @@ export interface DashboardType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
+
+/** Explicit dashboard collaborator, based on DashboardPrivilege. */
+export interface DashboardCollaboratorType {
+    id: string
+    dashboard_id: DashboardType['id']
+    user: UserBasicType
+    level: DashboardPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
+
+/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
+export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
+    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
+}
 
 export interface OrganizationInviteType {
     id: string
@@ -817,12 +823,12 @@ export interface AnnotationType {
 }
 
 export enum ChartDisplayType {
-    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     ActionsTable = 'ActionsTable',
-    ActionsPieChart = 'ActionsPie',
-    ActionsBarChart = 'ActionsBar',
-    ActionsBarChartValue = 'ActionsBarValue',
+    ActionsPie = 'ActionsPie',
+    ActionsBar = 'ActionsBar',
+    ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
 }
@@ -951,7 +957,7 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string
+    value: string | number
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
@@ -1349,6 +1355,9 @@ export interface EventDefinition {
     last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -1371,6 +1380,8 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    created_at?: string // TODO: Implement
+    last_seen_at?: string // TODO: Implement
 }
 
 export interface PersonProperty {
@@ -1399,6 +1410,8 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
+    // ID of feature flag
+    feature_flag: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -1409,7 +1422,7 @@ export interface Experiment {
     start_date?: string
     end_date?: string
     archived?: boolean
-    secondary_metrics: FilterType[]
+    secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1420,9 +1433,13 @@ export interface ExperimentResults {
     itemID: string
     significant: boolean
     noData?: boolean
+    significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
 }
 
 export interface SecondaryExperimentMetric {
+    name?: string
     filters: Partial<FilterType>
 }
 
@@ -1491,6 +1508,14 @@ export interface FunnelCorrelation {
         | FunnelCorrelationResultsType.Events
         | FunnelCorrelationResultsType.Properties
         | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum SignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
 export enum FunnelCorrelationType {
