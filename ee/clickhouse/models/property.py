@@ -62,10 +62,17 @@ from posthog.utils import is_valid_regex, relative_date_parse
 # Property json is of the form:
 # { type: 'AND | OR', properties: List[Property] }
 # which is parsed and sent to this function ->
+class PropertyGroup:
+    type: PropertyOperatorType
+    properties: Union[List[Property], List["PropertyGroup"]]
+
+    def __init__(self, type: PropertyOperatorType, properties: Union[List[Property], List["PropertyGroup"]]) -> None:
+        self.type = type
+        self.properties = properties
 
 
 def parse_prop_grouped_clauses(
-    filters: Union[List[Property], List[List[Property]]],
+    filter_group: PropertyGroup,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -73,9 +80,60 @@ def parse_prop_grouped_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
+    _top_level: bool = True,
 ) -> Tuple[str, Dict]:
     # TODO: setup structure of new properties, and call parse_prop_clauses with right operator type
-    pass
+
+    group: Union[Property, PropertyGroup]
+
+    if len(filter_group.properties) == 0:
+        return "", {}
+
+    if isinstance(filter_group.properties[0], PropertyGroup):
+        group_clauses = []
+        final_params = {}
+        group: PropertyGroup
+        for idx, group in enumerate(filter_group.properties):
+            clause, params = parse_prop_grouped_clauses(
+                filter_group=group,
+                prepend=f"{prepend}_{idx}",
+                table_name=table_name,
+                allow_denormalized_props=allow_denormalized_props,
+                has_person_id_joined=has_person_id_joined,
+                person_properties_mode=person_properties_mode,
+                person_id_joined_alias=person_id_joined_alias,
+                group_properties_joined=group_properties_joined,
+                _top_level=False,
+            )
+            group_clauses.append(clause)
+            final_params.update(params)
+
+        _final = f"{filter_group.type} ".join(group_clauses)
+    else:
+        _final, final_params = parse_prop_clauses(
+            filters=filter_group.properties,
+            prepend=f"{prepend}",
+            table_name=table_name,
+            allow_denormalized_props=allow_denormalized_props,
+            has_person_id_joined=has_person_id_joined,
+            person_properties_mode=person_properties_mode,
+            person_id_joined_alias=person_id_joined_alias,
+            group_properties_joined=group_properties_joined,
+            property_operator=filter_group.type,
+        )
+    if _top_level:
+        final = f"AND ({_final})"
+    else:
+        final = f"({_final})"
+
+    return final, final_params
+
+
+def is_property_group(group: Union[Property, "PropertyGroup"]):
+    if isinstance(group, PropertyGroup):
+        return True
+    else:
+        return False
 
 
 def parse_prop_clauses(
@@ -117,7 +175,7 @@ def parse_prop_clauses(
                 "{}person".format(prepend),
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
-                property_operator=property_operator,
+                property_operator="AND",
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -192,7 +250,7 @@ def parse_prop_clauses(
             params.update(filter_params)
 
     # TODO: clean
-    joined = f"AND ({' '.join(final).replace(property_operator, '', 1)})"
+    joined = f"({' '.join(final).replace(property_operator, '', 1)})"
 
     if final:
         return joined, params

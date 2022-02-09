@@ -8,9 +8,11 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
+    PropertyGroup,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_clauses,
+    parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -478,6 +480,66 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
         )
         self.assertEqual(string_expr, ("e.mat_some_mat_prop", True))
+
+    def test_parse_groups(self):
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1", "attr_2": "val_2"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_2"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
+        )
+
+        # TODO: make this structure work with filter prop mixin
+        prop1 = Property(**{"key": "attr", "value": "val_1"})
+        prop2 = Property(**{"key": "attr_2", "value": "val_2"})
+        prop3 = Property(**{"key": "attr", "value": "val_2"})
+        group1 = PropertyGroup(type="AND", properties=[prop1, prop2])
+        group2 = PropertyGroup(type="OR", properties=[prop3])
+        outer_group = PropertyGroup(type="OR", properties=[group1, group2])
+
+        # -------
+        # Outer_group:
+        # {type: 'OR', properties: [
+        #     {type: 'OR', properties: [{"key": "attr", "value": "some_val"}]},
+        #     {type: 'OR', properties: [{"key": "attr", "value": "another_val"}]},
+        # ]}
+
+        query, params = parse_prop_grouped_clauses(outer_group)
+
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        res = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(res), 2)
+
+    def test_parse_groups_persons(self):
+        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})
+
+        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"email": "2@posthog.com"})
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
+        )
+
+        prop1 = Property(**{"key": "email", "type": "person", "value": "1@posthog.com"})
+        prop2 = Property(**{"key": "email", "type": "person", "value": "2@posthog.com"})
+        group1 = PropertyGroup(type="OR", properties=[prop1])
+        group2 = PropertyGroup(type="OR", properties=[prop2])
+        outer_group = PropertyGroup(type="OR", properties=[group1, group2])
+
+        query, params = parse_prop_grouped_clauses(outer_group)
+
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        res = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(res), 2)
 
 
 @pytest.mark.django_db
