@@ -358,29 +358,33 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        timer = statsd.timer("person_property_values_timer").start()
         key = request.GET.get("key")
         value = request.GET.get("value")
-        try:
-            flattened = []
-            if key:
+        flattened = []
+        if key:
+            timer = statsd.timer("get_person_property_values_for_key_timer").start()
+            try:
                 result = get_person_property_values_for_key(key, self.team, value)
-                for (value, count) in result:
-                    try:
-                        # Try loading as json for dicts or arrays
-                        flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
-                    except json.decoder.JSONDecodeError:
-                        flattened.append({"name": convert_property_value(value), "count": count})
-            statsd.incr("person_property_values_success")
-            return response.Response(flattened)
-        except Exception as e:
-            statsd.incr(
-                "person_property_values_error",
-                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
-            )
-            raise e
-        finally:
-            timer.stop()
+                statsd.incr(
+                    "get_person_property_values_for_key_success",
+                    tags={"key": key, "value": value, "team_id": self.team.id},
+                )
+            except Exception as e:
+                statsd.incr(
+                    "get_person_property_values_for_key_error",
+                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+                )
+                raise e
+            finally:
+                timer.stop()
+
+            for (value, count) in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
+                except json.decoder.JSONDecodeError:
+                    flattened.append({"name": convert_property_value(value), "count": count})
+        return response.Response(flattened)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
