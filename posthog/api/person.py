@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from django.db.models import Count, F, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.query import Prefetch
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
@@ -50,6 +50,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Event, Filter, Person, User
+from posthog.models.cohort import CohortPeople
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -107,7 +108,7 @@ class PersonFilter(filters.FilterSet):
     key_identifier = filters.CharFilter(method="key_identifier_filter", help_text="Filter on email or distinct ID")
     uuid = filters.CharFilter(method="uuid_filter")
     search = filters.CharFilter(method="search_filter")
-    cohort = filters.CharFilter(field_name="cohort__id", help_text="ID of a cohort the user belongs to")
+    cohort = filters.CharFilter(method="cohort_filter", help_text="ID of a cohort the user belongs to")
     properties = filters.CharFilter(method="properties_filter")
 
     def __init__(self, data=None, queryset=None, *, request=None, prefix=None, team_id=None):
@@ -116,6 +117,11 @@ class PersonFilter(filters.FilterSet):
 
     def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
         queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
+        return queryset
+
+    def cohort_filter(self, queryset, attr, value, *args, **kwargs):
+        cohort = Cohort.objects.get(pk=value)
+        queryset = queryset.filter(cohort__id=cohort.pk, cohortpeople__version=cohort.version)
         return queryset
 
     def key_identifier_filter(self, queryset, attr, value, *args, **kwargs):
@@ -487,8 +493,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.api.cohort import CohortSerializer
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id, deleted=False)
 
+        cohort_people_count = (
+            CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
+            .values("cohort_id")
+            .annotate(count=Count("person_id", distinct=True))
+            .values("count")
+        )
+
+        cohorts = Cohort.objects.annotate(count=Subquery(cohort_people_count)).filter(
+            people__id=person.id, deleted=False
+        )
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 
