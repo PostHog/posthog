@@ -368,7 +368,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 for (value, count) in result:
                     try:
                         # Try loading as json for dicts or arrays
-                        flattened.append({"name": json.loads(value), "count": count})
+                        flattened.append({"name": json.loads(value), "count": count})  # type: ignore
                     except json.decoder.JSONDecodeError:
                         flattened.append({"name": value, "count": count})
             statsd.incr("person_property_values_success")
