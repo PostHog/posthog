@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import React, { useEffect, useState } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
@@ -20,6 +21,22 @@ export function InstanceConfigTab(): JSX.Element {
     const { editableInstanceSettings, instanceSettingsLoading } = useValues(systemStatusLogic)
     const { loadInstanceSettings } = useActions(systemStatusLogic)
     const [mode, setMode] = useState(ConfigMode.View)
+    const [editingValuesState, setEditingValuesState] = useState({} as Record<string, Pick<InstanceSetting, 'value'>>)
+
+    useKeyboardHotkeys({
+        e: {
+            action: () => setMode(ConfigMode.Edit),
+            disabled: mode !== ConfigMode.View,
+        },
+    })
+
+    const handleValueChanged = (key: string, value: any): void => {
+        setEditingValuesState({ ...editingValuesState, [key]: value })
+    }
+
+    const save = (): void => {
+        console.log(editingValuesState)
+    }
 
     useEffect(() => {
         loadInstanceSettings()
@@ -46,7 +63,13 @@ export function InstanceConfigTab(): JSX.Element {
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
                 }
-                return mode === ConfigMode.Edit ? RenderMetricValueEdit(props) : RenderMetricValue(props)
+                return mode === ConfigMode.Edit
+                    ? RenderMetricValueEdit({
+                          ...props,
+                          value: editingValuesState[record.key] ?? record.value,
+                          onValueChanged: handleValueChanged,
+                      })
+                    : RenderMetricValue(props)
             },
             width: 300,
         },
@@ -101,7 +124,7 @@ export function InstanceConfigTab(): JSX.Element {
                         >
                             Discard changes
                         </Button>
-                        <Button type="primary" disabled={instanceSettingsLoading}>
+                        <Button type="primary" disabled={instanceSettingsLoading} onClick={save}>
                             Save
                         </Button>
                     </>
