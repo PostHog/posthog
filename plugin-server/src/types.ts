@@ -237,6 +237,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    logs_disabled?: boolean
 }
 
 export interface PluginCapabilities {

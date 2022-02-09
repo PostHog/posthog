@@ -1083,6 +1083,10 @@ export class DB {
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
 
+        if (pluginConfig.plugin?.logs_disabled && source === PluginLogEntrySource.System) {
+            return
+        }
+
         const parsedEntry = {
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
