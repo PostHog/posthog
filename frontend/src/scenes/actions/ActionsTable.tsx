@@ -146,7 +146,7 @@ export function ActionsTable(): JSX.Element {
                                             urls.insightNew({
                                                 insight: InsightType.TRENDS,
                                                 interval: 'day',
-                                                display: ChartDisplayType.ActionsLineGraphLinear,
+                                                display: ChartDisplayType.ActionsLineGraph,
                                                 actions: [
                                                     {
                                                         id: action.id,

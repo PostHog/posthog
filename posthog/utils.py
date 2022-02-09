@@ -276,7 +276,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     return HttpResponse(html)
 
 
-def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs

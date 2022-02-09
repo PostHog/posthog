@@ -16,7 +16,6 @@ from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
-    from posthog.models.user import User
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -148,7 +147,7 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def get_effective_membership_level(self, user: "User") -> Optional["OrganizationMembership.Level"]:
+    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
         """Return an effective membership level.
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
@@ -157,7 +156,7 @@ class Team(UUIDClassicModel):
         try:
             requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
                 "organization"
-            ).get(organization_id=self.organization_id, user=user)
+            ).get(organization_id=self.organization_id, user_id=user_id)
         except OrganizationMembership.DoesNotExist:
             return None
         if (

@@ -58,12 +58,12 @@ import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -477,6 +477,24 @@ export function Experiment_(): JSX.Element {
                                                 </Row>
                                             </Col>
                                         </Row>
+                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                            <Row className="mt">
+                                                <Col>
+                                                    <div>
+                                                        <b>Secondary metrics</b>
+                                                        <span className="text-muted ml-05">(optional)</span>
+                                                    </div>
+                                                    <div className="text-muted" style={{ marginTop: 4 }}>
+                                                        Use secondary metrics to monitor metrics related to your
+                                                        experiment goal. You can add up to three secondary metrics.{' '}
+                                                    </div>
+                                                </Col>
+                                                <SecondaryMetrics
+                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                    initialMetrics={parsedSecondaryMetrics}
+                                                />
+                                            </Row>
+                                        )}
                                     </Col>
                                     <Col span={12}>
                                         <Card className="experiment-preview">
@@ -495,24 +513,6 @@ export function Experiment_(): JSX.Element {
                                         </Card>
                                     </Col>
                                 </Row>
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                    <Row>
-                                        <Col>
-                                            <div>
-                                                <b>Secondary metrics</b>
-                                                <span className="text-muted ml-05">(optional)</span>
-                                            </div>
-                                            <div className="text-muted">
-                                                Use secondary metrics to monitor metrics related to your experiment
-                                                goal. You can add up to three secondary metrics.{' '}
-                                            </div>
-                                        </Col>
-                                        <SecondaryMetrics
-                                            onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                            initialMetrics={parsedSecondaryMetrics}
-                                        />
-                                    </Row>
-                                )}
                             </BindLogic>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">

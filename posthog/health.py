@@ -17,6 +17,8 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
+from typing import Dict, List, Literal, get_args
+
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
@@ -24,6 +26,14 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import JsonResponse
 
 from ee.kafka_client.client import can_connect as can_connect_to_kafka
+
+ServiceRole = Literal["events", "web", "worker"]
+
+service_dependencies: Dict[ServiceRole, List[str]] = {
+    "events": ["http", "kafka_connected"],
+    "web": ["http", "postgres", "postgres_migrations_uptodate"],
+    "worker": ["http", "postgres", "postgres_migrations_uptodate"],
+}
 
 
 def livez(request):
@@ -56,6 +66,10 @@ def readyz(request):
     rather than take the website UI down.
     """
     exclude = set(request.GET.getlist("exclude", []))
+    role = request.GET.get("role", None)
+
+    if role and role not in get_args(ServiceRole):
+        return JsonResponse({"error": "InvalidRole"}, status=400)
 
     checks = {
         "http": True,
@@ -63,6 +77,13 @@ def readyz(request):
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate(),
         "kafka_connected": is_kafka_connected(),
     }
+
+    if role:
+        # If we have a role, then limit the checks to a subset defined by the
+        # service_dependencies for this specific role, defaulting to all if we
+        # don't find a lookup
+        dependencies = service_dependencies.get(role, checks.keys())
+        checks = {name: result for name, result in checks.items() if name in dependencies}
 
     status = 200 if all(check_status for name, check_status in checks.items() if name not in exclude) else 503
 

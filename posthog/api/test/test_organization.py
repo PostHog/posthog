@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import ANY, patch
 
 from rest_framework import status
@@ -141,7 +142,7 @@ class TestOrganizationAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_member_can_complete_onboarding_setup(self, mock_capture):
-        non_admin = User.objects.create(email="non_admin@posthog.com")
+        non_admin = User.objects.create(email="non_admin@posthog.com", distinct_id=str(uuid.uuid4()))
         non_admin.join(organization=self.organization)
 
         for user in [self.user, non_admin]:
