@@ -95,6 +95,10 @@ class TestTeamAwareVersioningMiddleware(APIBaseTest):
             is_model_registered = is_registered(model[1])
             self.assertFalse(is_model_registered, msg=f"expected {model[0]} not to be registered with reversion")
 
+        for model in [m for m in all_models.items() if m[0] in registered_models]:
+            is_model_registered = is_registered(model[1])
+            self.assertTrue(is_model_registered, msg=f"expected {model[0]} to be registered with reversion")
+
     def test_can_load_revisions_by_team(self):
         self._create_feature_flag({"name": "first", "key": "first-key"})
         self._create_feature_flag({"name": "second", "key": "second-key"})
