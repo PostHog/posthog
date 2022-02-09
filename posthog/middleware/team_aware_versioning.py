@@ -49,7 +49,7 @@ class TeamAwareVersioning:
         if request_creates_revision:
             with create_revision(manage_manually=False, using=None, atomic=True):
                 reversion.add_meta(RevisionTeamMetadata, team_id=team_id)
-                self.logger.info(
+                self.logger.debug(
                     f"[VERSIONING] creating revision", team_id=team_id, url=request.get_raw_uri(),
                 )
                 response = self.get_response(request, *args, **kwargs)
@@ -64,7 +64,7 @@ class TeamAwareVersioning:
         try:
             return request.user.current_team_id
         except:
-            self.logger.info(
+            self.logger.error(
                 "Error getting team_id from user", request_path=request.path, url=request.get_raw_uri(),
             )
             return None
