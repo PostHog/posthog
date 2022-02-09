@@ -1327,6 +1327,7 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number

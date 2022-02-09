@@ -1,0 +1,24 @@
+@import '~/vars';
+
+.lemon-alert-message {
+    background-color: var(--radius-light);
+    border-radius: var(--radius);
+    padding: 0.5rem 1rem;
+    color: $primary_alt;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+
+    .anticon {
+        margin-right: 0.75rem;
+    }
+
+    &.info {
+        background-color: rgba($primary_alt, 0.09);
+    }
+
+    &.warning {
+        background-color: rgba($warning, 0.09);
+        color: $warning;
+    }
+}

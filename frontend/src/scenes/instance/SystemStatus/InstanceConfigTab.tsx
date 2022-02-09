@@ -4,33 +4,44 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { WarningOutlined } from '@ant-design/icons'
+import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
     const { editableInstanceSettings, instanceSettingsLoading, instanceConfigMode, instanceConfigEditingState } =
         useValues(systemStatusLogic)
-    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue } = useActions(systemStatusLogic)
+    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
+        useActions(systemStatusLogic)
+    const [saving, setSaving] = useState(false)
 
     useKeyboardHotkeys({
         e: {
             action: () => setInstanceConfigMode(ConfigMode.Edit),
-            disabled: instanceConfigMode !== ConfigMode.View,
+            disabled: instanceConfigMode !== ConfigMode.View || instanceSettingsLoading,
         },
         escape: {
             action: () => setInstanceConfigMode(ConfigMode.View),
-            disabled: instanceConfigMode !== ConfigMode.Edit,
+            disabled: instanceConfigMode !== ConfigMode.Edit || instanceSettingsLoading,
+        },
+        enter: {
+            action: () => save(),
+            disabled: instanceConfigMode !== ConfigMode.Edit || instanceSettingsLoading,
         },
     })
 
     const save = (): void => {
-        console.log(instanceConfigEditingState)
+        if (Object.keys(instanceConfigEditingState).length) {
+            setSaving(true)
+        } else {
+            setInstanceConfigMode(ConfigMode.View)
+        }
     }
 
     useEffect(() => {
@@ -120,7 +131,10 @@ export function InstanceConfigTab(): JSX.Element {
                         <Button
                             type="link"
                             disabled={instanceSettingsLoading}
-                            onClick={() => setInstanceConfigMode(ConfigMode.View)}
+                            onClick={() => {
+                                setInstanceConfigMode(ConfigMode.View)
+                                clearInstanceConfigEditing()
+                            }}
                         >
                             Discard changes
                         </Button>
@@ -148,6 +162,7 @@ export function InstanceConfigTab(): JSX.Element {
                 </a>
             </p>
             <LemonTable dataSource={configOptions} columns={envColumns} loading={preflightLoading} rowKey="key" />
+            {saving && <InstanceConfigSaveModal onClose={() => setSaving(false)} />}
         </div>
     )
 }
