@@ -46,8 +46,8 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             onCancel={onClose}
             maskClosable={false}
             onOk={saveInstanceConfig}
-            okButtonProps={{ disabled: loading }}
-            cancelButtonProps={{ disabled: loading }}
+            okButtonProps={{ loading }}
+            cancelButtonProps={{ loading }}
             closable={!loading}
         >
             {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (

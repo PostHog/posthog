@@ -15,11 +15,12 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { isUserLoggedIn } from 'lib/utils'
+import { errorToast, isUserLoggedIn, successToast } from 'lib/utils'
 
 export enum ConfigMode {
     View = 'view',
     Edit = 'edit',
+    Saving = 'saving',
 }
 export interface MetricRow {
     metric: string
@@ -194,18 +195,36 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             }
             actions.setInstanceConfigMode(ConfigMode.View)
         },
-        saveInstanceConfig: async () => {
-            console.log(values.instanceConfigEditingState)
+        saveInstanceConfig: async (_, breakpoint) => {
             actions.setUpdatedInstanceConfigCount(0)
             Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
-                await api.update(`api/instance_settings/${key}`, {
-                    value,
-                })
-                actions.increaseUpdatedInstanceConfigCount()
+                try {
+                    console.log({ value })
+                    await api.update(`api/instance_settings/${key}`, {
+                        value,
+                    })
+                    actions.increaseUpdatedInstanceConfigCount()
+                } catch {
+                    errorToast(
+                        'Error updating settings',
+                        'There was an error updating all your settings. Please try again.'
+                    )
+                    await breakpoint(1000)
+                    actions.setUpdatedInstanceConfigCount(null)
+                    actions.loadInstanceSettings()
+                }
             })
-            actions.setUpdatedInstanceConfigCount(null)
-            actions.clearInstanceConfigEditing()
-            actions.setInstanceConfigMode(ConfigMode.View)
+            await breakpoint(1000)
+            if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
+                actions.loadInstanceSettings()
+                actions.setUpdatedInstanceConfigCount(null)
+                actions.clearInstanceConfigEditing()
+                actions.setInstanceConfigMode(ConfigMode.View)
+                successToast(
+                    'Instance settings updated!',
+                    'Your settings have been updated and should take effect soon.'
+                )
+            }
         },
     }),
 

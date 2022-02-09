@@ -4,7 +4,7 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -19,7 +19,6 @@ export function InstanceConfigTab(): JSX.Element {
         useValues(systemStatusLogic)
     const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
         useActions(systemStatusLogic)
-    const [saving, setSaving] = useState(false)
 
     useKeyboardHotkeys({
         e: {
@@ -38,7 +37,7 @@ export function InstanceConfigTab(): JSX.Element {
 
     const save = (): void => {
         if (Object.keys(instanceConfigEditingState).length) {
-            setSaving(true)
+            setInstanceConfigMode(ConfigMode.Saving)
         } else {
             setInstanceConfigMode(ConfigMode.View)
         }
@@ -74,13 +73,13 @@ export function InstanceConfigTab(): JSX.Element {
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
                 }
-                return instanceConfigMode === ConfigMode.Edit
-                    ? RenderMetricValueEdit({
+                return instanceConfigMode === ConfigMode.View
+                    ? RenderMetricValue(props)
+                    : RenderMetricValueEdit({
                           ...props,
                           value: instanceConfigEditingState[record.key] ?? record.value,
                           onValueChanged: updateInstanceConfigValue,
                       })
-                    : RenderMetricValue(props)
             },
             width: 300,
         },
@@ -160,7 +159,9 @@ export function InstanceConfigTab(): JSX.Element {
                 </a>
             </p>
             <LemonTable dataSource={configOptions} columns={envColumns} loading={preflightLoading} rowKey="key" />
-            {saving && <InstanceConfigSaveModal onClose={() => setSaving(false)} />}
+            {instanceConfigMode === ConfigMode.Saving && (
+                <InstanceConfigSaveModal onClose={() => setInstanceConfigMode(ConfigMode.Edit)} />
+            )}
         </div>
     )
 }
