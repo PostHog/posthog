@@ -83,6 +83,9 @@ class TestTeamAwareVersioningMiddleware(APIBaseTest):
         self.assertEqual(len(Version.objects.get_for_object(Insight.objects.get(pk=insight_id))), 2)
 
     def test_no_revisions_other_than_for_known_models(self):
+        """
+        Instead of testing all seven registered plugins individually test that they are all registered with Reversion
+        """
         from django.apps import apps
 
         all_models = apps.all_models["posthog"]
