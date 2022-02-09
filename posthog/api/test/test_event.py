@@ -61,11 +61,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            # PostHog event, PostHog event, PostHog person, PostHog person distinct ID,
-            # PostHog element group, PostHog element, PostHog element
-            expected_queries += 7
+        expected_queries = (
+            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
@@ -88,9 +86,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
         )
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
+        expected_queries = (
+            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
@@ -105,9 +103,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         event2 = _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},)
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
+        expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
