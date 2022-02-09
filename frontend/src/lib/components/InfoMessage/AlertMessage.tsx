@@ -1,6 +1,7 @@
 import React from 'react'
 import './AlertMessage.scss'
-import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { WarningOutlined } from '@ant-design/icons'
+import { IconInfo } from '../icons'
 import clsx from 'clsx'
 
 export interface AlertMessageInterface {
@@ -13,7 +14,7 @@ export interface AlertMessageInterface {
 export function AlertMessage({ children, style, type = 'info' }: AlertMessageInterface): JSX.Element {
     return (
         <div className={clsx('lemon-alert-message', type)} style={style}>
-            {type === 'warning' ? <WarningOutlined /> : <InfoCircleOutlined />}
+            <div className="lemon-alert-message__icon"> {type === 'warning' ? <WarningOutlined /> : <IconInfo />}</div>
             <div>{children}</div>
         </div>
     )
