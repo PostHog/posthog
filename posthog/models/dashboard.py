@@ -55,7 +55,7 @@ class Dashboard(models.Model):
     def get_effective_privilege_level(self, user_id: int) -> PrivilegeLevel:
         if (
             # Checks can be skipped if the dashboard in on the lowest restriction level
-            self.effective_restriction_level == self.PrivilegeLevel.CAN_EDIT
+            self.effective_restriction_level == self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
             # Users with restriction rights can do anything
             or self.can_user_restrict(user_id)
         ):
