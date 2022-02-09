@@ -281,7 +281,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
 
         # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/insights")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 20)
