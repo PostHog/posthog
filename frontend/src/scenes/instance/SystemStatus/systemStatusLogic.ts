@@ -56,8 +56,11 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         setAnalyzeQuery: (query: string) => ({ query }),
         openAnalyzeModalWithQuery: (query: string) => ({ query }),
         setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
-        updateInstanceConfigValue: (key: string, value: any) => ({ key, value }),
+        updateInstanceConfigValue: (key: string, value: string | boolean | number) => ({ key, value }),
         clearInstanceConfigEditing: true,
+        saveInstanceConfig: true,
+        setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
+        increaseUpdatedInstanceConfigCount: true,
     },
     loaders: ({ values }) => ({
         systemStatus: [
@@ -144,10 +147,17 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             },
         ],
         instanceConfigEditingState: [
-            {} as Record<string, Pick<InstanceSetting, 'value'>>,
+            {} as Record<string, string | boolean | number>,
             {
                 updateInstanceConfigValue: (s, { key, value }) => ({ ...s, [key]: value }),
                 clearInstanceConfigEditing: () => ({}),
+            },
+        ],
+        updatedInstanceConfigCount: [
+            null as number | null, // Number of config items that have been updated; `null` means no update is in progress
+            {
+                setUpdatedInstanceConfigCount: (_, { count }) => count,
+                increaseUpdatedInstanceConfigCount: (state) => (state ?? 0) + 1,
             },
         ],
     },
@@ -177,11 +187,24 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         ],
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
             if (tab === 'internal_metrics') {
                 actions.loadQueries()
             }
+            actions.setInstanceConfigMode(ConfigMode.View)
+        },
+        saveInstanceConfig: async () => {
+            console.log(values.instanceConfigEditingState)
+            actions.setUpdatedInstanceConfigCount(0)
+            Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
+                await api.update(`api/instance_settings/${key}`, {
+                    value,
+                })
+                actions.increaseUpdatedInstanceConfigCount()
+            })
+            actions.setUpdatedInstanceConfigCount(null)
+            actions.clearInstanceConfigEditing()
             actions.setInstanceConfigMode(ConfigMode.View)
         },
     }),

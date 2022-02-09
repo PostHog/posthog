@@ -1,5 +1,5 @@
 import { Modal } from 'antd'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/InfoMessage/AlertMessage'
 import React from 'react'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -33,7 +33,10 @@ function ChangeRow({ metricKey, old_value, value }: ChangeRowInterface): JSX.Ele
 }
 
 export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): JSX.Element {
-    const { instanceConfigEditingState, editableInstanceSettings } = useValues(systemStatusLogic)
+    const { instanceConfigEditingState, editableInstanceSettings, updatedInstanceConfigCount } =
+        useValues(systemStatusLogic)
+    const { saveInstanceConfig } = useActions(systemStatusLogic)
+    const loading = updatedInstanceConfigCount !== null
     return (
         <Modal
             title="Confirm new changes"
@@ -42,6 +45,10 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             okType="danger"
             onCancel={onClose}
             maskClosable={false}
+            onOk={saveInstanceConfig}
+            okButtonProps={{ disabled: loading }}
+            cancelButtonProps={{ disabled: loading }}
+            closable={!loading}
         >
             {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
                 <AlertMessage style={{ marginBottom: 16 }}>
@@ -69,6 +76,11 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                     old_value={editableInstanceSettings.find((record) => record.key === key)?.value}
                 />
             ))}
+            {loading && (
+                <div className="mt text-success">
+                    <b>{updatedInstanceConfigCount} changes updated successfully.</b>
+                </div>
+            )}
         </Modal>
     )
 }

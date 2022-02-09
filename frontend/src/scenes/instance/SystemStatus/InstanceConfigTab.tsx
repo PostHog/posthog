@@ -27,7 +27,7 @@ export function InstanceConfigTab(): JSX.Element {
             disabled: instanceConfigMode !== ConfigMode.View || instanceSettingsLoading,
         },
         escape: {
-            action: () => setInstanceConfigMode(ConfigMode.View),
+            action: () => discard(),
             disabled: instanceConfigMode !== ConfigMode.Edit || instanceSettingsLoading,
         },
         enter: {
@@ -42,6 +42,11 @@ export function InstanceConfigTab(): JSX.Element {
         } else {
             setInstanceConfigMode(ConfigMode.View)
         }
+    }
+
+    const discard = (): void => {
+        setInstanceConfigMode(ConfigMode.View)
+        clearInstanceConfigEditing()
     }
 
     useEffect(() => {
@@ -128,14 +133,7 @@ export function InstanceConfigTab(): JSX.Element {
                                 unapplied changes
                             </span>
                         )}
-                        <Button
-                            type="link"
-                            disabled={instanceSettingsLoading}
-                            onClick={() => {
-                                setInstanceConfigMode(ConfigMode.View)
-                                clearInstanceConfigEditing()
-                            }}
-                        >
+                        <Button type="link" disabled={instanceSettingsLoading} onClick={discard}>
                             Discard changes
                         </Button>
                         <Button type="primary" disabled={instanceSettingsLoading} onClick={save}>
