@@ -57,13 +57,7 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraph",
-    "ActionsLineGraphCumulative",
-    "ActionsTable",
-    "ActionsPieChart",
-    "ActionsBarChart",
-    "ActionsBarValue",
-    "ActionsBarChartValue",
+    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[

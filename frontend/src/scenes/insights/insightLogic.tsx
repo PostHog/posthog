@@ -36,6 +36,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/browser'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -438,6 +439,12 @@ export const insightLogic = kea<insightLogicType>({
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
+        canEditInsight: [
+            (s) => [s.insight],
+            (insight) =>
+                insight.effective_privilege_level == undefined ||
+                insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+        ],
         activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
         loadedView: [
             (s) => [s.insight, s.activeView],

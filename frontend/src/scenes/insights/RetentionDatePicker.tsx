@@ -10,11 +10,13 @@ import { dayjs } from 'lib/dayjs'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
-export function RetentionDatePicker(): JSX.Element {
+export function RetentionDatePicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(retentionTableLogic(insightProps))
     const { setFilters } = useActions(retentionTableLogic(insightProps))
+
     const yearSuffix = filters.date_to && dayjs(filters.date_to).year() !== dayjs().year() ? ', YYYY' : ''
+
     return (
         <>
             <Tooltip title="Cohorts up to this end date">
@@ -30,6 +32,7 @@ export function RetentionDatePicker(): JSX.Element {
                         placeholder="Today"
                         className="retention-date-picker"
                         suffixIcon={null}
+                        disabled={disabled}
                     />
                 </span>
             </Tooltip>

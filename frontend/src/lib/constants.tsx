@@ -36,6 +36,31 @@ export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.Organization, 'organization'],
 ])
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+}
+
+export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+    [DashboardPrivilegeLevel.CanView]: 'can view',
+    [DashboardPrivilegeLevel.CanEdit]: 'can edit',
+}
+
+export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
+    return privilegeLevel === 'owner'
+        ? 'owner'
+        : privilegeLevel === 'project-admin'
+        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
+        : rawPrivilegeLevelToName[privilegeLevel]
+}
+
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 
 // Event constants

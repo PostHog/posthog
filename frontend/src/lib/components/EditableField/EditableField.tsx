@@ -20,13 +20,18 @@ interface EditableFieldProps {
     autoFocus?: boolean
     multiline?: boolean
     compactButtons?: boolean
-    /** Whether this field should be shown or hidden (gated). */
-    isGated?: boolean
-    /** Whether the editable field should always be in edit mode. Hides state changing buttons and doesn't call onSave anywhere */
-    persistEditMode?: boolean
+    /** Whether this field should be gated behind a "paywall". */
+    paywall?: boolean
+    /** Controlled mode. */
+    mode?: 'view' | 'edit'
     className?: string
     'data-attr'?: string
     saveButtonText?: string
+    /** Extra information shown next to the field. */
+    notice?: {
+        icon: React.ReactElement
+        tooltip: string
+    }
 }
 
 export function EditableField({
@@ -40,13 +45,14 @@ export function EditableField({
     autoFocus = true,
     multiline = false,
     compactButtons = false,
-    isGated = false,
-    persistEditMode = false,
+    paywall = false,
+    mode,
     className,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
+    notice,
 }: EditableFieldProps): JSX.Element {
-    const [isEditing, setIsEditing] = useState(false)
+    const [localIsEditing, setLocalIsEditing] = useState(false)
     const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
@@ -56,19 +62,19 @@ export function EditableField({
     const isSaveable = !minLength || tentativeValue.length >= minLength
 
     const cancel = (): void => {
-        setIsEditing(false)
+        setLocalIsEditing(false)
         setTentativeValue(value)
     }
 
     const save = (): void => {
         onSave?.(tentativeValue)
-        setIsEditing(false)
+        setLocalIsEditing(false)
     }
 
-    const realIsEditing = !isGated && (persistEditMode || isEditing)
+    const isEditing = !paywall && (mode === 'edit' || localIsEditing)
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
-        if (!persistEditMode && realIsEditing) {
+        if (isEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
                 save() // Save on Enter press
@@ -87,7 +93,7 @@ export function EditableField({
             className={clsx(
                 'EditableField',
                 multiline && 'EditableField--multiline',
-                realIsEditing && 'EditableField--editing',
+                isEditing && 'EditableField--editing',
                 className
             )}
             data-attr={dataAttr}
@@ -95,13 +101,13 @@ export function EditableField({
             <Tooltip
                 placement="right"
                 title={
-                    isGated
+                    paywall
                         ? "This field is part of PostHog's collaboration feature set and requires a premium plan."
                         : undefined
                 }
             >
                 <div className="EditableField--highlight">
-                    {realIsEditing ? (
+                    {isEditing ? (
                         <>
                             {multiline ? (
                                 <TextareaAutosize
@@ -134,7 +140,7 @@ export function EditableField({
                                     injectStyles={false}
                                 />
                             )}
-                            {!persistEditMode && (
+                            {!mode && (
                                 <>
                                     <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
                                         Cancel
@@ -162,18 +168,28 @@ export function EditableField({
                     ) : (
                         <>
                             {tentativeValue || <i>{placeholder}</i>}
-                            <LemonButton
-                                title="Edit"
-                                icon={<IconEdit />}
-                                compact={compactButtons}
-                                onClick={() => setIsEditing(true)}
-                                data-attr={`edit-prop-${name}`}
-                                disabled={isGated}
-                            />
+                            {!mode && (
+                                <LemonButton
+                                    title="Edit"
+                                    icon={<IconEdit />}
+                                    compact={compactButtons}
+                                    onClick={() => setLocalIsEditing(true)}
+                                    data-attr={`edit-prop-${name}`}
+                                    disabled={paywall}
+                                />
+                            )}
                         </>
                     )}
                 </div>
             </Tooltip>
+            {!isEditing && notice && (
+                <Tooltip title={notice.tooltip} placement="right">
+                    {React.cloneElement(notice.icon, {
+                        ...notice.icon.props,
+                        className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                    })}
+                </Tooltip>
+            )}
         </div>
     )
 }

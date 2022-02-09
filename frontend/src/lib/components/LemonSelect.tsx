@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
 
 export interface LemonSelectOption {
     label?: string
     icon?: React.ReactElement
+    disabled?: boolean
 }
 
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
@@ -25,6 +26,12 @@ export function LemonSelect<O extends LemonSelectOptions>({
 }: LemonSelectProps<O>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
 
+    useEffect(() => {
+        if (!buttonProps.loading) {
+            setLocalValue(value)
+        }
+    }, [value, buttonProps.loading])
+
     return (
         <LemonButtonWithPopup
             popup={{
@@ -33,14 +40,17 @@ export function LemonSelect<O extends LemonSelectOptions>({
                         key={key}
                         icon={option.icon}
                         onClick={() => {
-                            onChange(key)
-                            setLocalValue(key)
+                            if (key != localValue) {
+                                onChange(key)
+                                setLocalValue(key)
+                            }
                         }}
                         type={
                             /* Intentionally == instead of === because JS treats object number keys as strings, */
                             /* messing comparisons up a bit */
                             key == localValue ? 'highlighted' : 'stealth'
                         }
+                        disabled={option.disabled}
                         fullWidth
                     >
                         {option.label || key}
