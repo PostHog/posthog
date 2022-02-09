@@ -136,6 +136,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
         loadEvents: (url?: string) => ({ url }),
+        setHighlightedEvents: (highlightedEvents: string[]) => ({ highlightedEvents }),
     },
     reducers: {
         filters: [
@@ -168,6 +169,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             RecordingWatchedSource.Unknown as RecordingWatchedSource,
             {
                 setSource: (_, { source }) => source,
+            },
+        ],
+        highlightedEvents: [
+            [] as string[],
+            {
+                setHighlightedEvents: (_, { highlightedEvents }) => highlightedEvents,
             },
         ],
     },
@@ -329,6 +336,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                         if (eventPlayerTime !== null) {
                             eventsWithPlayerData.push({
                                 ...event,
+                                isHighlighted: values.highlightedEvents.includes(event.id as string),
                                 playerTime: eventPlayerTime,
                                 playerPosition: eventPlayerPosition,
                                 percentageOfRecordingDuration:
@@ -385,6 +393,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     after: dayjs.utc(recordingStartTime).subtract(buffer_ms, 'ms').format(),
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
+                    limit: 2000,
                 }
             },
         ],
@@ -397,10 +406,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             },
             hashParams: {
                 sessionRecordingId?: SessionRecordingId
+                highlightedRecordingEvents?: string[]
             }
         ): void => {
             const { source } = params
-            const { sessionRecordingId } = hashParams
+            const { sessionRecordingId, highlightedRecordingEvents } = hashParams
+            actions.setHighlightedEvents(highlightedRecordingEvents ?? [])
             if (source && (Object.values(RecordingWatchedSource) as string[]).includes(source)) {
                 actions.setSource(source as RecordingWatchedSource)
             }

@@ -13,6 +13,7 @@ import {
     FunnelCorrelationResultsType,
     ActorType,
     GraphDataset,
+    MatchedRecording,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -141,7 +142,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         }),
         saveFirstLoadedActors: (people: TrendActors) => ({ people }),
         setFirstLoadedActors: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
-        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        openRecordingModal: (sessionRecording: MatchedRecording) => ({ sessionRecording }),
         closeRecordingModal: () => true,
     }),
     connect: {
@@ -149,10 +150,10 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     },
     reducers: () => ({
-        sessionRecordingId: [
-            null as null | string,
+        sessionRecording: [
+            null as null | MatchedRecording,
             {
-                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
+                openRecordingModal: (_, { sessionRecording }) => sessionRecording,
                 closeRecordingModal: () => null,
             },
         ],
@@ -533,15 +534,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
         },
-        openRecordingModal: ({ sessionRecordingId }) => {
+        openRecordingModal: ({ sessionRecording }) => {
+            const sessionRecordingId = sessionRecording.session_id
+            console.log('sessionRecording', sessionRecording)
+            const highlightedRecordingEvents = sessionRecording.events.map((event) => event.uuid)
             return [
                 router.values.location.pathname,
                 { ...router.values.searchParams },
-                { ...router.values.hashParams, sessionRecordingId },
+                { ...router.values.hashParams, sessionRecordingId, highlightedRecordingEvents },
             ]
         },
         closeRecordingModal: () => {
             delete router.values.hashParams.sessionRecordingId
+            delete router.values.hashParams.recordingEvents
             return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),

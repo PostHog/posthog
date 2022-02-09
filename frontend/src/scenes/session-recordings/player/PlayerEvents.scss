@@ -155,12 +155,21 @@
                 min-width: 0;
 
                 .event-item-content-top-row {
-                    justify-content: space-between;
                     flex-wrap: nowrap;
 
                     .event-item-content-title {
                         font-weight: 600;
                         padding-right: $recording_spacing / 2;
+                        flex: 1;
+                    }
+
+                    .event-highlighted-dot {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background-color: $recording_highlight_event_dark;
+                        margin-right: $recording_spacing / 2;
+                        align-self: center;
                     }
                 }
 

@@ -46,7 +46,7 @@ export function PersonsModal({
         isInitialLoad,
         peopleParams,
         actorLabel,
-        sessionRecordingId,
+        sessionRecording,
     } = useValues(personsModalLogic)
     const {
         hidePeople,
@@ -103,7 +103,7 @@ export function PersonsModal({
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
     return (
         <>
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
+            {!!sessionRecording && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             <Modal
                 title={title}
                 visible={visible}
@@ -241,8 +241,8 @@ export function PersonsModal({
                                                         return (
                                                             <MultiRecordingButton
                                                                 sessionRecordings={actor.matched_recordings}
-                                                                onOpenRecording={(sessionRecording) => {
-                                                                    openRecordingModal(sessionRecording.session_id)
+                                                                onOpenRecording={(sessionRecordingToOpen) => {
+                                                                    openRecordingModal(sessionRecordingToOpen)
                                                                 }}
                                                             />
                                                         )

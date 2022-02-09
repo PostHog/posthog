@@ -33,7 +33,7 @@ function Tick({ event }: { event: RecordingEventType }): JSX.Element {
         >
             <div className={clsx('tick-info', { show: hovering })}>{event.event}</div>
             <div className="tick-marker" />
-            <div className={clsx('tick-thumb', { big: hovering })} />
+            <div className={clsx('tick-thumb', { big: hovering, 'highlighted-event': event.isHighlighted })} />
         </div>
     )
 }

@@ -476,14 +476,14 @@ export interface PersonType {
     created_at?: string
 }
 
-interface MatchedRecordingEvents {
+export interface MatchedRecordingEvent {
     uuid: string
     window_id: string
     timestamp: string
 }
 export interface MatchedRecording {
     session_id: string
-    events: MatchedRecordingEvents[]
+    events: MatchedRecordingEvent[]
 }
 
 interface CommonActorType {
@@ -592,6 +592,7 @@ export interface EventType {
 }
 
 export interface RecordingEventType extends EventType {
+    isHighlighted: boolean
     playerTime: number
     playerPosition: PlayerPosition
     percentageOfRecordingDuration: number // Used to place the event on the seekbar

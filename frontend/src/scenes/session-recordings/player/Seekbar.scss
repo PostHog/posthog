@@ -138,6 +138,13 @@ $tick_hover_size: 5px;
                 &.big {
                     transform: scale(1.3);
                 }
+                &.highlighted-event {
+                    width: $tick_size * 2;
+                    height: $tick_size * 2;
+                    z-index: 2;
+
+                    top: -1 * floor($tick_size);
+                }
             }
         }
     }

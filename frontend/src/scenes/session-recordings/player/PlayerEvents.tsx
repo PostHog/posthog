@@ -113,7 +113,13 @@ export function PlayerEvents(): JSX.Element {
                     }}
                 >
                     <Col className="event-item-icon">
-                        <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
+                        <div
+                            className={clsx('event-item-icon-wrapper', {
+                                'highlighted-event': event.isHighlighted,
+                            })}
+                        >
+                            {renderIcon(event)}
+                        </div>
                     </Col>
                     <Col
                         className={clsx('event-item-content', {
@@ -121,6 +127,7 @@ export function PlayerEvents(): JSX.Element {
                         })}
                     >
                         <Row className="event-item-content-top-row">
+                            {event.isHighlighted && <div className="event-highlighted-dot" />}
                             <PropertyKeyInfo
                                 className="event-item-content-title"
                                 value={event.event}
