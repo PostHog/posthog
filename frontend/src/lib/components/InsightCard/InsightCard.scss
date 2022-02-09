@@ -36,6 +36,9 @@
     overflow: auto;
     .graph-container {
         padding: 1rem;
+        .annotations-root {
+            margin: 1rem;
+        }
     }
     .insight-empty-state {
         padding-top: 0;

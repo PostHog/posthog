@@ -52,9 +52,13 @@ class DashboardSerializer(serializers.ModelSerializer):
             "filters",
             "tags",
             "restriction_level",
+            "effective_restriction_level",
             "effective_privilege_level",
         ]
-        read_only_fields = ("creation_mode",)
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -120,15 +124,15 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
         user = cast(User, self.context["request"].user)
-        does_user_have_inherent_restriction_rights = instance.does_user_have_inherent_restriction_rights(user)
-        can_user_edit = does_user_have_inherent_restriction_rights or instance.can_user_edit(user)
+        can_user_restrict = instance.can_user_restrict(user.id)
+        can_user_edit = can_user_restrict or instance.can_user_edit(user.id)
         if not can_user_edit:
             raise exceptions.PermissionDenied(
                 "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
             )
-        if "restriction_level" in validated_data and not does_user_have_inherent_restriction_rights:
+        if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
-                "Only the dashboard owner and project admins have the inherent restriction rights required to change the dashboard's restriction level."
+                "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present

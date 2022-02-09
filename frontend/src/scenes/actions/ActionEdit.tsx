@@ -75,7 +75,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             setAction({ ...action, name })
                             setEdited(!!name)
                         }}
-                        persistEditMode={!id}
+                        mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                         minLength={1}
                         maxLength={400} // Sync with action model
                         data-attr={`action-name-${id ? 'edit' : 'create'}`}
@@ -92,12 +92,12 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             setAction({ ...action, description })
                             setEdited(!!description)
                         }}
-                        persistEditMode={!id}
+                        mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                         autoFocus={!!id}
                         data-attr="action-description"
                         compactButtons
                         maxLength={600} // No limit on backend model, but enforce shortish description
-                        isGated={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                        paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
                         saveButtonText="Set"
                     />
                 }

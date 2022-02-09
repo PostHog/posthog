@@ -123,7 +123,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Filter by distinct ID
-        response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
+        with self.assertNumQueries(6):
+            response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], person1.pk)
@@ -207,15 +208,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_filter_id_or_uuid(self) -> None:
+    def test_filter_uuid(self) -> None:
         person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
         person2 = _create_person(team=self.team, properties={"random_prop": "asdf"})
         _create_person(team=self.team, properties={"random_prop": "asdf"})
 
-        response = self.client.get(f"/api/person/?id={person1.id},{person2.id}")
-        response_uuid = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
+        response = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), response_uuid.json())
         self.assertEqual(len(response.json()["results"]), 2)
 
     @mock.patch("posthog.api.capture.capture_internal")
