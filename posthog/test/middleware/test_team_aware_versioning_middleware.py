@@ -2,15 +2,14 @@ from rest_framework import status
 from reversion import is_registered
 from reversion.models import Version
 
+import posthog.models
 from posthog.models import FeatureFlag, Insight, Person
 from posthog.test.base import APIBaseTest
 
 
 class TestTeamAwareVersioningMiddleware(APIBaseTest):
-    def _create_feature_flag(self) -> int:
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags", {"name": "Beta feature", "key": "red_button"}
-        )
+    def _create_feature_flag(self, details: dict[str, str] = {"name": "Beta feature", "key": "red_button"}) -> int:
+        response = self.client.post(f"/api/projects/{self.team.pk}/feature_flags", details)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()["id"]
 
@@ -95,3 +94,26 @@ class TestTeamAwareVersioningMiddleware(APIBaseTest):
         for model in [m for m in all_models.items() if m[0] not in registered_models]:
             is_model_registered = is_registered(model[1])
             self.assertFalse(is_model_registered, msg=f"expected {model[0]} not to be registered with reversion")
+
+    def test_can_load_revisions_by_team(self):
+        self._create_feature_flag({"name": "first", "key": "first-key"})
+        self._create_feature_flag({"name": "second", "key": "second-key"})
+
+        revisions_by_team = (
+            posthog.models.RevisionTeamMetadata.objects.select_related("revision")
+            .prefetch_related("revision__version_set")
+            .filter(team_id=self.team.pk)
+        )
+        self.assertEqual(len(revisions_by_team), 2)
+
+        first_version_set = revisions_by_team[0].revision.version_set.all()
+        self.assertEqual(len(first_version_set), 1)
+        self.assertIn("FeatureFlag", first_version_set[0].object_repr)
+        self.assertIn("first", first_version_set[0].serialized_data)
+        self.assertNotIn("second", first_version_set[0].serialized_data)
+
+        second_version_set = revisions_by_team[1].revision.version_set.all()
+        self.assertEqual(len(second_version_set), 1)
+        self.assertIn("FeatureFlag", second_version_set[0].object_repr)
+        self.assertIn("second", second_version_set[0].serialized_data)
+        self.assertNotIn("first", second_version_set[0].serialized_data)
