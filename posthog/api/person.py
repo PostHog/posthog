@@ -22,6 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
@@ -357,21 +358,29 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
+        timer = statsd.timer("person_property_values_timer").start()
         key = request.GET.get("key")
         value = request.GET.get("value")
-        team = self.team
-        flattened = []
-        if key:
-            result = get_person_property_values_for_key(key, team, value)
-            for (value, count) in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append((json.loads(value), count))  # type: ignore
-                except json.decoder.JSONDecodeError:
-                    flattened.append((value, count))
-        return response.Response(
-            [{"name": convert_property_value(value), "count": count} for (value, count) in flattened]
-        )
+        try:
+            flattened = []
+            if key:
+                result = get_person_property_values_for_key(key, self.team, value)
+                for (value, count) in result:
+                    try:
+                        # Try loading as json for dicts or arrays
+                        flattened.append({"name": json.loads(value), "count": count})
+                    except json.decoder.JSONDecodeError:
+                        flattened.append({"name": value, "count": count})
+            statsd.incr("person_property_values_success")
+            return response.Response(flattened)
+        except Exception as e:
+            statsd.incr(
+                "person_property_values_error",
+                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+            )
+            raise e
+        finally:
+            timer.stop()
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
