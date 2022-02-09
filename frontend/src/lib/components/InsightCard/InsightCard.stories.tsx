@@ -1,10 +1,9 @@
 import { Meta, Story } from '@storybook/react'
 import React, { useState } from 'react'
-import { Provider as KeaProvider } from 'kea'
-import { initKea } from '~/initKea'
 import { InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import { KeaStory } from 'lib/storybook/kea-story'
 
 const EXAMPLE_TRENDS: InsightModel = {
     id: 1,
@@ -223,13 +222,11 @@ export default {
 } as Meta
 
 export const InsightCard: Story = (args) => {
-    initKea()
-
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <KeaProvider>
+        <KeaStory>
             <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
                 {!wasItemRemoved && (
                     <InsightCardComponent
@@ -240,7 +237,7 @@ export const InsightCard: Story = (args) => {
                             color: insightColor,
                         }}
                         loading={args.loading}
-                        apiError={args.apiError}
+                        apiErrored={args.apiError}
                         highlighted={args.highlighted}
                         showResizeHandles={args.resizable}
                         updateColor={setInsightColor}
@@ -260,7 +257,7 @@ export const InsightCard: Story = (args) => {
                         tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
                     }}
                     loading={false}
-                    apiError={false}
+                    apiErrored={false}
                     highlighted={false}
                     showResizeHandles={false}
                     updateColor={() => {}}
@@ -273,7 +270,7 @@ export const InsightCard: Story = (args) => {
                 <InsightCardComponent
                     insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
                     loading={false}
-                    apiError={false}
+                    apiErrored={false}
                     highlighted={false}
                     showResizeHandles={false}
                     updateColor={() => {}}
@@ -284,6 +281,6 @@ export const InsightCard: Story = (args) => {
                     moveToDashboard={() => {}}
                 />
             </div>
-        </KeaProvider>
+        </KeaStory>
     )
 }

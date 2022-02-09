@@ -5,7 +5,7 @@ import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import { displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
-import { UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, InsightTimeoutState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -34,8 +34,8 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     insight: InsightModel
     /** Whether the insight is loading. */
     loading?: boolean
-    /** Whether loading the insight resulted in an error. */
-    apiError?: boolean
+    /** Whether an error occurred on the server. */
+    apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     showResizeHandles?: boolean
@@ -295,11 +295,20 @@ function InsightMeta({
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiError' | 'style'> {
+interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'style'> {
+    /** Whether loading timed out. */
+    timedOut?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizProps): JSX.Element {
+function InsightViz({
+    insight,
+    loading,
+    setAreDetailsShown,
+    style,
+    apiErrored,
+    timedOut,
+}: InsightVizProps): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
     const displayedType = getDisplayedType(filters)
@@ -318,9 +327,15 @@ function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizP
             }
         >
             {loading && <Loading />}
-            <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
-                <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
-            </Alert.ErrorBoundary>
+            {timedOut ? (
+                <InsightErrorState excludeDetail />
+            ) : apiErrored ? (
+                <InsightTimeoutState isLoading={!!loading} />
+            ) : (
+                <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
+                    <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+                </Alert.ErrorBoundary>
+            )}
         </div>
     )
 }
@@ -329,7 +344,7 @@ function InsightCardInternal(
     {
         insight,
         loading,
-        apiError,
+        apiErrored,
         highlighted,
         showResizeHandles,
         updateColor,
@@ -353,6 +368,16 @@ function InsightCardInternal(
         cachedResults,
         doNotLoad: true,
     }
+
+    const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
+
+    if (!loading) {
+        loading = insightLoading
+    }
+    if (!apiErrored) {
+        loading = showErrorMessage
+    }
+    const timedOut = showTimeoutMessage
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
@@ -381,7 +406,8 @@ function InsightCardInternal(
                 <InsightViz
                     insight={insight}
                     loading={loading}
-                    apiError={apiError}
+                    apiErrored={apiErrored}
+                    timedOut={timedOut}
                     style={
                         metaPrimaryHeight
                             ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }

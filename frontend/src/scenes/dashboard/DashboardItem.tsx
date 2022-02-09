@@ -212,7 +212,7 @@ export function DashboardItem({
         cachedResults: (item as any).result,
         doNotLoad,
     }
-    const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading, isLoading } = useValues(
+    const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading } = useValues(
         insightLogic(logicProps)
     )
     const { loadResults } = useActions(insightLogic(logicProps))
@@ -239,7 +239,7 @@ export function DashboardItem({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !(insightLoading || isLoading)) {
+            if (!isValidFunnel && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -249,7 +249,7 @@ export function DashboardItem({
             return <InsightErrorState excludeDetail={true} />
         }
         if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={insightLoading} />
         }
 
         // Deprecated insights
@@ -262,7 +262,7 @@ export function DashboardItem({
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading || isReloading) {
+        if (insightLoading || isReloading) {
             return <Loading />
         }
         return null

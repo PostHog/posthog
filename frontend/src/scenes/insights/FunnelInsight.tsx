@@ -11,9 +11,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isValidFunnel, isLoading, filters, areFiltersValid, barGraphLayout, aggregationTargetLabel } = useValues(
-        funnelLogic(insightProps)
-    )
+    const { isValidFunnel, insightLoading, filters, areFiltersValid, barGraphLayout, aggregationTargetLabel } =
+        useValues(funnelLogic(insightProps))
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
 
@@ -31,7 +30,7 @@ export function FunnelInsight(): JSX.Element {
             />
             <div
                 className={clsx('funnel-insights-container', {
-                    'non-empty-state': (isValidFunnel && areFiltersValid) || isLoading,
+                    'non-empty-state': (isValidFunnel && areFiltersValid) || insightLoading,
                     'no-padding':
                         filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical,
                 })}
