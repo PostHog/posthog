@@ -4,38 +4,28 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
-import { systemStatusLogic } from './systemStatusLogic'
-
-export enum ConfigMode {
-    View = 'view',
-    Edit = 'edit',
-}
+import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
-    const { editableInstanceSettings, instanceSettingsLoading } = useValues(systemStatusLogic)
-    const { loadInstanceSettings } = useActions(systemStatusLogic)
-    const [mode, setMode] = useState(ConfigMode.View)
-    const [editingValuesState, setEditingValuesState] = useState({} as Record<string, Pick<InstanceSetting, 'value'>>)
+    const { editableInstanceSettings, instanceSettingsLoading, instanceConfigMode, instanceConfigEditingState } =
+        useValues(systemStatusLogic)
+    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue } = useActions(systemStatusLogic)
 
     useKeyboardHotkeys({
         e: {
-            action: () => setMode(ConfigMode.Edit),
-            disabled: mode !== ConfigMode.View,
+            action: () => setInstanceConfigMode(ConfigMode.Edit),
+            disabled: instanceConfigMode !== ConfigMode.View,
         },
     })
 
-    const handleValueChanged = (key: string, value: any): void => {
-        setEditingValuesState({ ...editingValuesState, [key]: value })
-    }
-
     const save = (): void => {
-        console.log(editingValuesState)
+        console.log(instanceConfigEditingState)
     }
 
     useEffect(() => {
@@ -63,11 +53,11 @@ export function InstanceConfigTab(): JSX.Element {
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
                 }
-                return mode === ConfigMode.Edit
+                return instanceConfigMode === ConfigMode.Edit
                     ? RenderMetricValueEdit({
                           ...props,
-                          value: editingValuesState[record.key] ?? record.value,
-                          onValueChanged: handleValueChanged,
+                          value: instanceConfigEditingState[record.key] ?? record.value,
+                          onValueChanged: updateInstanceConfigValue,
                       })
                     : RenderMetricValue(props)
             },
@@ -102,11 +92,11 @@ export function InstanceConfigTab(): JSX.Element {
                         .
                     </div>
                 </div>
-                {mode === ConfigMode.View ? (
+                {instanceConfigMode === ConfigMode.View ? (
                     <>
                         <HotkeyButton
                             type="primary"
-                            onClick={() => setMode(ConfigMode.Edit)}
+                            onClick={() => setInstanceConfigMode(ConfigMode.Edit)}
                             data-attr="instance-config-edit-button"
                             hotkey="e"
                             disabled={instanceSettingsLoading}
@@ -120,7 +110,7 @@ export function InstanceConfigTab(): JSX.Element {
                             type="link"
                             style={{ color: 'var(--danger)' }}
                             disabled={instanceSettingsLoading}
-                            onClick={() => setMode(ConfigMode.View)}
+                            onClick={() => setInstanceConfigMode(ConfigMode.View)}
                         >
                             Discard changes
                         </Button>

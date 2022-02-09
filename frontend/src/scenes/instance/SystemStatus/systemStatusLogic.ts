@@ -17,6 +17,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 
+export enum ConfigMode {
+    View = 'view',
+    Edit = 'edit',
+}
 export interface MetricRow {
     metric: string
     key: string
@@ -43,7 +47,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_REPLY_TO',
 ]
 
-export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName>>({
+export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
         setTab: (tab: InstanceStatusTabName) => ({ tab }),
@@ -51,6 +55,9 @@ export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName
         setAnalyzeModalOpen: (isOpen: boolean) => ({ isOpen }),
         setAnalyzeQuery: (query: string) => ({ query }),
         openAnalyzeModalWithQuery: (query: string) => ({ query }),
+        setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
+        updateInstanceConfigValue: (key: string, value: any) => ({ key, value }),
+        clearInstanceConfigEditing: true,
     },
     loaders: ({ values }) => ({
         systemStatus: [
@@ -129,6 +136,20 @@ export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName
                 openAnalyzeModalWithQuery: (_, { query }) => query,
             },
         ],
+        instanceConfigMode: [
+            // Determines whether the Instance Configuration table on "Configuration" tab is on edit or view mode
+            ConfigMode.View,
+            {
+                setInstanceConfigMode: (_, { mode }) => mode,
+            },
+        ],
+        instanceConfigEditingState: [
+            {} as Record<string, Pick<InstanceSetting, 'value'>>,
+            {
+                updateInstanceConfigValue: (s, { key, value }) => ({ ...s, [key]: value }),
+                clearInstanceConfigEditing: () => ({}),
+            },
+        ],
     },
 
     selectors: () => ({
@@ -161,6 +182,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName
             if (tab === 'internal_metrics') {
                 actions.loadQueries()
             }
+            actions.setInstanceConfigMode(ConfigMode.View)
         },
     }),
 
