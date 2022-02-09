@@ -223,7 +223,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         team = self.team
-        result = []
         flattened = []
         if key == "custom_event":
             events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})

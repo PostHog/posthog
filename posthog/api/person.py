@@ -22,9 +22,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
+from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
@@ -52,11 +54,14 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.lifecycle import LifecycleTrend
-from posthog.queries.retention import Retention
-from posthog.queries.stickiness import Stickiness
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    flatten,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+)
 
 
 class PersonCursorPagination(CursorPagination):
@@ -353,18 +358,33 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        people = self.get_queryset()
-        key = "properties__{}".format(request.GET.get("key"))
-        people = people.values(key).annotate(count=Count("id")).filter(**{f"{key}__isnull": False}).order_by("-count")
+        key = request.GET.get("key")
+        value = request.GET.get("value")
+        flattened = []
+        if key:
+            timer = statsd.timer("get_person_property_values_for_key_timer").start()
+            try:
+                result = get_person_property_values_for_key(key, self.team, value)
+                statsd.incr(
+                    "get_person_property_values_for_key_success",
+                    tags={"key": key, "value": value, "team_id": self.team.id},
+                )
+            except Exception as e:
+                statsd.incr(
+                    "get_person_property_values_for_key_error",
+                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+                )
+                raise e
+            finally:
+                timer.stop()
 
-        if request.GET.get("value"):
-            people = people.extra(
-                where=["properties ->> %s LIKE %s"], params=[request.GET["key"], "%{}%".format(request.GET["value"])],
-            )
-
-        return response.Response(
-            [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
-        )
+            for (value, count) in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
+                except json.decoder.JSONDecodeError:
+                    flattened.append({"name": convert_property_value(value), "count": count})
+        return response.Response(flattened)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:

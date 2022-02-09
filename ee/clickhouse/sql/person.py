@@ -384,3 +384,44 @@ GROUP BY actor_id
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
     lambda: f"ALTER TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
+
+
+SELECT_PERSON_PROP_VALUES_SQL = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND
+        JSONHas(properties, %(key)s) 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
+
+SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
