@@ -34,6 +34,9 @@ OperatorType = Literal[
     "is_date_after",
     "is_date_before",
 ]
+PropertyOperatorType = Literal[
+    "AND", "OR",
+]
 
 GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]

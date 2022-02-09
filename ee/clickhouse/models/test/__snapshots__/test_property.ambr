@@ -1,7 +1,21 @@
+# name: TestPropFormat.test_or_parse_prop_clauses
+  '
+  SELECT uuid
+  FROM events
+  WHERE team_id = 2
+    AND (has(['Chrome'], trim(BOTH '"'
+                              FROM JSONExtractRaw(properties, 'browser')))
+         OR trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, 'browser')) ILIKE '%Saf%'
+         OR (isNull(trim(BOTH '"'
+                         FROM JSONExtractRaw(properties, 'browser')))
+             OR NOT JSONHas(properties, 'browser')))
+  '
+---
 # name: test_parse_prop_clauses_defaults
   <class 'tuple'> (
     '
-       AND has(%(vglobal_0)s, trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobal_0)s))) AND distinct_id IN (
+      AND (   has(%(vglobal_0)s, trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND distinct_id IN (
       SELECT distinct_id
       FROM (
           
@@ -26,9 +40,9 @@
               GROUP BY id
               HAVING is_deleted = 0
           )
-          WHERE 1 = 1 AND trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s
+          WHERE 1 = 1  AND trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s
       )
-      )
+      ))
     ',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
@@ -42,7 +56,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.1
   <class 'tuple'> (
-    ' AND has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s))) AND trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s',
+    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s)',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
@@ -55,7 +69,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.2
   <class 'tuple'> (
-    ' AND has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s)))',
+    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s))))',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'vglobal_0': <class 'list'> [

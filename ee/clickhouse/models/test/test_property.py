@@ -16,11 +16,11 @@ from ee.clickhouse.models.property import (
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property, PropertyDefinition, TableWithProperties
+from posthog.models.property import Property, PropertyDefinition, PropertyOperatorType, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -39,8 +39,8 @@ def _create_person(**kwargs) -> Person:
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _run_query(self, filter: Filter) -> List:
-        query, params = parse_prop_clauses(filter.properties, allow_denormalized_props=True)
+    def _run_query(self, filter: Filter, operator: PropertyOperatorType = "AND") -> List:
+        query, params = parse_prop_clauses(filter.properties, allow_denormalized_props=True, property_operator=operator)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -352,6 +352,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}],})
         self.assertEqual(len(self._run_query(filter)), 3)
 
+    @snapshot_clickhouse_queries
     def test_or_parse_prop_clauses(self):
         _create_event(
             event="$pageview", team=self.team, distinct_id="whatever", properties={"browser": "Chrome"},
@@ -362,12 +363,13 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         filter = Filter(
             data={
                 "properties": [
-                    [{"key": "browser", "value": "Chrome", "type": "event"}],
-                    [{"key": "browser", "value": "Safari", "type": "event"}],
-                ]
+                    {"key": "browser", "value": "Chrome", "type": "event"},
+                    {"key": "browser", "value": "Saf", "type": "event", "operator": "icontains"},
+                    {"key": "browser", "value": "XYZ", "type": "event", "operator": "is_not_set"},
+                ],
             }
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        self.assertEqual(len(self._run_query(filter, operator="OR")), 2)
 
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
