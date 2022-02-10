@@ -17,7 +17,7 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
-from typing import Callable, Dict, List, Literal, get_args
+from typing import Callable, Dict, List, Literal, cast, get_args
 
 import amqp.exceptions
 import django_redis.exceptions
@@ -97,9 +97,6 @@ def readyz(request: HttpRequest):
     exclude = set(request.GET.getlist("exclude", []))
     role = request.GET.get("role", None)
 
-    if role and role not in get_args(ServiceRole):
-        return JsonResponse({"error": "InvalidRole"}, status=400)
-
     available_checks = {
         "clickhouse": is_clickhouse_connected,
         "postgres": is_postgres_connected,
@@ -110,10 +107,13 @@ def readyz(request: HttpRequest):
     }
 
     if role:
+        if role not in get_args(ServiceRole):
+            return JsonResponse({"error": "InvalidRole"}, status=400)
+
         # If we have a role, then limit the checks to a subset defined by the
         # service_dependencies for this specific role, defaulting to all if we
         # don't find a lookup
-        dependencies = service_dependencies.get(role, available_checks.keys())
+        dependencies = service_dependencies.get(cast(ServiceRole, role), available_checks.keys())
         available_checks = {name: check for name, check in available_checks.items() if name in dependencies}
 
     # Run each check and collect the status
