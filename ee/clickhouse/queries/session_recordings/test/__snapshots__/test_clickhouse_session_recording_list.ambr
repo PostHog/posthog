@@ -12,8 +12,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            $session_id as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -69,8 +68,7 @@
             event,
             team_id,
             timestamp ,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$session_id')) as session_id
+            $session_id as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
