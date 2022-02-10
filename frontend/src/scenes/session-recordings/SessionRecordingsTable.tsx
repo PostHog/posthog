@@ -10,7 +10,7 @@ import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -72,6 +72,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDateRange,
         setDurationFilter,
         enableFilter,
+        reportRecordingsListFilterAdded,
     } = useActions(sessionRecordingsTableLogicInstance)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
@@ -126,6 +127,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             fullWidth={true}
                             filters={entityFilters}
                             setFilters={(payload) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                                 setEntityFilters(payload)
                             }}
                             typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
@@ -166,6 +168,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 ]}
                                 propertyFilters={propertyFilters}
                                 onChange={(properties) => {
+                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
                                     setPropertyFilters(properties)
                                 }}
                             />
@@ -201,6 +204,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
                                 setDateRange(changedDateFrom, changedDateTo)
                             }}
                             dateOptions={{
@@ -215,6 +219,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         <Typography.Text className="filter-label">Duration</Typography.Text>
                         <DurationFilter
                             onChange={(newFilter) => {
+                                reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
                                 setDurationFilter(newFilter)
                             }}
                             initialFilter={durationFilter}

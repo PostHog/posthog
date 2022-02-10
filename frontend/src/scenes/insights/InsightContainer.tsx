@@ -7,8 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
-import { People } from 'scenes/funnels/FunnelPeople'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -49,6 +48,7 @@ export function InsightContainer(
     const {
         insightProps,
         lastRefresh,
+        canEditInsight,
         isLoading,
         activeView,
         loadedView,
@@ -101,16 +101,6 @@ export function InsightContainer(
 
     function renderTable(): JSX.Element | null {
         if (
-            !showErrorMessage &&
-            !showTimeoutMessage &&
-            areFiltersValid &&
-            activeView === InsightType.FUNNELS &&
-            filters?.display === FUNNEL_VIZ
-        ) {
-            return <People />
-        }
-
-        if (
             activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&
@@ -139,6 +129,7 @@ export function InsightContainer(
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                        canCheckUncheckSeries={!canEditInsight}
                     />
                 </BindLogic>
             )
@@ -158,6 +149,7 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
+                            disabled={!canEditInsight}
                         />
                     )
                 }

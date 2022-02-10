@@ -60,7 +60,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_level = self.context["team"].get_effective_membership_level(requesting_user)
+            requesting_level = self.context["team"].get_effective_membership_level(requesting_user.id)
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")
@@ -100,6 +100,7 @@ class ExplicitTeamMemberViewSet(
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
+    include_in_docs = False
 
     def get_serializer_context(self) -> Dict[str, Any]:
         serializer_context = super().get_serializer_context()

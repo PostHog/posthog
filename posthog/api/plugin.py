@@ -175,15 +175,14 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return queryset.none()
 
     def filter_queryset_by_parents_lookups(self, queryset):
-        parents_query_dict = self.get_parents_query_dict()
         try:
-            return queryset.filter(Q(**parents_query_dict) | Q(is_global=True))
+            return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
         except ValueError:
             raise NotFound()
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        url = "https://raw.githubusercontent.com/PostHog/plugin-repository/main/repository.json"
+        url = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
@@ -269,6 +268,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
         _fix_formdata_config_json(self.context["request"], validated_data)
+        existing_config = PluginConfig.objects.filter(team=validated_data["team"], plugin_id=validated_data["plugin"])
+        if existing_config.exists():
+            return self.update(existing_config.first(), validated_data)  # type: ignore
         plugin_config = super().create(validated_data)
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config

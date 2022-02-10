@@ -4,6 +4,7 @@ import { Provider as KeaProvider } from 'kea'
 import { initKea } from '~/initKea'
 import { InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 const EXAMPLE_TRENDS: InsightModel = {
     id: 1,
@@ -184,6 +185,8 @@ const EXAMPLE_TRENDS: InsightModel = {
         },
     ],
     created_at: '2021-12-14T11:05:45.815141Z',
+    last_modified_at: '2021-12-19T14:42:21.815141Z',
+    last_modified_by: null,
     description: 'Shows the number of unique users that use your app every day.',
     updated_at: '2021-12-14T12:58:26.665942Z',
     tags: ['demo', 'faux'],
@@ -191,6 +194,8 @@ const EXAMPLE_TRENDS: InsightModel = {
     saved: false,
     created_by: null,
     is_sample: false,
+    effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
+    effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
 export default {
@@ -237,6 +242,7 @@ export const InsightCard: Story = (args) => {
                         loading={args.loading}
                         apiError={args.apiError}
                         highlighted={args.highlighted}
+                        showResizeHandles={args.resizable}
                         updateColor={setInsightColor}
                         removeFromDashboard={() => setWasItemRemoved(true)}
                         refresh={() => {}}
@@ -256,6 +262,7 @@ export const InsightCard: Story = (args) => {
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
                     removeFromDashboard={() => {}}
                     refresh={() => {}}
@@ -268,6 +275,7 @@ export const InsightCard: Story = (args) => {
                     loading={false}
                     apiError={false}
                     highlighted={false}
+                    showResizeHandles={false}
                     updateColor={() => {}}
                     removeFromDashboard={() => {}}
                     refresh={() => {}}

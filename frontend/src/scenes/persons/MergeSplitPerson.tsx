@@ -64,8 +64,12 @@ function MergePerson(): JSX.Element {
                 Merge all properties and events of the selected persons into <strong>{person.name}</strong>{' '}
                 <span style={{ fontSize: '1.2em' }}>(</span>
                 <code title={person.distinct_ids[0]}>{midEllipsis(person.distinct_ids[0], 20)}</code>
-                <span style={{ fontSize: '1.2em' }}>)</span>. If there is a <b>conflict</b>, the properties of{' '}
-                <b>this person will take precedence</b>.
+                <span style={{ fontSize: '1.2em' }}>)</span>. Properties get merged based on timestamps, see more
+                details on{' '}
+                <a href="https://https://posthog.com/docs/integrate/user-properties#how-do-values-get-overridden">
+                    PostHog Docs
+                </a>
+                .
             </p>
             <Select
                 mode="multiple"

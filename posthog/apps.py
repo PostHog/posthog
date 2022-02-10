@@ -4,8 +4,8 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.settings import SKIP_ASYNC_MIGRATIONS_SETUP
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id, print_warning
+from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
+from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token, print_warning
 from posthog.version import VERSION
 
 
@@ -30,7 +30,12 @@ class PostHogConfig(AppConfig):
                     "development server launched",
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
-            posthoganalytics.disabled = True
+
+                if SELF_CAPTURE:
+                    posthoganalytics.api_key = get_self_capture_api_token(None)
+                else:
+                    posthoganalytics.disabled = True
+
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
 

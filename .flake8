@@ -37,3 +37,4 @@ per-file-ignores =
     ./posthog/models/plugin.py: T001
     ./posthog/settings/overrides.py: T001
     ./posthog/utils.py: T001
+    ./posthog/async_migrations/test/test_migrations_not_required.py: T001

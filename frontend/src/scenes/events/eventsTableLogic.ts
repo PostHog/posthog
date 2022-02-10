@@ -100,7 +100,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         prependNewEvents: true,
         setSelectedEvent: (selectedEvent: EventType) => ({ selectedEvent }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
-        setDelayedLoading: true,
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
@@ -112,6 +111,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             true,
             {
                 setPollingActive: (_, { pollingActive }) => pollingActive,
+                pollEventsSuccess: (state, { events }) => (events && events.length ? false : state),
+                prependNewEvents: () => true,
+                toggleAutomaticLoad: () => true,
             },
         ],
         properties: [
@@ -130,7 +132,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             true,
             {
                 fetchEvents: () => true,
-                setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,
             },
@@ -211,24 +212,23 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.afterParam,
+                selectors.miniumumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, after) =>
+            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after,
+                    after: miniumumQueryDate,
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
-        afterParam: [
-            () => [selectors.events, selectors.months],
-            (events, months) =>
-                events?.length > 0 && events[0].timestamp
-                    ? events[0].timestamp
-                    : now().subtract(months, 'months').toISOString(),
+        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        pollAfter: [
+            () => [selectors.events, selectors.miniumumQueryDate],
+            (events, miniumumQueryDate) =>
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : miniumumQueryDate,
         ],
     }),
 
@@ -238,7 +238,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    properties: values.properties,
+                    properties: values.properties.length === 0 ? undefined : values.properties,
                 },
                 router.values.hashParams,
                 { replace: true },
@@ -267,9 +267,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -290,52 +289,51 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 })
             }
         },
-        fetchEvents: [
-            async (_, breakpoint) => {
-                if (values.events.length > 0) {
-                    await breakpoint(500)
-                }
-                if (values.isLoading === null) {
-                    actions.setDelayedLoading()
-                }
-            },
-            async ({ nextParams }, breakpoint) => {
-                clearTimeout(values.pollTimeout)
+        fetchEvents: async ({ nextParams }, breakpoint) => {
+            clearTimeout(values.pollTimeout)
 
-                const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
+            if (values.events.length > 0) {
+                // 300ms debounce to prevent potentially over-eager filters from making too many requests
+                await breakpoint(300)
+            } else {
+                // 1ms debounce to avoid parallel setProperties & setEventFilter calls
+                // from making two consecutive requests
+                await breakpoint(1)
+            }
 
-                const params = {
-                    ...(props.fixedFilters || {}),
-                    properties,
-                    ...(nextParams || {}),
-                    ...(values.eventFilter ? { event: values.eventFilter } : {}),
-                    orderBy: [values.orderBy],
-                    after: values.afterParam,
-                }
+            const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
 
-                let apiResponse = null
+            const params = {
+                ...(props.fixedFilters || {}),
+                properties,
+                ...(nextParams || {}),
+                ...(values.eventFilter ? { event: values.eventFilter } : {}),
+                orderBy: [values.orderBy],
+                after: values.miniumumQueryDate,
+            }
 
-                try {
-                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
-                } catch (error) {
-                    actions.fetchOrPollFailure(error as ApiError)
-                    return
-                }
+            let apiResponse = null
 
-                breakpoint()
-                actions.fetchEventsSuccess({
-                    events: apiResponse.results,
-                    hasNext: !!apiResponse.next,
-                    isNext: !!nextParams,
-                })
+            try {
+                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
+            } catch (error) {
+                actions.fetchOrPollFailure(error as ApiError)
+                return
+            }
 
-                if (!props.disableActions) {
-                    // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-                    const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-                    actions.setPollTimeout(timeout)
-                }
-            },
-        ],
+            breakpoint()
+            actions.fetchEventsSuccess({
+                events: apiResponse.results,
+                hasNext: !!apiResponse.next,
+                isNext: !!nextParams,
+            })
+
+            if (!props.disableActions) {
+                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                actions.setPollTimeout(timeout)
+            }
+        },
         pollEvents: async (_, breakpoint) => {
             function setNextPoll(): void {
                 // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
@@ -371,7 +369,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-                after: values.afterParam,
+                after: values.pollAfter,
             }
 
             const urlParams = toParams(params)

@@ -69,6 +69,7 @@
                 border-top: 1px solid var(--border);
             }
             &.LemonTable__expansion {
+                position: relative;
                 background: var(--bg-side);
                 > td {
                     padding: 0; // Disable padding inside the expansion for better tailored placement of contents

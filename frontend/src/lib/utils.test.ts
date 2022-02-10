@@ -23,8 +23,14 @@ import {
     floorMsToClosestSecond,
     dateMapping,
     getFormattedLastWeekDate,
+    genericOperatorMap,
+    dateTimeOperatorMap,
+    stringOperatorMap,
+    numericOperatorMap,
+    chooseOperatorMap,
+    booleanOperatorMap,
 } from './utils'
-import { ActionFilter, ElementType, PropertyOperator } from '~/types'
+import { ActionFilter, ElementType, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -511,6 +517,25 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             expect(floorMsToClosestSecond(0)).toEqual(0)
             expect(floorMsToClosestSecond(1000)).toEqual(1000)
             expect(floorMsToClosestSecond(-1000)).toEqual(-1000)
+        })
+    })
+
+    describe('choosing an operator for taxonomic filters', () => {
+        const testCases = [
+            { propertyType: PropertyType.DateTime, allowDateTime: false, expected: genericOperatorMap },
+            { propertyType: PropertyType.DateTime, allowDateTime: true, expected: dateTimeOperatorMap },
+            { propertyType: PropertyType.String, allowDateTime: true, expected: stringOperatorMap },
+            { propertyType: PropertyType.String, allowDateTime: false, expected: stringOperatorMap },
+            { propertyType: PropertyType.Numeric, allowDateTime: true, expected: numericOperatorMap },
+            { propertyType: PropertyType.Numeric, allowDateTime: false, expected: numericOperatorMap },
+            { propertyType: PropertyType.Boolean, allowDateTime: true, expected: booleanOperatorMap },
+            { propertyType: PropertyType.Boolean, allowDateTime: false, expected: booleanOperatorMap },
+            { propertyType: undefined, allowDateTime: true, expected: genericOperatorMap },
+        ]
+        testCases.forEach((testcase) => {
+            it(`with datetime flag set to ${testcase.allowDateTime}, it correctly maps ${testcase.propertyType}`, () => {
+                expect(chooseOperatorMap(testcase.propertyType, testcase.allowDateTime)).toEqual(testcase.expected)
+            })
         })
     })
 })

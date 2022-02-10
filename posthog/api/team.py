@@ -85,7 +85,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user)
+        return team.get_effective_membership_level(self.context["request"].user.id)
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
@@ -118,6 +118,10 @@ class TeamSerializer(serializers.ModelSerializer):
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    """
+    Projects for the current organization.
+    """
+
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     permission_classes = [
@@ -128,6 +132,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
+    include_in_docs = True
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -136,7 +141,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             for team in super()
             .get_queryset()
             .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user) is not None
+            if team.get_effective_membership_level(self.request.user.id) is not None
         ]
         return super().get_queryset().filter(id__in=visible_teams_ids)
 

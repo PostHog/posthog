@@ -15,7 +15,7 @@ import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 
-export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
+export const UNNAMED_INSIGHT_NAME = 'Name this insight'
 
 export function InsightEmptyState({ color, isDashboard }: { color?: string; isDashboard?: boolean }): JSX.Element {
     return (

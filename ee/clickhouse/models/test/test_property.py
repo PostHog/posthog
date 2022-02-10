@@ -3,6 +3,7 @@ from typing import List, Literal, Union
 from uuid import UUID, uuid4
 
 import pytest
+from freezegun.api import freeze_time
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -22,7 +23,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property, PropertyDefinition, PropertyOperatorType, TableWithProperties
+from posthog.models.property import Property, PropertyOperatorType, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -481,6 +482,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(string_expr, ("e.mat_some_mat_prop", True))
 
+    @snapshot_clickhouse_queries
     def test_parse_groups(self):
 
         _create_event(
@@ -516,6 +518,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         res = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(res), 2)
 
+    @snapshot_clickhouse_queries
     def test_parse_groups_persons(self):
         _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})
 
@@ -677,6 +680,72 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
         ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # seven digit unix timestamp in seconds - 7840800
+            # Clickhouse cannot parse this. It isn't matched in tests from TEST_PROPERTIES
+            properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # nine digit unix timestamp in seconds - 323460000
+            properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
+        ),
+        _create_event(
+            # matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
+        ),
+        _create_event(
+            # should not be matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
+        ),
+        _create_event(
+            # not matched by exact date test
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're ignored in the query
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # include milliseconds, to prove they're don't cause a date to be included in an after filter
+            properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+        ),
     ]
 
 
@@ -689,12 +758,12 @@ TEST_PROPERTIES = [
     ),
     pytest.param(
         Property(key="email", value="test@posthog.com", operator="is_not"),
-        range(1, 18),
+        range(1, 27),
         id="matching on email is not a value matches all but the first event from test_events",
     ),
     pytest.param(
         Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
-        range(2, 18),
+        range(2, 27),
         id="matching on email is not a value matches all but the first two events from test_events",
     ),
     pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
@@ -702,15 +771,35 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
     pytest.param(
         Property(key="email", operator="is_not_set", value="is_not_set"),
-        range(2, 18),
+        range(2, 27),
         id="matching for email property not being set matches all but the first two events from test_events",
     ),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"), [5, 6]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"), [5, 6]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"), [5]),
-    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"), [6]),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"),
+        [5, 6, 19],
+        id="matching before a unix timestamp only querying by date",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_after", value="2021-03-31"),
+        [5, 6],
+        id="matching after a unix timestamp only querying by date",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"),
+        [5, 19],
+        id="matching before a unix timestamp querying by date and time",
+    ),
+    pytest.param(
+        Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"),
+        [6],
+        id="matching after a unix timestamp querying by date and time",
+    ),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
-    pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
+    pytest.param(
+        Property(key="long_date", operator="is_date_after", value="2021-03-31"),
+        [7, 8],
+        id="match after date only value against date and time formatted property",
+    ),
     pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
     pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01 18:30:00"), [8]),
     pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-05"), [9]),
@@ -718,163 +807,112 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
     pytest.param(Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
     pytest.param(
-        Property(
-            key="sdk_$time",
-            operator="is_date_before",
-            value="2021-12-25",
-            property_type="DateTime",
-            property_type_format="unix_timestamp",
-        ),
+        Property(key="sdk_$time", operator="is_date_before", value="2021-12-25",),
         [11],
         id="matching a unix timestamp in seconds with fractional seconds after the decimal point",
     ),
     pytest.param(
-        Property(
-            key="unix_timestamp_milliseconds",
-            operator="is_date_after",
-            value="2022-01-11",
-            property_type="DateTime",
-            property_type_format="unix_timestamp_milliseconds",
-        ),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_after", value="2022-01-11",),
         [12],
         id="matching unix timestamp in milliseconds after a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(
-            key="unix_timestamp_milliseconds",
-            operator="is_date_before",
-            value="2022-01-13",
-            property_type="DateTime",
-            property_type_format="unix_timestamp_milliseconds",
-        ),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_before", value="2022-01-13",),
         [12],
         id="matching unix timestamp in milliseconds before a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_before",
-            value="2002-10-02 17:01:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_before", value="2002-10-02 17:01:00",),
         [13],
         id="matching rfc 822 format date with timeszone offset before a given date",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_after",
-            value="2002-10-02 14:59:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 14:59:00",),
         [],
         id="matching rfc 822 format date takes into account timeszone offset after a given date",
     ),
     pytest.param(
-        Property(
-            key="rfc_822_time",
-            operator="is_date_after",
-            value="2002-10-02 12:59:00",
-            property_type="DateTime",
-            property_type_format="rfc_822",
-        ),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 12:59:00",),
         [13],
         id="matching rfc 822 format date after a given date",
     ),
     pytest.param(
-        Property(
-            key="iso_8601_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY-MM-DDThh:mm:ssZ",
-        ),
+        Property(key="iso_8601_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [14],
         id="matching ISO 8601 format date before a given date",
     ),
     pytest.param(
-        Property(
-            key="iso_8601_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY-MM-DDThh:mm:ssZ",
-        ),
+        Property(key="iso_8601_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [14],
         id="matching ISO 8601 format date after a given date",
     ),
     pytest.param(
-        Property(
-            key="full_date_increasing_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="DD-MM-YYYY hh:mm:ss",
-        ),
+        Property(key="full_date_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [15],
         id="matching full format date with date parts n increasing order before a given date",
     ),
     pytest.param(
-        Property(
-            key="full_date_increasing_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="DD-MM-YYYY hh:mm:ss",
-        ),
+        Property(key="full_date_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [15],
         id="matching full format date with date parts in increasing order after a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY/MM/DD hh:mm:ss",
-        ),
+        Property(key="with_slashes_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [16],
         id="matching full format date with date parts separated by slashes before a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="YYYY/MM/DD hh:mm:ss",
-        ),
+        Property(key="with_slashes_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [16],
         id="matching full format date with date parts separated by slashes after a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_increasing_$time",
-            operator="is_date_before",
-            value="2021-04-01 20:00:00",
-            property_type="DateTime",
-            property_type_format="DD/MM/YYYY hh:mm:ss",
-        ),
+        Property(key="with_slashes_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes before a given date",
     ),
     pytest.param(
-        Property(
-            key="with_slashes_increasing_$time",
-            operator="is_date_after",
-            value="2021-04-01 18:00:00",
-            property_type="DateTime",
-            property_type_format="DD/MM/YYYY hh:mm:ss",
-        ),
+        Property(key="with_slashes_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes after a given date",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_exact", value="2021-04-01",),
+        [20, 21],
+        id="can match dates exactly",
+    ),
+    pytest.param(
+        Property(key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31",),
+        [23, 24],
+        id="can match dates exactly against datetimes and unix timestamps",
+    ),
+    pytest.param(
+        Property(
+            key="date_exact_including_seconds_and_milliseconds", operator="is_date_exact", value="2021-03-31 18:12:12",
+        ),
+        [25],
+        id="can match date times exactly against datetimes with milliseconds",
+    ),
+    pytest.param(
+        Property(key="date_exact_including_seconds_and_milliseconds", operator="is_date_after", value="2021-03-31",),
+        [],
+        id="can match date only filter after against datetime with milliseconds",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_after", value="2021-04-01",),
+        [22],
+        id="can match after date only values",
+    ),
+    pytest.param(
+        Property(key="date_only", operator="is_date_before", value="2021-04-02",),
+        [20, 21],
+        id="can match before date only values",
     ),
 ]
 
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
+@freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
     uuids = list(
@@ -889,10 +927,12 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
     )
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
+    assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
 
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
+@freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
     materialize("events", "attr")
     materialize("events", "email")

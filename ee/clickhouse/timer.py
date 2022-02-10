@@ -1,4 +1,3 @@
-import logging
 import uuid
 from collections import OrderedDict
 from functools import partial
@@ -6,9 +5,10 @@ from threading import Condition, Thread
 from time import perf_counter
 from typing import Callable, Dict, Optional, Tuple
 
+import structlog
 from django.conf import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TimerTask:

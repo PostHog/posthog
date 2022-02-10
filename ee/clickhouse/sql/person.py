@@ -45,7 +45,7 @@ PERSONS_TABLE_SQL = lambda: (
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
+KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
 )
 
@@ -122,7 +122,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda: """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     distinct_id VARCHAR,
@@ -185,7 +185,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
@@ -279,9 +279,13 @@ FROM ({latest_person_sql}) AS p
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
+{limit}
+{offset}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
+    limit="{limit}",
+    offset="{offset}",
     GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
 
@@ -379,4 +383,49 @@ FROM ({events_query})
 GROUP BY actor_id
 {limit}
 {offset}
+"""
+
+COMMENT_DISTINCT_ID_COLUMN_SQL = (
+    lambda: f"ALTER TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+)
+
+
+SELECT_PERSON_PROP_VALUES_SQL = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND
+        JSONHas(properties, %(key)s) 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
+
+SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
 """

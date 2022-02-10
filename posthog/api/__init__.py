@@ -1,31 +1,25 @@
 from rest_framework import decorators, exceptions
 
+from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
-    action,
     annotation,
     async_migration,
     authentication,
-    cohort,
     dashboard,
-    element,
-    event,
+    dead_letter_queue,
     event_definition,
     feature_flag,
-    insight,
     instance_settings,
     instance_status,
     organization,
     organization_invite,
     organization_member,
-    paths,
-    person,
     personal_api_key,
     plugin,
     plugin_log_entry,
     property_definition,
-    session_recording,
     team,
     user,
 )
@@ -60,7 +54,9 @@ projects_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
-projects_router.register(r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"])
+project_dashboards_router = projects_router.register(
+    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
+)
 
 
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -94,41 +90,49 @@ router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
+router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 
 
-from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
-from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
-from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
-from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
 from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
-from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
-from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
-from ee.clickhouse.views.person import ClickhousePersonViewSet, LegacyClickhousePersonViewSet
+from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
 from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
+from posthog.api.action import ActionViewSet
+from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
+from posthog.api.element import ElementViewSet, LegacyElementViewSet
+from posthog.api.event import EventViewSet, LegacyEventViewSet
+from posthog.api.insight import InsightViewSet
+from posthog.api.person import LegacyPersonViewSet, PersonViewSet
 
 # Legacy endpoints CH (to be removed eventually)
-router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")  # Should be completely unused now
-router.register(r"event", LegacyClickhouseEventsViewSet, basename="event")  # Should be completely unused now
-router.register(r"insight", LegacyClickhouseInsightsViewSet, basename="insight")  # Should be completely unused now
-router.register(r"person", LegacyClickhousePersonViewSet, basename="person")
-router.register(r"paths", LegacyClickhousePathsViewSet, basename="paths")
-router.register(r"element", LegacyClickhouseElementViewSet, basename="element")
-router.register(r"cohort", LegacyClickhouseCohortViewSet, basename="cohort")
+router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
+router.register(r"element", LegacyElementViewSet, basename="element")
+router.register(r"person", LegacyPersonViewSet, basename="person")
+router.register(r"element", LegacyElementViewSet, basename="element")
+router.register(r"event", LegacyEventViewSet, basename="event")
+
 # Nested endpoints CH
-projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
-projects_router.register(r"events", ClickhouseEventsViewSet, "project_events", ["team_id"])
+projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
+projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
-projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
-projects_router.register(r"persons", ClickhousePersonViewSet, "project_persons", ["team_id"])
-projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
-projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
-projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
+projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
+projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
 projects_router.register(
     r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
+
+if settings.EE_AVAILABLE:
+    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
+
+    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
+else:
+    from posthog.api.insight import InsightViewSet
+
+    projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])

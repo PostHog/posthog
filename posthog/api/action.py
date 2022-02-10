@@ -1,6 +1,7 @@
 import json
-from typing import Any, Dict, List, Union, cast
+from typing import Any, Dict, List, Optional, Type, Union, cast
 
+from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
@@ -15,14 +16,24 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from rest_hooks.signals import raw_hook_event
 
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import INSIGHT_STICKINESS, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
+from posthog.constants import (
+    INSIGHT_STICKINESS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_STICKINESS,
+    AvailableFeature,
+)
 from posthog.decorators import CacheType, cached_function
 from posthog.event_usage import report_user_action
+from posthog.filters import term_search_filter_sql
 from posthog.models import (
     Action,
     ActionStep,
@@ -34,6 +45,7 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.cohort import Cohort
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -41,7 +53,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries import base, retention, stickiness, trends
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
-from .person import PersonSerializer, paginated_result
+from .person import get_person_name
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -73,23 +85,28 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
+    is_calculating = serializers.SerializerMethodField()
 
     class Meta:
         model = Action
         fields = [
             "id",
             "name",
+            "description",
             "post_to_slack",
             "slack_message_format",
             "steps",
             "created_at",
+            "created_by",
             "deleted",
             "is_calculating",
             "last_calculated_at",
-            "created_by",
             "team_id",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
+
+    def get_is_calculating(self, action: Action) -> bool:
+        return False
 
     def validate(self, attrs):
         instance = cast(Action, self.instance)
@@ -162,13 +179,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         return instance
 
 
-def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
-    queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-
-    queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-    return queryset.filter(team_id=team_id).order_by("-id")
-
-
 class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
@@ -180,19 +190,86 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-        return get_actions(queryset, self.request.GET.dict(), self.team_id)
+
+        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
+        queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+        return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
-        if request.GET.get("include_count", False):
-            actions_list.sort(key=lambda action: action.get("count", action["id"]), reverse=True)
         return Response({"results": actions_list})
+
+    @action(methods=["GET"], detail=False)
+    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+        entity = get_target_entity(filter)
+
+        actors, serialized_actors = ClickhouseTrendsActors(team, entity, filter).get_actors()
+
+        current_url = request.get_full_path()
+        next_url: Optional[str] = request.get_full_path()
+        offset = filter.offset
+        if len(actors) > 100 and next_url:
+            if "offset" in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+            else:
+                next_url = request.build_absolute_uri(
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
+                )
+        else:
+            next_url = None
+
+        if request.accepted_renderer.format == "csv":
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
+            content = [
+                {
+                    "Name": get_person_name(person),
+                    "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
+                    "Internal ID": str(person.uuid),
+                    "Email": person.properties.get("email"),
+                    "Properties": person.properties,
+                }
+                for person in actors
+                if isinstance(person, Person)
+            ]
+            return Response(content)
+
+        return Response(
+            {
+                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "next": next_url,
+                "previous": current_url[1:],
+            }
+        )
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: request.Request, **kwargs) -> Response:
+        action = self.get_object()
+        query, params = format_action_filter(action)
+        if query == "":
+            return Response({"count": 0})
+
+        results = sync_execute(
+            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND timestamp < %(before)s AND timestamp > %(after)s AND {}".format(
+                query
+            ),
+            {
+                "team_id": action.team_id,
+                "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                **params,
+            },
+        )
+        return Response({"count": results[0][0]})
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -272,48 +349,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
-    @action(methods=["GET"], detail=False)
-    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.get_people(request)
-        return Response(result)
-
-    def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
-        team = self.team
-        filter = Filter(request=request, team=self.team)
-        entity = get_target_entity(filter)
-
-        events = filter_by_type(entity=entity, team=team, filter=filter)
-        people = calculate_people(team=team, events=events, filter=filter, request=request)
-        serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
-
-        current_url = request.get_full_path()
-        next_url = paginated_result(serialized_people, request, filter.offset)
-
-        if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
-            content = [
-                {
-                    "Name": person.get("properties", {}).get("name"),
-                    "Distinct ID": person.get("distinct_ids", [""])[0],
-                    "Internal ID": person["uuid"],
-                    "Email": person.get("properties", {}).get("email"),
-                    "Properties": person.get("properties", {}),
-                }
-                for person in serialized_people
-            ]
-            return content
-
-        return {
-            "results": [{"people": serialized_people, "count": len(serialized_people)}],
-            "next": next_url,
-            "previous": current_url[1:],
-        }
-
-    @action(methods=["GET"], detail=True)
-    def count(self, request: request.Request, **kwargs) -> Response:
-        count = self.get_queryset().first().count
-        return Response({"count": count})
-
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     events: Union[EventManager, QuerySet] = Event.objects.none()
@@ -334,10 +369,11 @@ def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
 
 def _filter_cohort_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        cohort = Cohort.objects.get(pk=int(cast(str, filter.breakdown_value)))
         events = events.filter(
             Exists(
                 CohortPeople.objects.filter(
-                    cohort_id=int(cast(str, filter.breakdown_value)), person_id=OuterRef("person_id"),
+                    cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
                 ).only("id")
             )
         )

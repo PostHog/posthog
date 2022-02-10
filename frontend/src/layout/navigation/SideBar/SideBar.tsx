@@ -20,7 +20,13 @@ import {
     IconSettings,
     IconTools,
 } from 'lib/components/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithPopup,
+    LemonButtonWithSideAction,
+    SideAction,
+} from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -30,7 +36,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { InsightType } from '~/types'
+import { AvailableFeature, InsightType } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -38,6 +44,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -48,7 +56,7 @@ function ProjectSwitcherInternal(): JSX.Element {
     return (
         <div className="ProjectSwitcher">
             <div className="SideBar__heading">Project</div>
-            <LemonButton
+            <LemonButtonWithPopup
                 icon={<Lettermark name={currentOrganization?.name} />}
                 fullWidth
                 type="stealth"
@@ -62,7 +70,7 @@ function ProjectSwitcherInternal(): JSX.Element {
                 }}
             >
                 <strong>{currentTeam ? currentTeam.name : <i>Choose project</i>}</strong>
-            </LemonButton>
+            </LemonButtonWithPopup>
         </div>
     )
 }
@@ -129,6 +137,8 @@ function Pages(): JSX.Element {
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -199,9 +209,16 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
-                <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-            )}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] &&
+                (hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                    !preflight?.instance_preferences?.disable_paid_fs) && (
+                    <PageButton
+                        icon={<IconExperiment />}
+                        identifier={Scene.Experiments}
+                        to={urls.experiments()}
+                        highlight="beta"
+                    />
+                )}
             {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}

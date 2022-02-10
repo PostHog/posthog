@@ -58,8 +58,7 @@ describe('Insights', () => {
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
         cy.location('pathname').should('eq', '/i/i_dont_exist')
-        cy.get('h1.page-title').contains('Insight not found').should('exist')
-        cy.get('.not-found-component').get('.graphic').should('exist')
+        cy.get('.ant-skeleton-title').should('exist')
     })
 
     it('Stickiness graph', () => {

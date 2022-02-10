@@ -1,20 +1,11 @@
-import React, { useState } from 'react'
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import React, { useEffect, useState } from 'react'
+import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import {
-    dateTimeOperatorMap,
-    isMobile,
-    isOperatorFlag,
-    isOperatorMulti,
-    allOperatorsMapping,
-    genericOperatorMap,
-} from 'lib/utils'
+import { allOperatorsMapping, chooseOperatorMap, isMobile, isOperatorFlag, isOperatorMulti } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
-import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-interface OperatorValueSelectProps {
+export interface OperatorValueSelectProps {
     type?: string
     propkey?: string
     operator?: PropertyOperator | null
@@ -25,12 +16,15 @@ interface OperatorValueSelectProps {
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
     allowQueryingEventsByDateTime?: string | boolean
+    propertyDefinitions: PropertyDefinition[]
+    defaultOpen?: boolean
 }
 
 interface OperatorSelectProps extends SelectProps<any> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
+    defaultOpen?: boolean
 }
 
 export function OperatorValueSelect({
@@ -44,17 +38,28 @@ export function OperatorValueSelect({
     onChange,
     operatorSelectProps,
     allowQueryingEventsByDateTime,
+    propertyDefinitions = [],
+    defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
-    const [currentOperator, setCurrentOperator] = useState(operator)
-    const { propertyDefinitions } = useValues(propertyDefinitionsModel)
-
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
-    const operatorMapping =
-        allowQueryingEventsByDateTime && propertyDefinition?.property_type == 'DateTime'
-            ? dateTimeOperatorMap
-            : genericOperatorMap
-    const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+    // DateTime properties should not default to Exact
+    const startingOperator =
+        allowQueryingEventsByDateTime &&
+        propertyDefinition?.property_type == PropertyType.DateTime &&
+        (!operator || operator == PropertyOperator.Exact)
+            ? PropertyOperator.IsDateExact
+            : operator || PropertyOperator.Exact
+    const [currentOperator, setCurrentOperator] = useState(startingOperator)
+
+    const [operators, setOperators] = useState([] as Array<PropertyOperator>)
+    useEffect(() => {
+        const operatorMapping: Record<string, string> = chooseOperatorMap(
+            propertyDefinition?.property_type,
+            !!allowQueryingEventsByDateTime
+        )
+        setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
+    }, [propertyDefinition, allowQueryingEventsByDateTime])
 
     return (
         <>
@@ -79,6 +84,7 @@ export function OperatorValueSelect({
                         }
                     }}
                     {...operatorSelectProps}
+                    defaultOpen={defaultOpen}
                 />
             </Col>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (

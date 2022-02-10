@@ -52,16 +52,17 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             send_invite.delay(invite_id=invite.id)
             invite.save()
 
-        if not self.context.get("bulk_create"):
-            report_team_member_invited(
-                self.context["request"].user,
-                name_provided=bool(validated_data.get("first_name")),
-                current_invite_count=invite.organization.active_invites.count(),
-                current_member_count=OrganizationMembership.objects.filter(
-                    organization_id=self.context["organization_id"],
-                ).count(),
-                email_available=is_email_available(),
-            )
+        report_team_member_invited(
+            self.context["request"].user,
+            invite_id=str(invite.id),
+            name_provided=bool(validated_data.get("first_name")),
+            current_invite_count=invite.organization.active_invites.count(),
+            current_member_count=OrganizationMembership.objects.filter(
+                organization_id=self.context["organization_id"],
+            ).count(),
+            is_bulk=self.context.get("bulk_create", False),
+            email_available=is_email_available(with_absolute_urls=True),
+        )
 
         return invite
 

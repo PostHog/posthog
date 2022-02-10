@@ -5,7 +5,7 @@ import { CloseOutlined } from '@ant-design/icons'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 import { useActions, useValues } from 'kea'
-import { GroupsIntroductionBanner } from 'lib/introductions/GroupsIntroductionBanner'
+import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 window.process = MOCK_NODE_PROCESS
@@ -25,8 +25,8 @@ export function Announcement(): JSX.Element | null {
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
-    } else if (shownAnnouncementType === AnnouncementType.GroupAnalytics) {
-        message = <GroupsIntroductionBanner />
+    } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
+        message = <NewFeatureBanner />
     }
 
     return (

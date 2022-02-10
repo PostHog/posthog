@@ -5,15 +5,15 @@ import { getContext, useActions, useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { areObjectValuesEmpty, compactNumber, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, capitalizeFirstLetter, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -66,7 +66,7 @@ export function LEGACY_LineGraph({
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
     const [tooltipVisible, setTooltipVisible] = useState(false)
-    const size = useWindowSize()
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     const annotationsCondition =
         type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
@@ -126,7 +126,7 @@ export function LEGACY_LineGraph({
         if (annotationsCondition) {
             calculateBoundaries()
         }
-    }, [myLineChart.current, size, type, annotationsCondition])
+    }, [myLineChart.current, chartWidth, chartHeight, type, annotationsCondition])
 
     function calculateBoundaries() {
         const boundaryLeftExtent = myLineChart.current.scales['x-axis-0'].left
@@ -176,7 +176,7 @@ export function LEGACY_LineGraph({
 
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (type === 'horizontalBar') {
+            if (type === 'horizontalBar' || type === 'doughnut') {
                 // If series are nested (for ActionsHorizontalBar only), filter out the series by index
                 const filterFn = (_, i) => !hiddenLegendKeys?.[i]
                 datasets = datasets.map((_data) => {
@@ -257,7 +257,7 @@ export function LEGACY_LineGraph({
                         return null
                     }
 
-                    const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                    const label = entityData.label || tooltipItem.label || ''
                     const action = entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
 
                     let value = tooltipItem.yLabel.toLocaleString()
@@ -266,6 +266,8 @@ export function LEGACY_LineGraph({
                     if (type === 'horizontalBar') {
                         const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                         value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                    } else if (percentage) {
+                        value = `${tooltipItem.yLabel.toLocaleString()} %`
                     }
 
                     let showCountedByTag = false
@@ -296,6 +298,9 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value === ''
                                     ? 'None'
                                     : entityData.breakdown_value
+                            }
+                            compareValue={
+                                entityData.compare_label ? capitalizeFirstLetter(entityData.compare_label) : undefined
                             }
                             seriesStatus={entityData.status}
                             pillMidEllipsis={entityData?.filter?.breakdown === '$current_url'}

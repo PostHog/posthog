@@ -23,6 +23,10 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
+import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LastModified } from 'lib/components/InsightCard/LastModified'
+import { IconLock } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -32,7 +36,7 @@ export const scene: SceneExport = {
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const { insightProps, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
+    const { insightProps, canEditInsight, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const {
@@ -52,7 +56,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
+    const verticalLayout =
+        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] !== 'test' // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -96,24 +101,30 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
 
     const insightScene = (
         <div className="insights-page">
-            <div className="insight-metadata">
-                <Row justify="space-between" align="top" style={{ marginTop: 24 }}>
-                    <Col xs={{ span: 24, order: 2 }} sm={{ order: 1 }} style={{ flex: 1 }}>
-                        <EditableField
-                            name="name"
-                            value={insight.name || ''}
-                            placeholder={UNNAMED_INSIGHT_NAME}
-                            onChange={(value) => setInsightMetadata({ name: value })}
-                            className="insight-metadata-name"
-                            dataAttr="insight-name"
-                        />
-                    </Col>
-                    <Col
-                        className="insights-tab-actions"
-                        xs={{ span: 24, order: 1 }}
-                        sm={{ order: 2 }}
-                        style={{ flex: 0 }}
-                    >
+            <PageHeader
+                title={
+                    <EditableField
+                        name="name"
+                        value={insight.name || ''}
+                        placeholder={UNNAMED_INSIGHT_NAME}
+                        onSave={(value) => setInsightMetadata({ name: value })}
+                        minLength={1}
+                        maxLength={400} // Sync with Insight model
+                        mode={!canEditInsight ? 'view' : undefined}
+                        data-attr="insight-name"
+                        notice={
+                            !canEditInsight
+                                ? {
+                                      icon: <IconLock />,
+                                      tooltip:
+                                          "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                  }
+                                : undefined
+                        }
+                    />
+                }
+                buttons={
+                    <div className="insights-tab-actions">
                         {filtersChanged ? (
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
@@ -129,43 +140,73 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         ) : null}
                         {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
-                            <HotkeyButton
-                                type="primary"
-                                style={{ marginLeft: 8 }}
-                                onClick={() => setInsightMode(ItemMode.Edit, null)}
-                                data-attr="insight-edit-button"
-                                hotkey="e"
-                            >
-                                Edit
-                            </HotkeyButton>
+                            canEditInsight && (
+                                <HotkeyButton
+                                    type="primary"
+                                    style={{ marginLeft: 8 }}
+                                    onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                    data-attr="insight-edit-button"
+                                    hotkey="e"
+                                >
+                                    Edit
+                                </HotkeyButton>
+                            )
                         ) : (
                             <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
-                    </Col>
-                </Row>
-                <EditableField
-                    multiline
-                    name="description"
-                    value={insight.description || ''}
-                    placeholder={`Description (optional)`}
-                    onChange={(value) => setInsightMetadata({ description: value })}
-                    className={'insight-metadata-description'}
-                    dataAttr={'insight-description'}
-                    locked={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                />
-                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                    <div className={'insight-metadata-tags'} data-attr="insight-tags">
-                        <ObjectTags
-                            tags={insight.tags ?? []}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
-                            saving={tagLoading}
-                            tagsAvailable={[]}
-                        />
                     </div>
-                ) : null}
-            </div>
-
+                }
+                caption={
+                    <>
+                        {!!(canEditInsight || insight.description) && (
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={insight.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={(value) => setInsightMetadata({ description: value })}
+                                maxLength={400} // Sync with Insight model
+                                mode={!canEditInsight ? 'view' : undefined}
+                                data-attr="insight-description"
+                                compactButtons
+                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                notice={
+                                    !canEditInsight
+                                        ? {
+                                              icon: <IconLock />,
+                                              tooltip:
+                                                  "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                          }
+                                        : undefined
+                                }
+                            />
+                        )}
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
+                            (canEditInsight ? (
+                                <ObjectTags
+                                    tags={insight.tags ?? []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={tagLoading}
+                                    tagsAvailable={[]}
+                                    className="insight-metadata-tags"
+                                    data-attr="insight-tags"
+                                />
+                            ) : insight.tags?.length ? (
+                                <ObjectTags
+                                    tags={insight.tags}
+                                    saving={tagLoading}
+                                    className="insight-metadata-tags"
+                                    data-attr="insight-tags"
+                                    staticOnly
+                                />
+                            ) : null)}
+                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
+                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        )}
+                    </>
+                }
+            />
             {insightMode === ItemMode.View ? (
                 <Row style={{ marginTop: 16 }}>
                     <Col span={24}>
@@ -196,6 +237,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         </Col>
                     </Row>
                     <NPSPrompt />
+                    <FeedbackCallCTA />
                 </>
             )}
 

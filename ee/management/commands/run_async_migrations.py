@@ -5,7 +5,7 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +39,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--check", action="store_true", help="Exits with a non-zero status if required unapplied migrations exist."
+        )
+        parser.add_argument(
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
 
@@ -47,7 +50,7 @@ class Command(BaseCommand):
         setup_async_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()
 
-        if options["plan"]:
+        if options["plan"] or options["check"]:
             print()
 
             if len(necessary_migrations) == 0:
@@ -60,6 +63,8 @@ class Command(BaseCommand):
                 print(f"- {migration.name}")
 
             print()
+            if options["check"]:
+                exit(1)
             return
 
         for migration in necessary_migrations:
@@ -67,7 +72,9 @@ class Command(BaseCommand):
             started_successfully = start_async_migration(migration.name, ignore_posthog_version=True)
             migration.refresh_from_db()
             if not started_successfully or migration.status != MigrationStatus.CompletedSuccessfully:
-                logger.info(f"Unable to complete async migration {migration.name} with error: {migration.last_error}")
+                last_error = AsyncMigrationError.objects.filter(async_migration=migration).last()
+                last_error_msg = f", last error: {last_error.description}" if last_error else ""
+                logger.info(f"Unable to complete async migration {migration.name}{last_error_msg}.")
                 raise ImproperlyConfigured(
                     f"Migrate job failed because necessary async migration {migration.name} could not complete."
                 )

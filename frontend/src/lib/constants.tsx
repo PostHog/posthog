@@ -36,6 +36,31 @@ export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.Organization, 'organization'],
 ])
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+}
+
+export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+    [DashboardPrivilegeLevel.CanView]: 'can view',
+    [DashboardPrivilegeLevel.CanEdit]: 'can edit',
+}
+
+export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
+    return privilegeLevel === 'owner'
+        ? 'owner'
+        : privilegeLevel === 'project-admin'
+        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
+        : rawPrivilegeLevelToName[privilegeLevel]
+}
+
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 
 // Event constants
@@ -70,7 +95,7 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205 `control`, `test`
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
@@ -90,7 +115,11 @@ export const FEATURE_FLAGS = {
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
-    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner @alexkim205
+    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
+    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
+    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
+    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
+    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

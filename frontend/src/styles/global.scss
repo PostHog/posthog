@@ -15,15 +15,19 @@ NOTE: $medium is a SCSS var; not a keyword
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
+    --primary-hover: #{$primary_hover};
     --primary-active: #{$primary_active};
     --primary-bg-hover: #{$primary_bg_hover};
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
+    --warning-hover: #{$warning_hover};
+    --warning-active: #{$warning_active};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
+    --bg-depth: #{$bg_depth};
     --bg-navy: #{$bg_navy};
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
@@ -39,6 +43,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
     --radius: #{$radius};
+    --shadow-elevation: #{$shadow_elevation};
     // Used for graph series. (Note: color.ts relies on these values being hex)
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
@@ -103,10 +108,19 @@ body strong {
 }
 
 .page-title-row {
-    margin: 1.5rem 0 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: 2.5rem;
+    gap: 0.5rem 1rem;
+    margin: 1.25rem 0 0.25rem;
+    @media screen and (min-width: $md) {
+        flex-wrap: nowrap;
+    }
 }
 
 .page-title {
+    min-width: 0;
     font-size: 28px;
     line-height: 34px;
     margin: 0;
@@ -117,6 +131,15 @@ body strong {
     @extend .text-default;
     max-width: 48rem;
     margin-bottom: 1rem;
+}
+
+.page-buttons {
+    flex-shrink: 0;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: right;
+    gap: 0.5rem;
 }
 
 .subtitle-row {
@@ -267,6 +290,10 @@ code.code {
     margin-left: $default_spacing;
 }
 
+.ml-2 {
+    margin-left: $default_spacing * 2;
+}
+
 .mr-05 {
     margin-right: $default_spacing * 0.5;
 }
@@ -334,6 +361,17 @@ code.code {
 .flex-center {
     display: flex;
     align-items: center;
+}
+
+.border-all {
+    border: 1px solid $border;
+    border-radius: 4px;
+}
+
+// Vendor-specific adjustments
+
+input::-ms-clear {
+    display: none; // Hide IE/Edge's clear button that can mess input sizing up
 }
 
 // Color styles
@@ -557,6 +595,22 @@ code.code {
     svg {
         width: 1.5rem !important;
         height: 1.5rem !important;
+    }
+}
+
+.LemonLinkButton {
+    // TODO: This should become a component at some point
+    padding: 1.3rem 1rem !important;
+    font-weight: $medium !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+
+    &.ant-btn {
+        padding-top: 1.3rem !important;
+    }
+    &:not(.ant-btn-primary) {
+        color: $primary;
     }
 }
 
@@ -819,6 +873,9 @@ body {
     }
     .ant-dropdown-menu {
         border-radius: var(--radius);
+    }
+    .ant-modal-content {
+        box-shadow: var(--shadow-elevation);
     }
 }
 
