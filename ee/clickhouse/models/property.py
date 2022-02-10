@@ -78,8 +78,6 @@ def parse_prop_grouped_clauses(
 ) -> Tuple[str, Dict]:
     # TODO: setup structure of new properties, and call parse_prop_clauses with right operator type
 
-    group: Union[Property, PropertyGroup]
-
     if len(filter_group.properties) == 0:
         return "", {}
 
@@ -104,8 +102,9 @@ def parse_prop_grouped_clauses(
 
         _final = f"{filter_group.type} ".join(group_clauses)
     else:
+        props: List[Property] = filter_group.properties
         _final, final_params = parse_prop_clauses(
-            filters=filter_group.properties,
+            filters=props,
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -139,7 +138,7 @@ def parse_prop_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
-    property_operator: PropertyOperatorType = "AND",
+    property_operator: PropertyOperatorType = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -169,7 +168,7 @@ def parse_prop_clauses(
                 "{}person".format(prepend),
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
-                property_operator="AND",
+                property_operator=PropertyOperatorType.AND,
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -261,7 +260,7 @@ def prop_filter_json_extract(
     prop_var: str = "properties",
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
-    property_operator: PropertyOperatorType = "AND",
+    property_operator: PropertyOperatorType = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:

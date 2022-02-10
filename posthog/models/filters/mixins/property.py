@@ -26,7 +26,10 @@ class PropertyMixin(BaseParamMixin):
 
     @cached_property
     def property_groups(self) -> PropertyGroup:
-        _props = self._data.get(PROPERTY_GROUPS)
+        _props = self._data.get(PROPERTY_GROUPS, None)
+
+        if not _props:
+            return PropertyGroup(type=PropertyOperatorType.AND, properties=self.properties)
 
         if isinstance(_props, str):
             try:
@@ -76,7 +79,8 @@ class PropertyMixin(BaseParamMixin):
                 return cast(PropertyGroup, self._parse_grouped_properties_recursively(properties))
 
         # TODO: empty case?
-        return PropertyGroup(PropertyOperatorType.AND, [])
+        props: Union[List[Property], List[PropertyGroup]] = []
+        return PropertyGroup(PropertyOperatorType.AND, props)
 
     def _parse_grouped_properties_recursively(
         self, properties: Optional[Any]
@@ -85,7 +89,8 @@ class PropertyMixin(BaseParamMixin):
 
         if not properties:
             # empty prop list
-            return []
+            props: Union[List[Property], List[PropertyGroup]] = []
+            return props
 
         if isinstance(properties, list):
             # either a list of Property objects or a list of PropertyGroup objects
