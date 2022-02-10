@@ -278,4 +278,7 @@ def debug_log_level():
     We capture exceptions and log them at level debug. For easy debugging we set
     the logger level to debug so pytest can capture and display the output
     """
+    original_level = logger.level
     logger.setLevel(logging.DEBUG)
+    yield
+    logger.setLevel(original_level)
