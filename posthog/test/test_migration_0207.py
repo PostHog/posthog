@@ -13,14 +13,14 @@ class TagsTestCase(TestMigrations):
         Insight = apps.get_model("posthog", "Insight")
 
         self.dashboard = Dashboard.objects.create(
-            team_id=self.team.id, name="private dashboard", deprecated_tags=["a", "b", "c"]
+            team_id=self.team.id, name="private dashboard", deprecated_tags=["a", "b", "c", "a", "b"]
         )
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         self.insight_with_tags = Insight.objects.create(
-            dashboard=self.dashboard, filters=filter_dict, team_id=self.team.id, deprecated_tags=["c", "d"]
+            dashboard=self.dashboard, filters=filter_dict, team_id=self.team.id, deprecated_tags=["c", "d", "d"]
         )
         self.insight_without_tags = Insight.objects.create(
             dashboard=self.dashboard, filters=filter_dict, team_id=self.team.id

@@ -52,9 +52,9 @@ class EventDefinitionViewSet(
             else:
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
-                # Select all columns except `tags` so that queryset doesn't try to fetch one-to-many tags
+                # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 event_definition_fields = ", ".join(
-                    [f.column for f in EnterpriseEventDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
+                    [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
                 )
 
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(

@@ -19,10 +19,10 @@ class TagsTestCase(TestMigrations):
         EnterprisePropertyDefinition = apps.get_model("ee", "EnterprisePropertyDefinition")
 
         self.event_definition = EnterpriseEventDefinition.objects.create(
-            team_id=self.team.id, name="enterprise event", deprecated_tags=["a", "b", "c"]
+            team_id=self.team.id, name="enterprise event", deprecated_tags=["a", "b", "c", "a", "b"]
         )
         self.property_definition_with_tags = EnterprisePropertyDefinition.objects.create(
-            team_id=self.team.id, name="property def with tags", deprecated_tags=["b", "c", "d", "e"]
+            team_id=self.team.id, name="property def with tags", deprecated_tags=["b", "c", "d", "e", "e"]
         )
         self.property_definition_without_tags = EnterprisePropertyDefinition.objects.create(
             team_id=self.team.id, name="property def without tags",

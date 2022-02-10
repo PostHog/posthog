@@ -223,23 +223,27 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                     paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                                 />
                             )}
-                            {canEditDashboard ? (
-                                <ObjectTags
-                                    tags={dashboard.tags}
-                                    onTagSave={saveNewTag}
-                                    onTagDelete={deleteTag}
-                                    saving={dashboardLoading}
-                                    tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                                    className="insight-metadata-tags"
-                                />
-                            ) : dashboard.tags.length ? (
-                                <ObjectTags
-                                    tags={dashboard.tags}
-                                    saving={dashboardLoading}
-                                    staticOnly
-                                    className="insight-metadata-tags"
-                                />
-                            ) : null}
+                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                <>
+                                    {canEditDashboard ? (
+                                        <ObjectTags
+                                            tags={dashboard.tags}
+                                            onTagSave={saveNewTag}
+                                            onTagDelete={deleteTag}
+                                            saving={dashboardLoading}
+                                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                                            className="insight-metadata-tags"
+                                        />
+                                    ) : dashboard.tags.length ? (
+                                        <ObjectTags
+                                            tags={dashboard.tags}
+                                            saving={dashboardLoading}
+                                            staticOnly
+                                            className="insight-metadata-tags"
+                                        />
+                                    ) : null}
+                                </>
+                            )}
                         </>
                     }
                     delimited

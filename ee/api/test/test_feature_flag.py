@@ -19,10 +19,11 @@ class TestFeatureFlagApi(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", {"name": "Feature", "key": "nice-feature"}
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Feature", "key": "nice-feature", "tags": ["a", "b", "c"]},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(response.json()["tags"], ["a", "b", "c"])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}",

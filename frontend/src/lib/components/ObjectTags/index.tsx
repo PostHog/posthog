@@ -1,5 +1,5 @@
 import { Tag, Select } from 'antd'
-import { colorForString } from 'lib/utils'
+import { colorForString, slugifyWhitespace } from 'lib/utils'
 import React, { CSSProperties, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
@@ -55,7 +55,7 @@ export function ObjectTags({
 
     const handleDelete = (tag: string, currentTags?: string[], propertyId?: string): void => {
         setDeletedTags([...deletedTags, tag])
-        onTagDelete && onTagDelete(tag, currentTags, propertyId)
+        onTagDelete?.(tag, currentTags, propertyId)
     }
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
@@ -109,7 +109,10 @@ export function ObjectTags({
                     {addingNewTag && (
                         <SelectGradientOverflow
                             size="small"
-                            onBlur={() => setAddingNewTag(false)}
+                            onBlur={() => {
+                                setAddingNewTag(false)
+                                setNewTag('')
+                            }}
                             data-attr="new-tag-input"
                             autoFocus
                             allowClear
@@ -118,15 +121,18 @@ export function ObjectTags({
                             showSearch
                             style={{ width: 160 }}
                             onChange={(value) => {
-                                onTagSave(value, tags, id)
+                                onTagSave(slugifyWhitespace(value), tags, id)
                                 setNewTag('')
                                 setAddingNewTag(false)
                             }}
                             loading={saving}
                             onSearch={(newInput) => {
-                                setNewTag(newInput)
+                                if (slugifyWhitespace(newTag).length < 50) {
+                                    setNewTag(newInput)
+                                }
                             }}
                             placeholder='try "official"'
+                            dropdownMatchSelectWidth={false}
                         >
                             {newTag ? (
                                 <Select.Option
@@ -135,7 +141,7 @@ export function ObjectTags({
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"
                                 >
-                                    Add tag: {newTag}
+                                    {slugifyWhitespace(newTag)}
                                 </Select.Option>
                             ) : (
                                 (!tagsAvailable || !tagsAvailable.length) && (

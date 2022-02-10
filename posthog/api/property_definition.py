@@ -104,9 +104,9 @@ class PropertyDefinitionViewSet(
         }
 
         if use_entreprise_taxonomy:
-            # Select all columns except `tags` so that queryset doesn't try to fetch one-to-many tags
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
             property_definition_fields = ", ".join(
-                [f.column for f in EnterprisePropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
+                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
             )
 
             return EnterprisePropertyDefinition.objects.raw(

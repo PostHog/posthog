@@ -232,7 +232,7 @@ export function FeatureFlag(): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Form.Item>
-                            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                 <ObjectTags
                                     tags={featureFlag.tags ?? []}
                                     onTagSave={saveNewTag}

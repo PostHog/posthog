@@ -79,5 +79,9 @@ class TaggedItem(UUIDModel):
         if sum(map(bool, [getattr(self, o_field) for o_field in RELATED_OBJECTS])) > 1:
             raise ValidationError("At most one object field must be set.")
 
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super(TaggedItem, self).save(*args, **kwargs)
+
     def __str__(self):
         return self.tag

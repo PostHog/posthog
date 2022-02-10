@@ -5,16 +5,16 @@ import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ShareModal } from './ShareModal'
 import {
+    CopyOutlined,
+    DeleteOutlined,
+    EditOutlined,
+    EllipsisOutlined,
+    FullscreenExitOutlined,
+    FullscreenOutlined,
+    PlusOutlined,
     PushpinFilled,
     PushpinOutlined,
-    EllipsisOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    FullscreenOutlined,
-    FullscreenExitOutlined,
     ShareAltOutlined,
-    PlusOutlined,
-    CopyOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -37,7 +37,7 @@ export function DashboardHeader(): JSX.Element {
     const { dashboardTags } = useValues(dashboardsLogic)
     const { nameSortedDashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
-    const { user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
     const nameInputRef = useRef<Input | null>(null)
@@ -248,17 +248,19 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            {user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
+            {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                 <>
-                    <div className="mb" data-attr="dashboard-tags">
-                        <ObjectTags
-                            tags={dashboard.tags}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
-                            saving={dashboardLoading}
-                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                        />
-                    </div>
+                    {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                        <div className="mb" data-attr="dashboard-tags">
+                            <ObjectTags
+                                tags={dashboard.tags}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={dashboardLoading}
+                                tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                            />
+                        </div>
+                    )}
                     <Description
                         item={dashboard}
                         setItemMode={setDashboardMode}
