@@ -1,13 +1,15 @@
 from typing import Type
 
+from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 
+from ee.api.ee_tagged_item import EnterpriseTaggedItemViewSetMixin
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
@@ -30,6 +32,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
 
 class EventDefinitionViewSet(
+    TaggedItemViewSetMixin,
     StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -67,9 +70,11 @@ class EventDefinitionViewSet(
                     """,
                     params={"team_id": self.team_id, **search_kwargs},
                 )
-                return ee_event_definitions
+                return EnterpriseTaggedItemViewSetMixin.get_queryset_with_tags(ee_event_definitions)
 
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+        return (
+            self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering).defer("tags")
+        )
 
     def get_object(self):
         id = self.kwargs["id"]

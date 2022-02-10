@@ -3,8 +3,9 @@ from typing import Type
 
 from rest_framework import mixins, permissions, serializers, viewsets
 
+from ee.api.ee_tagged_item import EnterpriseTaggedItemViewSetMixin
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -48,6 +49,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
 
 class PropertyDefinitionViewSet(
+    TaggedItemViewSetMixin,
     StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -109,16 +111,18 @@ class PropertyDefinitionViewSet(
                 [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
             )
 
-            return EnterprisePropertyDefinition.objects.raw(
-                f"""
-                SELECT {property_definition_fields},
-                       {event_property_field} AS is_event_property
-                FROM ee_enterprisepropertydefinition
-                FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
-                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
-                """,
-                params=params,
+            return EnterpriseTaggedItemViewSetMixin.get_queryset_with_tags(
+                EnterprisePropertyDefinition.objects.raw(
+                    f"""
+                            SELECT {property_definition_fields},
+                                   {event_property_field} AS is_event_property
+                            FROM ee_enterprisepropertydefinition
+                            FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                            WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                            ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                            """,
+                    params=params,
+                )
             )
         else:
             return PropertyDefinition.objects.raw(
@@ -129,7 +133,7 @@ class PropertyDefinitionViewSet(
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
-            )
+            ).defer("tags")
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

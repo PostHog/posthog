@@ -15,7 +15,7 @@ from rest_framework.request import Request
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
@@ -199,7 +199,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Dashboard.objects.all()
     serializer_class = DashboardSerializer
     authentication_classes = [

@@ -12,14 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.queries.funnels import (
-    ClickhouseFunnel,
-    ClickhouseFunnelBase,
-    ClickhouseFunnelStrict,
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-    ClickhouseFunnelUnordered,
-)
+from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
@@ -35,7 +28,7 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     FROM_DASHBOARD,
@@ -45,19 +38,18 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
-    FunnelOrderType,
     FunnelVizType,
 )
-from posthog.decorators import CacheType, cached_function
+from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.models import Event, Filter, Insight, Team
+from posthog.models import Filter, Insight, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import get_safe_cache, relative_date_parse, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -201,7 +193,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return representation
 
 
-class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Insight.objects.all().prefetch_related(
         "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
     )
