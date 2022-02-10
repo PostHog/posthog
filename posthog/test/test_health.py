@@ -1,11 +1,14 @@
 from contextlib import contextmanager
 from typing import List, Optional
+from unittest import mock
 from unittest.mock import patch
 
+import django_redis.exceptions
 import kombu.connection
 import kombu.exceptions
 import pytest
 from clickhouse_driver.errors import Error as ClickhouseError
+from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
@@ -15,23 +18,12 @@ from kafka.errors import KafkaError
 
 from ee.clickhouse.client import ch_pool
 from ee.kafka_client.client import TestKafkaProducer
-from posthog.celery import app
 
 
 @pytest.mark.django_db
 def test_readyz_returns_200_if_everything_is_ok(client: Client):
     resp = get_readyz(client)
     assert resp.status_code == 200
-
-
-@pytest.mark.django_db
-def test_readyz_endpoint_fails_for_kafka_connection_issues(client: Client):
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client)
-
-    assert resp.status_code == 503
-    data = resp.json()
-    assert data["kafka_connected"] == False
 
 
 @pytest.mark.django_db
@@ -46,26 +38,13 @@ def test_readyz_supports_excluding_checks(client: Client):
     } == {"postgres": False, "postgres_migrations_uptodate": False}
 
 
-def test_readyz_doesnt_require_db(client: Client):
-    """
-    We don't want to fail to construct a response if we can't reach the
-    database.
-    """
-    with simulate_postgres_error():
-        resp = get_readyz(client)
-
-    assert resp.status_code == 503
-    data = resp.json()
-    assert data["postgres"] == False
-
-
-def test_livez_returns_200_and_doesnt_require_db(client: Client):
+def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
     """
     We want the livez endpoint to involve no database queries at all, it should
     just be an indicator that the python process hasn't hung.
     """
 
-    with simulate_postgres_error():
+    with simulate_postgres_error(), simulate_kafka_cannot_connect(), simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect(), simulate_cache_cannot_connect():
         resp = get_livez(client)
 
     assert resp.status_code == 200
@@ -73,16 +52,18 @@ def test_livez_returns_200_and_doesnt_require_db(client: Client):
     assert data == {"http": True}
 
 
+# Role based tests
+#
+# We basically want to provide a mechanism that allows for checking if the
+# process should be considered healthy based on the "role" it is playing. Here
+# kafka being down should result in failure, but failure in postgres should not.
+#
+# TODO: I've been quite explicit and verboise with the below, but it could be
+# more readable how each role should behave.
+
+
 @pytest.mark.django_db
-def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
-    """
-    We basically want to provide a mechanism that allows for checking if the
-    process should be considered healthy based on the "role" it is playing. Here
-    kafka being down should result in failure, but failure in postgres should not.
-    """
-    #
-    # events role
-    #
+def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Client):
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="events")
 
@@ -103,9 +84,14 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
 
     assert resp.status_code == 200
 
-    #
-    # web role
-    #
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="events")
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client):
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="web")
 
@@ -128,9 +114,16 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
     # many things that still function without it
     assert resp.status_code == 200
 
-    #
-    # worker role
-    #
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="web")
+
+    # NOTE: redis being down is bad atm as e.g. Axes uses it to handle login
+    # attempt rate limiting and doesn't fail gracefully
+    assert resp.status_code == 503
+
+
+@pytest.mark.django_db
+def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Client):
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
@@ -148,6 +141,44 @@ def test_readyz_accepts_roles_and_filters_by_relevant_services(client: Client):
 
     with simulate_celery_cannot_connect():
         resp = get_readyz(client=client, role="worker")
+
+    assert resp.status_code == 503
+
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="worker")
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
+    """
+    If we don't specify any role, we assume we want all dependencies to be
+    checked.
+    """
+
+    with simulate_kafka_cannot_connect():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503
+
+    with simulate_postgres_error():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503
+
+    with simulate_clickhouse_cannot_connect():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503
+
+    with simulate_celery_cannot_connect():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503
+
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client)
 
     assert resp.status_code == 503
 
@@ -219,8 +250,21 @@ def simulate_clickhouse_cannot_connect():
 @contextmanager
 def simulate_celery_cannot_connect():
     """
-    Causes redis connection issues simulated by throwing a RedisError
+    Causes celery to raise a broker connection error
     """
-    with patch.object(kombu.connection.Connection, "ensure_connection") as mock_redis:
-        mock_redis.side_effect = kombu.exceptions.ConnectionError
+    with patch.object(kombu.connection.Connection, "ensure_connection") as ensure_connection_mock:
+        ensure_connection_mock.side_effect = kombu.exceptions.ConnectionError
+        yield
+
+
+@contextmanager
+def simulate_cache_cannot_connect():
+    """
+    Causes the django cache library to raise a redis ConnectionError. I couldn't
+    find a cache agnostic way to make this happen. In tests we're using local
+    memory backend rather than redis, so this is not a perfect representation of
+    reality.
+    """
+    with patch.object(cache, "has_key") as has_key_mock:
+        has_key_mock.side_effect = django_redis.exceptions.ConnectionInterrupted(mock.Mock())
         yield

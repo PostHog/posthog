@@ -19,25 +19,41 @@
 
 from typing import Dict, List, Literal, get_args
 
+import amqp.exceptions
+import django_redis.exceptions
+import kombu.exceptions
+import redis.exceptions
 from clickhouse_driver.errors import Error as ClickhouseError
+from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
-from django.http import JsonResponse
-from kombu.exceptions import ConnectionError
+from django.http import HttpRequest, JsonResponse
+from structlog import get_logger
 
 from ee.clickhouse.client import sync_execute
 from ee.kafka_client.client import can_connect as can_connect_to_kafka
 from posthog.celery import app
 
+logger = get_logger(__file__)
+
 ServiceRole = Literal["events", "web", "worker"]
 
 service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
-    # NOTE: we do not include clickhouse for web, as even without clickhouse we
-    # want to be able to display something to the user.
-    "web": ["http", "postgres", "postgres_migrations_uptodate"],
+    "web": [
+        "http",
+        "postgres",
+        "postgres_migrations_uptodate",
+        "cache",
+        # NOTE: we do not include clickhouse for web, as even without clickhouse we
+        # want to be able to display something to the user.
+        # "clickhouse"
+        # NOTE: we do not include "celery_broker" as web could still do lot's of
+        # useful things
+        # "celery_broker"
+    ],
     # NOTE: we can be pretty picky about what the worker needs as by its nature
     # of reading from a durable queue rather that being required to perform
     # request/response, we are more resilient to service downtime.
@@ -73,6 +89,10 @@ def readyz(request):
     web server does a lot of stuff, and kafka is only used I believe for sending
     merge person events, so we'd rather stay up with degraded functionality,
     rather than take the website UI down.
+
+    We also accept an optional `role` parameter which can be any `ServiceRole`,
+    and can be used to specify that a subset of dependencies should be checked,
+    specific to the role a process is playing.
     """
     exclude = set(request.GET.getlist("exclude", []))
     role = request.GET.get("role", None)
@@ -80,25 +100,31 @@ def readyz(request):
     if role and role not in get_args(ServiceRole):
         return JsonResponse({"error": "InvalidRole"}, status=400)
 
-    checks = {
-        "http": True,
-        "clickhouse": is_clickhouse_connected(),
-        "postgres": is_postgres_connected(),
-        "postgres_migrations_uptodate": are_postgres_migrations_uptodate(),
-        "kafka_connected": is_kafka_connected(),
-        "celery_broker": is_celery_broker_connected(),
+    available_checks = {
+        "clickhouse": is_clickhouse_connected,
+        "postgres": is_postgres_connected,
+        "postgres_migrations_uptodate": are_postgres_migrations_uptodate,
+        "kafka_connected": is_kafka_connected,
+        "celery_broker": is_celery_broker_connected,
+        "cache": is_cache_backend_connected,
     }
 
     if role:
         # If we have a role, then limit the checks to a subset defined by the
         # service_dependencies for this specific role, defaulting to all if we
         # don't find a lookup
-        dependencies = service_dependencies.get(role, checks.keys())
-        checks = {name: result for name, result in checks.items() if name in dependencies}
+        dependencies = service_dependencies.get(role, available_checks.keys())
+        available_checks = {name: check for name, check in available_checks.items() if name in dependencies}
 
-    status = 200 if all(check_status for name, check_status in checks.items() if name not in exclude) else 503
+    # Run each check and collect the status
+    # TODO: handle time bounding checks
+    # TODO: handle concurrent checks(?). Only if it becomes an issue, at which
+    # point maybe we're doing too many checks or they are too intensive.
+    evaluated_checks = {name: check() for name, check in available_checks.items()}
 
-    return JsonResponse(checks, status=status)
+    status = 200 if all(check_status for name, check_status in evaluated_checks.items() if name not in exclude) else 503
+
+    return JsonResponse(evaluated_checks, status=status)
 
 
 def is_kafka_connected() -> bool:
@@ -123,6 +149,7 @@ def is_postgres_connected() -> bool:
         with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
             cursor.execute("SELECT 1")
     except DjangoDatabaseError:
+        logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
 
     return True
@@ -139,7 +166,9 @@ def are_postgres_migrations_uptodate() -> bool:
         executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
         plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
     except DjangoDatabaseError:
+        logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
+
     return False if plan else True
 
 
@@ -152,6 +181,7 @@ def is_clickhouse_connected() -> bool:
     try:
         sync_execute("SELECT 1")
     except ClickhouseError:
+        logger.debug("clickhouse_connection_failure", exc_info=True)
         return False
 
     return True
@@ -167,6 +197,57 @@ def is_celery_broker_connected() -> bool:
         # NOTE: Possibly not the best way to test that celery broker, it is
         # possibly testing more than just is the broker reachable.
         app.connection_for_read().ensure_connection(timeout=0, max_retries=0)
-    except ConnectionError:
+    except (amqp.exceptions.AMQPError, kombu.exceptions.KombuError):
+        # NOTE: I wasn't sure exactly what could be raised, so we get all AMPQ
+        # and Kombu errors
+        logger.debug("celery_broker_connection_failure", exc_info=True)
         return False
+
     return True
+
+
+def is_cache_backend_connected() -> bool:
+    """
+    Checks if we can connect to redis, used for at least:
+
+     1. django cache
+     2. axes failure rate limiting
+
+    Returns `True` if so, `False` otherwise
+    """
+    try:
+        # NOTE: we call has_key just as a method to force the cache to actually
+        # connect, otherwise it appears to be lazy, but perhaps there is a more
+        # convenient less fragile way to do this. It would be nice if we could
+        # have a `check_health` exposed in some generic way, as the python redis
+        # client does appear to have something for this task.
+        cache.has_key("_connection_test_key")
+    except (redis.exceptions.RedisError, django_redis.exceptions.ConnectionInterrupted):
+        # NOTE: There doesn't seems to be a django cache specific exception
+        # here, so we will just have to add which ever exceptions the cache
+        # backend uses. For our case we're using django_redis, which does define
+        # some exceptions but appears to mostly just pass through the underlying
+        # redis exception.
+        logger.debug("cache_backend_connection_failure", exc_info=True)
+        return False
+
+    return True
+
+
+def healthcheck_middleware(get_response):
+    """
+    Middleware to serve up ready and liveness responses without executing any
+    inner middleware. Otherwise, if paths do not match these healthcheck
+    endpoints, we pass the request down the chain.
+    """
+
+    def middleware(request: HttpRequest):
+        if request.path == "/_readyz":
+            return readyz(request)
+
+        elif request.path == "/_livez":
+            return livez(request)
+
+        return get_response(request)
+
+    return middleware
