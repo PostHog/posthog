@@ -212,17 +212,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                (_, prop) => prop.fetchMonths || 12,
+                selectors.miniumumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, maximumFetchMonths) =>
+            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after: now().subtract(maximumFetchMonths, 'months').toISOString(),
+                    after: miniumumQueryDate,
                 })}`,
         ],
+        months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
+        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         getTimestampToQueryAfter: [
             () => [],
             () => (timestamp?: string) => {
@@ -336,6 +338,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 hasNext: !!apiResponse.next,
                 isNext: !!nextParams,
             })
+
+            if (
+                apiResponse.results.length === 0 &&
+                dayjs(values.miniumumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute') > 5
+            ) {
+                actions.fetchEvents({ after: values.miniumumQueryDate })
+            }
 
             if (!props.disableActions) {
                 // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
