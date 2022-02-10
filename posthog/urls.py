@@ -22,7 +22,6 @@ from posthog.api import (
     user,
 )
 from posthog.demo import demo
-from posthog.health import livez, readyz
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
