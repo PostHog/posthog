@@ -15,6 +15,7 @@ from rest_framework.request import Request
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
@@ -26,7 +27,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.utils import render_template
 
 
-class DashboardSerializer(serializers.ModelSerializer):
+class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -108,6 +109,15 @@ class DashboardSerializer(serializers.ModelSerializer):
                     team=team,
                 )
 
+        # Manual tag creation since this create method doesn't call super()
+        if self.is_licensed() and self.initial_data.get("tags", None):
+            try:
+                from ee.api.ee_tagged_item import EnterpriseTaggedItemSerializerMixin
+            except ImportError:
+                pass
+            else:
+                EnterpriseTaggedItemSerializerMixin(self).set_tags(self.initial_data["tags"], dashboard)
+
         report_user_action(
             request.user,
             "dashboard created",
@@ -164,7 +174,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if dive_source_id is not None:
             items = self.add_dive_source_item(items, int(dive_source_id))
 
-        #  Make sure all items have an insight set
+        #  Make sure all items have an insight set
         # This should have only happened historically
         for item in items:
             if not item.filters.get("insight"):

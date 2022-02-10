@@ -35,6 +35,7 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     FROM_DASHBOARD,
@@ -90,7 +91,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -412,7 +413,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        #  backwards compatibility
+        #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()

@@ -388,7 +388,7 @@ export const renderItemPopup = (
     item: EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty,
     listGroupType: TaxonomicFilterGroupType,
     group: TaxonomicFilterGroup,
-    hasTaxonomyFeatures: boolean
+    hasEnterpriseFeatures: boolean
 ): React.ReactNode => {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue(item)
@@ -418,9 +418,9 @@ export const renderItemPopup = (
                 icon={icon}
                 editText={listGroupType === TaxonomicFilterGroupType.Actions ? 'Quick edit' : undefined}
             >
-                {hasTaxonomyFeatures &&
+                {hasEnterpriseFeatures &&
                     'description' in item &&
-                    (hasTaxonomyFeatures && item.description ? (
+                    (hasEnterpriseFeatures && item.description ? (
                         <DefinitionPopup.Description description={item.description} />
                     ) : (
                         <DefinitionPopup.DescriptionEmpty />
@@ -429,7 +429,7 @@ export const renderItemPopup = (
                     <DefinitionPopup.Description description={keyMapping.element[item.name].description} />
                 )}
                 <DefinitionPopup.Example value={value.toString()} />
-                {hasTaxonomyFeatures && 'tags' in item && !!item.tags?.length && (
+                {hasEnterpriseFeatures && 'tags' in item && !!item.tags?.length && (
                     <ObjectTags tags={item.tags} style={{ marginBottom: 4 }} />
                 )}
                 <DefinitionPopup.TimeMeta
@@ -440,7 +440,7 @@ export const renderItemPopup = (
                 />
                 <DefinitionPopup.HorizontalLine />
                 {/* Things start to get different here */}
-                {renderRestOfDefinition(item, listGroupType, hasTaxonomyFeatures)}
+                {renderRestOfDefinition(item, listGroupType, hasEnterpriseFeatures)}
             </DefinitionPopup>
         </BindLogic>
     )

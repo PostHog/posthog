@@ -266,7 +266,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
-    @snapshot_postgres_queries
     def test_insights_does_not_nplus1(self):
         for i in range(20):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
@@ -312,11 +311,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {
-                "name": "insight new name",
-                "tags": ["official", "engineering"],
-                "description": "Internal system metrics.",
-            },
+            {"name": "insight new name", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -324,11 +319,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["name"], "insight new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(response_data["tags"], ["official", "engineering"])
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
-        self.assertEqual(insight.tags, ["official", "engineering"])
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):

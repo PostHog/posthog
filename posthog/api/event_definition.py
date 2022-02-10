@@ -3,6 +3,7 @@ from typing import Type
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -11,10 +12,18 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
-class EventDefinitionSerializer(serializers.ModelSerializer):
+class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
-        fields = ("id", "name", "volume_30_day", "query_usage_30_day", "created_at", "last_seen_at")
+        fields = (
+            "id",
+            "name",
+            "volume_30_day",
+            "query_usage_30_day",
+            "created_at",
+            "last_seen_at",
+            "tags",
+        )
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()
@@ -43,9 +52,14 @@ class EventDefinitionViewSet(
             else:
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+                # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+                event_definition_fields = ", ".join(
+                    [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
+                )
+
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
-                    SELECT *
+                    SELECT {event_definition_fields}
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s {search_query}

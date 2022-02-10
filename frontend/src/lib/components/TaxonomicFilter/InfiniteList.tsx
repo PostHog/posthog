@@ -357,7 +357,8 @@ export function InfiniteList(): JSX.Element {
                                             selectedItem,
                                             listGroupType,
                                             group,
-                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
+                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) &&
+                                                hasAvailableFeature(AvailableFeature.TAGGING)
                                         )
                                       : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
                                   : null}

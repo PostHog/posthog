@@ -1,9 +1,10 @@
 import json
-from typing import Any, Type
+from typing import Type
 
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -28,7 +29,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
 )
 
 
-class PropertyDefinitionSerializer(serializers.ModelSerializer):
+class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -37,6 +38,7 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "is_numerical",
             "query_usage_30_day",
             "property_type",
+            "tags",
             # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
         )
@@ -102,15 +104,18 @@ class PropertyDefinitionViewSet(
         }
 
         if use_entreprise_taxonomy:
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+            property_definition_fields = ", ".join(
+                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
+            )
+
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
-                SELECT posthog_propertydefinition.*,
-                       ee_enterprisepropertydefinition.*, 
+                SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
-                FROM posthog_propertydefinition
-                LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
-                GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                FROM ee_enterprisepropertydefinition
+                FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
@@ -118,9 +123,9 @@ class PropertyDefinitionViewSet(
         else:
             return PropertyDefinition.objects.raw(
                 f"""
-                SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
+                SELECT *, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
-                WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,

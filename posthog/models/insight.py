@@ -50,7 +50,6 @@ class Insight(models.Model):
         max_length=12, blank=True, default=generate_short_id,
     )
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
@@ -65,6 +64,11 @@ class Insight(models.Model):
 
     # Deprecated as we don't store funnels as a separate model any more
     funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
+
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list, db_column="tags"), return_instead=[]
+    )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
