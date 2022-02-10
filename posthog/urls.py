@@ -39,13 +39,7 @@ else:
 
 @csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
-
-    response = render_template("index.html", request)
-
-    # Delete csrftoken cookie if it exists to reduce cookie size
-    # See https://github.com/PostHog/posthog/pull/8546 for context
-    response.delete_cookie("csrftoken")
-    return response
+    return render_template("index.html", request)
 
 
 def login_view(request):
