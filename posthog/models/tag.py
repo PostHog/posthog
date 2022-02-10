@@ -6,7 +6,7 @@ from posthog.models.utils import UUIDModel
 
 
 class Tag(UUIDModel):
-    name: models.SlugField = models.CharField(max_length=255)
+    name: models.CharField = models.CharField(max_length=255)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     class Meta:
