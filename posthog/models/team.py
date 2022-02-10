@@ -90,7 +90,10 @@ def get_default_data_attributes() -> Any:
         "plugins_opt_in",
         "opt_out_capture",
         "event_names",
+        "event_names_with_usage",
         "event_properties",
+        "event_properties_with_usage",
+        "event_properties_numerical",
     )
 )
 class Team(UUIDClassicModel):
