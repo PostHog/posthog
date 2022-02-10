@@ -20,10 +20,11 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property, PropertyOperatorType, TableWithProperties
+from posthog.models.property import Property, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -508,8 +509,8 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         # -------
         # Outer_group:
         # {type: 'OR', properties: [
-        #     {type: 'OR', properties: [{"key": "attr", "value": "some_val"}]},
-        #     {type: 'OR', properties: [{"key": "attr", "value": "another_val"}]},
+        #     {type: 'AND', properties: [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}]},
+        #     {type: 'OR', properties: [{"key": "attr", "value": "val_2"}]},
         # ]}
 
         query, params = parse_prop_grouped_clauses(outer_group)

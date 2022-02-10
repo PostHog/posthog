@@ -33,15 +33,16 @@ from ee.clickhouse.sql.person import (
     SELECT_PERSON_PROP_VALUES_SQL,
     SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
 )
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,
     OperatorType,
     Property,
+    PropertyGroup,
     PropertyIdentifier,
     PropertyName,
-    PropertyOperatorType,
 )
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
@@ -62,13 +63,6 @@ from posthog.utils import is_valid_regex, relative_date_parse
 # Property json is of the form:
 # { type: 'AND | OR', properties: List[Property] }
 # which is parsed and sent to this function ->
-class PropertyGroup:
-    type: PropertyOperatorType
-    properties: Union[List[Property], List["PropertyGroup"]]
-
-    def __init__(self, type: PropertyOperatorType, properties: Union[List[Property], List["PropertyGroup"]]) -> None:
-        self.type = type
-        self.properties = properties
 
 
 def parse_prop_grouped_clauses(

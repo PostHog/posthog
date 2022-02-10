@@ -12,6 +12,7 @@ from typing import (
 
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.constants import PropertyOperatorType
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
@@ -33,9 +34,6 @@ OperatorType = Literal[
     "is_date_exact",
     "is_date_after",
     "is_date_before",
-]
-PropertyOperatorType = Literal[
-    "AND", "OR",
 ]
 
 GroupTypeName = str
@@ -144,3 +142,16 @@ def lookup_q(key: str, value: Any) -> Q:
     if isinstance(value, list):
         return Q(**{f"{key}__in": value})
     return Q(**{key: value})
+
+
+class PropertyGroup:
+    type: PropertyOperatorType
+    properties: Union[List[Property], List["PropertyGroup"]]
+
+    def __init__(self, type: PropertyOperatorType, properties: Union[List[Property], List["PropertyGroup"]]) -> None:
+        self.type = type
+        self.properties = properties
+
+    def __repr__(self):
+        params_repr = ", ".join(f"{repr(prop)}" for prop in self.properties)
+        return f"PropertyGroup(type={self.type}-{params_repr})"
