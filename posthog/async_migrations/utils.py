@@ -67,7 +67,11 @@ def process_error(
             level=AlertLevel.P2,
         )
 
-    if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
+    if (
+        not rollback
+        or status == MigrationStatus.FailedAtStartup
+        or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
+    ):
         return
 
     from posthog.async_migrations.runner import attempt_migration_rollback
