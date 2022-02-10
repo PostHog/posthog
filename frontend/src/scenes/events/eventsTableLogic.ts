@@ -339,7 +339,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 isNext: !!nextParams,
             })
 
-            // If no events, extend date range to maximum possible
+            // If no events, extend date range to maximum possible,
+            // unless it was already near the maximum
             if (
                 apiResponse.results.length === 0 &&
                 dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute') > 5
