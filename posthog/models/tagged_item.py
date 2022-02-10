@@ -6,7 +6,8 @@ from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
+# RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
+RELATED_OBJECTS = ("action", "feature_flag")
 
 
 def build_check():
@@ -44,18 +45,18 @@ class TaggedItem(UUIDModel):
 
     # A column is created to hold the foreign keys of each model that is taggable. At most one of the columns below
     # can be populated at any time.
-    dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
-    )
-    insight: models.ForeignKey = models.ForeignKey(
-        "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
-    )
-    event_definition: models.ForeignKey = models.ForeignKey(
-        "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
-    )
-    property_definition: models.ForeignKey = models.ForeignKey(
-        "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
-    )
+    # dashboard: models.ForeignKey = models.ForeignKey(
+    #     "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    # )
+    # insight: models.ForeignKey = models.ForeignKey(
+    #     "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    # )
+    # event_definition: models.ForeignKey = models.ForeignKey(
+    #     "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    # )
+    # property_definition: models.ForeignKey = models.ForeignKey(
+    #     "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    # )
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
     )
