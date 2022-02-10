@@ -187,15 +187,6 @@ class Migration(AsyncMigrationDefinition):
 
         return (True, None)
 
-    def progress(self, _):
-        result = sync_execute(f"SELECT COUNT(1) FROM {TEMPORARY_TABLE_NAME}")
-        result2 = sync_execute(f"SELECT COUNT(1) FROM {EVENTS_TABLE_NAME}")
-        total_events_to_move = result2[0][0]
-        total_events_moved = result[0][0]
-
-        progress = 100 * (total_events_moved / total_events_to_move)
-        return progress
-
     @cached_property
     def _partitions(self):
         return list(
