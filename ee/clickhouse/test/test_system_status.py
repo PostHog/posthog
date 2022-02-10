@@ -17,5 +17,5 @@ def test_system_status(db):
         "dead_letter_queue_events_last_day",
         "dead_letter_queue_ratio_ok",
     ]
+    assert len(results[6]["subrows"]["rows"]) > 0
     assert len(results[7]["subrows"]["rows"]) > 0
-    assert len(results[8]["subrows"]["rows"]) > 0

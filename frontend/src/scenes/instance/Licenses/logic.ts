@@ -6,6 +6,10 @@ import { APIErrorType, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/logic'
 import { isLicenseExpired } from '.'
 
+interface UsageType {
+    usage?: number
+}
+
 export const licenseLogic = kea<licenseLogicType>({
     path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
     connect: {
@@ -38,7 +42,7 @@ export const licenseLogic = kea<licenseLogicType>({
             },
         ],
         billableUsage: [
-            {},
+            {} as UsageType,
             {
                 loadUsage: async () => {
                     return await api.get('api/license/billable_usage_last_30_days/')
