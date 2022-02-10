@@ -1,3 +1,5 @@
+from django.utils import timezone
+
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
     FeatureFlagMatch,
@@ -83,7 +85,7 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         feature_flag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
@@ -132,7 +134,7 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         feature_flag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}

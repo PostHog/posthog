@@ -48,12 +48,10 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        parents_query_dict = self.get_parents_query_dict()
-
         type_filter = [PluginLogEntry.Type[t] for t in (self.request.GET.getlist("type_filter", []))]
         return fetch_plugin_log_entries(
-            team_id=parents_query_dict["team_id"],
-            plugin_config_id=parents_query_dict["plugin_config_id"],
+            team_id=self.parents_query_dict["team_id"],
+            plugin_config_id=self.parents_query_dict["plugin_config_id"],
             after=after,
             before=before,
             search=self.request.GET.get("search"),

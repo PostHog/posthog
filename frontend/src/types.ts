@@ -13,7 +13,7 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -683,20 +683,10 @@ export interface InsightModel {
     tags: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    effective_restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
-}
-
-/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
-export enum DashboardRestrictionLevel {
-    EveryoneInProjectCanEdit = 21,
-    OnlyCollaboratorsCanEdit = 37,
-}
-
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -713,6 +703,7 @@ export interface DashboardType {
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
+    effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
@@ -720,6 +711,21 @@ export interface DashboardType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
+
+/** Explicit dashboard collaborator, based on DashboardPrivilege. */
+export interface DashboardCollaboratorType {
+    id: string
+    dashboard_id: DashboardType['id']
+    user: UserBasicType
+    level: DashboardPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
+
+/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
+export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
+    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
+}
 
 export interface OrganizationInviteType {
     id: string
@@ -817,12 +823,12 @@ export interface AnnotationType {
 }
 
 export enum ChartDisplayType {
-    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     ActionsTable = 'ActionsTable',
-    ActionsPieChart = 'ActionsPie',
-    ActionsBarChart = 'ActionsBar',
-    ActionsBarChartValue = 'ActionsBarValue',
+    ActionsPie = 'ActionsPie',
+    ActionsBar = 'ActionsBar',
+    ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
 }
@@ -1416,7 +1422,7 @@ export interface Experiment {
     start_date?: string
     end_date?: string
     archived?: boolean
-    secondary_metrics: FilterType[]
+    secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1433,6 +1439,7 @@ export interface ExperimentResults {
 }
 
 export interface SecondaryExperimentMetric {
+    name?: string
     filters: Partial<FilterType>
 }
 

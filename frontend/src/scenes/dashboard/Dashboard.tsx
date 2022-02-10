@@ -44,6 +44,7 @@ export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element
 function DashboardView(): JSX.Element {
     const {
         dashboard,
+        canEditDashboard,
         allItemsLoading: loadingFirstTime,
         items,
         filters: dashboardFilters,
@@ -51,7 +52,7 @@ function DashboardView(): JSX.Element {
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
@@ -68,7 +69,7 @@ function DashboardView(): JSX.Element {
                               dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
                               DashboardEventSource.Hotkey
                           ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
+                      disabled: !canEditDashboard || (dashboardMode !== null && dashboardMode !== DashboardMode.Edit),
                   },
                   f: {
                       action: () =>
@@ -77,18 +78,6 @@ function DashboardView(): JSX.Element {
                               DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
-                  },
-                  k: {
-                      action: () =>
-                          setDashboardMode(
-                              dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
-                              DashboardEventSource.Hotkey
-                          ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
-                  },
-                  n: {
-                      action: () => addGraph(),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
                   },
                   escape: {
                       // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
@@ -142,6 +131,7 @@ function DashboardView(): JSX.Element {
                                     dateFrom={dashboardFilters?.date_from ?? undefined}
                                     dateTo={dashboardFilters?.date_to ?? undefined}
                                     onChange={setDates}
+                                    disabled={!canEditDashboard}
                                     makeLabel={(key) => (
                                         <>
                                             <CalendarOutlined />

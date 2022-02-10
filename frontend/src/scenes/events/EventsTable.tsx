@@ -257,7 +257,7 @@ export function EventsTable({
                     insightParams = {
                         insight: InsightType.TRENDS,
                         interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraphLinear,
+                        display: ChartDisplayType.ActionsLineGraph,
                         actions: [],
                         events: [
                             {
@@ -279,7 +279,7 @@ export function EventsTable({
                     insightParams = {
                         insight: InsightType.TRENDS,
                         interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraphLinear,
+                        display: ChartDisplayType.ActionsLineGraph,
                         actions: [],
                         events: [
                             {
