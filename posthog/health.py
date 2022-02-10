@@ -149,7 +149,7 @@ def is_postgres_connected() -> bool:
         with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
             cursor.execute("SELECT 1")
     except DjangoDatabaseError:
-        logger.debug("postgres_migrations_check_failure", exc_info=True)
+        logger.debug("postgres_connection_failure", exc_info=True)
         return False
 
     return True
