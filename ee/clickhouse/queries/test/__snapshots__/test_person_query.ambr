@@ -16,7 +16,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_1)s
+              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_1)s
           
   '
 ---
@@ -38,7 +38,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
           
   '
 ---
@@ -49,7 +49,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
           
   '
 ---
@@ -60,7 +60,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
           
   '
 ---
@@ -71,7 +71,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
           
   '
 ---

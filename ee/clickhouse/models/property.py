@@ -114,7 +114,10 @@ def parse_prop_grouped_clauses(
             group_properties_joined=group_properties_joined,
             property_operator=filter_group.type,
         )
-    if _top_level:
+
+    if not _final:
+        final = ""
+    elif _top_level:
         final = f"AND ({_final})"
     else:
         final = f"({_final})"
@@ -245,7 +248,7 @@ def parse_prop_clauses(
             params.update(filter_params)
 
     # TODO: clean
-    joined = f"({' '.join(final).replace(property_operator, '', 1)})"
+    joined = f"{' '.join(final).replace(property_operator, '', 1)}"
 
     if final:
         return joined, params
