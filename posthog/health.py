@@ -17,7 +17,7 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
-from typing import Dict, List, Literal, get_args
+from typing import Callable, Dict, List, Literal, get_args
 
 import amqp.exceptions
 import django_redis.exceptions
@@ -29,7 +29,7 @@ from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from structlog import get_logger
 
 from ee.clickhouse.client import sync_execute
@@ -234,14 +234,14 @@ def is_cache_backend_connected() -> bool:
     return True
 
 
-def healthcheck_middleware(get_response):
+def healthcheck_middleware(get_response: Callable[[HttpRequest], HttpResponse]):
     """
     Middleware to serve up ready and liveness responses without executing any
     inner middleware. Otherwise, if paths do not match these healthcheck
     endpoints, we pass the request down the chain.
     """
 
-    def middleware(request: HttpRequest):
+    def middleware(request: HttpRequest) -> HttpResponse:
         if request.path == "/_readyz":
             return readyz(request)
 
