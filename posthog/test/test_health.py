@@ -1,3 +1,4 @@
+import logging
 from contextlib import contextmanager
 from typing import List, Optional
 from unittest import mock
@@ -18,6 +19,7 @@ from kafka.errors import KafkaError
 
 from ee.clickhouse.client import ch_pool
 from ee.kafka_client.client import TestKafkaProducer
+from posthog.health import logger
 
 
 @pytest.mark.django_db
@@ -268,3 +270,12 @@ def simulate_cache_cannot_connect():
     with patch.object(cache, "has_key") as has_key_mock:
         has_key_mock.side_effect = django_redis.exceptions.ConnectionInterrupted(mock.Mock())
         yield
+
+
+@pytest.fixture(autouse=True)
+def debug_log_level():
+    """
+    We capture exceptions and log them at level debug. For easy debugging we set
+    the logger level to debug so pytest can capture and display the output
+    """
+    logger.setLevel(logging.DEBUG)
