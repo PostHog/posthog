@@ -89,8 +89,7 @@ class PropertyMixin(BaseParamMixin):
 
         if not properties:
             # empty prop list
-            props: Union[List[Property], List[PropertyGroup]] = []
-            return props
+            return []
 
         if isinstance(properties, list):
             # either a list of Property objects or a list of PropertyGroup objects
