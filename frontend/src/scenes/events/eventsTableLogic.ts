@@ -343,7 +343,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // unless it was already near the maximum
             if (
                 apiResponse.results.length === 0 &&
-                dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute') > 5
+                Math.abs(dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute')) > 5
             ) {
                 actions.fetchEvents({ ...nextParams, after: values.minimumQueryDate })
             }

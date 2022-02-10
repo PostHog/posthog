@@ -428,6 +428,42 @@ describe('eventsTableLogic', () => {
                         before: beforeLastEventsTimestamp,
                     })
                 })
+
+                it('preserves fetchNextEvents params when no new events found in the following timeslice', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEventsSuccess({
+                            events: [firstEvent, secondEvent],
+                            hasNext: false,
+                            isNext: false,
+                        })
+                        logic.actions.fetchNextEvents()
+                    })
+                        .toDispatchActions([
+                            logic.actionCreators.fetchEvents({
+                                before: secondEvent.timestamp,
+                                after: afterLastEventsTimestamp,
+                            }), // we always send slices of 5 days
+                            'fetchEventsSuccess',
+                        ])
+                        .toFinishListeners()
+
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const firstGetCallUrl = mockCalls[1][0]
+                    expect(getUrlParameters(firstGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterLastEventsTimestamp,
+                        before: beforeLastEventsTimestamp,
+                    })
+
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterOneYearAgo,
+                        before: beforeLastEventsTimestamp,
+                    })
+                })
             })
 
             it('fetch events clears the has next flag', async () => {
