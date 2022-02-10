@@ -2,7 +2,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -11,6 +10,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
+from simple_history.models import HistoricalRecords
 
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
@@ -49,6 +49,8 @@ class FeatureFlag(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
+
+    history = HistoricalRecords()
 
     def matches(self, *args, **kwargs) -> Optional[FeatureFlagMatch]:
         return FeatureFlagMatcher(self, *args, **kwargs).get_match()
