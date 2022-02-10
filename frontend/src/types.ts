@@ -38,6 +38,7 @@ export enum AvailableFeature {
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
 }
 
 export enum Realm {
@@ -1225,6 +1226,7 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    tags?: string[]
 }
 
 export interface FeatureFlagOverrideType {
