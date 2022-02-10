@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import List, Tuple, cast
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.utils import timezone
@@ -12,7 +14,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortPeople
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
@@ -304,7 +306,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(results, 3)
 
         #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 3)
 
@@ -331,12 +333,30 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
         )
         self.assertEqual(len(results), 2)
+
+    def test_cohortpeople_basic_paginating(self):
+        for i in range(15):
+            Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=[f"{i}"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people(new_version=cohort1.version, batch_size=2, pg_batch_size=1)
+
+        self.assertEqual(len(cohort1.people.all()), 15)
 
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
@@ -370,7 +390,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1",)
         with freeze_time("2020-01-10"):
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
@@ -379,7 +399,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort2",)
         with freeze_time("2020-01-10"):
-            cohort2.calculate_people_ch()
+            cohort2.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort2.pk}
@@ -422,7 +442,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
         with freeze_time("2020-01-10"):
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where team_id = %(team_id)s", {"team_id": self.team.pk}
@@ -513,7 +533,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
         with freeze_time("2020-01-10"):
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
@@ -526,7 +546,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort2",
         )
         with freeze_time("2020-01-10"):
-            cohort2.calculate_people_ch()
+            cohort2.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort2.pk}
@@ -539,7 +559,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort3",
         )
         with freeze_time("2020-01-10"):
-            cohort3.calculate_people_ch()
+            cohort3.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
@@ -552,7 +572,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort4",
         )
         with freeze_time("2020-01-10"):
-            cohort4.calculate_people_ch()
+            cohort4.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort4.pk}
@@ -577,9 +597,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
         p2.delete()
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
     def test_cohortpeople_prop_changed(self):
         with freeze_time("2020-01-10"):
@@ -600,13 +620,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 name="cohort1",
             )
 
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         with freeze_time("2020-01-11"):
             p2.properties = {"$some_prop": "another", "$another_prop": "another"}
             p2.save()
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
@@ -634,7 +654,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
                 name="cohort1",
             )
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
@@ -647,7 +667,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with freeze_time("2020-01-11"):
             cohort1.groups = [{"properties": {"$some_prop": "another", "$another_prop": "another"}}]
             cohort1.save()
-            cohort1.calculate_people_ch()
+            cohort1.calculate_people_ch(pending_version=0)
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
@@ -669,7 +689,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.insert_users_by_list(["1", "123"])
 
         with freeze_time("2020-01-10"):
-            cohort.calculate_people_ch()
+            cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             sql, _ = format_filter_query(cohort)
@@ -682,7 +702,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort0: Cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"foo": "bar"}}], name="cohort0",
         )
-        cohort0.calculate_people_ch()
+        cohort0.calculate_people_ch(pending_version=0)
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team,
@@ -690,7 +710,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         count_result = sync_execute(
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
@@ -705,7 +725,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1",
         )
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         count_result = sync_execute(
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
@@ -722,7 +742,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
         cohort1.save()
 
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         count_result = sync_execute(
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
@@ -734,5 +754,5 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
         )
 
-        cohort2.calculate_people()
+        cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)

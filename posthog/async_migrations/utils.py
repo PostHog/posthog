@@ -41,11 +41,16 @@ def process_error(
     rollback: bool = True,
     alert: bool = False,
     status: int = MigrationStatus.Errored,
+    current_operation_index: Optional[int] = None,
 ):
     logger.error(f"Async migration {migration_instance.name} error: {error}")
 
     update_async_migration(
-        migration_instance=migration_instance, status=status, error=error, finished_at=datetime.now(),
+        migration_instance=migration_instance,
+        current_operation_index=current_operation_index,
+        status=status,
+        error=error,
+        finished_at=datetime.now(),
     )
 
     if alert:
@@ -126,11 +131,12 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
 
         send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
 
-    next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
-    if next_migration:
-        from posthog.async_migrations.runner import run_next_migration
+    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
+        next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
+        if next_migration:
+            from posthog.async_migrations.runner import run_next_migration
 
-        run_next_migration(next_migration)
+            run_next_migration(next_migration)
 
 
 def mark_async_migration_as_running(migration_instance: AsyncMigration):

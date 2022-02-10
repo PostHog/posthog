@@ -39,6 +39,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--check", action="store_true", help="Exits with a non-zero status if required unapplied migrations exist."
+        )
+        parser.add_argument(
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
 
@@ -47,7 +50,7 @@ class Command(BaseCommand):
         setup_async_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()
 
-        if options["plan"]:
+        if options["plan"] or options["check"]:
             print()
 
             if len(necessary_migrations) == 0:
@@ -60,6 +63,8 @@ class Command(BaseCommand):
                 print(f"- {migration.name}")
 
             print()
+            if options["check"]:
+                exit(1)
             return
 
         for migration in necessary_migrations:

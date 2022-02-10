@@ -169,7 +169,7 @@ export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
         <Row style={{ display: 'flex' }}>
             <div style={{ flexGrow: 1, textAlign: 'right' }}>
                 <Button
-                    disabled={!cohort.name}
+                    disabled={!cohort.name || cohort.is_calculating}
                     type="primary"
                     htmlType="submit"
                     data-attr="save-cohort"

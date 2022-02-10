@@ -81,6 +81,22 @@ class TestRunner(BaseTest):
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 3)
 
     @pytest.mark.ee
+    def test_rollback_migration_failure(self):
+        migration_name = "test_with_rollback_exception"
+        create_async_migration(name=migration_name)
+        self.migration.sec.reset_count()
+        migration_successful = start_async_migration(migration_name)
+        self.assertEqual(migration_successful, True)
+
+        sm = AsyncMigration.objects.get(name=migration_name)
+
+        attempt_migration_rollback(sm)
+        sm.refresh_from_db()
+
+        self.assertEqual(sm.status, MigrationStatus.Errored)
+        self.assertEqual(sm.current_operation_index, 1)
+
+    @pytest.mark.ee
     def test_run_async_migration_next_op(self):
         sm = AsyncMigration.objects.get(name="test")
 

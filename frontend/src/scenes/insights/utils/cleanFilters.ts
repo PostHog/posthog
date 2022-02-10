@@ -185,8 +185,8 @@ export function cleanFilters(
             ...filters,
             interval: autocorrectInterval(filters),
             display: insightChanged
-                ? ChartDisplayType.ActionsLineGraphLinear
-                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
+                ? ChartDisplayType.ActionsLineGraph
+                : filters.display || ChartDisplayType.ActionsLineGraph,
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],

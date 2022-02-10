@@ -248,7 +248,7 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
-def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
+def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from ee.clickhouse.models.property import parse_prop_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
@@ -256,9 +256,13 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
-            distinct_query=filter_query, query="", GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+            distinct_query=filter_query,
+            query="",
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+            offset="OFFSET %(offset)s" if offset else "",
+            limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
-        {**filter_params, "team_id": team.pk},
+        {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
     )
 
     return [str(row[0]) for row in results]
@@ -292,6 +296,8 @@ def recalculate_cohortpeople(cohort: Cohort):
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
         distinct_query="AND " + cohort_filter,
         query="",
+        offset="",
+        limit="",
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
 

@@ -57,13 +57,7 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraphLinear",
-    "ActionsLineGraphCumulative",
-    "ActionsTable",
-    "ActionsPieChart",
-    "ActionsBarChart",
-    "ActionsBarValue",
-    "ActionsBarChartValue",
+    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -206,6 +200,14 @@ class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
+
+
+class ExperimentSignificanceCode(str, Enum):
+    SIGNIFICANT = "significant"
+    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
+    LOW_WIN_PROBABILITY = "low_win_probability"
+    HIGH_LOSS = "high_loss"
+    HIGH_P_VALUE = "high_p_value"
 
 
 MAX_SLUG_LENGTH = 48

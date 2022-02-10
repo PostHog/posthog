@@ -26,7 +26,13 @@ from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import (
+    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
+    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
+    SELECT_PERSON_PROP_VALUES_SQL,
+    SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
+)
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
@@ -133,7 +139,9 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
+            filter_query, filter_params = method(
+                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+            )  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:
@@ -229,38 +237,60 @@ def prop_filter_json_extract(
             ),
             params,
         )
-    elif operator == "is_date_after":
-        # introducing duplication in these branches now rather than refactor too early
+    elif operator == "is_date_exact":
+        # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
 
-        query = f"""AND coalesce(
-                parseDateTimeBestEffortOrNull({property_expr}),
-                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-            ) > %({prop_value_param_key})s"""
+        # if we're comparing against a date with no time,
+        # truncate the values in the DB which may have times
+        granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
+        query = f"""AND date_trunc('{granularity}', coalesce(
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        )) = %({prop_value_param_key})s"""
 
         return (
             query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
+        )
+    elif operator == "is_date_after":
+        # TODO introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+
+        # if we're comparing against a date with no time,
+        # then instead of 2019-01-01 (implied 00:00:00)
+        # use 2019-01-01 23:59:59
+        is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
+
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
+        if is_date_only:
+            adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
+        else:
+            adjusted_value = f"%({prop_value_param_key})s"
+
+        query = f"""AND {first_of_date_or_timestamp} > {adjusted_value}"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator == "is_date_before":
-        # introducing duplication in these branches now rather than refactor too early
+        # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"""AND coalesce(
-                parseDateTimeBestEffortOrNull({property_expr}),
-                parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-            ) < %({prop_value_param_key})s"""
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""AND {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
         return (
             query,
-            {
-                "k{}_{}".format(prepend, idx): prop.key,
-                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
@@ -380,7 +410,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
@@ -393,6 +422,14 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
         SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
         {"team_id": team.pk, "key": key},
     )
+
+
+def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    if value:
+        return sync_execute(
+            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+        )
+    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:

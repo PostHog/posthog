@@ -1,6 +1,6 @@
 from typing import Type
 
-from rest_framework import filters, mixins, permissions, serializers, status, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import AvailableFeature

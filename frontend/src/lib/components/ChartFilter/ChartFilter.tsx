@@ -36,7 +36,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             ? ChartDisplayType.ActionsTable
             : filters.insight === InsightType.FUNNELS
             ? ChartDisplayType.FunnelViz
-            : ChartDisplayType.ActionsLineGraphLinear
+            : ChartDisplayType.ActionsLineGraph
 
     function Label({ icon, children = null }: { icon: React.ReactNode; children: React.ReactNode }): JSX.Element {
         return (
@@ -76,7 +76,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: 'Line Chart',
                       options: [
                           {
-                              value: ChartDisplayType.ActionsLineGraphLinear,
+                              value: ChartDisplayType.ActionsLineGraph,
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
                           },
                           {
@@ -90,12 +90,12 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: 'Bar Chart',
                       options: [
                           {
-                              value: ChartDisplayType.ActionsBarChart,
+                              value: ChartDisplayType.ActionsBar,
                               label: <Label icon={<BarChartOutlined />}>Time</Label>,
                               disabled: barDisabled,
                           },
                           {
-                              value: ChartDisplayType.ActionsBarChartValue,
+                              value: ChartDisplayType.ActionsBarValue,
                               label: <Label icon={<BarChartOutlined />}>Value</Label>,
                               disabled: barValueDisabled,
                           },
@@ -107,7 +107,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       disabled: tableDisabled,
                   },
                   {
-                      value: ChartDisplayType.ActionsPieChart,
+                      value: ChartDisplayType.ActionsPie,
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                       disabled: pieDisabled,
                   },

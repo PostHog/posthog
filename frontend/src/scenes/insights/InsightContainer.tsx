@@ -48,6 +48,7 @@ export function InsightContainer(
     const {
         insightProps,
         lastRefresh,
+        canEditInsight,
         isLoading,
         activeView,
         loadedView,
@@ -128,6 +129,7 @@ export function InsightContainer(
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                        canCheckUncheckSeries={!canEditInsight}
                     />
                 </BindLogic>
             )
@@ -147,6 +149,7 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
+                            disabled={!canEditInsight}
                         />
                     )
                 }

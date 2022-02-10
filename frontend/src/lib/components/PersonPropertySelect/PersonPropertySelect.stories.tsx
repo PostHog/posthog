@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { mockGetPersonProperties } from '../TaxonomicFilter/__stories__/TaxonomicFilter.stories'
+import { mockGetPersonProperties } from '../TaxonomicFilter/__stories__/mocks'
 import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {

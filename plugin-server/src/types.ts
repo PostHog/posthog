@@ -499,6 +499,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }
@@ -614,6 +615,8 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
+    version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
@@ -716,6 +719,7 @@ export interface RawAction {
     id: number
     team_id: TeamId
     name: string | null
+    description: string
     created_at: string
     created_by_id: number | null
     deleted: boolean
