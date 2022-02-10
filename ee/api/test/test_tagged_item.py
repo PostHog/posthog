@@ -52,7 +52,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["b", "c", "d", "e"])
+        self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
         self.assertEqual(TaggedItem.objects.all().count(), 4)
 
     @pytest.mark.ee
@@ -72,7 +72,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         id = response.json()["id"]
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{id}", {"tags": ["b", "c", "d", "e"]})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["b", "c", "d", "e"])
+        self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
         self.assertEqual(TaggedItem.objects.all().count(), 4)
 
     def test_create_with_tags(self):
