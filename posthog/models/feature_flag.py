@@ -2,12 +2,12 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
+from django.core import serializers
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
@@ -17,7 +17,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
@@ -99,6 +98,41 @@ class FeatureFlag(models.Model):
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ]
             }
+
+
+# TODO assume that the seven types have enough in common that they will all use the same version model
+class ModelVersion(models.Model):
+    class Meta:
+        unique_together = ["model_name", "versioned_at"]
+
+    model_state = models.JSONField(null=False)
+    model_name = models.fields.TextField(null=False)
+    # to avoid an integer version field for ordering revisions
+    versioned_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+
+    # don't store a reference cos the team or user might get deleted.  ¯\_(ツ)_/¯
+    # audit log should be immutable
+    team_id = models.PositiveIntegerField(null=False)
+    created_by_name = models.TextField(null=False)
+    created_by_id = models.PositiveIntegerField(null=False)
+
+
+@receiver(post_save, sender=FeatureFlag, dispatch_uid="save_feature_flag_version")
+def save_version(sender, instance: FeatureFlag, **kwargs):
+    try:
+        version = ModelVersion(
+            #  ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
+            # TRICKY serializing the instance here isn't straightforward
+            # approach taken from https://stackoverflow.com/a/2391243
+            model_state=serializers.serialize("json", [instance])[1:-1],
+            model_name="Feature Flag",
+            team_id=instance.team_id,
+            created_by_name=instance.created_by.first_name,
+            created_by_id=instance.created_by.id,
+        )
+        version.save()
+    except Exception as e:
+        raise e
 
 
 @receiver(pre_delete, sender=Experiment)
