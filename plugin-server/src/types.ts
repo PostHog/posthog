@@ -21,6 +21,7 @@ import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
+import { PromiseManager } from './worker/vm/async-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
@@ -108,6 +109,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
+    MAX_PENDING_PROMISES_PER_WORKER: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -138,6 +140,7 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
+    promiseManager: PromiseManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander

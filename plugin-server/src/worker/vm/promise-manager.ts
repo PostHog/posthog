@@ -1,29 +1,28 @@
-import { Hub } from '../../types'
-import { Action, Team } from '../../types'
-import { DB } from '../../utils/db/db'
+import { PluginsServerConfig } from '../../types'
 
 export class PromiseManager {
-    pendingPromises: number
-    serverInstance: Hub
+    pendingPromises: Set<Promise<any>>
+    config: PluginsServerConfig
 
-    constructor(server: Hub) {
-        this.pendingPromises = 0
-        this.serverInstance = server
+    constructor(config: PluginsServerConfig) {
+        this.pendingPromises = new Set()
+        this.config = config
     }
 
-    // runPromiseInBackground? runPromise?
-    public voidPromise(promise: () => Promise<any>) {
-        if (this.pendingPromises > this.serverInstance.MAX_PENDING_PROMISES_PER_WORKER) {
-            setTimeout(() => this.voidPromise(promise), this.serverInstance.WORKER_POSTPONE_PROMISE_TIMEOUT)
-            return
-        }
+    public async trackPromise(promise: Promise<any>): Promise<any> {
+        this.pendingPromises.add(promise)
+        promise.finally(() => {
+            this.pendingPromises.delete(promise)
+        })
 
-        const instrumentedPromise = async () => {
-            ++this.pendingPromises
-            await promise()
-            --this.pendingPromises
-        }
+        await this.awaitPromisesIfNeeded()
 
-        void instrumentedPromise()
+        return promise
+    }
+
+    public async awaitPromisesIfNeeded() {
+        while (this.pendingPromises.size > this.config.MAX_PENDING_PROMISES_PER_WORKER) {
+            await Promise.any(this.pendingPromises)
+        }
     }
 }
