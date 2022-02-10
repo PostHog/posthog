@@ -31,6 +31,7 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    orFiltering,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -94,7 +95,7 @@ export function TaxonomicPropertyFilter({
                 taxonomicFilter
             ) : (
                 <div className="taxonomic-filter-row">
-                    <Col className="taxonomic-where">
+                    {!orFiltering && <Col className="taxonomic-where">
                         {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
@@ -105,7 +106,7 @@ export function TaxonomicPropertyFilter({
                                 AND
                             </span>
                         )}
-                    </Col>
+                    </Col>}
 
                     <Popup
                         overlay={dropdownOpen ? taxonomicFilter : null}

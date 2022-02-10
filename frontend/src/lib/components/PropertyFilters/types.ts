@@ -32,4 +32,5 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
+    orFiltering?: boolean
 }

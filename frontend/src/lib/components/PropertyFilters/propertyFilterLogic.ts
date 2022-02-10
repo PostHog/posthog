@@ -22,6 +22,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         ) => ({ index, key, value, operator, type, group_type_index }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         remove: (index: number) => ({ index }),
+        addFilterGroup: (filterGroup?: any) => ({ filterGroup }),
+        addPropertyToGroup: (idx) => ({ idx })
     }),
 
     reducers: ({ props }) => ({
@@ -46,7 +48,41 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 },
             },
         ],
+        andOrFilters: [
+            {
+                property_groups: null
+            },
+            {
+                addFilterGroup: (state, filterGroup) => {
+                    if (!state.property_groups) {
+                        return {
+                            property_groups: {
+                                properties: [{ type: "AND", properties: [{}] }]
+                            }
+                        }
+                    }
+                    // add group to properties 
+                    return { property_groups: { properties: [...state.property_groups.properties, { type: "AND", properties: [{}] }] } }
+                },
+                addPropertyToGroup: (state, idx) => {
+                    const newState = { ...state }
+                    newState.property_groups?.properties[idx]?.properties.push({})
+                    return newState
+                },
+            }
+        ],
     }),
+
+    // "property_groups": {
+    //     "type": "AND",
+    //     "properties": [
+    //         {
+    //             "type": "AND",
+    //             "properties": [{ "key": "attr", "value": "val_1" }, { "key": "attr_2", "value": "val_2" }],
+    //         },
+    //         { "type": "OR", "properties": [{ "key": "attr", "value": "val_2" }] },
+    //     ],
+    // }
 
     listeners: ({ actions, props, values }) => ({
         // Only send update if value is set to something
@@ -73,5 +109,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 }
             },
         ],
+        // andOrFilters: [
+        //     (s) => [s.andOrFilters],
+        //     (filters) => {
+
+        //     }
+        // ]
     },
 })

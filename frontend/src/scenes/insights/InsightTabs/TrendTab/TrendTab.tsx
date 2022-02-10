@@ -18,6 +18,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { alphabet } from 'lib/utils'
+import { MatchPropertyFilters } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
 
 export interface TrendTabProps {
     view: string
@@ -51,8 +52,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row>
+                <Col md={12} xs={24}>
                     <ActionFilter
                         horizontalUI
                         filters={filters}
@@ -78,7 +79,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         }
                     />
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: '1rem' }}>
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
@@ -107,9 +108,27 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            <PropertyFilters
+                            {/* <PropertyFilters
                                 propertyFilters={filters.properties}
                                 onChange={(properties) => setFilters({ properties })}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                                pageKey="trends-filters"
+                                eventNames={allEventNames}
+                            /> */}
+
+                            <MatchPropertyFilters
+                                propertyFilters={filters.properties}
+                                style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
+                                onChange={(properties) => {
+
+                                    setFilters({ properties })
+                                }}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,
