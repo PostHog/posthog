@@ -336,7 +336,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // unless it was already using the max range query
             if (
                 apiResponse.results.length === 0 &&
-                Math.abs(dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute')) > 5
+                Math.abs(dayjs(values.minimumQueryDate).diff(dayjs(params.after), 'minute')) > 5
             ) {
                 try {
                     apiResponse = await api.get(
