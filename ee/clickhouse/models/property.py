@@ -84,27 +84,26 @@ def parse_prop_grouped_clauses(
     if isinstance(filter_group.properties[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        group: PropertyGroup
         for idx, group in enumerate(filter_group.properties):
-            clause, params = parse_prop_grouped_clauses(
-                filter_group=group,
-                prepend=f"{prepend}_{idx}",
-                table_name=table_name,
-                allow_denormalized_props=allow_denormalized_props,
-                has_person_id_joined=has_person_id_joined,
-                person_properties_mode=person_properties_mode,
-                person_id_joined_alias=person_id_joined_alias,
-                group_properties_joined=group_properties_joined,
-                _top_level=False,
-            )
-            group_clauses.append(clause)
-            final_params.update(params)
+            if isinstance(group, PropertyGroup):
+                clause, params = parse_prop_grouped_clauses(
+                    filter_group=group,
+                    prepend=f"{prepend}_{idx}",
+                    table_name=table_name,
+                    allow_denormalized_props=allow_denormalized_props,
+                    has_person_id_joined=has_person_id_joined,
+                    person_properties_mode=person_properties_mode,
+                    person_id_joined_alias=person_id_joined_alias,
+                    group_properties_joined=group_properties_joined,
+                    _top_level=False,
+                )
+                group_clauses.append(clause)
+                final_params.update(params)
 
         _final = f"{filter_group.type} ".join(group_clauses)
     else:
-        props: List[Property] = filter_group.properties
         _final, final_params = parse_prop_clauses(
-            filters=props,
+            filters=filter_group.properties,  # type:ignore
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,

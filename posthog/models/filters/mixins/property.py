@@ -1,5 +1,5 @@
 import json
-from typing import Any, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -39,7 +39,7 @@ class PropertyMixin(BaseParamMixin):
         else:
             loaded_props = _props
 
-        return self._parse_grouped_properties(loaded_props)
+        return self._parse_property_group(loaded_props)
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
@@ -68,46 +68,22 @@ class PropertyMixin(BaseParamMixin):
             )
         return ret
 
-    def _parse_grouped_properties(self, properties: Optional[Any]) -> PropertyGroup:
-        if isinstance(properties, list):
-            default_group = self._parse_properties(properties)
-            return PropertyGroup(PropertyOperatorType.AND, default_group)
+    def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
+        if group and "type" in group and "properties" in group:
+            return PropertyGroup(group["type"], self._parse_property_group_list(group["properties"]))
+        return PropertyGroup(PropertyOperatorType.AND, [])  # type: ignore
 
-        elif isinstance(properties, dict):
-            # TODO: what to do about old-old properties? Its been a year, safe to rm?
-            if "type" in properties and "properties" in properties:
-                return cast(PropertyGroup, self._parse_grouped_properties_recursively(properties))
-
-        # TODO: empty case?
-        props: Union[List[Property], List[PropertyGroup]] = []
-        return PropertyGroup(PropertyOperatorType.AND, props)
-
-    def _parse_grouped_properties_recursively(
-        self, properties: Optional[Any]
-    ) -> Union[List[Property], List[PropertyGroup], PropertyGroup]:
-        # either get a list of properties or a dict representing a property group
-
-        if not properties:
+    def _parse_property_group_list(self, prop_list: Optional[List]) -> Union[List[Property], List[PropertyGroup]]:
+        if not prop_list:
             # empty prop list
-            return []
+            return []  # type: ignore
 
-        if isinstance(properties, list):
-            # either a list of Property objects or a list of PropertyGroup objects
-            props: Union[List[Property], PropertyGroup] = []
-
-            if "type" in properties[0] and "properties" in properties[0]:
-                # list of PropertyGroup objects
-                # TODO: validate when list has both PropertyGroup and Property objects
-                return [self._parse_grouped_properties_recursively(prop) for prop in properties]
-            else:
-                return self._parse_properties(properties)
-
-        elif "type" in properties and "properties" in properties:
-            props = self._parse_grouped_properties_recursively(properties["properties"])
-            # TODO: error when invalid type
-            return PropertyGroup(properties["type"], props)
-
-        return []
+        # TODO: validate when list has both PropertyGroup and Property objects
+        if "type" in prop_list[0] and "properties" in prop_list[0]:
+            # list of PropertyGroup objects
+            return [self._parse_property_group(group) for group in prop_list]
+        else:
+            return self._parse_properties(prop_list)
 
     @include_dict
     def properties_to_dict(self):
