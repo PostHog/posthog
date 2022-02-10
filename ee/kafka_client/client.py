@@ -7,6 +7,7 @@ from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
+from structlog import get_logger
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
@@ -15,6 +16,8 @@ from posthog.settings import KAFKA_BASE64_KEYS, KAFKA_HOSTS, TEST
 from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
+
+logger = get_logger(__file__)
 
 
 class TestKafkaProducer:
@@ -92,6 +95,7 @@ def can_connect():
     try:
         _KafkaProducer(test=TEST)
     except kafka.errors.KafkaError:
+        logger.debug("kafka_connection_failure", exc_info=True)
         return False
     return True
 
