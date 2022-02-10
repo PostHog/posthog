@@ -95,7 +95,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(response_data["tags"], ["official", "internal"])
+        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")

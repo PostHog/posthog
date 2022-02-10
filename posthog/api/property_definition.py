@@ -126,21 +126,20 @@ class PropertyDefinitionViewSet(
                 )
             )
 
-        else:
-            property_definition_fields = ", ".join(
-                [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
-            )
+        property_definition_fields = ", ".join(
+            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if f.related_model == None]  # type: ignore
+        )
 
-            return PropertyDefinition.objects.raw(
-                f"""
-                    SELECT {property_definition_fields}, 
-                           {event_property_field} AS is_event_property
-                    FROM posthog_propertydefinition
-                    WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
-                    ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
-                """,
-                params=params,
-            )
+        return PropertyDefinition.objects.raw(
+            f"""
+                SELECT {property_definition_fields}, 
+                       {event_property_field} AS is_event_property
+                FROM posthog_propertydefinition
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+            """,
+            params=params,
+        )
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

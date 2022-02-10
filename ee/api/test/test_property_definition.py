@@ -23,6 +23,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["property_type"] == "DateTime"
 
         query_list_response = self.client.get(f"/api/projects/@current/property_definitions")
+        self.assertEqual(query_list_response.status_code, status.HTTP_200_OK)
         matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "a timestamp"]
         assert len(matches) == 1
 
@@ -136,7 +137,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(response_data["tags"], ["official", "internal"])
+        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
 
         property.refresh_from_db()
         self.assertEqual(list(property.tags.values_list("tag__name", flat=True)), ["official", "internal"])
