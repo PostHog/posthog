@@ -169,7 +169,7 @@ def are_postgres_migrations_uptodate() -> bool:
         logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
 
-    return False if plan else True
+    return not plan
 
 
 def is_clickhouse_connected() -> bool:
