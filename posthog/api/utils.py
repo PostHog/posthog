@@ -1,27 +1,14 @@
-import json
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, List, Optional, Tuple, Union, cast
 
-from rest_framework import request, status
+from rest_framework import request, serializers, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
-from posthog.models.action import Action
 from posthog.models.entity import MATH_TYPE
-from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -294,3 +281,24 @@ def get_event_ingestion_context_for_personal_api_key(
         return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
+
+
+class WritableSerializerMethodField(serializers.SerializerMethodField):
+    def __init__(self, method_name=None, **kwargs):
+        self.method_name = method_name
+        self.setter_method_name = kwargs.pop("setter_method_name", None)
+
+        kwargs["source"] = "*"
+        super(serializers.SerializerMethodField, self).__init__(**kwargs)
+
+    def bind(self, field_name, parent):
+        retval = super().bind(field_name, parent)
+        if not self.setter_method_name:
+            self.setter_method_name = f"set_{field_name}"
+
+        return retval
+
+    def to_internal_value(self, value):
+        method = getattr(self.parent, self.setter_method_name)
+        method(value, self.parent.instance)
+        return {}
