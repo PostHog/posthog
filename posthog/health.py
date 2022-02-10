@@ -61,7 +61,7 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
 }
 
 
-def livez(request):
+def livez(request: HttpRequest):
     """
     Endpoint to be used to identify if the service is still functioning, in a
     minimal state. Note that we do not check dependencies here, but are just
@@ -72,7 +72,7 @@ def livez(request):
     return JsonResponse({"http": True})
 
 
-def readyz(request):
+def readyz(request: HttpRequest):
     """
     Validate that everything this process need to operate correctly is in place.
     Returns a dict of checks to boolean status, returning 503 status if any of
