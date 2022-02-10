@@ -86,7 +86,8 @@ export function Licenses(): JSX.Element {
                             Click here
                         </a>{' '}
                         to grab a license key (first 1 million events free!). Contact{' '}
-                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you have any issues with a license.
+                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you have any issues buying or
+                        activating your license.
                         {billableUsage.usage > 0 && !licensesLoading && (
                             <p>
                                 <br />
