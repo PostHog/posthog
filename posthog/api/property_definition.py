@@ -1,6 +1,7 @@
 import json
 from typing import Type
 
+from django.db.models import Q
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from ee.api.ee_tagged_item import EnterpriseTaggedItemViewSetMixin
@@ -124,16 +125,22 @@ class PropertyDefinitionViewSet(
                     params=params,
                 )
             )
+
         else:
+            property_definition_fields = ", ".join(
+                [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if f.name != "tags"]  # type: ignore
+            )
+
             return PropertyDefinition.objects.raw(
                 f"""
-                SELECT *, {event_property_field} AS is_event_property
-                FROM posthog_propertydefinition
-                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
-                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                    SELECT {property_definition_fields}, 
+                           {event_property_field} AS is_event_property
+                    FROM posthog_propertydefinition
+                    WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                    ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                 """,
                 params=params,
-            ).defer("tags")
+            )
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
