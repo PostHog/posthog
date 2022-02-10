@@ -2,8 +2,11 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import QuerySet
-from rest_framework import mixins, serializers, viewsets
+from requests import Response
+from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework.decorators import action
 
+from ee.clickhouse.models.event import get_billable_event_count_last_30_days
 from ee.models.license import License
 
 
@@ -35,3 +38,10 @@ class LicenseViewSet(
             return License.objects.none()
 
         return super().get_queryset()
+
+    @action(methods=["GET", "POST"], detail=False)
+    def billable_usage_last_30_days(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """
+        Returns billable usage for last 30 days to give an indication of pricing.
+        """
+        return response.Response({"usage": get_billable_event_count_last_30_days()})

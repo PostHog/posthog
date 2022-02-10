@@ -37,6 +37,14 @@ export const licenseLogic = kea<licenseLogicType>({
                 },
             },
         ],
+        billableUsage: [
+            {},
+            {
+                loadUsage: async () => {
+                    return await api.get('api/license/billable_usage_last_30_days/')
+                },
+            },
+        ],
     }),
     reducers: {
         licenses: {

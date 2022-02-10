@@ -8,7 +8,6 @@ def test_system_status(db):
         "clickhouse_event_count",
         "clickhouse_event_count_last_month",
         "clickhouse_event_count_month_to_date",
-        "clickhouse_billing_event_count_last_30_days",
         "clickhouse_disk_0_free_space",
         "clickhouse_disk_0_total_space",
         "clickhouse_table_sizes",

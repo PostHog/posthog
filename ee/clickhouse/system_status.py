@@ -12,12 +12,7 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import make_ch_pool, sync_execute
-from ee.clickhouse.models.event import (
-    get_billable_event_count_last_30_days,
-    get_event_count,
-    get_event_count_for_last_month,
-    get_event_count_month_to_date,
-)
+from ee.clickhouse.models.event import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
 from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
@@ -47,11 +42,6 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "key": "clickhouse_event_count_month_to_date",
         "metric": "Events recorded month to date",
         "value": get_event_count_month_to_date(),
-    }
-    yield {
-        "key": "clickhouse_billing_event_count_last_30_days",
-        "metric": "Billable events (only with active license key), last 30 days",
-        "value": get_billable_event_count_last_30_days(),
     }
 
     disk_status = sync_execute(

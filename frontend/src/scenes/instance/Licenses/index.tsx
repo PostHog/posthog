@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Alert, Form, Button, Table, Input } from 'antd'
 import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
@@ -9,7 +9,6 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LicenseType } from '~/types'
-import { systemStatusLogic } from '../SystemStatus/systemStatusLogic'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -69,13 +68,12 @@ const columns = [
 
 export function Licenses(): JSX.Element {
     const [form] = Form.useForm()
-    const { licenses, licensesLoading, error } = useValues(licenseLogic)
-    const { createLicense } = useActions(licenseLogic)
-    const { systemStatus } = useValues(systemStatusLogic)
-    const billable_events = systemStatus?.overview.filter(
-        ({ key }) => key === 'clickhouse_billing_event_count_last_30_days'
-    )[0].value as number
+    const { licenses, licensesLoading, error, billableUsage } = useValues(licenseLogic)
+    const { createLicense, loadUsage } = useActions(licenseLogic)
 
+    useEffect(() => {
+        loadUsage()
+    }, [])
     return (
         <div>
             <PageHeader
@@ -89,15 +87,15 @@ export function Licenses(): JSX.Element {
                         </a>{' '}
                         to grab a license key (first 1 million events free!). Contact{' '}
                         <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you have any issues with a license.
-                        {billable_events > -1 && !licensesLoading && systemStatus && (
+                        {billableUsage.usage > 0 && !licensesLoading && (
                             <p>
                                 <br />
                                 {licenses.length === 0
                                     ? "When you activate a license, you'll be billed based on usage. "
                                     : 'You are billed based on usage. '}
                                 To give you an indication, you've used{' '}
-                                <strong>{humanFriendlyNumber(billable_events)}</strong> events in the last 30 days. The
-                                exact amount you are billed depends on the day you subscribed for a license.
+                                <strong>{humanFriendlyNumber(billableUsage.usage)}</strong> events in the last 30 days.
+                                The exact amount you are billed depends on the day you subscribed for a license.
                             </p>
                         )}
                     </>
