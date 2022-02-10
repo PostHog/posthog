@@ -152,7 +152,7 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
-        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0]
+        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0][0]
         if events_failed_table_exists:
             return (
                 False,
