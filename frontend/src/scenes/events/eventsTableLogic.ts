@@ -212,23 +212,31 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.miniumumQueryDate,
+                (_, prop) => prop.fetchMonths || 12,
             ],
-            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
+            (teamId, eventFilter, orderBy, properties, maximumFetchMonths) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after: miniumumQueryDate,
+                    after: now().subtract(maximumFetchMonths, 'months').toISOString(),
                 })}`,
         ],
-        months: [() => [], () => props.fetchMonths || 12],
-        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        getTimestampToQueryAfter: [
+            () => [],
+            () => (timestamp?: string) => {
+                if (!timestamp) {
+                    return now().subtract(5, 'day').toISOString()
+                }
+
+                return dayjs(timestamp).subtract(5, 'day').toISOString()
+            },
+        ],
         pollAfter: [
-            () => [selectors.events, selectors.miniumumQueryDate],
-            (events, miniumumQueryDate) =>
-                events?.length > 0 && events[0].timestamp ? events[0].timestamp : miniumumQueryDate,
+            () => [selectors.events, selectors.getTimestampToQueryAfter],
+            (events, getTimestampToQueryAfter) =>
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : getTimestampToQueryAfter(),
         ],
     }),
 
@@ -286,6 +294,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             } else {
                 actions.fetchEvents({
                     before: events[events.length - 1].timestamp,
+                    after: values.getTimestampToQueryAfter(events[events.length - 1].timestamp),
                 })
             }
         },
@@ -304,12 +313,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
 
             const params = {
+                after: values.getTimestampToQueryAfter(), // default to 5 days ago
                 ...(props.fixedFilters || {}),
                 properties,
                 ...(nextParams || {}),
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-                after: values.miniumumQueryDate,
             }
 
             let apiResponse = null

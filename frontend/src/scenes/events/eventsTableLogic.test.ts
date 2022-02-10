@@ -7,6 +7,7 @@ import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
+import { fromParamsGivenUrl } from 'lib/utils'
 
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
@@ -40,16 +41,20 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 })
 
 const firstEvent = makeEvent('1', 'the first timestamp')
-const secondEvent = makeEvent('1', 'the second timestamp')
+const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
-const baseEventsUrl = `api/projects/${MOCK_TEAM_ID}/events/`
-const beforeLastEventsTimestamp = '&before=the%20second%20timestamp'
-const afterTheFirstEvent = '&after=the%20first%20timestamp'
-const afterOneYearAgo = '&after=2020-05-05T00%3A00%3A00.000Z'
-const orderByTimestamp = '&orderBy=%5B%22-timestamp%22%5D'
-const propertiesWithFilterValue =
-    '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D'
-const emptyProperties = '?properties=%5B%5D'
+const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
+const afterLastEventsTimestamp = '2023-04-30T00:00:00.000Z'
+const afterTheFirstEvent = 'the first timestamp'
+const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
+const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
+const orderByTimestamp = '["-timestamp"]'
+const propertiesWithFilterValue = '[{"key":"fixed value","operator":"exact","type":"t","value":"v"}]'
+const emptyProperties = '[]'
+
+const getUrlParameters = (url: string): Record<string, any> => {
+    return fromParamsGivenUrl('?' + (url.split('?').pop() || ''))
+}
 
 describe('eventsTableLogic', () => {
     let logic: ReturnType<typeof eventsTableLogic.build>
@@ -238,17 +243,20 @@ describe('eventsTableLogic', () => {
              * expectations should protect against accidental regression
              */
             describe('API calls are limited to a time window by the after param to improve ClickHouse performance', () => {
-                it('fetch events sets after to one year ago when there are no events', async () => {
+                it('fetch events sets after to 5 days ago when there are no events', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
                 })
 
-                it('fetch events sets after to one year ago when there are already events', async () => {
+                it('fetch events sets after to five days ago when there are already events', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({
                             events: [firstEvent, secondEvent],
@@ -258,9 +266,12 @@ describe('eventsTableLogic', () => {
                         logic.actions.fetchEvents()
                     }).toDispatchActions(['fetchEventsSuccess', 'fetchEventsSuccess'])
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
                 })
 
                 it('triggers fetch events on set properties', async () => {
@@ -268,9 +279,12 @@ describe('eventsTableLogic', () => {
                         logic.actions.setProperties([])
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
                 })
 
                 it('triggers fetch events on set event filter', async () => {
@@ -279,18 +293,26 @@ describe('eventsTableLogic', () => {
                         logic.actions.setEventFilter(eventName)
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + `&event=${eventName}` + orderByTimestamp + afterOneYearAgo
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                        event: eventName,
+                    })
                 })
 
-                it('adds one year ago as the after parameter when there are no event results', async () => {
+                it('adds five days ago as the after parameter when there are no event results', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.pollEvents()
                     })
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
-                    )
+
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
                 })
 
                 it('adds the timestamp of the most recent event as the after parameter when there are results', async () => {
@@ -304,30 +326,35 @@ describe('eventsTableLogic', () => {
 
                     logic.actions.pollEvents()
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + orderByTimestamp + afterTheFirstEvent
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterTheFirstEvent,
+                    })
                 })
 
                 it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(logic, () => {}).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            emptyProperties +
-                            orderByTimestamp +
-                            afterOneYearAgo,
+                    await expectLogic(logic, () => {})
+
+                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
+                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterOneYearAgo,
                     })
                 })
 
                 it('can build the export URL when there are properties or filters', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([makePropertyFilter('fixed value')])
-                    }).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            propertiesWithFilterValue +
-                            orderByTimestamp +
-                            afterOneYearAgo,
+                    })
+
+                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
+                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
+                        properties: propertiesWithFilterValue,
+                        orderBy: orderByTimestamp,
+                        after: afterOneYearAgo,
                     })
                 })
 
@@ -340,13 +367,20 @@ describe('eventsTableLogic', () => {
                         })
                         logic.actions.fetchNextEvents()
                     }).toDispatchActions([
-                        logic.actionCreators.fetchEvents({ before: secondEvent.timestamp }),
+                        logic.actionCreators.fetchEvents({
+                            before: secondEvent.timestamp,
+                            after: afterLastEventsTimestamp,
+                        }), // we always send slices of 5 days
                         'fetchEventsSuccess',
                     ])
 
-                    expect(api.get).toHaveBeenLastCalledWith(
-                        baseEventsUrl + emptyProperties + beforeLastEventsTimestamp + orderByTimestamp + afterOneYearAgo
-                    )
+                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterLastEventsTimestamp,
+                        before: beforeLastEventsTimestamp,
+                    })
                 })
             })
 
