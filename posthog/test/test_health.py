@@ -58,7 +58,7 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
 # process should be considered healthy based on the "role" it is playing. Here
 # kafka being down should result in failure, but failure in postgres should not.
 #
-# TODO: I've been quite explicit and verboise with the below, but it could be
+# TODO: I've been quite explicit and verbose with the below, but it could be
 # more readable how each role should behave.
 
 
