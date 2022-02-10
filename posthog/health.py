@@ -97,6 +97,9 @@ def readyz(request: HttpRequest):
     exclude = set(request.GET.getlist("exclude", []))
     role = request.GET.get("role", None)
 
+    if role and role not in get_args(ServiceRole):
+        return JsonResponse({"error": "InvalidRole"}, status=400)
+
     available_checks = {
         "clickhouse": is_clickhouse_connected,
         "postgres": is_postgres_connected,
@@ -107,9 +110,6 @@ def readyz(request: HttpRequest):
     }
 
     if role:
-        if role not in get_args(ServiceRole):
-            return JsonResponse({"error": "InvalidRole"}, status=400)
-
         # If we have a role, then limit the checks to a subset defined by the
         # service_dependencies for this specific role, defaulting to all if we
         # don't find a lookup
