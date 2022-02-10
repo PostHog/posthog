@@ -23,7 +23,7 @@ from ee.kafka_client.client import TestKafkaProducer
 @pytest.mark.django_db
 def test_readyz_returns_200_if_everything_is_ok(client: Client):
     resp = get_readyz(client)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
 
 @pytest.mark.django_db
@@ -31,7 +31,7 @@ def test_readyz_supports_excluding_checks(client: Client):
     with simulate_postgres_error():
         resp = get_readyz(client, exclude=["postgres", "postgres_migrations_uptodate"])
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
     data = resp.json()
     assert {
         check: status for check, status in data.items() if check in {"postgres", "postgres_migrations_uptodate"}
@@ -47,7 +47,7 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
     with simulate_postgres_error(), simulate_kafka_cannot_connect(), simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect(), simulate_cache_cannot_connect():
         resp = get_livez(client)
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
     data = resp.json()
     assert data == {"http": True}
 
@@ -67,27 +67,27 @@ def test_readyz_accepts_role_events_and_filters_by_relevant_services(client: Cli
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="events")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="events")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client, role="events")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_celery_cannot_connect():
         resp = get_readyz(client=client, role="events")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_cache_cannot_connect():
         resp = get_readyz(client=client, role="events")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
 
 @pytest.mark.django_db
@@ -95,31 +95,31 @@ def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="web")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="web")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client, role="web")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_celery_cannot_connect():
         resp = get_readyz(client=client, role="web")
 
     # NOTE: we don't want the web server to die if e.g. redis is down, there are
     # many things that still function without it
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_cache_cannot_connect():
         resp = get_readyz(client=client, role="web")
 
     # NOTE: redis being down is bad atm as e.g. Axes uses it to handle login
     # attempt rate limiting and doesn't fail gracefully
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
 
 @pytest.mark.django_db
@@ -127,27 +127,27 @@ def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Cli
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client, role="worker")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_celery_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_cache_cannot_connect():
         resp = get_readyz(client=client, role="worker")
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.content
 
 
 @pytest.mark.django_db
@@ -160,27 +160,27 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
     with simulate_kafka_cannot_connect():
         resp = get_readyz(client=client)
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_postgres_error():
         resp = get_readyz(client=client)
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_clickhouse_cannot_connect():
         resp = get_readyz(client=client)
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_celery_cannot_connect():
         resp = get_readyz(client=client)
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
     with simulate_cache_cannot_connect():
         resp = get_readyz(client=client)
 
-    assert resp.status_code == 503
+    assert resp.status_code == 503, resp.content
 
 
 @pytest.mark.django_db
@@ -193,7 +193,7 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     old service name is still available for lookup.
     """
     resp = get_readyz(client=client, role="some-unknown-role")
-    assert resp.status_code == 400
+    assert resp.status_code == 400, resp.content
     data = resp.json()
     assert data["error"] == "InvalidRole"
 
