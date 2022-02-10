@@ -112,7 +112,7 @@ class PluginManager(models.Manager):
         return Plugin.objects.create(**kwargs)
 
 
-@reversion.register(exclude=("error", "from_json"))
+@reversion.register(exclude=("error", "from_json", "from_web"))
 class Plugin(models.Model):
     class PluginType(models.TextChoices):
         LOCAL = "local", "local"  # url starts with "file:"
@@ -179,7 +179,7 @@ class Plugin(models.Model):
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
 
 
-@reversion.register()
+@reversion.register(exclude=("error"))
 class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
