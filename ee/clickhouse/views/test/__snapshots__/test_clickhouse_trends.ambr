@@ -1,6 +1,6 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT count(*) as data
   FROM
     (SELECT e.timestamp as timestamp
@@ -530,7 +530,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
