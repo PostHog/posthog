@@ -36,6 +36,12 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "tag",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="taggeditems", to="posthog.tag"
+                    ),
+                ),
+                (
                     "action",
                     models.ForeignKey(
                         blank=True,
@@ -53,12 +59,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="tags",
                         to="posthog.featureflag",
-                    ),
-                ),
-                (
-                    "tag",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="taggeditems", to="posthog.tag"
                     ),
                 ),
             ],

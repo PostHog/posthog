@@ -1,4 +1,4 @@
-from rest_framework import serializers
+from rest_framework import serializers, viewsets
 
 from posthog.api.utils import WritableSerializerMethodField
 from posthog.constants import AvailableFeature
@@ -54,3 +54,23 @@ class TaggedItemSerializerMixin(serializers.Serializer):
                 EnterpriseTaggedItemSerializerMixin(self).set_tags(self.initial_data["tags"], instance)
 
         return instance
+
+
+class TaggedItemViewSetMixin(viewsets.GenericViewSet):
+    def is_licensed(self):
+        return (
+            not self.request.user.is_anonymous
+            # The below triggers an extra query to resolve user's organization.
+            and self.request.user.organization.is_feature_available(AvailableFeature.TAGGING)
+        )
+
+    def get_queryset(self):
+        queryset = super(TaggedItemViewSetMixin, self).get_queryset()
+        if self.is_licensed():
+            try:
+                from ee.api.ee_tagged_item import EnterpriseTaggedItemViewSetMixin
+            except ImportError:
+                pass
+            else:
+                return EnterpriseTaggedItemViewSetMixin.get_queryset_with_tags(queryset)
+        return queryset.defer("tags")
