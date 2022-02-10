@@ -90,7 +90,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        fetchEvents: (nextParams = null) => ({ nextParams }),
+        fetchEvents: (nextParams = null, usingFullRange: boolean = false) => ({ nextParams, usingFullRange }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
@@ -300,7 +300,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 })
             }
         },
-        fetchEvents: async ({ nextParams }, breakpoint) => {
+        fetchEvents: async ({ nextParams, usingFullRange }, breakpoint) => {
             clearTimeout(values.pollTimeout)
 
             if (values.events.length > 0) {
@@ -340,12 +340,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             })
 
             // If no events, extend date range to maximum possible,
-            // unless it was already near the maximum
-            if (
-                apiResponse.results.length === 0 &&
-                Math.abs(dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute')) > 5
-            ) {
-                actions.fetchEvents({ ...nextParams, after: values.minimumQueryDate })
+            // unless it was already using the max range query
+            if (apiResponse.results.length === 0 && !usingFullRange) {
+                actions.fetchEvents({ ...nextParams, after: values.minimumQueryDate }, true)
             }
 
             if (!props.disableActions) {
