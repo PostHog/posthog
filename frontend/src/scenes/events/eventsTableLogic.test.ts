@@ -248,7 +248,47 @@ describe('eventsTableLogic', () => {
                         logic.actions.fetchEvents()
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
+                })
+
+                it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEvents()
+                    }).toFinishListeners()
+
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const firstGetCallUrl = mockCalls[1][0]
+                    expect(getUrlParameters(firstGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: fiveDaysAgo,
+                    })
+
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
+                    expect(getUrlParameters(lastGetCallUrl)).toEqual({
+                        properties: emptyProperties,
+                        orderBy: orderByTimestamp,
+                        after: afterOneYearAgo,
+                    })
+                })
+
+                it('fetch events doesnt set after to a year ago when five days ago returns some events', async () => {
+                    ;(api.get as jest.Mock).mockReturnValue(
+                        Promise.resolve({ results: [firstEvent, secondEvent], hasNext: false, isNext: false })
+                    )
+
+                    await expectLogic(logic, () => {
+                        logic.actions.fetchEvents()
+                    }).toFinishListeners()
+
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -266,7 +306,8 @@ describe('eventsTableLogic', () => {
                         logic.actions.fetchEvents()
                     }).toDispatchActions(['fetchEventsSuccess', 'fetchEventsSuccess'])
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -279,7 +320,8 @@ describe('eventsTableLogic', () => {
                         logic.actions.setProperties([])
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -293,7 +335,8 @@ describe('eventsTableLogic', () => {
                         logic.actions.setEventFilter(eventName)
                     }).toDispatchActions(['fetchEventsSuccess'])
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -307,7 +350,8 @@ describe('eventsTableLogic', () => {
                         logic.actions.pollEvents()
                     })
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -326,7 +370,8 @@ describe('eventsTableLogic', () => {
 
                     logic.actions.pollEvents()
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -374,7 +419,8 @@ describe('eventsTableLogic', () => {
                         'fetchEventsSuccess',
                     ])
 
-                    const lastGetCallUrl = api.get.mock.calls[api.get.mock.calls.length - 1][0]
+                    const mockCalls = (api.get as jest.Mock).mock.calls
+                    const lastGetCallUrl = mockCalls[mockCalls.length - 1][0]
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,

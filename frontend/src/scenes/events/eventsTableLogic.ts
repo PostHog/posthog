@@ -212,19 +212,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.miniumumQueryDate,
+                selectors.minimumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
+            (teamId, eventFilter, orderBy, properties, minimumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after: miniumumQueryDate,
+                    after: minimumQueryDate,
                 })}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
-        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        minimumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         getTimestampToQueryAfter: [
             () => [],
             () => (timestamp?: string) => {
@@ -339,11 +339,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 isNext: !!nextParams,
             })
 
+            // If no events, extend date range to maximum possible
             if (
                 apiResponse.results.length === 0 &&
-                dayjs(values.miniumumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute') > 5
+                dayjs(values.minimumQueryDate).diff(dayjs(nextParams?.after || '1980-01-01'), 'minute') > 5
             ) {
-                actions.fetchEvents({ after: values.miniumumQueryDate })
+                actions.fetchEvents({ ...nextParams, after: values.minimumQueryDate })
             }
 
             if (!props.disableActions) {
