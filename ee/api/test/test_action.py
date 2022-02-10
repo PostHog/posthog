@@ -28,7 +28,7 @@ class TestActionApi(APIBaseTest):
             data={"name": "user signed up", "tags": ["hello", "random"]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["hello", "random"])
+        self.assertEqual(set(response.json()["tags"]), {"hello", "random"})
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}", data={"name": "user signed up", "tags": []}

@@ -61,7 +61,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         return (
             not self.request.user.is_anonymous
             # The below triggers an extra query to resolve user's organization.
-            and self.request.user.organization.is_feature_available(AvailableFeature.TAGGING)
+            and self.request.user.organization.is_feature_available(AvailableFeature.TAGGING)  # type: ignore
         )
 
     def get_queryset(self):
