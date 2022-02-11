@@ -5,7 +5,7 @@ import { historyListLogicType } from './historyListLogicType'
 import { ApiError } from '~/types'
 import { dayjs } from 'lib/dayjs'
 interface HistoryListLogicProps {
-    item: 'feature-flags'
+    type: 'feature_flags'
     id: number
 }
 
@@ -63,12 +63,19 @@ function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
     }, [] as HumanizedHistoryListItem[])
 }
 
+/**
+ * Since we may be tracking history for a number of items on the same page
+ * E.g. insights on a dashboard
+ * We have a single logic for all items of a type which caches its responses
+ *
+ * TODO It may be slightly more complex than necessary as paging and filtering are likely to follow soon
+ */
 export const historyListLogic = kea<
     historyListLogicType<HistoryListItem, HistoryListLogicProps, HumanizedHistoryListItem>
 >({
     path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
     props: {} as HistoryListLogicProps,
-    key: (props) => `history/${props.item}`,
+    key: (props) => `history/${props.type}`,
     actions: {
         fetchHistory: () => {},
         fetchHistorySuccess: (apiResponse: PaginatedResponse<HistoryListItem>) => apiResponse,
@@ -87,8 +94,8 @@ export const historyListLogic = kea<
             {} as Record<number, HumanizedHistoryListItem[]>,
             {
                 fetchHistorySuccess: (state, { results }) => {
-                    state[props.id] = [...(state[props.id] || []), ...humanize(results)]
-                    return state
+                    const newForId = [...(state[props.id] || []), ...humanize(results)]
+                    return { ...state, [props.id]: newForId }
                 },
             },
         ],
@@ -98,13 +105,18 @@ export const historyListLogic = kea<
             let apiResponse: PaginatedResponse<HistoryListItem>
 
             try {
-                apiResponse = await api.get(`/api/projects/@current/feature_flags/${props.id}`)
+                apiResponse = await api.get(`/api/projects/@current/feature_flags/${props.id}/history`)
                 breakpoint()
                 actions.fetchHistorySuccess(apiResponse)
             } catch (error) {
                 actions.fetchHistoryFailure(error as ApiError)
                 return
             }
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.fetchHistory()
         },
     }),
 })

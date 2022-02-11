@@ -3,31 +3,36 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import './HistoryList.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
+import { historyListLogic, HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
+import { useValues } from 'kea'
 
 interface HistoryListProps {
-    history: HumanizedHistoryListItem[]
+    type: 'feature_flags'
+    id: number
 }
 
-export const HistoryList = ({ history }: HistoryListProps): JSX.Element => {
+export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
+    const logic = historyListLogic({ type, id })
+    const { history, isLoading } = useValues(logic)
+
     const columns: LemonTableColumns<HumanizedHistoryListItem> = [
         {
             key: 'profile',
             width: 40,
-            render: function Render(_, item: HumanizedHistoryListItem) {
-                return <ProfilePicture showName={false} email={item.email} />
+            render: function Render(_, rowItem: HumanizedHistoryListItem) {
+                return <ProfilePicture showName={false} email={rowItem.email} />
             },
         },
         {
             key: 'description',
-            render: function Render(_, item: HumanizedHistoryListItem) {
+            render: function Render(_, rowItem: HumanizedHistoryListItem) {
                 return (
                     <>
                         <div>
-                            <strong>{item.name ?? 'unknown user'}</strong> {item.description}
+                            <strong>{rowItem.name ?? 'unknown user'}</strong> {rowItem.description}
                         </div>
                         <div className={'muted'}>
-                            <TZLabel time={item.created_at} />
+                            <TZLabel time={rowItem.created_at} />
                         </div>
                     </>
                 )
@@ -44,9 +49,9 @@ export const HistoryList = ({ history }: HistoryListProps): JSX.Element => {
     return (
         <>
             <LemonTable
-                dataSource={history}
+                dataSource={history[id]}
                 showHeader={false}
-                loading={false}
+                loading={isLoading}
                 columns={columns}
                 className="ph-no-capture"
                 rowClassName={'history-list-item'}

@@ -69,7 +69,7 @@ describe('the history list logic', () => {
     let logic: ReturnType<typeof historyListLogic.build>
 
     mockAPI(async ({ pathname }) => {
-        if (pathname == '/api/projects/@current/feature_flags/7') {
+        if (pathname == '/api/projects/@current/feature_flags/7/history') {
             return {
                 results: aPageOfHistory,
             }
@@ -78,25 +78,18 @@ describe('the history list logic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = historyListLogic({ item: 'feature-flags', id: 7 })
+        logic = historyListLogic({ type: 'feature_flags', id: 7 })
         logic.mount()
     })
 
     it('sets a key', () => {
-        expect(logic.key).toEqual('history/feature-flags')
-    })
-
-    it('starts with known defaults', async () => {
-        await expectLogic(logic).toMatchValues({
-            isLoading: false,
-            history: {},
-        })
+        expect(logic.key).toEqual('history/feature_flags')
     })
 
     it('can load a page of history', async () => {
-        await expectLogic(logic, () => logic.actions.fetchHistory())
-            .toNotHaveDispatchedActions(['fetchHistoryFailure'])
-            .toFinishAllListeners()
-            .toMatchValues({ history: { 7: aHumanizedPageOfHistory } })
+        await expectLogic(logic).toMatchValues({
+            isLoading: false,
+            history: { 7: aHumanizedPageOfHistory },
+        })
     })
 })
