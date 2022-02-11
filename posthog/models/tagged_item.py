@@ -7,7 +7,7 @@ from django.db.models import Q
 from posthog.models.utils import UUIDModel
 
 # RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
-RELATED_OBJECTS = ("action", "feature_flag")
+RELATED_OBJECTS = ("action",)
 
 
 def build_check():
@@ -60,9 +60,9 @@ class TaggedItem(UUIDModel):
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
     )
-    feature_flag: models.ForeignKey = models.ForeignKey(
-        "FeatureFlag", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
-    )
+    # feature_flag: models.ForeignKey = models.ForeignKey(
+    #     "FeatureFlag", on_delete=models.CASCADE, null=True, blank=True, related_name="tags"
+    # )
 
     class Meta:
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
