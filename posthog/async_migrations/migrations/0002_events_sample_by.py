@@ -104,6 +104,17 @@ class Migration(AsyncMigrationDefinition):
 
         last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
 
+        def optimize_table_fn():
+            default_timeout = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT")
+            sync_execute(
+                "OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                settings={
+                    "max_execution_time": default_timeout,
+                    "send_timeout": default_timeout,
+                    "receive_timeout": default_timeout,
+                },
+            )
+
         post_insert_ops = [
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -120,13 +131,7 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER {CLICKHOUSE_CLUSTER}
                 """,
             ),
-            AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE,
-                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                rollback="",
-                resumable=True,
-                timeout_seconds=24 * 60 * 60,  # one day
-            ),
+            AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.CLICKHOUSE, fn=optimize_table_fn, rollback=""),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",

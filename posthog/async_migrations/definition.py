@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Callable, List, Optional, Tuple
 
+from constance import config
+
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -60,7 +62,12 @@ class AsyncMigrationOperation:
         )
 
     @classmethod
-    def get_db_op(cls, sql: str, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+    def get_db_op(
+        cls,
+        sql: str,
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
+        timeout_seconds: int = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT"),
+    ):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         # timeout is currently CH only

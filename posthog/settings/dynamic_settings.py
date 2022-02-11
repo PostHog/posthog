@@ -36,6 +36,11 @@ CONSTANCE_CONFIG = {
         "Used to disable automatic rollback of failed async migrations.",
         bool,
     ),
+    "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT": (
+        get_from_env("ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS", 60 * 30, type_cast=int),
+        "Sets the default timeout for completing an async migration operation.",
+        int,
+    ),
     "EMAIL_ENABLED": (
         get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
         "Whether email service is enabled or not.",
@@ -93,6 +98,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "AUTO_START_ASYNC_MIGRATIONS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+    "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
