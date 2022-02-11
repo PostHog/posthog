@@ -25,7 +25,7 @@ describe('vm timeout tests', () => {
         const orgId1 = '0174f81e-36f5-0000-7ef8-cc26c1fbab1c'
         const orgId2 = '4dc8564d-bd82-1065-2f40-97f7c50f67cf'
 
-        const createUserSpy = jest.spyOn(hub.db, 'createUser')
+        jest.spyOn(hub.db, 'createUser')
 
         await createUserTeamAndOrganization(hub!.postgres, 88, 8888, 'a73fc995-a63f-4e4e-bf65-2a5e9f93b2b2', orgId1)
 
@@ -39,6 +39,7 @@ describe('vm timeout tests', () => {
         )
 
         const key1 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1)
+        expect(hub.db.createUser).toHaveBeenCalledTimes(1)
         expect(hub.db.createUser).toHaveBeenCalledWith(
             expect.objectContaining({
                 organizationMembershipLevel: 8,
@@ -47,6 +48,7 @@ describe('vm timeout tests', () => {
         )
 
         const key2 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId2)
+        expect(hub.db.createUser).toHaveBeenCalledTimes(2)
         expect(hub.db.createUser).toHaveBeenCalledWith(
             expect.objectContaining({
                 organizationMembershipLevel: 8,
