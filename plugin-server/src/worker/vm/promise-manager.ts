@@ -19,7 +19,7 @@ export class PromiseManager {
             this.pendingPromises.delete(promise)
         })
 
-        await this.awaitPromisesIfNeeded()
+        // await this.awaitPromisesIfNeeded()
 
         return promise
     }
