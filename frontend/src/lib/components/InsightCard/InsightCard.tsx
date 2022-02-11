@@ -133,10 +133,10 @@ function InsightMeta({
                                 <h5>
                                     <span
                                         title={
-                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].description
+                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description
                                         }
                                     >
-                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].name}
+                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.name}
                                     </span>{' '}
                                     • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
