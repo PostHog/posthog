@@ -61,7 +61,7 @@ class TestActionApi(APIBaseTest):
         tag = Tag.objects.create(name="tag", team=self.team)
         for i in range(20):
             action = Action.objects.create(team=self.team, name=f"action_{i}")
-            action.tags.create(tag=tag)
+            action.tagged_items.create(tag=tag)
 
         # django_session + user + team + organizationmembership + organization + action + taggeditem + actionstep
         with self.assertNumQueries(8):

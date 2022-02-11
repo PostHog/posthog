@@ -6,6 +6,7 @@ from rest_framework import request, serializers, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
 from posthog.models.entity import MATH_TYPE
@@ -302,3 +303,33 @@ class WritableSerializerMethodField(serializers.SerializerMethodField):
         method = getattr(self.parent, self.setter_method_name)
         method(value, self.parent.instance)
         return {}
+
+
+class EnterpriseMethodField(serializers.Field):
+    def __init__(self, serializer=None, ee_serializer=None, available_feature=None, **kwargs):
+
+        assert serializer is not None, "Non enterprise serializer must be provided."
+        assert ee_serializer is not None, "Enterprise serializer must be provided."
+        assert available_feature is not None, "Available feature must be provided."
+        self._serializer = serializer
+        self._ee_serializer = ee_serializer
+        self._available_feature = available_feature
+        super().__init__(**kwargs)
+
+    def _is_licensed(self):
+        return (
+            "request" in self.context
+            and not self.context["request"].user.is_anonymous
+            and self.context["request"].user.organization.is_feature_available(self._available_feature)
+        )
+
+    def to_representation(self, value):
+        if self._is_licensed():
+            return self._ee_serializer.to_representation(value)
+        return self._serializer.to_representation(value)
+
+    def to_internal_value(self, value):
+        if self._is_licensed():
+            self._ee_serializer.to_internal_value(value)
+        else:
+            self._serializer.to_internal_value(value)

@@ -284,7 +284,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_get_tags_on_non_ee_returns_empty_list(self):
         action = Action.objects.create(team=self.team, name="bla")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tags.create(tag_id=tag.id)
+        action.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
 
@@ -302,7 +302,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_update_tags_on_non_ee_not_allowed(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tags.create(tag_id=tag.id)
+        action.tagged_items.create(tag_id=tag.id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
@@ -314,7 +314,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tags.create(tag_id=tag.id)
+        action.tagged_items.create(tag_id=tag.id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
@@ -328,7 +328,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_empty_tags_does_not_delete_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tags.create(tag_id=tag.id)
+        action.tagged_items.create(tag_id=tag.id)
 
         self.assertEqual(Action.objects.all().count(), 1)
 
