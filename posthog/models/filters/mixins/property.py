@@ -101,4 +101,8 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def property_groups_to_dict(self):
-        return {PROPERTY_GROUPS: self.property_groups.to_dict()} if self.property_groups else {}
+        return (
+            {PROPERTY_GROUPS: self.property_groups.to_dict()}
+            if self.property_groups and self.property_groups.properties
+            else {}
+        )
