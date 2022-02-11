@@ -71,21 +71,37 @@ class PropertyMixin(BaseParamMixin):
     def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
         if group and "type" in group and "properties" in group:
             return PropertyGroup(group["type"], self._parse_property_group_list(group["properties"]))
-        return PropertyGroup(PropertyOperatorType.AND, [])  # type: ignore
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
     def _parse_property_group_list(self, prop_list: Optional[List]) -> Union[List[Property], List[PropertyGroup]]:
         if not prop_list:
             # empty prop list
-            return []  # type: ignore
+            return cast(List[Property], [])
 
-        # TODO: validate when list has both PropertyGroup and Property objects
-        if "type" in prop_list[0] and "properties" in prop_list[0]:
-            # list of PropertyGroup objects
+        has_property_groups = False
+        has_simple_properties = False
+        for prop in prop_list:
+            if "type" in prop and "properties" in prop:
+                has_property_groups = True
+            else:
+                has_simple_properties = True
+
+        if has_simple_properties and has_property_groups:
+            raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")
+
+        if has_property_groups:
             return [self._parse_property_group(group) for group in prop_list]
         else:
             return self._parse_properties(prop_list)
 
     @include_dict
     def properties_to_dict(self):
-        # TODO: add groups
-        return {"properties": [prop.to_dict() for prop in self.properties]} if self.properties else {}
+        result = {}
+        if self.properties:
+            result[PROPERTIES] = [prop.to_dict() for prop in self.properties]
+
+        if self.property_groups:
+            result[PROPERTY_GROUPS] = self.property_groups.to_dict()
+
+        return result

@@ -47,18 +47,16 @@ from posthog.models.property import (
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
-# Example:
+# Property Groups Example:
 # {type: 'AND', properties: [
 #     {type: 'OR', properties: [A, B, C]},
 #     {type: 'OR', properties: [D, E, F]},
-#     G, # invalid? Can enforce this via UI: if groups, everything else needs to be a group too.
 # ]}
 
 # Example:
 # {type: 'AND', properties: [
 #     A, B, C, D
 # ]}
-
 
 # Property json is of the form:
 # { type: 'AND | OR', properties: List[Property] }
@@ -76,7 +74,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-    # TODO: setup structure of new properties, and call parse_prop_clauses with right operator type
 
     if len(filter_group.properties) == 0:
         return "", {}
@@ -103,7 +100,7 @@ def parse_prop_grouped_clauses(
         _final = f"{filter_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=filter_group.properties,  # type:ignore
+            filters=cast(List[Property], filter_group.properties),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -153,12 +150,12 @@ def parse_prop_clauses(
                 cohort = Cohort.objects.get(pk=prop.value)
             except Cohort.DoesNotExist:
                 final.append(
-                    f" {property_operator} 0 = 13"
+                    f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
                 person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}
-                final.append(f" {property_operator} {table_name}distinct_id IN ({person_id_query})")
+                final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
@@ -191,7 +188,7 @@ def parse_prop_clauses(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
             )
             if query:
-                final.append(f" {property_operator} {query}")
+                final.append(f"{property_operator} {query}")
                 params.update(filter_params)
         elif prop.type == "event":
             filter_query, filter_params = prop_filter_json_extract(
@@ -225,7 +222,7 @@ def parse_prop_clauses(
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
                     filters=filter_query, group_type_index_var=group_type_index_var
                 )
-                final.append(f" {property_operator} {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
+                final.append(f"{property_operator} {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
                 params.update(filter_params)
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
@@ -236,21 +233,19 @@ def parse_prop_clauses(
                 cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
             )  # type: ignore
             if has_person_id_joined:
-                final.append(f" {property_operator} {filter_query}")
+                final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
                 )
-                final.append(f" {property_operator} {table_name}distinct_id IN ({subquery})")
+                final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
 
-    # TODO: clean
-    joined = f"{' '.join(final).replace(property_operator, '', 1)}"
-
     if final:
-        return joined, params
+        # remove the first operator
+        return " ".join(final).replace(property_operator, "", 1), params
 
     return "", params
 
@@ -307,7 +302,7 @@ def prop_filter_json_extract(
     elif operator in ("regex", "not_regex"):
         if not is_valid_regex(prop.value):
             # If OR'ing, shouldn't be a problem since nothing will match this specific clause
-            return f" {property_operator} 1 = 2", {}
+            return f"{property_operator} 1 = 2", {}
 
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
 
