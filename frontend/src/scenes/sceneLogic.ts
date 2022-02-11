@@ -177,7 +177,6 @@ export const sceneLogic = kea<sceneLogicType>({
 
         mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
 
-        console.log('MAPPING', mapping)
         return mapping
     },
     listeners: ({ values, actions, props, selectors }) => ({
