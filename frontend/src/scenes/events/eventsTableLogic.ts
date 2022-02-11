@@ -323,18 +323,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             try {
                 apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
+
+                if (apiResponse.results.length === 0) {
+                    apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                }
             } catch (error) {
                 actions.fetchOrPollFailure(error as ApiError)
                 return
-            }
-
-            if (apiResponse.results.length === 0) {
-                try {
-                    apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
-                } catch (error) {
-                    actions.fetchOrPollFailure(error as ApiError)
-                    return
-                }
             }
 
             breakpoint()

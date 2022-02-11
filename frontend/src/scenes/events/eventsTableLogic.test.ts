@@ -12,10 +12,12 @@ import { fromParamsGivenUrl } from 'lib/utils'
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
+const timeNow = '2021-05-05T00:00:00.000Z'
+
 jest.mock('lib/api')
 jest.mock('lib/dayjs', () => {
     const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
+    return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
 })
 
 const randomBool = (): boolean => Math.random() < 0.5
@@ -44,7 +46,6 @@ const firstEvent = makeEvent('1', 'the first timestamp')
 const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
 const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
-const afterLastEventsTimestamp = '2023-04-30T00:00:00.000Z'
 const afterTheFirstEvent = 'the first timestamp'
 const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
@@ -360,7 +361,7 @@ describe('eventsTableLogic', () => {
                     })
                 })
 
-                it('adds five days ago as the after parameter when there are no event results', async () => {
+                it('adds now as the after parameter when there are no event results', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.pollEvents()
                     })
@@ -370,7 +371,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: fiveDaysAgo,
+                        after: timeNow,
                     })
                 })
 
@@ -433,8 +434,7 @@ describe('eventsTableLogic', () => {
                     }).toDispatchActions([
                         logic.actionCreators.fetchEvents({
                             before: secondEvent.timestamp,
-                            after: afterLastEventsTimestamp,
-                        }), // we always send slices of 5 days
+                        }),
                         'fetchEventsSuccess',
                     ])
 
@@ -443,8 +443,9 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterLastEventsTimestamp,
                         before: beforeLastEventsTimestamp,
+                        after: fiveDaysAgo, // this is the default whenever events exist
+                        // will revisit if `load more events` becomes problematic
                     })
                 })
 
@@ -460,8 +461,7 @@ describe('eventsTableLogic', () => {
                         .toDispatchActions([
                             logic.actionCreators.fetchEvents({
                                 before: secondEvent.timestamp,
-                                after: afterLastEventsTimestamp,
-                            }), // we always send slices of 5 days
+                            }),
                             'fetchEventsSuccess',
                         ])
                         .toFinishListeners()
@@ -471,7 +471,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(firstGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterLastEventsTimestamp,
+                        after: fiveDaysAgo,
                         before: beforeLastEventsTimestamp,
                     })
 
@@ -573,7 +573,7 @@ describe('eventsTableLogic', () => {
                 it('Fetch Events sets isLoading to true', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
-                        logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+                        logic.actions.fetchEvents()
                     }).toMatchValues({ isLoading: true })
                 })
             })
