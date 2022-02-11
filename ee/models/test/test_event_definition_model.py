@@ -6,12 +6,6 @@ from posthog.test.base import BaseTest
 
 
 class TestEventDefinition(BaseTest):
-    def test_errors_on_invalid_verified_type(self):
-        with pytest.raises(IntegrityError):
-            EnterpriseEventDefinition.objects.create(
-                team=self.team, name="enterprise event", owner=self.user, verified=None
-            )
-
     def test_errors_on_invalid_verified_by_type(self):
         with pytest.raises(ValueError):
             EnterpriseEventDefinition.objects.create(
