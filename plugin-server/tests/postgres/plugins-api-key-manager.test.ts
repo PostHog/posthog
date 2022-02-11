@@ -4,7 +4,7 @@ import { createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql
 import { PluginsApiKeyManager } from './../../src/worker/vm/extensions/helpers/api-key-manager'
 import { POSTGRES_TRUNCATE_TABLES_QUERY } from './../helpers/sql'
 
-describe('vm timeout tests', () => {
+describe('PluginsApiKeyManager', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
