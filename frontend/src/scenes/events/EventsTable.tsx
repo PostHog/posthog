@@ -398,6 +398,7 @@ export function EventsTable({
                                 </div>
                             </div>
                             <Button
+                                data-attr="show-events-table-filters"
                                 style={{ display: showFilters ? 'none' : undefined }}
                                 onClick={() => {
                                     setShowFilters(true)
