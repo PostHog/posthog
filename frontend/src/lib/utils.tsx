@@ -569,13 +569,6 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function slugifyWhitespace(text: string): string {
-    return text
-        .trim() // Remove whitespace from both sides of a string
-        .replace(/[\s+]/g, '-') // Replace spaces with -
-        .replace(/-+/g, '-')
-}
-
 // Number to number with commas (e.g. 1234 -> 1,234)
 export function humanFriendlyNumber(d: number): string {
     return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
