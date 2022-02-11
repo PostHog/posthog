@@ -298,6 +298,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_update_tags_on_non_ee_not_allowed(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
@@ -337,5 +338,5 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             {"name": "action new name", "description": "Internal system metrics.", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(Action.objects.all().count(), 1)
