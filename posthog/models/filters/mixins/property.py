@@ -97,11 +97,8 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def properties_to_dict(self):
-        result = {}
-        if self.properties:
-            result[PROPERTIES] = [prop.to_dict() for prop in self.properties]
+        return {PROPERTIES: [prop.to_dict() for prop in self.properties]} if self.properties else {}
 
-        if self.property_groups:
-            result[PROPERTY_GROUPS] = self.property_groups.to_dict()
-
-        return result
+    @include_dict
+    def property_groups_to_dict(self):
+        return {PROPERTY_GROUPS: self.property_groups.to_dict()} if self.property_groups else {}
