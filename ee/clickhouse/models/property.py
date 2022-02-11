@@ -167,7 +167,7 @@ def parse_prop_clauses(
                 "{}person".format(prepend),
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
-                property_operator=PropertyOperatorType.AND,
+                property_operator="",
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -176,7 +176,7 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                            filters=f"AND {filter_query}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
                         ),
                         table_name=table_name,
                         property_operator=property_operator,
