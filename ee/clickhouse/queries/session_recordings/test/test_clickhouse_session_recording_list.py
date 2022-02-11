@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.action import Action, ActionStep
@@ -59,8 +60,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                 cohort = Cohort.objects.create(
                     team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
                 )
-                cohort.calculate_people()
-                cohort.calculate_people_ch()
+                cohort.calculate_people_ch(pending_version=0)
 
                 self.create_snapshot("user", "1", self.base_time)
                 self.create_event("user", self.base_time, team=self.team)

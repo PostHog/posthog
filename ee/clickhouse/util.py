@@ -25,14 +25,6 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
-    @contextmanager
-    def _assertNumQueries(self, func):
-        yield
-
-    # Ignore assertNumQueries in clickhouse tests
-    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
-        return self._assertNumQueries(func)
-
     def capture_select_queries(self):
         return self.capture_queries(("SELECT", "WITH",))
 

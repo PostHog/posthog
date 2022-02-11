@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 from uuid import uuid4
 
+from django.utils import timezone
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
@@ -106,7 +107,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["person_2"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
         response = self.client.get(f"/api/person/?cohort={cohort.pk}")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
@@ -318,9 +319,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
         cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
-        cohort1.calculate_people()
-        cohort2.calculate_people()
-        cohort3.calculate_people()
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+        cohort3.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])

@@ -22,7 +22,6 @@ from posthog.api import (
     user,
 )
 from posthog.demo import demo
-from posthog.health import livez, readyz
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
@@ -77,8 +76,6 @@ urlpatterns = [
     # is only included for compatability with old installations. For new
     # operations livez and readyz should be used.
     opt_slash_path("_health", health),
-    opt_slash_path("_livez", livez),
-    opt_slash_path("_readyz", readyz),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     # ee

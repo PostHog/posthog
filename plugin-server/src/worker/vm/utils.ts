@@ -129,7 +129,6 @@ export function createBuffer(opts: Partial<BufferOptions>, statsd?: StatsD) {
                 buffer._points = 0
                 await buffer._options.onFlush?.(oldBuffer, oldPoints)
             }
-            statsd?.decrement(`buffer_voided_promises`)
             statsd?.timing(`buffer_promise_duration`, buffer._lastFlushTriggered)
         },
     }
