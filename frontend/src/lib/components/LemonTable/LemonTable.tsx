@@ -64,6 +64,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
+    rowBorders?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -89,6 +90,7 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
+    rowBorders = true,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
     const currentPageParam = id ? `${id}_page` : 'page'
@@ -329,6 +331,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             columns={columns}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            bordered={rowBorders}
                                         />
                                     )
                                 })

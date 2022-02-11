@@ -66,7 +66,9 @@
     > tbody {
         > tr {
             &:not(:first-child) {
-                border-top: 1px solid var(--border);
+                .bordered {
+                    border-top: 1px solid var(--border);
+                }
             }
             &.LemonTable__expansion {
                 position: relative;
