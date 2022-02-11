@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
-import { compactNumber, deleteWithUndo, uuid } from 'lib/utils'
+import { uuid, deleteWithUndo, compactNumber } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { useActions, useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
-import { DeleteOutlined, InfoCircleOutlined, LoadingOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
@@ -16,7 +16,6 @@ import api from '../../lib/api'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { ObjectTags } from 'lib/components/ObjectTags'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const relevantActionEditLogic = actionEditLogic({
@@ -25,8 +24,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         onSave: (action) => onSave(action),
         temporaryToken,
     })
-    const { action, errorActionId, actionCount, actionCountLoading, actionLoading } = useValues(relevantActionEditLogic)
-    const { setAction, saveAction, saveNewTag, deleteTag } = useActions(relevantActionEditLogic)
+    const { action, errorActionId, actionCount, actionCountLoading } = useValues(relevantActionEditLogic)
+    const { setAction, saveAction } = useActions(relevantActionEditLogic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -84,40 +83,23 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     />
                 }
                 caption={
-                    <>
-                        <EditableField
-                            multiline
-                            name="description"
-                            value={action.description || ''}
-                            placeholder="Description (optional)"
-                            onSave={(description) => {
-                                setAction({ ...action, description })
-                                setEdited(!!description)
-                            }}
-                            mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
-                            autoFocus={!!id}
-                            data-attr="action-description"
-                            compactButtons
-                            maxLength={600} // No limit on backend model, but enforce shortish description
-                            paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
-                            saveButtonText="Set"
-                        />
-                        {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                            <ObjectTags
-                                tags={action.tags ?? []}
-                                onTagSave={(tag) => {
-                                    saveNewTag(tag)
-                                    setEdited(true)
-                                }}
-                                onTagDelete={(tag) => {
-                                    deleteTag(tag)
-                                    setEdited(true)
-                                }}
-                                className="action-tags"
-                                saving={actionLoading}
-                            />
-                        )}
-                    </>
+                    <EditableField
+                        multiline
+                        name="description"
+                        value={action.description || ''}
+                        placeholder="Description (optional)"
+                        onSave={(description) => {
+                            setAction({ ...action, description })
+                            setEdited(!!description)
+                        }}
+                        mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
+                        autoFocus={!!id}
+                        data-attr="action-description"
+                        compactButtons
+                        maxLength={600} // No limit on backend model, but enforce shortish description
+                        paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                        saveButtonText="Set"
+                    />
                 }
                 buttons={deleteAction}
             />
