@@ -99,7 +99,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(list(event.tags.values_list("tag__name", flat=True)), ["official", "internal"])
+        self.assertEqual(set(event.tags.values_list("tag__name", flat=True)), {"official", "internal"})
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")

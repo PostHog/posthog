@@ -11,10 +11,10 @@ def tagify(tag: str):
 
 
 def forwards(apps, schema_editor):
-    Tag = apps.get_model("posthog", "Tag")  # type: ignore
-    TaggedItem = apps.get_model("posthog", "TaggedItem")  # type: ignore
-    tags_to_create: List[Tag] = []
-    tagged_items_to_create: List[TaggedItem] = []
+    Tag = apps.get_model("posthog", "Tag")
+    TaggedItem = apps.get_model("posthog", "TaggedItem")
+    tags_to_create = []  # type: ignore
+    tagged_items_to_create = []
 
     # Create new insight tags
     Insight = apps.get_model("posthog", "Insight")
