@@ -563,10 +563,7 @@ def test_parse_prop_clauses_defaults(snapshot):
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
         data={
-            "property_groups": {
-                "type": "OR",
-                "properties": [{"key": "email", "type": "person", "value": "1@posthog.com"}],
-            }
+            "property_groups": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}
         }
     )
     assert (
