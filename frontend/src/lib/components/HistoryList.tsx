@@ -8,7 +8,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 export interface HistoryListItem {
     email?: string
     name?: string
-    description: string
+    description: string | JSX.Element
     created_at: dayjs.Dayjs
 }
 

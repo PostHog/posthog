@@ -1,6 +1,6 @@
 import React from 'react'
 import { HistoryList } from 'lib/components/HistoryList'
-import { Col, Row } from 'antd'
+import { Col, Row, Tag } from 'antd'
 import { KeaStory } from 'lib/storybook/kea-story'
 import { now } from 'lib/dayjs'
 
@@ -16,28 +16,41 @@ export function WithData(): JSX.Element {
                     <HistoryList
                         history={[
                             {
-                                email: 'paul@posthog.com',
-                                name: 'paul',
-                                description: 'created a new user: john',
+                                email: 'kunal@posthog.com',
+                                name: 'kunal',
+                                description: 'modified the insight description',
                                 created_at: now().subtract(3, 'days'),
                             },
                             {
-                                email: 'john@posthog.com',
-                                name: 'john',
-                                description: 'created a new insight Page Views per nanosecond',
-                                created_at: now().subtract(3, 'days'),
-                            },
-                            {
-                                email: 'tim@posthog.com',
-                                name: 'tim',
-                                description: "changed john's name to jane",
+                                email: 'eli@posthog.com',
+                                name: 'eli',
+                                description: (
+                                    <>
+                                        added this insight to <a>My Dashboard</a>
+                                    </>
+                                ),
                                 created_at: now().subtract(2, 'days'),
                             },
                             {
-                                email: 'jane@posthog.com',
-                                name: 'jane',
-                                description: 'added tags to an insight',
+                                email: 'guido@posthog.com',
+                                name: 'guido',
+                                description: 'shared this dashboard',
                                 created_at: now().subtract(1, 'hour'),
+                            },
+                            {
+                                description: 'shared the insight',
+                                created_at: now().subtract(35, 'minutes'),
+                            },
+                            {
+                                email: 'paul@posthog.com',
+                                name: 'paul',
+                                description: (
+                                    <>
+                                        added the tags <Tag>hogflix</Tag> <Tag>demo</Tag> <Tag>offical</Tag>{' '}
+                                        <Tag>tag</Tag>
+                                    </>
+                                ),
+                                created_at: now().subtract(5, 'minutes'),
                             },
                         ]}
                     />
