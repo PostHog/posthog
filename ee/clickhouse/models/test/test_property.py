@@ -375,12 +375,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={
                 "property_groups": {
                     "type": "OR",
-                    "property_groups": [
+                    "groups": [
                         {
                             "type": "AND",
-                            "property_groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "OR", "property_groups": [{"key": "attr", "value": "val_2"}],},
+                        {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}],},
                     ],
                 }
             }
@@ -413,15 +413,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={
                 "property_groups": {
                     "type": "OR",
-                    "property_groups": [
-                        {
-                            "type": "OR",
-                            "property_groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],
-                        },
-                        {
-                            "type": "OR",
-                            "property_groups": [{"key": "email", "type": "person", "value": "2@posthog.com"}],
-                        },
+                    "groups": [
+                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
+                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
                     ],
                 }
             }

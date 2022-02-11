@@ -48,18 +48,18 @@ from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
 # Property Groups Example:
-# {type: 'AND', property_groups: [
-#     {type: 'OR', property_groups: [A, B, C]},
-#     {type: 'OR', property_groups: [D, E, F]},
+# {type: 'AND', groups: [
+#     {type: 'OR', groups: [A, B, C]},
+#     {type: 'OR', groups: [D, E, F]},
 # ]}
 
 # Example:
-# {type: 'AND', property_groups: [
+# {type: 'AND', groups: [
 #     A, B, C, D
 # ]}
 
 # Property json is of the form:
-# { type: 'AND | OR', property_groups: List[Property] }
+# { type: 'AND | OR', groups: List[Property] }
 # which is parsed and sent to this function ->
 
 
@@ -75,13 +75,13 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(filter_group.properties) == 0:
+    if len(filter_group.groups) == 0:
         return "", {}
 
-    if isinstance(filter_group.properties[0], PropertyGroup):
+    if isinstance(filter_group.groups[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        for idx, group in enumerate(filter_group.properties):
+        for idx, group in enumerate(filter_group.groups):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
                     filter_group=group,
@@ -100,7 +100,7 @@ def parse_prop_grouped_clauses(
         _final = f"{filter_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], filter_group.properties),
+            filters=cast(List[Property], filter_group.groups),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
