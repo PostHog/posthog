@@ -146,19 +146,21 @@ def lookup_q(key: str, value: Any) -> Q:
 
 class PropertyGroup:
     type: PropertyOperatorType
-    properties: Union[List[Property], List["PropertyGroup"]]
+    property_groups: Union[List[Property], List["PropertyGroup"]]
 
-    def __init__(self, type: PropertyOperatorType, properties: Union[List[Property], List["PropertyGroup"]]) -> None:
+    def __init__(
+        self, type: PropertyOperatorType, property_groups: Union[List[Property], List["PropertyGroup"]]
+    ) -> None:
         self.type = type
-        self.properties = properties
+        self.property_groups = property_groups
 
     def to_dict(self):
         result: Dict = {}
-        if not self.properties:
+        if not self.property_groups:
             return result
 
-        return {f"{self.type}": [prop.to_dict() for prop in self.properties]}
+        return {f"{self.type}": [prop.to_dict() for prop in self.property_groups]}
 
     def __repr__(self):
-        params_repr = ", ".join(f"{repr(prop)}" for prop in self.properties)
+        params_repr = ", ".join(f"{repr(prop)}" for prop in self.property_groups)
         return f"PropertyGroup(type={self.type}-{params_repr})"

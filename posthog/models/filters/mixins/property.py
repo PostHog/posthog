@@ -29,7 +29,7 @@ class PropertyMixin(BaseParamMixin):
         _props = self._data.get(PROPERTY_GROUPS, None)
 
         if not _props:
-            return PropertyGroup(type=PropertyOperatorType.AND, properties=self.properties)
+            return PropertyGroup(type=PropertyOperatorType.AND, property_groups=self.properties)
 
         if isinstance(_props, str):
             try:
@@ -69,8 +69,8 @@ class PropertyMixin(BaseParamMixin):
         return ret
 
     def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
-        if group and "type" in group and "properties" in group:
-            return PropertyGroup(group["type"], self._parse_property_group_list(group["properties"]))
+        if group and "type" in group and "property_groups" in group:
+            return PropertyGroup(group["type"], self._parse_property_group_list(group["property_groups"]))
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
@@ -82,7 +82,7 @@ class PropertyMixin(BaseParamMixin):
         has_property_groups = False
         has_simple_properties = False
         for prop in prop_list:
-            if "type" in prop and "properties" in prop:
+            if "type" in prop and "property_groups" in prop:
                 has_property_groups = True
             else:
                 has_simple_properties = True

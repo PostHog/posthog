@@ -67,7 +67,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            PropertyGroup(type=PropertyOperatorType.AND, properties=props_to_filter),
+            PropertyGroup(type=PropertyOperatorType.AND, property_groups=props_to_filter),
             table_name="e",
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )

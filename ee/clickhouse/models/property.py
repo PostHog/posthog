@@ -48,18 +48,18 @@ from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
 # Property Groups Example:
-# {type: 'AND', properties: [
-#     {type: 'OR', properties: [A, B, C]},
-#     {type: 'OR', properties: [D, E, F]},
+# {type: 'AND', property_groups: [
+#     {type: 'OR', property_groups: [A, B, C]},
+#     {type: 'OR', property_groups: [D, E, F]},
 # ]}
 
 # Example:
-# {type: 'AND', properties: [
+# {type: 'AND', property_groups: [
 #     A, B, C, D
 # ]}
 
 # Property json is of the form:
-# { type: 'AND | OR', properties: List[Property] }
+# { type: 'AND | OR', property_groups: List[Property] }
 # which is parsed and sent to this function ->
 
 
