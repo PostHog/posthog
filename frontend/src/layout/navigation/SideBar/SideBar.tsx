@@ -13,6 +13,7 @@ import {
     IconExtension,
     IconFlag,
     IconGauge,
+    IconGroupedDefinitions,
     IconGroupedEvents,
     IconPerson,
     IconPlus,
@@ -224,6 +225,13 @@ function Pages(): JSX.Element {
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
+                <PageButton
+                    icon={<IconGroupedDefinitions />}
+                    identifier={Scene.DataManagement}
+                    to={urls.dataManagement()}
+                />
+            )}
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}

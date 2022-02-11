@@ -21,6 +21,10 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Actions]: Scene.Events,
     [Scene.EventStats]: Scene.Events,
     [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.ActionDefinition]: Scene.DataManagement,
+    [Scene.ActionDefinitions]: Scene.DataManagement,
+    [Scene.EventDefinitions]: Scene.DataManagement,
+    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
     [Scene.Group]: Scene.Persons,
@@ -173,6 +177,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
 
+        console.log('MAPPING', mapping)
         return mapping
     },
     listeners: ({ values, actions, props, selectors }) => ({

@@ -13,6 +13,13 @@ export const urls = {
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
+    dataManagement: () => '/data-management',
+    actionDefinitions: () => '/data-management/actions',
+    actionDefinitionNew: () => '/data-management/actions/new',
+    actionDefinitionEdit: (id: string) => `/data-management/actions/${id}/edit`,
+    actionDefinitionView: (id: string) => `/data-management/actions/${id}`,
+    eventDefinitions: () => '/data-management/events',
+    propertyDefinitions: () => '/data-management/properties',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightRouter: (id: string) => `/i/${id}`,

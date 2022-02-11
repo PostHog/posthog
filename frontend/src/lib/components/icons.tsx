@@ -417,6 +417,19 @@ export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Ele
     )
 }
 
+export function IconGroupedDefinitions(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M2 6H4V20H15V22H4C2.9 22 2 21.1 2 20V6ZM22 4V15H20V4H8V16H15V18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2H20C21.1 2 22 2.9 22 4ZM16.5857 13.9998H11.3584V6.72705H16.5999V8.31796H13.3328V9.56796H16.33V11.1589H13.3328V12.4089H16.5857V13.9998ZM25.66 19.37L24.52 20.37C24.6 20.87 24.6 21.13 24.52 21.64L25.66 22.64L24.66 24.37L23.21 23.88C22.89 24.15 22.53 24.36 22.13 24.51L21.83 26H19.83L19.53 24.49C19.13 24.34 18.77 24.13 18.45 23.86L17 24.35L16 22.62L17.14 21.62C17.06 21.12 17.06 20.86 17.14 20.36L16 19.36L17 17.63L18.45 18.12C18.77 17.85 19.13 17.64 19.53 17.49L19.83 16H21.83L22.13 17.5C22.53 17.65 22.89 17.86 23.21 18.13L24.66 17.64L25.66 19.37ZM18.8301 21C18.8301 22.1 19.7301 23 20.8301 23C21.9301 23 22.8301 22.1 22.8301 21C22.8301 19.9 21.9301 19 20.8301 19C19.7301 19 18.8301 19.9 18.8301 21Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Assistant Photo icon. */
 export function IconFlag(): JSX.Element {
     return (
