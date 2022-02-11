@@ -1350,7 +1350,6 @@ export class DB {
             'createUser'
         )
 
-
         if (organization_id) {
             const now = new Date().toISOString()
             await this.postgresQuery(
