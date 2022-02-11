@@ -1350,7 +1350,6 @@ export class DB {
             'createUser'
         )
 
-        console.log(createUserResult)
 
         if (organization_id) {
             const now = new Date().toISOString()
