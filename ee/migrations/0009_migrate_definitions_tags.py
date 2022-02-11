@@ -5,15 +5,14 @@ from typing import List
 from django.db import migrations
 from django.db.models import Q
 
-from posthog.models.tag import Tag
-from posthog.models.tagged_item import TaggedItem
-
 
 def tagify(tag: str):
     return re.sub(r"[\s|-]+", "-", tag).strip("-")
 
 
 def forwards(apps, schema_editor):
+    Tag = apps.get_model("posthog", "Tag")
+    TaggedItem = apps.get_model("posthog", "TaggedItem")
     tags_to_create: List[Tag] = []
     tagged_items_to_create: List[TaggedItem] = []
 

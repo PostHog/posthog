@@ -1,5 +1,4 @@
 import pytest
-from django.contrib.contenttypes.models import ContentType
 
 from posthog.test.base import TestMigrations
 
