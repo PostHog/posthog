@@ -1,5 +1,5 @@
 import React from 'react'
-import { HistoryList } from 'lib/components/HistoryList'
+import { HistoryList } from 'lib/components/HistoryList/HistoryList'
 import { Col, Row, Tag } from 'antd'
 import { KeaStory } from 'lib/storybook/kea-story'
 import { now } from 'lib/dayjs'

@@ -49,14 +49,7 @@ export interface OnFetchEventsSuccess {
     isNext: boolean
 }
 
-//from visual inspection of lib/api.js
-//we aren't throwing JS Errors
-export interface ApiError {
-    status?: string
-    statusText?: string
-}
-
-export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps, OnFetchEventsSuccess>>({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.

@@ -2,32 +2,25 @@ import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import './HistoryList.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { dayjs } from 'lib/dayjs'
 import { TZLabel } from 'lib/components/TimezoneAware'
-
-export interface HistoryListItem {
-    email?: string
-    name?: string
-    description: string | JSX.Element
-    created_at: dayjs.Dayjs
-}
+import { HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
 
 interface HistoryListProps {
-    history: HistoryListItem[]
+    history: HumanizedHistoryListItem[]
 }
 
 export const HistoryList = ({ history }: HistoryListProps): JSX.Element => {
-    const columns: LemonTableColumns<HistoryListItem> = [
+    const columns: LemonTableColumns<HumanizedHistoryListItem> = [
         {
             key: 'profile',
             width: 40,
-            render: function Render(_, item: HistoryListItem) {
+            render: function Render(_, item: HumanizedHistoryListItem) {
                 return <ProfilePicture showName={false} email={item.email} />
             },
         },
         {
             key: 'description',
-            render: function Render(_, item: HistoryListItem) {
+            render: function Render(_, item: HumanizedHistoryListItem) {
                 return (
                     <>
                         <div>
