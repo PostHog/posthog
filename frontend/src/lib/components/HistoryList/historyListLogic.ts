@@ -13,6 +13,7 @@ export enum HistoryActions {
     CREATED_FEATURE_FLAG = 'created_feature_flag',
     ADD_DESCRIPTION_TO_FLAG = 'add_description_to_flag',
     ADD_FILTER_TO_FLAG = 'add_filter_to_flag',
+    DISABLED_FILTER = 'disabled_filter',
 }
 
 export interface HistoryDetail {
@@ -41,6 +42,7 @@ const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => stri
     [HistoryActions.CREATED_FEATURE_FLAG]: (detail) => `created the feature flag: ${detail.name}`,
     [HistoryActions.ADD_DESCRIPTION_TO_FLAG]: (detail) => `added "${detail.description}" as the flag description`,
     [HistoryActions.ADD_FILTER_TO_FLAG]: () => 'added a filter to the flag',
+    [HistoryActions.DISABLED_FILTER]: () => 'disabled the filter',
 }
 
 function descriptionFrom(historyListItem: HistoryListItem): string | JSX.Element | null {

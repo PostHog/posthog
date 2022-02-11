@@ -75,4 +75,13 @@ const featureFlagsHistoryResponseJson = [
         },
         created_at: '2022-02-08T16:28:39.594Z',
     },
+    {
+        email: 'paul@posthog.com',
+        name: 'paul',
+        action: HistoryActions.DISABLED_FILTER,
+        detail: {
+            id: 7,
+        },
+        created_at: '2022-02-08T16:45:39.594Z',
+    },
 ]
