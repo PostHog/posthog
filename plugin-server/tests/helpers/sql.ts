@@ -176,7 +176,7 @@ export async function createUserTeamAndOrganization(
         slug: Math.round(Math.random() * 10000),
     } as RawOrganization)
     await insertRow(db, 'posthog_organizationmembership', {
-        id: new UUIDT().toString(),
+        id: organizationMembershipId,
         organization_id: organizationId,
         user_id: userId,
         level: 15,
