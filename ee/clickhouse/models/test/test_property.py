@@ -423,45 +423,6 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(self._run_query(filter)), 2)
 
-    @pytest.mark.skip(reason="can't figure out how to create this test case properly")
-    @snapshot_clickhouse_queries
-    @test_with_materialized_columns(person_properties=["email"])
-    def test_parse_groups_persons_edge_case_with_single_filter(self):
-        # TODO: find conditions to make this work. Materialized is optional, but makes things clearer
-        # The edge case: we replace `property_operator`, but always have op = 'AND' for is_direct_query.
-        # What if somehow, this was sent with `OR` property operator? We wouldn't remove the first `AND`, leading to problems.
-        # But looks like this is only possible in entity filters? Hmm...
-
-        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})
-
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})
-        _create_person(
-            distinct_ids=["some_other_random_id"], team_id=self.team.pk, properties={"email": "X@posthog.com"}
-        )
-
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1"},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_random_id", properties={"attr": "val_3"},
-        )
-
-        filter = Filter(
-            data={
-                "property_groups": {
-                    "type": "OR",
-                    "properties": [{"key": "email", "type": "person", "value": "1@posthog.com"}],
-                }
-            }
-        )
-
-        self.assertEqual(
-            len(self._run_query(filter, person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN)), 2
-        )
-
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -594,6 +555,25 @@ def test_parse_prop_clauses_defaults(snapshot):
     assert (
         parse_prop_grouped_clauses(
             filter.property_groups, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
+        )
+        == snapshot
+    )
+
+
+def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
+    filter = Filter(
+        data={
+            "property_groups": {
+                "type": "OR",
+                "properties": [{"key": "email", "type": "person", "value": "1@posthog.com"}],
+            }
+        }
+    )
+    assert (
+        parse_prop_grouped_clauses(
+            filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            allow_denormalized_props=True,
         )
         == snapshot
     )

@@ -76,6 +76,17 @@
                                                        FROM JSONExtractRaw(properties, 'email'))) ) )))
   '
 ---
+# name: test_parse_groups_persons_edge_case_with_single_filter
+  <class 'tuple'> (
+    'AND (  has(%(vglobalperson_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_0)s))))',
+    <class 'dict'> {
+      'kglobalperson_0': 'email',
+      'vglobalperson_0': <class 'list'> [
+        '1@posthog.com',
+      ],
+    },
+  )
+---
 # name: test_parse_prop_clauses_defaults
   <class 'tuple'> (
     '
