@@ -45,7 +45,7 @@ class TaggedItem(UUIDModel):
     class Meta:
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         unique_together = ("tag",) + RELATED_OBJECTS
-        constraints = [models.CheckConstraint(check=build_check(), name="at_most_one_related_object",)]
+        constraints = [models.CheckConstraint(check=build_check(), name="exactly_one_related_object",)]
 
     def clean(self):
         super().clean()
