@@ -42,8 +42,7 @@
                      WHERE team_id = 2
                      GROUP BY id
                      HAVING is_deleted = 0)
-                  WHERE 1 = 1
-                    AND has(['1@posthog.com'], trim(BOTH '"'
+                  WHERE has(['1@posthog.com'], trim(BOTH '"'
                                                     FROM JSONExtractRaw(properties, 'email'))) ) ))
          OR (distinct_id IN
                (SELECT distinct_id
@@ -71,8 +70,7 @@
                         WHERE team_id = 2
                         GROUP BY id
                         HAVING is_deleted = 0)
-                     WHERE 1 = 1
-                       AND has(['2@posthog.com'], trim(BOTH '"'
+                     WHERE has(['2@posthog.com'], trim(BOTH '"'
                                                        FROM JSONExtractRaw(properties, 'email'))) ) )))
   '
 ---
@@ -115,7 +113,7 @@
               GROUP BY id
               HAVING is_deleted = 0
           )
-          WHERE 1 = 1  AND trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s
+          WHERE   trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s
       )
       ))
     ',

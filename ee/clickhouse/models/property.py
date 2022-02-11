@@ -167,13 +167,14 @@ def parse_prop_clauses(
                 "{}person".format(prepend),
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
-                property_operator=PropertyOperatorType.AND,
+                property_operator=property_operator,
             )
             if is_direct_query:
-                filter_query = filter_query.replace(PropertyOperatorType.AND, "", 1)
                 final.append(filter_query)
                 params.update(filter_params)
             else:
+                # Subquery filter here always should be blank as it's the first
+                filter_query = filter_query.replace(property_operator, "", 1)
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
