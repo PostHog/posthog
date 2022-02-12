@@ -281,7 +281,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
 
         # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/insights")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 20)
@@ -496,8 +496,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             groups=[{"properties": [{"type": "person", "key": "foo", "value": "bar", "operator": "exact"}]}],
             last_calculation=timezone.now(),
         )
-        whatever_cohort.calculate_people()
-        whatever_cohort.calculate_people_ch()
+
+        whatever_cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             response_user_property = self.client.get(
@@ -710,3 +710,34 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.insight.capture_exception")
+    def test_serializer(self, patch_capture_exception):
+        """
+        Various regression tests for the serializer
+        """
+        # Display
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+        # Properties with an array
+        events = [{"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps(events)}&properties=%5B%5D&display=ActionsLineGraph"
+        )
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+        # Breakdown with ints in funnels
+        events = [
+            {"id": "$pageview", "properties": [{"key": "something", "value": ["something"]}]},
+            {"id": "$pageview"},
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {"events": events, "breakdown": [123, 8124], "breakdown_type": "cohort"},
+        )
+        # self.assertEqual(response.status_code, 200)
+        self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)

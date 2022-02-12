@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
@@ -84,8 +85,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
 
         cohort = Cohort.objects.create(team=self.team, name="a", groups=[{"properties": {"$browser": "test"}}])
-        cohort.calculate_people()
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         entity_params = [
             {

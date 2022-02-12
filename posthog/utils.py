@@ -276,7 +276,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     return HttpResponse(html)
 
 
-def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     from posthog.models import Team
 
     # Get the current user's team (or first team in the instance) to set self capture configs
@@ -353,7 +353,7 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"

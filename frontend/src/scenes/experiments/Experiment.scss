@@ -19,6 +19,15 @@
         }
     }
 
+    .person-selection {
+        width: 100%;
+        border-top: 1px solid $border;
+        padding-top: $default_spacing;
+        margin-top: $default_spacing;
+        align-items: center;
+        justify-content: space-between;
+    }
+
     .insights-graph-container {
         margin-bottom: $default_spacing;
         background-color: #fff;

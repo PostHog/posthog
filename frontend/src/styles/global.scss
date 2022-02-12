@@ -22,6 +22,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
+    --warning-hover: #{$warning_hover};
+    --warning-active: #{$warning_active};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
@@ -109,8 +111,9 @@ body strong {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    min-height: 2.5rem;
     gap: 0.5rem 1rem;
-    margin: 1.25rem 0 0.5rem;
+    margin: 1.25rem 0 0.25rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
     }

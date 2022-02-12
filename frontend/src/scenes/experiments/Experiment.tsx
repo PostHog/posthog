@@ -72,6 +72,9 @@ export function Experiment_(): JSX.Element {
         getIndexForVariant,
         significanceBannerDetails,
         areTrendResultsConfusing,
+        taxonomicGroupTypesForSelection,
+        groupTypes,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -123,17 +126,17 @@ export function Experiment_(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
-                  0
-              )
+                (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                0
+            )
             : 0
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                  (experimentData?.parameters?.recommended_running_time || 1)) *
-              100
+                (experimentData?.parameters?.recommended_running_time || 1)) *
+            100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -320,7 +323,61 @@ export function Experiment_(): JSX.Element {
                                                 </Col>
                                             </Col>
                                         )}
-                                        <Form.Item label="Select participants" name="person-selection">
+                                        <Row className="person-selection">
+                                            <span>
+                                                <b>Select Participants</b>
+                                            </span>
+                                            <span>
+                                                <b>Participant Type</b>
+                                                <Select
+                                                    value={
+                                                        newExperimentData?.filters?.aggregation_group_type_index !=
+                                                            undefined
+                                                            ? newExperimentData.filters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    onChange={(value) => {
+                                                        const groupTypeIndex = value !== -1 ? value : undefined
+                                                        if (
+                                                            groupTypeIndex !=
+                                                            newExperimentData?.filters?.aggregation_group_type_index
+                                                        ) {
+                                                            setFilters({
+                                                                properties: [],
+                                                                aggregation_group_type_index: groupTypeIndex,
+                                                            })
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    aggregation_group_type_index: groupTypeIndex,
+                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                                                                    properties: [],
+                                                                },
+                                                            })
+                                                        }
+                                                    }}
+                                                    style={{ marginLeft: 8 }}
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    dropdownAlign={{
+                                                        // Align this dropdown by the right-hand-side of button
+                                                        points: ['tr', 'br'],
+                                                    }}
+                                                >
+                                                    <Select.Option key={-1} value={-1}>
+                                                        Users
+                                                    </Select.Option>
+                                                    {groupTypes.map((groupType) => (
+                                                        <Select.Option
+                                                            key={groupType.group_type_index}
+                                                            value={groupType.group_type_index}
+                                                        >
+                                                            {capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            )}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </span>
                                             <Col>
                                                 <div className="text-muted">
                                                     Select the entities who will participate in this experiment. If no
@@ -328,7 +385,6 @@ export function Experiment_(): JSX.Element {
                                                 </div>
                                                 <div style={{ flex: 3, marginRight: 5 }}>
                                                     <PropertyFilters
-                                                        endpoint="person"
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
@@ -346,16 +402,13 @@ export function Experiment_(): JSX.Element {
                                                             })
                                                         }}
                                                         style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={[
-                                                            TaxonomicFilterGroupType.PersonProperties,
-                                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                        ]}
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                         popoverPlacement="top"
                                                         taxonomicPopoverPlacement="auto"
                                                     />
                                                 </div>
                                             </Col>
-                                        </Form.Item>
+                                        </Row>
                                         <Row className="metrics-selection">
                                             <Col style={{ paddingRight: 8 }}>
                                                 <div className="mb-05">
@@ -415,6 +468,7 @@ export function Experiment_(): JSX.Element {
                                                                 hideMathSelector={true}
                                                                 hideDeleteBtn={filterSteps.length === 1}
                                                                 buttonCopy="Add funnel step"
+                                                                buttonType="link"
                                                                 showSeriesIndicator={!isStepsEmpty}
                                                                 seriesIndicatorType="numeric"
                                                                 fullWidth
@@ -669,22 +723,21 @@ export function Experiment_(): JSX.Element {
                                                                 <li
                                                                     key={idx}
                                                                     style={{
-                                                                        color: `${
-                                                                            experimentInsightType ===
-                                                                            InsightType.FUNNELS
+                                                                        color: `${experimentInsightType ===
+                                                                                InsightType.FUNNELS
                                                                                 ? getSeriesColor(
-                                                                                      getIndexForVariant(
-                                                                                          variant.key,
-                                                                                          InsightType.FUNNELS
-                                                                                      ) + 1
-                                                                                  ) // baseline takes 0th index
+                                                                                    getIndexForVariant(
+                                                                                        variant.key,
+                                                                                        InsightType.FUNNELS
+                                                                                    ) + 1
+                                                                                ) // baseline takes 0th index
                                                                                 : getChartColors('white')[
-                                                                                      getIndexForVariant(
-                                                                                          variant.key,
-                                                                                          InsightType.TRENDS
-                                                                                      )
-                                                                                  ]
-                                                                        }`,
+                                                                                getIndexForVariant(
+                                                                                    variant.key,
+                                                                                    InsightType.TRENDS
+                                                                                )
+                                                                                ]
+                                                                            }`,
                                                                     }}
                                                                     className="pr"
                                                                 >
@@ -829,12 +882,12 @@ export function Experiment_(): JSX.Element {
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
+                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                    1
+                                                                ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
+                                                                getIndexForVariant(variant, InsightType.TRENDS)
+                                                                ]
                                                         }
                                                     />
                                                     <div>

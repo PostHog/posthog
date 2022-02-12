@@ -172,9 +172,67 @@
                  AND person_max.is_deleted = 0
                  AND (trim(BOTH '"'
                            FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) )
+  ORDER BY _timestamp ASC
+  LIMIT 50000
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3
+  '
+  
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(_timestamp) as _timestamp,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person._timestamp = person_max._timestamp
+     WHERE team_id = 2
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 2
+    AND pdi.distinct_id IN
+      (SELECT distinct_id
+       FROM
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0)
+       WHERE person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (trim(BOTH '"'
+                           FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) )
+  ORDER BY _timestamp ASC
+  LIMIT 50000
+  OFFSET 50000
+  '
+---
+# name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.4
   '
   
   SELECT countIf(steps = 1) step_1,

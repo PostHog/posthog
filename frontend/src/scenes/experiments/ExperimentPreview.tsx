@@ -8,6 +8,7 @@ import { ActionFilter, Experiment, InsightType, MultivariateFlagVariant, Propert
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 interface ExperimentPreviewProps {
     experiment: Partial<Experiment> | null
@@ -32,6 +33,7 @@ export function ExperimentPreview({
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
+        aggregationLabel
     } = useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const sliderMaxValue =
@@ -194,7 +196,14 @@ export function ExperimentPreview({
                                         })}
                                     </div>
                                 ) : (
-                                    '100% of users'
+                                    <>
+                                        100% of{' '} {experiment?.filters?.aggregation_group_type_index != undefined
+                                            ? capitalizeFirstLetter(
+                                                aggregationLabel(experiment.filters.aggregation_group_type_index)
+                                                    .plural
+                                            )
+                                            : 'users'}
+                                    </>
                                 )}
                             </div>
                         </Col>

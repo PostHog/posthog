@@ -2,9 +2,11 @@ import csv
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from dateutil import parser
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, QuerySet
-from django.db.models.expressions import F
+from django.db.models.expressions import Case, F, OuterRef, When
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -26,6 +28,7 @@ from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
+from posthog.models.cohort import CohortPeople, get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -85,6 +88,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -92,7 +96,9 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort_ch.delay(cohort.id)
+            pending_version = get_and_update_pending_version(cohort)
+
+            calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -125,7 +131,10 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                calculate_cohort_ch.delay(cohort.id)
+                # Increment based on pending versions
+                pending_version = get_and_update_pending_version(cohort)
+
+                calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(
             request.user,
@@ -151,7 +160,14 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.annotate(count=Count("people"))
+        cohort_people_count = (
+            CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
+            .values("cohort_id")
+            .annotate(count=Count("person_id", distinct=True))
+            .values("count")
+        )
+
+        queryset = queryset.annotate(count=cohort_people_count)
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
 
