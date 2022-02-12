@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -18,7 +19,7 @@ from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
-class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -31,6 +32,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "id",
             "name",
             "key",
+            "tags",
             "filters",
             "deleted",
             "active",
@@ -136,7 +138,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(
+    TaggedItemViewSetMixin, StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet
+):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
     """

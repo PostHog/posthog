@@ -3,8 +3,9 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import FeatureFlag, GroupTypeMapping, Tag, User
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
 
@@ -323,6 +324,17 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
+    def test_non_ee_update_not_allowed_with_tags(self):
+        instance = self.feature_flag
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
+            {"name": "Updated name", "tags": ["hello", "goodbye"],},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(TaggedItem.objects.all().count(), 0)
+
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
@@ -350,6 +362,23 @@ class TestFeatureFlag(APIBaseTest):
                 "aggregating_by_groups": False,
             },
         )
+
+    def test_deleting_feature_flag_with_tags(self):
+        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
+
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        tag = Tag.objects.create(name="hello", team_id=self.team.id)
+        instance.tags.create(tag_id=tag.id)
+        self.client.force_login(new_user)
+
+        self.assertEqual(TaggedItem.objects.all().count(), 1)
+
+        with patch("posthog.mixins.report_user_action") as mock_capture:
+            response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FeatureFlag.objects.filter(pk=instance.pk).exists())
+        self.assertEqual(TaggedItem.objects.all().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):

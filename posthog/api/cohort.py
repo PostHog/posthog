@@ -2,11 +2,9 @@ import csv
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from dateutil import parser
 from django.conf import settings
-from django.db import transaction
 from django.db.models import Count, QuerySet
-from django.db.models.expressions import Case, F, OuterRef, When
+from django.db.models.expressions import F, OuterRef
 from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -24,6 +22,7 @@ from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
@@ -40,7 +39,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CohortSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     count = serializers.SerializerMethodField()
     earliest_timestamp_func = get_earliest_timestamp
@@ -150,7 +149,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return None
 
 
-class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class CohortViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]

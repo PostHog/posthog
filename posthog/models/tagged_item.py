@@ -6,7 +6,15 @@ from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action")
+RELATED_OBJECTS = (
+    "dashboard",
+    "insight",
+    "event_definition",
+    "property_definition",
+    "action",
+    "feature_flag",
+    "cohort",
+)
 
 
 def build_check():
@@ -52,6 +60,12 @@ class TaggedItem(UUIDModel):
     )
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    feature_flag: models.ForeignKey = models.ForeignKey(
+        "FeatureFlag", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    cohort: models.ForeignKey = models.ForeignKey(
+        "Cohort", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
     )
 
     class Meta:
