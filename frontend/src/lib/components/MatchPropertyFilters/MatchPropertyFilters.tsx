@@ -10,7 +10,7 @@ import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/componen
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { Button, Col, Row, Select } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import './MatchPropertyFilters.scss'
 
 interface MatchPropertyFiltersProps {
@@ -61,7 +61,11 @@ export function MatchPropertyFilters({
                         return (
                             <>
                                 <div className="mt" style={style}>
-                                    <AndOrFilterSelect onChange={() => { }} value={property.type} />
+                                    <Row justify='space-between' align='middle' className="mb-05">
+                                        <AndOrFilterSelect onChange={() => { }} value={property.type} />
+                                        <div style={{ marginLeft: 8, marginRight: 8, height: 1, background: '#d9d9d9', flex: 1 }}></div>
+                                        <DeleteOutlined style={{ fontSize: 16, color: 'var(--primary-alt)' }} />
+                                    </Row>
                                     {property.properties.map((item, index) =>
                                         <FilterRow
                                             key={index}
@@ -69,6 +73,7 @@ export function MatchPropertyFilters({
                                             index={index}
                                             totalCount={property.properties.length - 1} // empty state
                                             filters={property.properties}
+                                            orFiltering={true}
                                             pageKey={`${pageKey}-${idx}`}
                                             showConditionBadge={showConditionBadge}
                                             disablePopover={true}

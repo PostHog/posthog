@@ -21,6 +21,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { AndOr } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
 
 let uniqueMemoizedIndex = 0
 
@@ -61,11 +62,12 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
+    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup, andOrCondition } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
+    console.log('filter?', filter)
     const { propertyDefinitions } = useValues(propertyDefinitionsModel)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
@@ -90,23 +92,27 @@ export function TaxonomicPropertyFilter({
                 disablePopover && 'row-on-page',
                 !disablePopover && ' in-dropdown large'
             )}
+            style={{ marginTop: 8 }}
         >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
-                <div className="taxonomic-filter-row">
-                    {!orFiltering && <Col className="taxonomic-where">
+                <div className={`taxonomic-filter-row ${orFiltering ? 'and-or' : ''}`}>
+                    <Col className="taxonomic-where">
                         {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
-                                <span className="text">where</span>
+                                <span className="primary-alt">where</span>
                             </>
+                        ) : orFiltering ? (
+                            <div className="primary-alt"><b>{andOrCondition === AndOr.AND ? '&' : AndOr.OR}</b></div>
                         ) : (
                             <span className="stateful-badge and" style={{ fontSize: '90%' }}>
                                 AND
                             </span>
-                        )}
-                    </Col>}
+                        )
+                        }
+                    </Col>
 
                     <Popup
                         overlay={dropdownOpen ? taxonomicFilter : null}

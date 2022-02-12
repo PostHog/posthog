@@ -2,12 +2,11 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
-import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusCircleOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined, DeleteOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
@@ -27,6 +26,7 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
+    orFiltering?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -42,6 +42,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    orFiltering,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -54,10 +55,11 @@ export const FilterRow = React.memo(function FilterRow({
         setOpen(visible)
     }
 
+
     return (
         <Row
             align="middle"
-            className={clsx('property-filter-row', !disablePopover && 'wrap-filters')}
+            className={clsx('property-filter-row', !disablePopover && 'wrap-filters', orFiltering && index !== 0 && 'mt-05')}
             data-attr={'property-filter-' + index}
             wrap={false}
         >
@@ -65,14 +67,15 @@ export const FilterRow = React.memo(function FilterRow({
                 <>
                     {filterComponent(() => setOpen(false))}
                     {!!Object.keys(filters[index]).length && (
-                        <CloseButton
+                        <DeleteOutlined
                             onClick={() => onRemove(index)}
                             style={{
+                                fontSize: 16,
                                 cursor: 'pointer',
                                 float: 'none',
                                 paddingLeft: 8,
-                                alignSelf: 'flex-start',
                                 paddingTop: 4,
+                                color: 'var(--primary-alt)'
                             }}
                         />
                     )}

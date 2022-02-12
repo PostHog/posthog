@@ -28,7 +28,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     reducers: ({ props }) => ({
         filters: [
-            props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
+            // props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
+            [
+                { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
+                { "key": "$device_type", "value": ["Desktop"], "operator": "exact", "type": "event" }
+            ],
             {
                 setFilter: (state, { index, ...property }) => {
                     const newFilters = [...state]
@@ -50,14 +54,28 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         ],
         andOrFilters: [
             {
-                property_groups: null
+                property_groups: {
+                    // properties: [{ type: "AND", properties: [{}] }]
+                    properties: [{
+                        type: "AND", properties: [
+                            { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
+                            { "key": "$device_type", "value": ["Desktop"], "operator": "exact", "type": "event" }
+                        ],
+                    }]
+                }
             },
             {
                 addFilterGroup: (state, filterGroup) => {
                     if (!state.property_groups) {
                         return {
                             property_groups: {
-                                properties: [{ type: "AND", properties: [{}] }]
+                                // properties: [{ type: "AND", properties: [{}] }]
+                                properties: [{
+                                    type: "AND", properties: [
+                                        { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
+                                        { "key": "$device_type", "value": ["Desktop"], "operator": "exact", "type": "event" }
+                                    ],
+                                }]
                             }
                         }
                     }
