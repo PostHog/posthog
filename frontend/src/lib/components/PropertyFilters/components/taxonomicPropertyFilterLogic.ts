@@ -51,7 +51,17 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors: {
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
-            (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
+            (filters, filterIndex): AnyPropertyFilter | null => {
+                const filters2 = [
+                    { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
+                    { "key": "$device_type", "value": ["Desktop"], "operator": "exact", "type": "event" }
+                ]
+                return filters2[filterIndex] || null
+            },
+        ],
+        andOrCondition: [
+            (s) => [s.filter],
+            (filter) => "AND"
         ],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
