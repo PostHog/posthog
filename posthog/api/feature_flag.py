@@ -11,7 +11,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.mixins import AnalyticsDestroyModelMixin, HistoryLoggingMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
@@ -136,7 +136,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(
+    StructuredViewSetMixin, HistoryLoggingMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet
+):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
     """

@@ -14,6 +14,7 @@ from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
+from .historical_version import HistoricalVersion
 from .insight import Insight
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
@@ -44,7 +45,7 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
-    "RetentionFilter",
+    "HistoricalVersion",
     "MessagingRecord",
     "Organization",
     "OrganizationInvite",
@@ -58,6 +59,7 @@ __all__ = [
     "PluginLogEntry",
     "Property",
     "PropertyDefinition",
+    "RetentionFilter",
     "SessionRecordingEvent",
     "Team",
     "User",

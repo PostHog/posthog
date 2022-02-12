@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
@@ -150,6 +150,11 @@ class TestFeatureFlag(APIBaseTest):
                 "aggregating_by_groups": False,
             },
         )
+
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.assertEqual(historical_flags[0].state, response.json())
+        self.assertEqual(historical_flags[0].action, "create")
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
@@ -323,6 +328,11 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.assertEqual(historical_flags[0].state, response.json())
+        self.assertEqual(historical_flags[0].action, "update")
+
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
@@ -350,6 +360,15 @@ class TestFeatureFlag(APIBaseTest):
                 "aggregating_by_groups": False,
             },
         )
+
+        from django.core import serializers
+
+        state = serializers.serialize("json", [instance])[1:-1]
+
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.assertEqual(historical_flags[0].state, state)
+        self.assertEqual(historical_flags[0].action, "delete")
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
