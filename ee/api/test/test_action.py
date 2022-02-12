@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Action, Tag
-from posthog.test.base import APIBaseTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest
 
 # Testing enterprise properties of actions here (i.e., tagging).
 

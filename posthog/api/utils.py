@@ -2,11 +2,10 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
 
-from rest_framework import request, serializers, status
+from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
 from posthog.models.entity import MATH_TYPE
