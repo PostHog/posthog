@@ -26,6 +26,9 @@ class HistoricalVersion(models.Model):
     # TODO will this only be create, update, or delete
     action = models.fields.TextField(null=False)
 
+    # the id of the item being versioned
+    item_id = models.fields.PositiveIntegerField(null=False)
+
     # to avoid an integer version field for ordering revisions
     versioned_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
