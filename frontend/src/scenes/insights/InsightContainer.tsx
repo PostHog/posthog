@@ -77,7 +77,7 @@ export function InsightContainer(
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelSingleStepState />
+                return <FunnelSingleStepState disableAddStep={disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />

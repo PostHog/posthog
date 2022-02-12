@@ -179,6 +179,7 @@ export function Experiment_(): JSX.Element {
                                                 label="Name"
                                                 name="name"
                                                 rules={[{ required: true, message: 'You have to enter a name.' }]}
+                                                requiredMark={false}
                                             >
                                                 <Input data-attr="experiment-name" className="ph-ignore-input" />
                                             </Form.Item>
@@ -193,6 +194,7 @@ export function Experiment_(): JSX.Element {
                                                     </div>
                                                 }
                                                 name="feature_flag_key"
+                                                requiredMark={false}
                                                 rules={[
                                                     {
                                                         required: true,
@@ -697,10 +699,15 @@ export function Experiment_(): JSX.Element {
                                                         <Row
                                                             className="border-top"
                                                             key={idx}
+                                                            justify="space-between"
                                                             style={{ paddingTop: 8, paddingBottom: 8 }}
                                                         >
-                                                            {capitalizeFirstLetter(metric.name)}
-                                                            {metric.result.control}
+                                                            <div>{capitalizeFirstLetter(metric.name)}</div>
+                                                            {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                (variant, index) => (
+                                                                    <div key={index}>{metric.result[variant.key]}</div>
+                                                                )
+                                                            )}
                                                         </Row>
                                                     ))}
                                                 </Col>

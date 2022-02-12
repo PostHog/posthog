@@ -206,7 +206,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
     )
 }
 
-export function FunnelSingleStepState(): JSX.Element {
+export function FunnelSingleStepState({ disableAddStep }: { disableAddStep: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
@@ -223,17 +223,19 @@ export function FunnelSingleStepState(): JSX.Element {
                     You’re almost there! Funnels require at least two steps before calculating.
                     {' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
-                <div className="mt text-center">
-                    <Button
-                        size="large"
-                        onClick={() => addFilter()}
-                        data-attr="add-action-event-button-empty-state"
-                        icon={<PlusCircleOutlined />}
-                        className="add-action-event-button"
-                    >
-                        Add funnel step
-                    </Button>
-                </div>
+                {!disableAddStep && (
+                    <div className="mt text-center">
+                        <Button
+                            size="large"
+                            onClick={() => addFilter()}
+                            data-attr="add-action-event-button-empty-state"
+                            icon={<PlusCircleOutlined />}
+                            className="add-action-event-button"
+                        >
+                            Add funnel step
+                        </Button>
+                    </div>
+                )}
                 <div className="mt text-center">
                     <a
                         data-attr="funnels-single-step-help"

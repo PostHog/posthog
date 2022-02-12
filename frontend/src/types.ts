@@ -1430,10 +1430,10 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    secondary_metric_results?: SecondaryMetricResult[],
+    secondary_metric_results?: SecondaryMetricResult[]
 }
 
-interface SecondaryMetricResult {
+export interface SecondaryMetricResult {
     name: string
     result: Record<string, number>
 }
