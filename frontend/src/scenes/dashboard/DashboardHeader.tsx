@@ -22,7 +22,7 @@ import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { router } from 'kea-router'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
 import { urls } from 'scenes/urls'
 import { Description } from 'lib/components/Description/Description'
@@ -32,8 +32,7 @@ import { dayjs } from 'lib/dayjs'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
-    const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph, saveNewTag, deleteTag } =
-        useActions(dashboardLogic)
+    const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { nameSortedDashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
@@ -253,8 +252,7 @@ export function DashboardHeader(): JSX.Element {
                     <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
                             tags={dashboard.tags}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
+                            onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                             saving={dashboardLoading}
                             tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                         />

@@ -19,7 +19,7 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
@@ -39,16 +39,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { insightProps, canEditInsight, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const {
-        setActiveView,
-        setInsightMode,
-        saveInsight,
-        setFilters,
-        setInsightMetadata,
-        saveNewTag,
-        deleteTag,
-        saveAs,
-    } = useActions(logic)
+    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -185,8 +176,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                             (canEditInsight ? (
                                 <ObjectTags
                                     tags={insight.tags ?? []}
-                                    onTagSave={saveNewTag}
-                                    onTagDelete={deleteTag}
+                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                     saving={tagLoading}
                                     tagsAvailable={[]}
                                     className="insight-metadata-tags"

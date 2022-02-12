@@ -25,7 +25,6 @@ import {
     InsightType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
-import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
@@ -100,8 +99,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         }),
         /** Take the user to insights to add a graph. */
         addGraph: true,
-        deleteTag: (tag: string) => ({ tag }),
-        saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -708,23 +705,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (values.dashboard) {
                 router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }
-        },
-        saveNewTag: ({ tag }) => {
-            if (values.dashboard?.tags.includes(tag)) {
-                toast.error(
-                    // TODO: move to errorToast once #3561 is merged
-                    <div>
-                        <h1>Oops! Can't add that tag</h1>
-                        <p>Your dashboard already has that tag.</p>
-                    </div>
-                )
-                return
-            }
-            actions.triggerDashboardUpdate({ tags: [...(values.dashboard?.tags || []), tag] })
-        },
-        deleteTag: async ({ tag }, breakpoint) => {
-            await breakpoint(100)
-            actions.triggerDashboardUpdate({ tags: values.dashboard?.tags.filter((_tag) => _tag !== tag) || [] })
         },
         setAutoRefresh: () => {
             actions.resetInterval()
