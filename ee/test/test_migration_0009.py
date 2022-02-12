@@ -34,24 +34,25 @@ class TagsTestCase(TestMigrations):
         EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")  # type: ignore
 
         event_definition = EnterpriseEventDefinition.objects.get(id=self.event_definition.id)
-        self.assertEqual(event_definition.tags.count(), 3)
+        self.assertEqual(event_definition.tagged_items.count(), 3)
         self.assertEqual(
-            list(event_definition.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
+            list(event_definition.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
+            ["a", "b", "c"],
         )
 
         property_definition_with_tags = EnterprisePropertyDefinition.objects.get(
             id=self.property_definition_with_tags.id
         )
-        self.assertEqual(property_definition_with_tags.tags.count(), 4)
+        self.assertEqual(property_definition_with_tags.tagged_items.count(), 4)
         self.assertEqual(
-            list(property_definition_with_tags.tags.order_by("tag__name").values_list("tag__name", flat=True)),
+            list(property_definition_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
             ["b", "c", "d", "e"],
         )
 
         property_definition_without_tags = EnterprisePropertyDefinition.objects.get(
             id=self.property_definition_without_tags.id
         )
-        self.assertEqual(property_definition_without_tags.tags.count(), 0)
+        self.assertEqual(property_definition_without_tags.tagged_items.count(), 0)
 
         self.assertEqual(TaggedItem.objects.all().count(), 7)
         self.assertEqual(Tag.objects.all().count(), 5)

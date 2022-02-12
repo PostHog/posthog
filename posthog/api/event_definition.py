@@ -3,7 +3,6 @@ from typing import Type
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 
-from ee.api.ee_tagged_item import EnterpriseTaggedItemViewSetMixin
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import AvailableFeature
@@ -70,11 +69,13 @@ class EventDefinitionViewSet(
                     """,
                     params={"team_id": self.team_id, **search_kwargs},
                 )
-                return EnterpriseTaggedItemViewSetMixin.get_queryset_with_tags(ee_event_definitions)
+                return ee_event_definitions.prefetch_related(
+                    Prefetch(
+                        "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+                    )
+                )
 
-        return (
-            self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering).defer("tags")
-        )
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
 
     def get_object(self):
         id = self.kwargs["id"]

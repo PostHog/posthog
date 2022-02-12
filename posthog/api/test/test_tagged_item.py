@@ -13,7 +13,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
     def test_get_tags_on_non_ee_returns_empty_list(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        dashboard.tags.create(tag_id=tag.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
 
@@ -32,7 +32,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
     def test_update_tags_on_non_ee_not_allowed(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        dashboard.tags.create(tag_id=tag.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -49,7 +49,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
     def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        dashboard.tags.create(tag_id=tag.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
@@ -63,7 +63,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
     def test_empty_tags_does_not_delete_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
-        dashboard.tags.create(tag_id=tag.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
 
         self.assertEqual(TaggedItem.objects.all().count(), 1)
 

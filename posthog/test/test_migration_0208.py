@@ -31,19 +31,19 @@ class TagsTestCase(TestMigrations):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
 
         dashboard = Dashboard.objects.get(id=self.dashboard.id)
-        self.assertEqual(dashboard.tags.count(), 3)
+        self.assertEqual(dashboard.tagged_items.count(), 3)
         self.assertEqual(
-            list(dashboard.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
+            list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
         )
 
         insight_with_tags = Insight.objects.get(id=self.insight_with_tags.id)
-        self.assertEqual(insight_with_tags.tags.count(), 2)
+        self.assertEqual(insight_with_tags.tagged_items.count(), 2)
         self.assertEqual(
-            list(insight_with_tags.tags.order_by("tag__name").values_list("tag__name", flat=True)), ["c", "d"]
+            list(insight_with_tags.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)), ["c", "d"]
         )
 
         insight_without_tags = Insight.objects.get(id=self.insight_without_tags.id)
-        self.assertEqual(insight_without_tags.tags.count(), 0)
+        self.assertEqual(insight_without_tags.tagged_items.count(), 0)
 
         self.assertEqual(TaggedItem.objects.all().count(), 5)
         self.assertEqual(Tag.objects.all().count(), 4)

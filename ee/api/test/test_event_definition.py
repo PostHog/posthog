@@ -19,7 +19,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-        event.tags.create(tag_id=tag.id)
+        event.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -54,9 +54,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             team=self.team, name="enterprise event", owner=self.user
         )
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-        enterprise_property.tags.create(tag_id=tag.id)
+        enterprise_property.tagged_items.create(tag_id=tag.id)
         regular_event = EnterpriseEventDefinition.objects.create(team=self.team, name="regular event", owner=self.user)
-        regular_event.tags.create(tag_id=tag.id)
+        regular_event.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -99,7 +99,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(set(event.tags.values_list("tag__name", flat=True)), {"official", "internal"})
+        self.assertEqual(set(event.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
