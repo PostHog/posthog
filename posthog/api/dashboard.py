@@ -110,13 +110,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 )
 
         # Manual tag creation since this create method doesn't call super()
-        if self.is_licensed() and self.initial_data.get("tags", None):
-            try:
-                from ee.api.ee_tagged_item import EnterpriseTaggedItemSerializerMixin
-            except ImportError:
-                pass
-            else:
-                EnterpriseTaggedItemSerializerMixin(self).set_tags(self.initial_data["tags"], dashboard)
+        self._attempt_set_tags(self.initial_data.get("tags"), dashboard)
 
         report_user_action(
             request.user,

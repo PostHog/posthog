@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Tuple
 import posthoganalytics
 import structlog
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from psycopg2 import sql
 
@@ -118,7 +117,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
             team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
-            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags__isnull=True).count()
+            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tagged_items__isnull=True).count()
 
             # Feature Flags
             feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)
