@@ -112,9 +112,9 @@ class AnalyticsDestroyModelMixin:
 
         metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
 
-        # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off th
+        # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
         # TRICKY serializing the instance here isn't straightforward
-        # approach taken from https://stackoverflow.com/a/2391243e square braces
+        # approach taken from https://stackoverflow.com/a/2391243
         state: str = serializers.serialize("json", [instance])[1:-1]
 
         instance.delete()
