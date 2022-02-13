@@ -48,11 +48,11 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                             email=current.created_by_email,
                             name=current.created_by_name,
                             user_id=current.created_by_id,
-                            action=f"added_{current_key}_to_{history_type}",
+                            action=f"changed_{current_key}_on_{history_type}",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
-                                "added": current.state[current_key],
+                                "to": current.state[current_key],
                             },
                             created_at=current.versioned_at.isoformat(),
                         )
