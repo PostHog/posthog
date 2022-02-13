@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, ApiError, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
@@ -54,14 +54,7 @@ export interface OnFetchEventsSuccess {
     isNext: boolean
 }
 
-//from visual inspection of lib/api.js
-//we aren't throwing JS Errors
-export interface ApiError {
-    status?: string
-    statusText?: string
-}
-
-export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps, OnFetchEventsSuccess>>({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.

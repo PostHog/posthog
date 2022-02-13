@@ -159,6 +159,13 @@ export interface FusedTeamMemberType extends BaseMemberType {
     level: OrganizationMembershipLevel
 }
 
+//from visual inspection of lib/api.js
+//we aren't throwing JS Errors
+export interface ApiError {
+    status?: string
+    statusText?: string
+}
+
 export interface APIErrorType {
     type: 'authentication_error' | 'invalid_request' | 'server_error' | 'throttled_error' | 'validation_error'
     code: string

@@ -2,6 +2,7 @@ import React, { HTMLProps, useState } from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { ExpandableConfig, LemonTableColumns, TableCellRepresentation } from './types'
+import clsx from 'clsx'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -11,6 +12,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     columns: LemonTableColumns<T>
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
+    bordered: boolean
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -21,6 +23,7 @@ function TableRowRaw<T extends Record<string, any>>({
     columns,
     onRow,
     expandable,
+    bordered = true,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpanded, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -29,7 +32,11 @@ function TableRowRaw<T extends Record<string, any>>({
 
     return (
         <>
-            <tr data-row-key={rowKeyDetermined} {...onRow?.(record)} className={rowClassNameDetermined}>
+            <tr
+                data-row-key={rowKeyDetermined}
+                {...onRow?.(record)}
+                className={clsx(rowClassNameDetermined, bordered && 'bordered')}
+            >
                 {!!expandable && rowExpandable >= 0 && (
                     <td>
                         {!!rowExpandable && (
