@@ -1,8 +1,8 @@
 from itertools import zip_longest
-from typing import Iterable
+from typing import Iterable, Union
 
 import structlog
-from django.core import serializers
+from django.core import serializers as django_serilizers
 from rest_framework import request, response, serializers, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 
 # from https://stackoverflow.com/a/4628446/222163
-def pairwise(t: list) -> Iterable[tuple]:
+def pairwise(t: list[HistoricalVersion]) -> Iterable[tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
     left = iter(t)
     right = iter(t[1:])
     return zip_longest(left, right)
@@ -82,15 +82,17 @@ class HistoryLoggingMixin:
          * loads a page of history for that type and id (newest first)
          * and returns a computed history for that page of history
         """
-        history_type = self.get_object().__class__.__name__
+        history_type = self.get_object().__class__.__name__  # type: ignore
         # in order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
         versions = HistoricalVersion.objects.filter(
-            team_id=self.team.id, name=history_type, item_id=kwargs["pk"]
+            team_id=self.team.id, name=history_type, item_id=kwargs["pk"]  # type: ignore
         ).order_by("-versioned_at")[:11]
 
         return Response(
             {
-                "results": HistoryListItemSerializer(compute_history(history_type, pairwise(versions)), many=True).data,
+                "results": HistoryListItemSerializer(
+                    compute_history(history_type, pairwise(list(versions))), many=True
+                ).data,
                 "next": None,
                 "previous": None,
             },
@@ -115,7 +117,7 @@ class AnalyticsDestroyModelMixin:
         # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
         # TRICKY serializing the instance here isn't straightforward
         # approach taken from https://stackoverflow.com/a/2391243
-        state: str = serializers.serialize("json", [instance])[1:-1]
+        state: str = django_serilizers.serialize("json", [instance])[1:-1]
 
         instance.delete()
 

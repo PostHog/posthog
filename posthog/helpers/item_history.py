@@ -10,7 +10,7 @@ class HistoryListItem:
     name: Optional[str]
     user_id: int
     action: str
-    detail: Dict[str, Union[int, str]]
+    detail: Dict[str, Union[int, str, Dict]]
     created_at: str
 
 

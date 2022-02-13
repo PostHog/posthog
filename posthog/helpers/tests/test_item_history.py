@@ -5,10 +5,6 @@ from posthog.mixins import pairwise
 from posthog.models import HistoricalVersion
 
 
-def test_pairwise():
-    assert list(pairwise([1, 2, 3, 4, 5, 6, 7])) == [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, None)]
-
-
 def test_no_history_returns_an_empty_list():
     assert compute_history("anything", []) == []
 
