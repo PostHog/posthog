@@ -5,6 +5,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
+import { HistoryList } from 'lib/components/HistoryList/HistoryList'
 
 export const scene: SceneExport = {
     component: FeatureFlagHistory,
@@ -12,10 +13,11 @@ export const scene: SceneExport = {
 }
 
 export function FeatureFlagHistory(): JSX.Element {
-    const { featureFlag, featureFlagId } = useValues(featureFlagLogic)
-    return featureFlag ? (
+    const { featureFlag } = useValues(featureFlagLogic)
+    return featureFlag && featureFlag.id ? (
         <>
-            <FeatureFlagPageHeader activeTab={FeatureFlagTab.History} id={featureFlagId} />
+            <FeatureFlagPageHeader activeTab={FeatureFlagTab.History} id={featureFlag.id} />
+            <HistoryList id={featureFlag.id} type={'FeatureFlag'} />
         </>
     ) : (
         <SceneLoading />

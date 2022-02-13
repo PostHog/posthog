@@ -5,7 +5,7 @@ import { historyListLogicType } from './historyListLogicType'
 import { ApiError } from '~/types'
 import { dayjs } from 'lib/dayjs'
 interface HistoryListLogicProps {
-    type: 'feature_flags'
+    type: 'FeatureFlag'
     id: number
 }
 

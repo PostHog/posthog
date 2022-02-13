@@ -7,7 +7,7 @@ import { historyListLogic, HumanizedHistoryListItem } from 'lib/components/Histo
 import { useValues } from 'kea'
 
 interface HistoryListProps {
-    type: 'feature_flags'
+    type: 'FeatureFlag'
     id: number
 }
 
