@@ -2,7 +2,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -17,7 +16,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
