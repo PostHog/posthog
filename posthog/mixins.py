@@ -146,6 +146,17 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                             created_at=current.versioned_at.isoformat(),
                         )
                     )
+        elif previous is None and current.action != "create":
+            history.append(
+                HistoryListItem(
+                    email="history-bot@posthog.com",
+                    name="history bot",
+                    user_id=-1,
+                    action=f"history_bot_imported_{history_type}",
+                    detail={"id": current.state["id"], "key": current.state["key"]},
+                    created_at=current.versioned_at.isoformat(),
+                )
+            )
 
     return history
 
