@@ -1,5 +1,5 @@
 from itertools import zip_longest
-from typing import Iterable, Union
+from typing import Iterable, List, Tuple, Union
 
 import structlog
 from django.core import serializers as django_serilizers
@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 
 # from https://stackoverflow.com/a/4628446/222163
-def pairwise(t: list[HistoricalVersion]) -> Iterable[tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
+def pairwise(t: List[HistoricalVersion]) -> Iterable[Tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
     left = iter(t)
     right = iter(t[1:])
     return zip_longest(left, right)
