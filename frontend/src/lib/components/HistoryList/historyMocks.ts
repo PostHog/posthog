@@ -58,7 +58,7 @@ const featureFlagsHistoryResponseJson = [
     {
         email: 'eli@posthog.com',
         name: 'eli',
-        action: HistoryActions.ADD_DESCRIPTION_TO_FLAG,
+        action: HistoryActions.ADDED_DESCRIPTION_TO_FLAG,
         detail: {
             id: 7,
             description: 'this is what was added',

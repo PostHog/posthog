@@ -46,7 +46,7 @@ const aPageOfHistory: HistoryListItem[] = [
     {
         email: 'eli@posthog.com',
         name: 'eli',
-        action: HistoryActions.ADD_DESCRIPTION_TO_FLAG,
+        action: HistoryActions.ADDED_DESCRIPTION_TO_FLAG,
         detail: {
             id: 7,
             name: 'this is what was added',
