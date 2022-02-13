@@ -49,7 +49,7 @@ const aPageOfHistory: HistoryListItem[] = [
         action: HistoryActions.ADD_DESCRIPTION_TO_FLAG,
         detail: {
             id: 7,
-            description: 'this is what was added',
+            name: 'this is what was added',
         },
         created_at: '2022-02-06T16:28:39.594Z',
     },
@@ -78,7 +78,7 @@ describe('the history list logic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = historyListLogic({ type: 'feature_flags', id: 7 })
+        logic = historyListLogic({ type: 'FeatureFlag', id: 7 })
         logic.mount()
     })
 

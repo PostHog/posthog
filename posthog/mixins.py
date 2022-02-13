@@ -85,11 +85,15 @@ class HistoryLoggingMixin:
         history_type = self.get_object().__class__.__name__
         # in order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
         versions = HistoricalVersion.objects.filter(
-            team_id=kwargs["parent_lookup_team_id"], name=history_type, item_id=kwargs["pk"]
+            team_id=self.team.id, name=history_type, item_id=kwargs["pk"]
         ).order_by("-versioned_at")[:11]
 
         return Response(
-            HistoryListItemSerializer(compute_history(history_type, pairwise(versions)), many=True).data,
+            {
+                "results": HistoryListItemSerializer(compute_history(history_type, pairwise(versions)), many=True).data,
+                "next": None,
+                "previous": None,
+            },
             status=status.HTTP_200_OK,
         )
 

@@ -10,17 +10,19 @@ interface HistoryListLogicProps {
 }
 
 export enum HistoryActions {
-    CREATED_FEATURE_FLAG = 'created_feature_flag',
-    ADD_DESCRIPTION_TO_FLAG = 'add_description_to_flag',
-    ADD_FILTER_TO_FLAG = 'add_filter_to_flag',
+    CREATED_FEATURE_FLAG = 'created_FeatureFlag',
+    ADD_DESCRIPTION_TO_FLAG = 'add_name_to_FeatureFlag',
+    CHANGED_DESCRIPTION_ON_FLAG = 'changed_name_on_FeatureFlag',
+    ADD_FILTER_TO_FLAG = 'add_filter_to_FeatureFlag',
     DISABLED_FILTER = 'disabled_filter',
 }
 
 export interface HistoryDetail {
     id?: string | number
-    description?: string
+    key?: string
     name?: string
     filter?: string
+    to?: string
 }
 
 export interface HistoryListItem {
@@ -39,10 +41,11 @@ export interface HumanizedHistoryListItem {
 }
 
 const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string } = {
-    [HistoryActions.CREATED_FEATURE_FLAG]: (detail) => `created the feature flag: ${detail.name}`,
-    [HistoryActions.ADD_DESCRIPTION_TO_FLAG]: (detail) => `added "${detail.description}" as the flag description`,
+    [HistoryActions.CREATED_FEATURE_FLAG]: (detail) => `created the feature flag: ${detail.key}`,
+    [HistoryActions.ADD_DESCRIPTION_TO_FLAG]: (detail) => `added "${detail.name}" as the flag description`,
     [HistoryActions.ADD_FILTER_TO_FLAG]: () => 'added a filter to the flag',
     [HistoryActions.DISABLED_FILTER]: () => 'disabled the filter',
+    [HistoryActions.CHANGED_DESCRIPTION_ON_FLAG]: (detail) => `changed the description of the flag to: ${detail.to}`,
 }
 
 function descriptionFrom(historyListItem: HistoryListItem): string | JSX.Element | null {
@@ -51,7 +54,7 @@ function descriptionFrom(historyListItem: HistoryListItem): string | JSX.Element
 }
 
 function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
-    return results.reduce((acc, historyListItem) => {
+    return (results || []).reduce((acc, historyListItem) => {
         const humanized = descriptionFrom(historyListItem)
         if (humanized !== null) {
             acc.push({
