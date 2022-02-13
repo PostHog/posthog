@@ -44,7 +44,7 @@ export interface HumanizedHistoryListItem {
 }
 
 const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string } = {
-    [HistoryActions.CREATED_FEATURE_FLAG]: (detail) => `created the feature flag: ${detail.key}`,
+    [HistoryActions.CREATED_FEATURE_FLAG]: () => `created the flag`,
     [HistoryActions.CHANGED_DESCRIPTION_ON_FLAG]: (detail) => `changed the description of the flag to: ${detail.to}`,
     [HistoryActions.CHANGED_ACTIVE_ON_FLAG]: (detail) => (detail.to ? 'enabled the flag' : 'disabled the flag'),
     [HistoryActions.HISTORY_HOG_IMPORTED_FLAG]: () => `imported the flag`,
