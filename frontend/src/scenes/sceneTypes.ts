@@ -25,6 +25,7 @@ export enum Scene {
     Experiment = 'Experiment',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
+    FeatureFlagHistory = 'FeatureFlagHistory',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectSettings = 'ProjectSettings',

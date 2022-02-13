@@ -2,6 +2,14 @@
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
+/*
+To add a new URL to the front end:
+ - add a URL function here
+ - add a scene to the enum in sceneTypes.ts
+ - add a scene configuration in scenes.ts
+ - add a route to scene mapping in scenes.ts
+ - and add a scene import in appScenes.ts
+ */
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
@@ -35,6 +43,7 @@ export const urls = {
     experiments: () => '/experiments',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
+    featureFlagHistory: (id: string | number) => `/feature_flags/${id}/history`,
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
