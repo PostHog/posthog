@@ -4,6 +4,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { historyListLogicType } from './historyListLogicType'
 import { ApiError } from '~/types'
 import { dayjs } from 'lib/dayjs'
+import React from 'react'
 interface HistoryListLogicProps {
     type: 'FeatureFlag'
     id: number
@@ -25,7 +26,7 @@ export interface HistoryDetail {
     key?: string
     name?: string
     filter?: string
-    to?: string
+    to?: string | Record<string, any>
 }
 
 export interface HistoryListItem {
@@ -43,12 +44,17 @@ export interface HumanizedHistoryListItem {
     created_at: dayjs.Dayjs
 }
 
-const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string } = {
+const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string | JSX.Element } = {
     [HistoryActions.CREATED_FEATURE_FLAG]: () => `created the flag`,
     [HistoryActions.CHANGED_DESCRIPTION_ON_FLAG]: (detail) => `changed the description of the flag to: ${detail.to}`,
     [HistoryActions.CHANGED_ACTIVE_ON_FLAG]: (detail) => (detail.to ? 'enabled the flag' : 'disabled the flag'),
     [HistoryActions.HISTORY_HOG_IMPORTED_FLAG]: () => `imported the flag`,
-    [HistoryActions.CHANGED_FILTERS_ON_FLAG]: (detail) => `changed the filters to ${detail.to}`,
+    // eslint-disable-next-line react/display-name
+    [HistoryActions.CHANGED_FILTERS_ON_FLAG]: (detail) => (
+        <>
+            changed the filters to <pre>{JSON.stringify(detail.to)}</pre>
+        </>
+    ),
     [HistoryActions.SOFT_DELETED_FLAG]: () => `deleted the flag`,
     [HistoryActions.CHANGED_ROLLOUT_PERCENTAGE_ON_FLAG]: (detail) => `changed rollout percentage to ${detail.to}`,
     [HistoryActions.CHANGED_KEY_ON_FLAG]: (detail) => `changed the flag key to ${detail.to}`,

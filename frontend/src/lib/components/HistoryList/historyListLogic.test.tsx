@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { mockAPI } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
+import React from 'react'
 
 jest.mock('lib/api')
 
@@ -27,7 +28,11 @@ const aHumanizedPageOfHistory: HumanizedHistoryListItem[] = [
     {
         email: 'guido@posthog.com',
         name: 'guido',
-        description: 'changed the filters to filter info',
+        description: (
+            <>
+                changed the filters to <pre>{JSON.stringify({ filter: 'info' })}</pre>
+            </>
+        ),
         created_at: dayjs('2022-02-08T16:28:39.594Z'),
     },
 ]
@@ -59,7 +64,7 @@ const aPageOfHistory: HistoryListItem[] = [
         action: HistoryActions.CHANGED_FILTERS_ON_FLAG,
         detail: {
             id: 7,
-            to: 'filter info',
+            to: { filter: 'info' },
         },
         created_at: '2022-02-08T16:28:39.594Z',
     },
