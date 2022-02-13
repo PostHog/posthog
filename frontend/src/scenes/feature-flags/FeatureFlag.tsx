@@ -27,6 +27,8 @@ import {
     LockOutlined,
 } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic as currentFlagsLogic } from '../../lib/logic/featureFlagLogic'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
@@ -41,6 +43,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
 import { FeatureFlagTab, FeatureFlagTabs } from 'scenes/feature-flags/FeatureFlagTabs'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -61,10 +64,12 @@ export function FeatureFlagPageHeader({
     activeTab: FeatureFlagTab
     id: string | number | null
 }): JSX.Element {
+    const { featureFlags } = useValues(currentFlagsLogic)
+
     return (
         <>
-            <PageHeader title="Feature Flag" tabbedPage={true} />
-            {<FeatureFlagTabs tab={activeTab} id={id} />}
+            <PageHeader title="Feature Flag" tabbedPage={!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS]} />
+            {!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS] && <FeatureFlagTabs tab={activeTab} id={id} />}
         </>
     )
 }

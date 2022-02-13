@@ -120,6 +120,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+    HISTORY_LOGS: '8545-history-logs', // owner: @pauldambra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
