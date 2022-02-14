@@ -10,7 +10,7 @@ export interface LemonSelectOption {
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'onChange'> {
+    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
     options: O
     value: keyof O
     onChange: (newValue: keyof O) => void
@@ -19,13 +19,12 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
 
 export function LemonSelect<O extends LemonSelectOptions>({
     value,
-    defaultValue,
     onChange,
     options,
     dropdownMatchSelectWidth = true,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
-    const [localValue, setLocalValue] = useState(value || defaultValue)
+    const [localValue, setLocalValue] = useState(value)
 
     useEffect(() => {
         if (!buttonProps.loading) {
