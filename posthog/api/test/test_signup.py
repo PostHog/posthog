@@ -648,7 +648,7 @@ class TestInviteSignup(APIBaseTest):
         self.team.save()
         team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+privatepublic@posthog.com", organization=self.organization,
+            target_email="test+privatepublic-hazzadous-test-ci@posthog.com", organization=self.organization,
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"},
