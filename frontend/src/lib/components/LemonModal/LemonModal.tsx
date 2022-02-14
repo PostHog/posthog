@@ -8,12 +8,15 @@ import './LemonModal.scss'
 /** A lightweight wrapper over Ant's Modal for matching Lemon style. */
 export function LemonModal({
     className,
+    footer = null,
+    width = 480,
     ...modalProps
-}: React.PropsWithChildren<Omit<ModalProps, 'title' | 'footer'>>): JSX.Element {
+}: React.PropsWithChildren<ModalProps>): JSX.Element {
     return (
         <Modal
             {...modalProps}
-            footer={null}
+            footer={footer}
+            width={width}
             closeIcon={<LemonButton icon={<IconClose />} type="stealth" />}
             className={clsx('LemonModal', className)}
         />

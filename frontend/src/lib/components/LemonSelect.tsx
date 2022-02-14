@@ -19,12 +19,13 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
 
 export function LemonSelect<O extends LemonSelectOptions>({
     value,
+    defaultValue,
     onChange,
     options,
     dropdownMatchSelectWidth = true,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
-    const [localValue, setLocalValue] = useState(value)
+    const [localValue, setLocalValue] = useState(value || defaultValue)
 
     useEffect(() => {
         if (!buttonProps.loading) {

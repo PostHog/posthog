@@ -1,11 +1,11 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Input, Row, Tabs } from 'antd'
+import { Button, Card, Col, Input, Row, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
-import { NewDashboard } from 'scenes/dashboard/NewDashboard'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -31,8 +31,8 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
-    const { setNewDashboardDrawer, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { showNewDashboardModal, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
+    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
@@ -148,12 +148,13 @@ export function Dashboards(): JSX.Element {
 
     return (
         <div>
+            <NewDashboardModal />
             <PageHeader
                 title="Dashboards"
                 buttons={
                     <Button
                         data-attr={'new-dashboard'}
-                        onClick={() => setNewDashboardDrawer(true)}
+                        onClick={showNewDashboardModal}
                         type="primary"
                         icon={<PlusOutlined />}
                     >
@@ -183,16 +184,6 @@ export function Dashboards(): JSX.Element {
                 />
             </div>
             <LemonSpacer large />
-            <Drawer
-                title="New Dashboard"
-                width={400}
-                onClose={() => setNewDashboardDrawer(false)}
-                destroyOnClose={true}
-                visible={newDashboardDrawer}
-            >
-                <NewDashboard />
-            </Drawer>
-
             {dashboardsLoading ? (
                 <div className="flex-center" style={{ flexDirection: 'column' }}>
                     <Spinner />
