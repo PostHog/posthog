@@ -150,6 +150,7 @@ class PluginSerializer(serializers.ModelSerializer):
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
+        validated_data["updated_at"] = now()
         return super().update(plugin, validated_data)
 
 
