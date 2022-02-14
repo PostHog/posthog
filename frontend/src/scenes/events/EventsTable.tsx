@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { DownloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, FilterOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button } from 'antd'
+import { Button, Typography } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -68,6 +68,7 @@ export function EventsTable({
         fetchMonths,
     })
     const {
+        showFilters,
         properties,
         eventsFormatted,
         isLoading,
@@ -82,6 +83,7 @@ export function EventsTable({
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const {
+        setShowFilters,
         fetchNextEvents,
         prependNewEvents,
         setEventFilter,
@@ -347,20 +349,63 @@ export function EventsTable({
                             alignItems: 'start',
                         }}
                     >
-                        <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
-                            <EventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
+                        <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column' }}>
+                            <div
+                                style={{
+                                    display: showFilters ? undefined : 'none',
+                                    maxWidth: 700,
+                                    padding: '1rem',
+                                    border: 'var(--border) solid 1px',
+                                    flex: 1,
+                                    borderRadius: 'var(--border)',
                                 }}
-                            />
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={setProperties}
-                                pageKey={pageKey}
-                                style={{ marginBottom: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
-                            />
+                            >
+                                <div>
+                                    <Typography.Text strong style={{ marginBottom: '1rem' }}>
+                                        Filter by event
+                                        <Tooltip title="Show all occurrences of a specific event.">
+                                            <InfoCircleOutlined
+                                                className="info-icon ml-05"
+                                                style={{ color: 'var(--primary)' }}
+                                            />
+                                        </Tooltip>
+                                    </Typography.Text>
+                                    <EventName
+                                        value={eventFilter}
+                                        onChange={(value: string) => {
+                                            setEventFilter(value || '')
+                                        }}
+                                        style={{ marginTop: '1rem' }}
+                                    />
+                                </div>
+                                <div style={{ marginTop: '2rem' }}>
+                                    <Typography.Text strong>
+                                        Filter by properties, cohorts, and elements
+                                        <Tooltip title="Show events by properties or cohorts that match the set criteria.">
+                                            <InfoCircleOutlined
+                                                className="info-icon ml-05"
+                                                style={{ color: 'var(--primary)' }}
+                                            />
+                                        </Tooltip>
+                                    </Typography.Text>
+                                    <PropertyFilters
+                                        propertyFilters={properties}
+                                        onChange={setProperties}
+                                        pageKey={pageKey}
+                                        style={{ marginBottom: 0, marginTop: '1rem' }}
+                                        eventNames={eventFilter ? [eventFilter] : []}
+                                    />
+                                </div>
+                            </div>
+                            <Button
+                                data-attr="show-events-table-filters"
+                                style={{ display: showFilters ? 'none' : undefined }}
+                                onClick={() => {
+                                    setShowFilters(true)
+                                }}
+                            >
+                                <FilterOutlined /> Filter events
+                            </Button>
                         </div>
 
                         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>

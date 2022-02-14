@@ -20,6 +20,7 @@ const interceptPropertyDefinitions = () => {
 }
 
 const selectNewTimestampPropertyFilter = () => {
+    cy.get('[data-attr=show-events-table-filters]').click()
     cy.get('[data-attr=new-prop-filter-EventsTable]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
     cy.get('.taxonomic-list-row').should('have.length', 1).click()
@@ -73,6 +74,7 @@ describe('Events', () => {
     })
 
     it('Apply 1 overall filter', () => {
+        cy.get('[data-attr=show-events-table-filters]').click()
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
@@ -92,6 +94,7 @@ describe('Events', () => {
     })
 
     it('use less than and greater than with a numeric property', () => {
+        cy.get('[data-attr=show-events-table-filters]').click()
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()

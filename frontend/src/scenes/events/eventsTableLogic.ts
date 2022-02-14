@@ -109,9 +109,16 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
         startDownload: true,
+        setShowFilters: (showFilters: boolean) => ({ showFilters }),
     },
 
     reducers: {
+        showFilters: [
+            false,
+            {
+                setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
         pollingIsActive: [
             true,
             {
