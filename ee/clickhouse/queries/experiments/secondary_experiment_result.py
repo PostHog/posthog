@@ -62,7 +62,7 @@ class ClickhouseSecondaryExperimentResult:
         else:
             raise ValidationError("Secondary metrics need to be funnel or trend insights")
 
-        return variants
+        return {"result": variants}
 
     def get_funnel_conversion_rate_for_variants(self, insight_results) -> Dict[str, float]:
         variants = {}
