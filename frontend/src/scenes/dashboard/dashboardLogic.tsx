@@ -4,11 +4,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { clearDOMTextSelection, editingToast, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
-    FEATURE_FLAGS,
     PATHS_VIZ,
     DashboardPrivilegeLevel,
     OrganizationMembershipLevel,
@@ -88,7 +87,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: true,
         updateItemColor: (insightId: number, color: string | null) => ({ insightId, color }),
         removeItem: (insightId: number) => ({ insightId }),
-        setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -233,12 +231,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     return {
                         ...state,
                         items: state?.items.filter((i) => i.id !== insightId),
-                    } as DashboardType
-                },
-                setDiveDashboard: (state, { insightId, dive_dashboard }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.id === insightId ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -394,11 +386,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         layouts: [
-            (s) => [s.items, s.featureFlags],
-            (items, featureFlags) => {
+            (s) => [s.items],
+            (items) => {
                 // The dashboard redesign includes constraints on the size of dashboard items
-                const minW = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_WIDTH_UNITS : undefined
-                const minH = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_HEIGHT_UNITS : undefined
+                const minW = MIN_ITEM_WIDTH_UNITS
+                const minH = MIN_ITEM_HEIGHT_UNITS
 
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
@@ -534,11 +526,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
         beforeUnmount: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -595,9 +582,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, {
                 dashboard: null,
             } as Partial<InsightModel>)
-        },
-        setDiveDashboard: async ({ insightId, dive_dashboard }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
@@ -688,16 +672,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
-
-                if (!cache.draggingToastId && !values.featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN]) {
-                    cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
-                }
-            } else {
-                // Clean edit mode toast if applicable
-                if (cache.draggingToastId) {
-                    toast.dismiss(cache.draggingToastId)
-                    cache.draggingToastId = null
-                }
             }
 
             if (mode) {

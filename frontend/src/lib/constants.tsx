@@ -106,7 +106,6 @@ export const FEATURE_FLAGS = {
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
-    DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
