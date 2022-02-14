@@ -83,31 +83,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) = 1) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) = 1) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   '
@@ -137,31 +137,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) = 1) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) = 1) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
@@ -229,30 +229,30 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE NOT person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE NOT person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   '
@@ -282,30 +282,30 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE NOT person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE NOT person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
@@ -343,31 +343,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) >= 2) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) >= 2) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   '
@@ -397,31 +397,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) >= 2) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) >= 2) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
@@ -489,31 +489,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) <= 1) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) <= 1) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   '
@@ -543,31 +543,31 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (SELECT person_id
-            FROM events
-            INNER JOIN
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
                WHERE team_id = 2
                GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-            WHERE team_id = 2
-              AND timestamp >= '2020-01-07 00:00:00'
-              AND timestamp <= '2020-01-10 00:00:00'
-              AND ((event = '$pageview'))
-            GROUP BY person_id
-            HAVING count(*) <= 1) )
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT person_id
+                 FROM events
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND timestamp >= '2020-01-07 00:00:00'
+                   AND timestamp <= '2020-01-10 00:00:00'
+                   AND ((event = '$pageview'))
+                 GROUP BY person_id
+                 HAVING count(*) <= 1) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000

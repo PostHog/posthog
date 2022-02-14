@@ -249,10 +249,10 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
-    from ee.clickhouse.models.property import parse_prop_clauses
+    from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_clauses(filters.properties, table_name="pdi")
+    filter_query, filter_params = parse_prop_grouped_clauses(filters.property_groups, table_name="pdi")
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
