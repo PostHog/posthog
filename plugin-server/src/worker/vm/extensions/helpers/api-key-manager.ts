@@ -1,7 +1,7 @@
 import { DB } from '../../../../utils/db/db'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { generateRandomToken, getByAge, UUIDT } from '../../../../utils/utils'
-import { RawOrganization } from './../../../../types'
+import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
 
 type PluginsApiKeyCache<T> = Map<RawOrganization['id'], [T, number]>
 
@@ -38,8 +38,8 @@ export class PluginsApiKeyManager {
         try {
             let key: string | null = null
             const userResult = await this.db.postgresQuery(
-                `SELECT id FROM posthog_user WHERE email LIKE $1`,
-                [`%@${POSTHOG_BOT_USER_EMAIL_DOMAIN}`],
+                `SELECT id FROM posthog_user WHERE current_organization_id = $1 AND email LIKE $2`,
+                [organizationId, `%@${POSTHOG_BOT_USER_EMAIL_DOMAIN}`],
                 'fetchPluginsUser'
             )
 
@@ -60,6 +60,7 @@ export class PluginsApiKeyManager {
                     date_joined: new Date(),
                     events_column_config: { active: 'DEFAULT' },
                     organization_id: organizationId,
+                    organizationMembershipLevel: OrganizationMembershipLevel.Admin,
                 })
 
                 key = await createNewKey(newUserResult.rows[0].id)

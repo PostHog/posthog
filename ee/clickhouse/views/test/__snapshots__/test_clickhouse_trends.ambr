@@ -1,6 +1,6 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT count(*) as data
   FROM
     (SELECT e.timestamp as timestamp
@@ -45,7 +45,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -113,7 +113,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -179,7 +179,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -239,7 +239,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -311,7 +311,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
@@ -330,7 +330,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -412,7 +412,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
@@ -431,7 +431,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -530,7 +530,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
