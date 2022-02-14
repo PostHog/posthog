@@ -6,10 +6,11 @@ from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
-from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import PropertyGroup
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
@@ -54,8 +55,18 @@ class TrendsEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_filters = [*self._filter.properties, *self._entity.properties]
-        prop_query, prop_params = self._get_props(prop_filters)
+        if self._filter.properties:
+            prop_filters = [*self._filter.properties, *self._entity.properties]
+            prop_query, prop_params = self._get_props(prop_filters)
+        else:
+            entity_prop_group = PropertyGroup(type=PropertyOperatorType.AND, groups=self._entity.properties)
+            combined_prop_group = (
+                PropertyGroup(type=PropertyOperatorType.AND, groups=[self._filter.property_groups, entity_prop_group])
+                if self._entity.properties
+                else self._filter.property_groups
+            )
+            prop_query, prop_params = self._get_prop_groups(combined_prop_group)
+
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()

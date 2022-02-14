@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
@@ -156,6 +156,17 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         """
 
         return query, date_params
+
+    def _get_prop_groups(self, prop_group: Optional[PropertyGroup]) -> Tuple[str, Dict]:
+        if not prop_group:
+            return "", {}
+
+        return parse_prop_grouped_clauses(
+            property_group=prop_group,
+            prepend=f"global",
+            allow_denormalized_props=True,
+            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+        )
 
     def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
         final = []

@@ -25,10 +25,12 @@ class SimplifyFilterMixin:
 
         # :TRICKY: Make a copy to avoid caching issues
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
+        new_group_props = []
         if getattr(result, "filter_test_accounts", False):
             result = result.with_data(
                 {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
             )
+            new_group_props += team.test_account_filters
 
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
@@ -38,8 +40,15 @@ class SimplifyFilterMixin:
         properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
         if getattr(result, "aggregation_group_type_index", None) is not None:
             properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
+            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))
 
-        return result.with_data({**updated_entities, "properties": properties,})
+        combined_group = {}
+        if new_group_props:
+            new_group = {"type": "AND", "groups": new_group_props}
+            serialized_old_group = result.property_groups_to_dict()["property_groups"]
+            combined_group = {"property_groups": {"type": "AND", "groups": [new_group, serialized_old_group]}}
+
+        return result.with_data({**updated_entities, "properties": properties, **combined_group})
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
