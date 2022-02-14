@@ -109,11 +109,11 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertDictContainsSubset(
-            {
-                "detail": "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
-            },
+        self.assertEquals(
             response_data,
+            self.permission_denied_response(
+                "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
+            ),
         )
 
     def test_can_set_dashboard_to_restrict_editing_as_other_user_who_is_project_admin(self):
@@ -172,11 +172,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertDictContainsSubset(
-            {
-                "detail": "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            },
-            response_data,
+        self.assertEquals(
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
 
     def test_cannot_delete_restricted_dashboard_as_other_user_who_is_project_member(self):
@@ -194,11 +191,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertDictContainsSubset(
-            {
-                "detail": "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            },
-            response_data,
+        self.assertEquals(
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
 
     def test_can_edit_restricted_dashboard_as_other_user_who_is_project_admin(self):

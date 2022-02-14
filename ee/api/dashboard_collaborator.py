@@ -13,7 +13,7 @@ from posthog.permissions import TeamMemberAccessPermission
 
 
 class CanEditDashboardCollaborator(BasePermission):
-    message = "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
+    message = "You don't have edit permissions for this dashboard."
 
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
