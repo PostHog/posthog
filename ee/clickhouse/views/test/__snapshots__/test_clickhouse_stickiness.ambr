@@ -18,7 +18,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
+       AND ((NOT has([''], $group_0)))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
@@ -44,8 +44,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND ((NOT has([''], $group_0)
+             AND NOT has([''], $group_0)))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -71,8 +71,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND ((NOT has([''], $group_0)
+             AND NOT has([''], $group_0)))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
@@ -98,8 +98,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND ((NOT has([''], $group_0)
+             AND NOT has([''], $group_0)))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
