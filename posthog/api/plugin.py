@@ -192,11 +192,14 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def check_for_updates(self, request: request.Request, **kwargs):
         if not can_install_plugins(self.organization):
             raise PermissionDenied("Plugin installation is not available for the current organization!")
+
         plugin = self.get_object()
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
-        plugin.latest_tag = latest_url.get("tag", latest_url.get("version", None))
-        plugin.latest_tag_checked_at = now()
-        plugin.save()
+
+        # use update to not trigger the post_save signal and avoid telling the plugin server to reload vms
+        Plugin.objects.filter(id=plugin.id).update(
+            latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
+        )
 
         return Response({"plugin": PluginSerializer(plugin).data})
 

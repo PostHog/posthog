@@ -913,6 +913,27 @@ class TestPluginAPI(APIBaseTest):
             ]
         )
 
+    def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        self.assertEqual(mock_reload.call_count, 1)
+
+        plugin_id = response.json()["id"]
+        plugin = Plugin.objects.get(id=plugin_id)
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        self.assertNotEqual(plugin.latest_tag_checked_at, fake_date)
+
+        with freeze_time(fake_date.isoformat()):
+            response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/check_for_updates")
+            plugin.refresh_from_db()
+
+            # make sure the update did happen
+            self.assertEqual(plugin.latest_tag_checked_at, fake_date)
+
+            # make sure we didn't emit a signal to reload plugins again
+            self.assertEqual(mock_reload.call_count, 1)
+
 
 class TestPluginsAccessLevelAPI(APIBaseTest):
     def test_root_check(self):
