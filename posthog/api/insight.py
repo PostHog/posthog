@@ -30,6 +30,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
+    BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -179,8 +180,8 @@ class InsightSerializer(InsightBasicSerializer):
             return insight.last_refresh
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
-            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
-            insight.refresh_from_db()
+            insight.last_refresh = None
+            insight.save()
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -238,9 +239,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "date_from":
-                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
-                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
@@ -291,7 +292,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = (
+            format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
+            if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
+            else None
+        )
         return Response({**result, "next": next})
 
     @cached_function
