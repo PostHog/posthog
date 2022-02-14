@@ -221,8 +221,13 @@ class QueryMatchingTest:
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
-            f"organization_id\" = '[^']+'::uuid",
-            "organization_id\" = '00000000-0000-0000-0000-000000000000'::uuid",
+            fr"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
+            query,
+        )
+        query = re.sub(
+            fr"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
             query,
         )
 

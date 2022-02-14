@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
@@ -24,16 +24,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.celery import update_cache_item_task
-from posthog.constants import (
-    INSIGHT_STICKINESS,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_STICKINESS,
-    AvailableFeature,
-)
+from posthog.constants import INSIGHT_STICKINESS, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.event_usage import report_user_action
-from posthog.filters import term_search_filter_sql
 from posthog.models import (
     Action,
     ActionStep,
@@ -45,6 +38,7 @@ from posthog.models import (
     Person,
     RetentionFilter,
 )
+from posthog.models.cohort import Cohort
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -53,6 +47,7 @@ from posthog.queries import base, retention, stickiness, trends
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import get_person_name
+from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -81,7 +76,7 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
         }
 
 
-class ActionSerializer(serializers.HyperlinkedModelSerializer):
+class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
@@ -92,6 +87,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "id",
             "name",
             "description",
+            "tags",
             "post_to_slack",
             "slack_message_format",
             "steps",
@@ -178,7 +174,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         return instance
 
 
-class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
@@ -368,10 +364,11 @@ def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
 
 def _filter_cohort_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
+        cohort = Cohort.objects.get(pk=int(cast(str, filter.breakdown_value)))
         events = events.filter(
             Exists(
                 CohortPeople.objects.filter(
-                    cohort_id=int(cast(str, filter.breakdown_value)), person_id=OuterRef("person_id"),
+                    cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
                 ).only("id")
             )
         )

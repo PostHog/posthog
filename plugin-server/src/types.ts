@@ -499,6 +499,7 @@ export interface DeadLetterQueueEvent {
     error_timestamp: string
     error_location: string
     error: string
+    tags: string[]
     _timestamp: string
     _offset: number
 }
@@ -614,6 +615,8 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
+    version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
@@ -846,4 +849,10 @@ export enum OrganizationPluginsAccessLevel {
     CONFIG = 3,
     INSTALL = 6,
     ROOT = 9,
+}
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
 }

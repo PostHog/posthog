@@ -19,6 +19,7 @@ interface InsightDisplayConfigProps {
     activeView: InsightType
     insightMode: ItemMode
     disableTable: boolean
+    disabled?: boolean
 }
 
 const showIntervalFilter = function (activeView: InsightType, filter: FilterType): boolean {
@@ -74,10 +75,14 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
+export function InsightDisplayConfig({
+    filters,
+    activeView,
+    disableTable,
+    disabled,
+}: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
-    const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
 
     return (
         <div className="display-config-inner">
@@ -87,7 +92,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
                             defaultValue="Last 7 days"
-                            disabled={dateFilterDisabled}
+                            disabled={disabled || (showFunnelBarOptions && isFunnelEmpty(filters))}
                             bordered
                             makeLabel={(key) => (
                                 <>
@@ -108,20 +113,20 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <span className="head-title-item">
                             <span className="hide-lte-md">grouped </span>by
                         </span>
-                        <IntervalFilter view={activeView} />
+                        <IntervalFilter view={activeView} disabled={disabled} />
                     </span>
                 )}
 
                 {activeView === InsightType.RETENTION && (
                     <>
-                        <RetentionDatePicker />
-                        <RetentionReferencePicker />
+                        <RetentionDatePicker disabled={disabled} />
+                        <RetentionReferencePicker disabled={disabled} />
                     </>
                 )}
 
                 {showPathOptions && (
                     <span className="filter">
-                        <PathStepPicker />
+                        <PathStepPicker disabled={disabled} />
                     </span>
                 )}
 
@@ -135,19 +140,22 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 {showChartFilter(activeView) && (
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>
-                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                        <ChartFilter
+                            filters={filters}
+                            disabled={disabled || filters.insight === InsightType.LIFECYCLE}
+                        />
                     </span>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <span className="filter">
-                            <FunnelDisplayLayoutPicker />
+                            <FunnelDisplayLayoutPicker disabled={disabled} />
                         </span>
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <span className="filter">
-                        <FunnelBinsPicker />
+                        <FunnelBinsPicker disabled={disabled} />
                     </span>
                 )}
             </div>

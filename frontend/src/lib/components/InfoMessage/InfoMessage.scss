@@ -8,8 +8,10 @@
     font-weight: 500;
     display: flex;
     align-items: center;
+}
 
-    .anticon {
-        margin-right: 0.75rem;
-    }
+.info-message__icon {
+    flex-shrink: 0;
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
 }

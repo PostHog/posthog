@@ -215,6 +215,9 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             null as CohortType[] | null,
             {
                 loadCohorts: async (): Promise<CohortType[] | null> => {
+                    if (!values.person?.id) {
+                        return null
+                    }
                     const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
                     return response.results
                 },

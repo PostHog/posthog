@@ -1,6 +1,8 @@
 from typing import Optional
 from uuid import uuid4
 
+from django.utils import timezone
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -53,7 +55,7 @@ class TestFilters(PGTestFilters):
             team=self.team,
             groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
         )
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 

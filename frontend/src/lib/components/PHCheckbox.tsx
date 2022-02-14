@@ -22,7 +22,7 @@ export const PHCheckbox = ({
             height: '16px',
             borderRadius: '3px',
             overflow: 'hidden',
-            cursor: disabled ? undefined : 'pointer',
+            cursor: disabled ? 'not-allowed' : 'pointer',
         }}
     >
         <div
@@ -32,6 +32,7 @@ export const PHCheckbox = ({
                 height: '100%',
                 background: checked || indeterminate ? color : 'lightgray',
                 transition: 'all 150ms',
+                opacity: disabled ? '0.6' : undefined,
             }}
             onClick={!disabled ? props.onChange : () => {}}
         >

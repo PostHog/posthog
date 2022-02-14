@@ -30,7 +30,7 @@ describe('Dashboard', () => {
         cy.get('th').contains('Tags').should('not.exist')
 
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
-        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.InsightCard').should('exist')
         cy.get('.dashboard-description').should('not.exist')
         cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
@@ -44,7 +44,7 @@ describe('Dashboard', () => {
 
     it('Share dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
-        cy.get('[data-attr=dashboard-item-0]').should('exist')
+        cy.get('.InsightCard').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
         cy.get('[data-attr=share-dashboard-switch]').click()
@@ -68,8 +68,8 @@ describe('Dashboard', () => {
         cy.get('.empty-state').should('exist')
 
         // Check that dashboard is not pinned by default
-        cy.get('[data-attr="dashboard-more"]').click()
-        cy.get('.ant-dropdown-menu-item span').contains('Pin dashboard').should('exist')
+        cy.get('.page-buttons [data-attr="more-button"]').click()
+        cy.get('button').contains('Pin dashboard').should('exist')
     })
 
     it('Create dashboard from a template', () => {
@@ -83,7 +83,7 @@ describe('Dashboard', () => {
         cy.get('button').contains('Create').click()
 
         cy.contains(TEST_DASHBOARD_NAME).should('exist')
-        cy.get('.dashboard-item').its('length').should('be.gte', 2)
+        cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
@@ -93,15 +93,15 @@ describe('Dashboard', () => {
 
     it('Click on a dashboard item dropdown and view graph', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown-view]').click()
+        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.get('button').contains('View').click()
         cy.location('pathname').should('include', '/insights')
     })
 
     it('Rename dashboard item', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr="dashboard-item-0-dropdown-rename"]').click({ force: true })
+        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.get('button').contains('Rename').click()
 
         cy.get('[data-attr=modal-prompt]').clear().type('Test Name')
         cy.contains('OK').click()
@@ -110,42 +110,30 @@ describe('Dashboard', () => {
 
     it('Color dashboard item', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr="dashboard-item-0-dropdown-color"]').trigger('mouseover')
-        cy.get('[data-attr="dashboard-item-0-dropdown-color-1"]').click({ force: true })
-        cy.get('[data-attr="dashboard-item-0"]').should(
-            'have.css',
-            'background',
-            'rgb(38, 98, 166) none repeat scroll 0% 0% / auto padding-box border-box'
-        ) //hard coded to the blue that's set
-    })
-
-    it('Copy dashboard item', () => {
-        cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr="dashboard-item-0-dropdown-copy"]').trigger('mouseover')
-        cy.get('[data-attr="dashboard-item-0-dropdown-copy-0"]').click({ force: true })
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.get('button').contains('Set color').click()
+        cy.get('button').contains('Green').click()
+        cy.get('.InsightCard .InsightMeta__ribbon').should('have.class', 'green')
     })
 
     it('Duplicate dashboard item', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr="dashboard-item-0-dropdown-duplicate"]').click({ force: true })
+        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.get('button').contains('Duplicate').click()
         cy.get('[data-attr=success-toast]').should('exist')
     })
 
     it('Move dashboard item', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('[data-attr=dashboard-item-0-dropdown]').click()
-        cy.get('[data-attr="dashboard-item-0-dropdown-move"]').trigger('mouseover')
-        cy.get('[data-attr="dashboard-item-0-dropdown-move-0"]').click({ force: true })
+        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.get('button').contains('Move to').click()
+        cy.get('button').contains('App Analytics').click()
         cy.get('[data-attr=success-toast]').should('exist')
     })
 
     it('Opens dashboard item in insights', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
-        cy.get('[data-attr=dashboard-item-0] .dashboard-item-title a').click()
+        cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
         cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
     })
