@@ -29,6 +29,8 @@ from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
     GET_DISTINCT_IDS_BY_PROPERTY_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
+    SELECT_PERSON_PROP_VALUES_SQL,
+    SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
 )
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
@@ -417,6 +419,14 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
         SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
         {"team_id": team.pk, "key": key},
     )
+
+
+def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    if value:
+        return sync_execute(
+            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+        )
+    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:

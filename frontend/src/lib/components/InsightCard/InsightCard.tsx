@@ -206,10 +206,10 @@ function InsightMeta({
                                 <h5>
                                     <span
                                         title={
-                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].description
+                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description
                                         }
                                     >
-                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].name}
+                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.name}
                                     </span>{' '}
                                     • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
@@ -399,7 +399,12 @@ function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizP
         >
             {loading && <Loading />}
             <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
-                <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+                <VizComponent
+                    dashboardItemId={short_id}
+                    cachedResults={cachedResults}
+                    filters={filters}
+                    showPersonsModal={false}
+                />
             </Alert.ErrorBoundary>
         </div>
     )
