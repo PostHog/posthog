@@ -104,6 +104,7 @@ export const FilterRow = React.memo(function FilterRow({
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <FilterButton
+                                            item={item}
                                             onClick={() => setOpen(!open)}
                                             onClose={() => onRemove(index)}
                                             setRef={setRef}
