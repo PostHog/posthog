@@ -292,7 +292,13 @@ def get_and_update_pending_version(cohort: Cohort):
 class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+    person: models.ForeignKey = models.ForeignKey(
+        "Person",
+        # NOTE: avoid constraint, we want to avoid any locks on related tables
+        # when inserting
+        db_constraint=False,
+        on_delete=models.CASCADE,
+    )
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     class Meta:
