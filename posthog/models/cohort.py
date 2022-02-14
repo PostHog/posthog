@@ -287,7 +287,7 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["cohort_id", "person_id"]),
+            models.Index(fields=["cohort_id", "version", "person_id"]),
         ]
 
 
