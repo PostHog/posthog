@@ -49,7 +49,6 @@ class Insight(models.Model):
     short_id: models.CharField = models.CharField(
         max_length=12, blank=True, default=generate_short_id,
     )
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
