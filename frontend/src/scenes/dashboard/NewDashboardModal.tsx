@@ -96,11 +96,11 @@ export function NewDashboardModal(): JSX.Element {
                         className="ph-ignore-input"
                     />
                 </Form.Item>
-                <Form.Item name="useTemplate" label="Use template">
+                <Form.Item name="useTemplate" label="Template">
                     <Select
                         data-attr="copy-from-template"
                         style={{ width: '100%' }}
-                        placeholder="Optionally select template"
+                        placeholder="Optionally start from template"
                     >
                         <Select.Option data-attr="dashboard-select-empty" value="">
                             Empty Dashboard
