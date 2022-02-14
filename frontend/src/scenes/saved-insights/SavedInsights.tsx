@@ -224,9 +224,13 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last modified',
             sorter: true,
-            dataIndex: 'updated_at',
-            render: function renderLastModified(updated_at: string) {
-                return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
+            dataIndex: 'last_modified_at',
+            render: function renderLastModified(last_modified_at: string) {
+                return (
+                    <div style={{ whiteSpace: 'nowrap' }}>
+                        {last_modified_at && <TZLabel time={last_modified_at} />}
+                    </div>
+                )
             },
         },
         {
