@@ -33,7 +33,7 @@ export function ExperimentPreview({
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
-        aggregationLabel
+        aggregationLabel,
     } = useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const sliderMaxValue =
@@ -197,11 +197,12 @@ export function ExperimentPreview({
                                     </div>
                                 ) : (
                                     <>
-                                        100% of{' '} {experiment?.filters?.aggregation_group_type_index != undefined
+                                        100% of{' '}
+                                        {experiment?.filters?.aggregation_group_type_index != undefined
                                             ? capitalizeFirstLetter(
-                                                aggregationLabel(experiment.filters.aggregation_group_type_index)
-                                                    .plural
-                                            )
+                                                  aggregationLabel(experiment.filters.aggregation_group_type_index)
+                                                      .plural
+                                              )
                                             : 'users'}
                                     </>
                                 )}

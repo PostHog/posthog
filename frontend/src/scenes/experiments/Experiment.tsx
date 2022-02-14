@@ -714,7 +714,7 @@ export function Experiment_(): JSX.Element {
                                     )}
                                     {(experimentResults || experimentData.secondary_metrics.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
-                                            {!!experimentData?.secondary_metrics.length && (
+                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && !!experimentData?.secondary_metrics.length && (
                                                 <Col className="border-bottom">
                                                     <Row align="middle" justify="space-between" className="mb-05">
                                                         <div className="card-secondary">Secondary metrics</div>

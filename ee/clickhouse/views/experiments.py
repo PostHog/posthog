@@ -226,8 +226,12 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
             secondary_metric_results = []
             for metric in experiment.secondary_metrics:
                 secondary_metric_result = ClickhouseSecondaryExperimentResult(
-                Filter(metric["filters"]), self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
-            ).get_results()
+                    Filter(metric["filters"]),
+                    self.team,
+                    experiment.feature_flag,
+                    experiment.start_date,
+                    experiment.end_date,
+                ).get_results()
                 secondary_metric_results.append({"name": metric["name"], "result": secondary_metric_result})
 
             result["secondary_metric_results"] = secondary_metric_results
