@@ -257,7 +257,7 @@ export interface PluginConfig {
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
-    updated_at: string
+    updated_at?: string
 }
 
 export interface PluginJsonConfig {
