@@ -112,10 +112,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response_data,
-            self.permission_denied_response(
-                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            ),
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
@@ -232,8 +229,5 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response_data,
-            self.permission_denied_response(
-                "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            ),
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )

@@ -18,6 +18,7 @@ class AvailableFeature(str, Enum):
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
+    TAGGING = "tagging"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -218,3 +219,4 @@ class PropertyOperatorType(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+BREAKDOWN_VALUES_LIMIT = 25

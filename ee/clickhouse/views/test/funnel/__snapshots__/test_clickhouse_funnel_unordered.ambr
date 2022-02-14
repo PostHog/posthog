@@ -1,6 +1,6 @@
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,

@@ -24,7 +24,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
-from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
+from posthog.constants import BREAKDOWN_TYPES, BREAKDOWN_VALUES_LIMIT, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
@@ -39,7 +39,7 @@ def get_breakdown_prop_values(
     entity: Entity,
     aggregate_operation: str,
     team_id: int,
-    limit: int = 25,
+    limit: int = BREAKDOWN_VALUES_LIMIT,
     extra_params={},
     column_optimizer: Optional[ColumnOptimizer] = None,
 ):

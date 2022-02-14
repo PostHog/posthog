@@ -36,6 +36,7 @@ import {
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
+    OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
     PluginConfig,
@@ -46,7 +47,6 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    PropertyUpdateOperation,
     RawAction,
     RawGroup,
     RawOrganization,
@@ -113,6 +113,7 @@ export interface CreateUserPayload {
     date_joined: Date
     events_column_config: Record<string, string> | null
     organization_id?: RawOrganization['id']
+    organizationMembershipLevel?: number
 }
 
 export interface CreatePersonalApiKeyPayload {
@@ -1327,10 +1328,11 @@ export class DB {
         date_joined,
         events_column_config,
         organization_id,
+        organizationMembershipLevel = OrganizationMembershipLevel.Member,
     }: CreateUserPayload): Promise<QueryResult> {
         const createUserResult = await this.postgresQuery(
-            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id`,
             [
                 uuid.toString(),
@@ -1343,6 +1345,7 @@ export class DB {
                 is_active,
                 date_joined.toISOString(),
                 events_column_config,
+                organization_id,
             ],
             'createUser'
         )
@@ -1352,7 +1355,14 @@ export class DB {
             await this.postgresQuery(
                 `INSERT INTO posthog_organizationmembership (id, organization_id, user_id, level, joined_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [new UUIDT().toString(), organization_id, createUserResult.rows[0].id, 1, now, now],
+                [
+                    new UUIDT().toString(),
+                    organization_id,
+                    createUserResult.rows[0].id,
+                    organizationMembershipLevel,
+                    now,
+                    now,
+                ],
                 'createOrganizationMembership'
             )
         }

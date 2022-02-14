@@ -1,6 +1,6 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -108,7 +108,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
