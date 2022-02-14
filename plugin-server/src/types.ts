@@ -853,3 +853,9 @@ export enum OrganizationPluginsAccessLevel {
     INSTALL = 6,
     ROOT = 9,
 }
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
+}

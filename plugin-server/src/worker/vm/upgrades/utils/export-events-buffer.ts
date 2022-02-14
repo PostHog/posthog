@@ -45,7 +45,7 @@ export class ExportEventsBuffer {
     }
 
     public async flush(): Promise<void> {
-        this.hub.statsd?.increment(`buffer_voided_promises`)
+        this.hub.statsd?.increment(`buffer_voided_promises`, { instanceId: this.hub.instanceId.toString() })
 
         const oldBuffer = this.buffer
         const oldPoints = this.points
