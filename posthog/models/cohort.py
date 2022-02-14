@@ -80,6 +80,7 @@ class Cohort(models.Model):
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)

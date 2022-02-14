@@ -308,6 +308,9 @@ def recalculate_cohortpeople(cohort: Cohort):
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
 
     count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+    cohort.count = count
+    cohort.save()
+
     logger.info(
         "Recalculating cohortpeople done",
         team_id=cohort.team_id,
