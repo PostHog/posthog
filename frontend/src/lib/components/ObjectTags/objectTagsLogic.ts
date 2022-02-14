@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { objectTagsLogicType } from './objectTagsLogicType'
 import { errorToast } from 'lib/utils'
 
-interface ObjectTagsLogicProps {
+export interface ObjectTagsLogicProps {
     id?: string
     onChange?: (tag: string, tags: string[], id?: string) => void
     tags: string[]
@@ -22,7 +22,7 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
         setAddingNewTag: (addingNewTag: boolean) => ({ addingNewTag }),
         setNewTag: (newTag: string) => ({ newTag }),
         handleDelete: (tag: string) => ({ tag }),
-        handleAdd: (tag: string) => ({ tag }),
+        handleAdd: true,
     },
     reducers: ({ props }) => ({
         tags: [
@@ -55,21 +55,23 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
     },
     listeners: ({ values, props, actions }) => ({
         handleDelete: async ({ tag }, breakpoint) => {
-            // Universal breakpoint since object tags can be used async or sync
             const newTags = values.tags.filter((_t) => _t !== tag)
             props.onChange?.(tag, newTags, props.id)
-            actions.setTags(newTags) // Update local state
+
+            // Update local state so that frontend is not blocked by server requests
+            actions.setTags(newTags)
             breakpoint()
         },
         handleAdd: async (_, breakpoint) => {
-            // Universal breakpoint since object tags can be used async or sync
             if (values.tags?.includes(values.cleanedNewTag)) {
                 errorToast("Oops! Can't add that tag", 'That tag already exists.', 'Validation error')
                 return
             }
             const newTags = [...(values.tags || []), values.cleanedNewTag]
             props.onChange?.(values.cleanedNewTag, newTags, props.id)
-            actions.setTags(newTags) // Update local state
+
+            // Update local state so that frontend is not blocked by server requests
+            actions.setTags(newTags)
             actions.setNewTag('')
             actions.setAddingNewTag(false)
             breakpoint()
