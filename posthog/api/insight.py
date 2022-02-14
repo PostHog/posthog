@@ -179,8 +179,8 @@ class InsightSerializer(InsightBasicSerializer):
             return insight.last_refresh
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
-            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
-            insight.refresh_from_db()
+            insight.last_refresh = None
+            insight.save()
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -238,9 +238,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "date_from":
-                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
-                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":

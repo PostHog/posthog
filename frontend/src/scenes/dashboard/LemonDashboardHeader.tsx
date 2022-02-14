@@ -21,7 +21,7 @@ import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function LemonDashboardHeader(): JSX.Element | null {
+export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)

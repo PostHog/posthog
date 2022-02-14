@@ -27,6 +27,7 @@
         overflow: auto;
     }
     &--editing .EditableField--highlight {
+        flex-grow: 1;
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
