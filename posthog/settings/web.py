@@ -227,3 +227,5 @@ def add_recorder_js_headers(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
+
+CSRF_COOKIE_NAME = "posthog_csrftoken"
