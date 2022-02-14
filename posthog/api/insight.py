@@ -30,6 +30,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
+    BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -291,7 +292,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = (
+            format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
+            if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
+            else None
+        )
         return Response({**result, "next": next})
 
     @cached_function

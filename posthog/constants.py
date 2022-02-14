@@ -213,3 +213,4 @@ class ExperimentSignificanceCode(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+BREAKDOWN_VALUES_LIMIT = 25
