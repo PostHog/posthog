@@ -319,6 +319,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["name"], "insight new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["description"], "Internal system metrics.")
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
@@ -414,7 +418,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
@@ -422,13 +426,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
             self.assertEqual(spy_update_dashboard_item_cache.call_count, 2)
             self.assertEqual(response["last_refresh"], None)
-            self.assertEqual(response["updated_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
@@ -546,7 +550,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("offset=20", response.json()["next"])
+        self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])

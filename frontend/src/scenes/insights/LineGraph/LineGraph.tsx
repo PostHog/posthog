@@ -53,10 +53,10 @@ interface LineGraphProps {
     insightId?: number
     inSharedMode?: boolean
     percentage?: boolean
-    interval?: IntervalType // TODO: Depecrate once LEGACY_LineGraph is removed
-    totalValue?: number // TODO: Depecrate once LEGACY_LineGraph is removed
+    interval?: IntervalType // TODO: Deprecate once LEGACY_LineGraph is removed
+    totalValue?: number // TODO: Deprecate once LEGACY_LineGraph is removed
+    tooltipPreferAltTitle?: boolean // TODO: Deprecate once LEGACY_LineGraph is removed
     showPersonsModal?: boolean
-    tooltipPreferAltTitle?: boolean // TODO: Depecrate once LEGACY_LineGraph is removed
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
@@ -361,7 +361,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                         renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
                                         groupTypeLabel={
                                             labelGroupType === 'people'
                                                 ? 'people'

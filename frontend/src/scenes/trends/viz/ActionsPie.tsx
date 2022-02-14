@@ -10,7 +10,6 @@ import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsPie({
-    dashboardItemId,
     filters: filtersParam,
     color = 'white',
     inSharedMode,
@@ -70,8 +69,9 @@ export function ActionsPie({
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
                         insightId={insight.id}
+                        showPersonsModal={showPersonsModal}
                         onClick={
-                            dashboardItemId || filtersParam.formula || !showPersonsModal
+                            !showPersonsModal || filtersParam.formula
                                 ? undefined
                                 : (payload) => {
                                       const { points, index, seriesId } = payload

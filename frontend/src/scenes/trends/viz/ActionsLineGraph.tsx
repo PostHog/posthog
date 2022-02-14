@@ -15,7 +15,7 @@ export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -57,7 +57,7 @@ export function ActionsLineGraph({
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
+                !showPersonsModal || isMultiSeriesFormula(filters.formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset, seriesId } = payload
@@ -96,6 +96,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={isViewedOnDashboard} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }
