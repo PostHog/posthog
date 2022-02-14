@@ -136,6 +136,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
         validated_data["organization_id"] = self.context["organization_id"]
+        validated_data["updated_at"] = now()
         if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
             raise PermissionDenied("This organization can't manage global plugins!")
         plugin = Plugin.objects.install(**validated_data)

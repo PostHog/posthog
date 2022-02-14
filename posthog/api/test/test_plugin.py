@@ -208,9 +208,10 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 201)
 
         plugin = Plugin.objects.get(id=response.json()["id"])
-        self.assertEqual(plugin.updated_at, None)
 
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        self.assertNotEqual(plugin.updated_at, fake_date)
+
         with freeze_time(fake_date.isoformat()):
             api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
             response = self.client.post(api_url, {"url": repo_url})
@@ -524,11 +525,18 @@ class TestPluginAPI(APIBaseTest):
         other_org = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
-        response = self.client.post(
-            f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Plugin.objects.count(), 1)
+
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        with freeze_time(fake_date.isoformat()):
+            response = self.client.post(
+                f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
+
+            plugin = Plugin.objects.all()[0]
+            self.assertEqual(plugin.updated_at, fake_date)
+
         response = self.client.post(
             f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
