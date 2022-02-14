@@ -34,7 +34,8 @@ ROBOTS_TXT_CONTENT = (
     Disallow: /
     """
     if settings.MULTI_TENANCY
-    else """User-agent: *
+    else """
+    User-agent: *
     Disallow: /
     """
 )
