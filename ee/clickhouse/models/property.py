@@ -97,6 +97,8 @@ def parse_prop_grouped_clauses(
                 group_clauses.append(clause)
                 final_params.update(params)
 
+        # purge empty returns
+        group_clauses = [clause for clause in group_clauses if clause]
         _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
