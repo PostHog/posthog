@@ -1,6 +1,5 @@
 from rest_framework import decorators, exceptions
 
-from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
@@ -104,7 +103,6 @@ from posthog.api.action import ActionViewSet
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
 from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
-from posthog.api.insight import InsightViewSet
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet
 
 # Legacy endpoints CH (to be removed eventually)
@@ -119,7 +117,7 @@ projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
-projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
@@ -127,12 +125,3 @@ projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_
 projects_router.register(
     r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
-
-if settings.EE_AVAILABLE:
-    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-
-    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
-else:
-    from posthog.api.insight import InsightViewSet
-
-    projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])

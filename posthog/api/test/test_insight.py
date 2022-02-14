@@ -325,6 +325,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["description"], "Internal system metrics.")
         self.assertEqual(response_data["tags"], ["official", "engineering"])
+        self.assertEqual(
+            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
         insight.refresh_from_db()
         self.assertEqual(insight.name, "insight new name")
