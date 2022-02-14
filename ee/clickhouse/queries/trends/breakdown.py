@@ -3,7 +3,7 @@ import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
@@ -40,9 +40,11 @@ from posthog.constants import (
     TRENDS_CUMULATIVE,
     TRENDS_DISPLAY_BY_VALUE,
     WEEKLY_ACTIVE,
+    PropertyOperatorType,
 )
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.property import PropertyGroup
 from posthog.utils import encode_get_request_params
 
 
@@ -64,8 +66,10 @@ class ClickhouseTrendsBreakdown:
         _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team_id=self.team_id)
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE,
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            PropertyGroup(type=PropertyOperatorType.AND, groups=props_to_filter),
+            table_name="e",
+            person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 

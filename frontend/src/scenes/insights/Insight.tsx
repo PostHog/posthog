@@ -191,9 +191,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                     staticOnly
                                 />
                             ) : null)}
-                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
-                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
-                        )}
+                        <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }
             />
