@@ -201,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
                 )
             )
         )
