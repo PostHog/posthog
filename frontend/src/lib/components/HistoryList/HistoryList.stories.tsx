@@ -17,7 +17,7 @@ export const WithData = (): JSX.Element => {
         <Provider>
             <Row>
                 <Col span={24}>
-                    <HistoryList type={'feature_flags'} id={7} />
+                    <HistoryList type={'FeatureFlag'} id={7} />
                 </Col>
             </Row>
         </Provider>
@@ -31,7 +31,7 @@ export const WithNoData = (): JSX.Element => {
     return (
         <Provider>
             <Row>
-                <HistoryList type={'feature_flags'} id={6} />
+                <HistoryList type={'FeatureFlag'} id={6} />
             </Row>
         </Provider>
     )
