@@ -1,5 +1,5 @@
 from itertools import zip_longest
-from typing import Iterable, List, Tuple, Union
+from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import structlog
 from django.core import serializers as django_serilizers
@@ -60,6 +60,10 @@ class HistoryListItemSerializer(serializers.Serializer):
     created_at = serializers.CharField(read_only=True)
 
 
+def _should_log_history(instance: Any) -> bool:
+    return instance.__class__.__name__ in ["FeatureFlag"]
+
+
 class HistoryLoggingMixin:
     def perform_create(self, serializer):
         serializer.save()
@@ -114,15 +118,18 @@ class AnalyticsDestroyModelMixin:
 
         metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
 
-        # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
-        # TRICKY serializing the instance here isn't straightforward
-        # approach taken from https://stackoverflow.com/a/2391243
-        state: str = django_serilizers.serialize("json", [instance])[1:-1]
+        state: Optional[str] = None
+        if _should_log_history(instance):
+            # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
+            # TRICKY serializing the instance here isn't straightforward
+            # approach taken from https://stackoverflow.com/a/2391243
+            state = django_serilizers.serialize("json", [instance])[1:-1]
 
         instance.delete()
 
         report_user_action(request.user, f"{instance._meta.verbose_name} deleted", metadata)
 
-        _version_from_request(instance, state, request, "delete")
+        if _should_log_history(instance) and state:
+            _version_from_request(instance, state, request, "delete")
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
