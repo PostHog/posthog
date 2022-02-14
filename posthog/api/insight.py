@@ -302,7 +302,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         filter = Filter(request=request, team=self.team)
         next = (
             format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
-            if len(result["result"]) > BREAKDOWN_VALUES_LIMIT
+            if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
             else None
         )
         return Response({**result, "next": next})
