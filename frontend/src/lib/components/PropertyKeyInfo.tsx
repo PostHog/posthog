@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 
@@ -569,7 +569,15 @@ export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
     )
 }
 
-export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
+export function PropertyKeyDescription({
+    data,
+    value,
+    item,
+}: {
+    data: KeyMapping
+    value: string
+    item?: PropertyDefinition | null
+}): JSX.Element {
     return (
         <span>
             {data.description ? <p>{data.description}</p> : null}
@@ -581,6 +589,7 @@ export function PropertyKeyDescription({ data, value }: { data: KeyMapping; valu
             ) : null}
             {data.description || data.examples ? <hr /> : null}
             Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
+            {item && item.property_type && <div className="property-value-type">{item.property_type}</div>}
         </span>
     )
 }

@@ -228,9 +228,21 @@ function Card({ title, value }: { title: string; value: React.ReactNode }): JSX.
     )
 }
 
+function Type({ item }: { item: PropertyDefinition | null }): JSX.Element {
+    console.log({ item, pt: item?.property_type })
+    return item && item.property_type ? (
+        <div className="definition-popup-grid-card">
+            <div className="property-value-type">{item.property_type}</div>
+        </div>
+    ) : (
+        <></>
+    )
+}
+
 DefinitionPopup.Description = Description
 DefinitionPopup.DescriptionEmpty = DescriptionEmpty
 DefinitionPopup.Example = Example
+DefinitionPopup.Type = Type
 DefinitionPopup.TimeMeta = TimeMeta
 DefinitionPopup.HorizontalLine = HorizontalLine
 DefinitionPopup.Grid = Grid
@@ -441,6 +453,7 @@ export const renderItemPopup = (
                 <DefinitionPopup.HorizontalLine />
                 {/* Things start to get different here */}
                 {renderRestOfDefinition(item, listGroupType, hasTaxonomyFeatures)}
+                <DefinitionPopup.Type item={item as PropertyDefinition} />
             </DefinitionPopup>
         </BindLogic>
     )
