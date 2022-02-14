@@ -43,7 +43,7 @@ class SimplifyFilterMixin:
             new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))
 
         combined_group = {}
-        if new_group_props:
+        if new_group_props and result.property_groups_to_dict():
             new_group = {"type": "AND", "groups": new_group_props}
             serialized_old_group = result.property_groups_to_dict()["property_groups"]
             combined_group = {"property_groups": {"type": "AND", "groups": [new_group, serialized_old_group]}}
