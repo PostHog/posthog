@@ -1,3 +1,4 @@
+import json
 from itertools import zip_longest
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
@@ -22,11 +23,14 @@ def pairwise(t: List[HistoricalVersion]) -> Iterable[Tuple[HistoricalVersion, Un
 
 
 def _version_from_request(instance, state: str, request, action: str) -> None:
+    instance_state = json.loads(state)
+    id = instance_state["pk"]  # because deleted instances have no primary key
+
     version = HistoricalVersion(
         state=state,
         name=instance.__class__.__name__,
         action=action,
-        item_id=instance.id,
+        item_id=id,
         created_by_name=request.user.first_name,
         created_by_email=request.user.email,
         created_by_id=request.user.id,
