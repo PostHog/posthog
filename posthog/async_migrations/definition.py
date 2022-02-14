@@ -15,7 +15,7 @@ class AsyncMigrationType:
     current_operation_index: int
     current_query_id: str
     celery_task_id: str
-    started_at: str
+    started_at: datetime
     finished_at: datetime
     posthog_min_version: str
     posthog_max_version: str

@@ -100,9 +100,10 @@ export function ActionsHorizontalBar({
             insightId={insight.id}
             totalValue={total}
             hiddenLegendKeys={hiddenLegendKeys}
+            showPersonsModal={showPersonsModal}
             interval={filtersParam?.interval}
             onClick={
-                dashboardItemId || filtersParam.formula || !showPersonsModal
+                !showPersonsModal || filtersParam.formula
                     ? undefined
                     : (point) => {
                           const { value: pointValue, index, points, seriesId } = point
