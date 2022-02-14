@@ -27,8 +27,16 @@ from posthog.utils import (
 )
 from posthog.version import VERSION
 
+# These are the same for now, but we'll keep them separate just in case we need to tweak
 ROBOTS_TXT_CONTENT = (
-    "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
+    """
+    User-agent: *
+    Disallow: /
+    """
+    if settings.MULTI_TENANCY
+    else """User-agent: *
+    Disallow: /
+    """
 )
 
 
