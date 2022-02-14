@@ -126,17 +126,17 @@ export function Experiment_(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
-                0
-            )
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                  0
+              )
             : 0
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                (experimentData?.parameters?.recommended_running_time || 1)) *
-            100
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -332,7 +332,7 @@ export function Experiment_(): JSX.Element {
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
-                                                            undefined
+                                                        undefined
                                                             ? newExperimentData.filters.aggregation_group_type_index
                                                             : -1
                                                     }
@@ -714,57 +714,87 @@ export function Experiment_(): JSX.Element {
                                     )}
                                     {(experimentResults || experimentData.secondary_metrics.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && !!experimentData?.secondary_metrics.length && (
-                                                <Col className="border-bottom">
-                                                    <Row align="middle" justify="space-between" className="mb-05">
-                                                        <div className="card-secondary">Secondary metrics</div>
-                                                        {experimentData?.parameters?.feature_flag_variants?.map(
-                                                            (variant, idx) => (
-                                                                <li
-                                                                    key={idx}
-                                                                    style={{
-                                                                        color: `${experimentInsightType ===
-                                                                                InsightType.FUNNELS
-                                                                                ? getSeriesColor(
-                                                                                    getIndexForVariant(
-                                                                                        variant.key,
-                                                                                        InsightType.FUNNELS
-                                                                                    ) + 1
-                                                                                ) // baseline takes 0th index
-                                                                                : getChartColors('white')[
-                                                                                getIndexForVariant(
-                                                                                    variant.key,
-                                                                                    InsightType.TRENDS
-                                                                                )
-                                                                                ]
-                                                                            }`,
-                                                                    }}
-                                                                    className="pr"
-                                                                >
-                                                                    <span className="text-default">
-                                                                        {capitalizeFirstLetter(variant.key)}
-                                                                    </span>
-                                                                </li>
-                                                            )
-                                                        )}
-                                                    </Row>
-                                                    {experimentResults?.secondary_metric_results?.map((metric, idx) => (
-                                                        <Row
-                                                            className="border-top"
-                                                            key={idx}
-                                                            justify="space-between"
-                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
-                                                        >
-                                                            <div>{capitalizeFirstLetter(metric.name)}</div>
+                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
+                                                !!experimentData?.secondary_metrics.length && (
+                                                    <Col className="border-bottom">
+                                                        <Row align="middle" justify="space-between" className="mb-05">
+                                                            <div className="card-secondary">Secondary metrics</div>
                                                             {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                (variant, index) => (
-                                                                    <div key={index}>{metric.result[variant.key]}</div>
+                                                                (variant, idx) => (
+                                                                    <li
+                                                                        key={idx}
+                                                                        style={{
+                                                                            color: `${
+                                                                                experimentInsightType ===
+                                                                                InsightType.FUNNELS
+                                                                                    ? getSeriesColor(
+                                                                                          getIndexForVariant(
+                                                                                              variant.key,
+                                                                                              InsightType.FUNNELS
+                                                                                          ) + 1
+                                                                                      ) // baseline takes 0th index
+                                                                                    : getChartColors('white')[
+                                                                                          getIndexForVariant(
+                                                                                              variant.key,
+                                                                                              InsightType.TRENDS
+                                                                                          )
+                                                                                      ]
+                                                                            }`,
+                                                                        }}
+                                                                        className="pr"
+                                                                    >
+                                                                        <span className="text-default">
+                                                                            {capitalizeFirstLetter(variant.key)}
+                                                                        </span>
+                                                                    </li>
                                                                 )
                                                             )}
                                                         </Row>
-                                                    ))}
-                                                </Col>
-                                            )}
+                                                        {experimentData.start_date ? (
+                                                            <>
+                                                                {experimentResults?.secondary_metric_results?.map(
+                                                                    (metric, idx) => (
+                                                                        <Row
+                                                                            className="border-top"
+                                                                            key={idx}
+                                                                            justify="space-between"
+                                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
+                                                                        >
+                                                                            <div>
+                                                                                {capitalizeFirstLetter(metric.name)}
+                                                                            </div>
+                                                                            {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                                (variant, index) => (
+                                                                                    <div key={index}>
+                                                                                        {metric.result[variant.key]}
+                                                                                    </div>
+                                                                                )
+                                                                            )}
+                                                                        </Row>
+                                                                    )
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                    <Row
+                                                                        className="border-top"
+                                                                        key={idx}
+                                                                        justify="space-between"
+                                                                        style={{ paddingTop: 8, paddingBottom: 8 }}
+                                                                    >
+                                                                        <div>{capitalizeFirstLetter(metric.name)}</div>
+                                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                            (_, index) => (
+                                                                                <div key={index}>--</div>
+                                                                            )
+                                                                        )}
+                                                                    </Row>
+                                                                ))}
+                                                            </>
+                                                        )}
+                                                    </Col>
+                                                )}
                                             {experimentResults && (
                                                 <Col className="mt">
                                                     <div className="mb-05">
@@ -882,12 +912,12 @@ export function Experiment_(): JSX.Element {
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                    1
-                                                                ) // baseline takes 0th index
+                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                          1
+                                                                  ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                getIndexForVariant(variant, InsightType.TRENDS)
-                                                                ]
+                                                                      getIndexForVariant(variant, InsightType.TRENDS)
+                                                                  ]
                                                         }
                                                     />
                                                     <div>
