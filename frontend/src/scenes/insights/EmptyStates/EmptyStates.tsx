@@ -206,7 +206,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
     )
 }
 
-export function FunnelSingleStepState({ disableAddStep }: { disableAddStep: boolean }): JSX.Element {
+export function FunnelSingleStepState({ disableAddStep }: { disableAddStep?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
