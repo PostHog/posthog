@@ -78,11 +78,13 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
     selectors: () => ({
         singleValueMetrics: [
             (s) => [s.deadLetterQueueMetrics],
-            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !metric.subrows),
+            (deadLetterQueueMetrics: DeadLetterQueueMetricRow[]) =>
+                deadLetterQueueMetrics.filter((metric) => !metric.subrows),
         ],
         tableMetrics: [
             (s) => [s.deadLetterQueueMetrics],
-            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !!metric.subrows),
+            (deadLetterQueueMetrics: DeadLetterQueueMetricRow[]) =>
+                deadLetterQueueMetrics.filter((metric) => !!metric.subrows),
         ],
     }),
 
