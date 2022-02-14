@@ -15,6 +15,20 @@ class HistoryListItem:
 
 
 def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]]):
+    """
+    TODO Purposefully leaving this as unstructured "Arrow code" to get to "shameless green"
+    TODO until there are at least two or three types having history computed
+    TODO to avoid premature abstraction
+
+    takes a type of item e.g. FeatureFlag or Insight
+    and a set of version pairs
+    and uses them to compute a history for that instance of that type
+
+    The version pairs are an overlapping zip of the item's history
+    So if its history is [a, b, c, d] this function receives [(a, b), (b, c), (c, d), (d, None)]
+    (where a is the most recent recorded change)
+    It uses the right-hand side of each tuple to determine what changed to generate the left-hand side
+    """
     history: List[HistoryListItem] = []
 
     for (current, previous) in version_pairs:
