@@ -310,7 +310,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
     AND ((has(['test_val'], trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'some_key')))))
+                                 FROM JSONExtractRaw(e.properties, 'some_key')))))
   '
 ---
 # name: TestEventQuery.test_groups_filters
