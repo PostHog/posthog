@@ -18,6 +18,7 @@ class AvailableFeature(str, Enum):
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
+    TAGGING = "tagging"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
