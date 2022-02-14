@@ -19,6 +19,7 @@ from rest_framework import exceptions
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
+    format_cohort_subquery,
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
@@ -155,9 +156,17 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-                person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
-                params = {**params, **cohort_filter_params}
-                final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+
+                if person_properties_mode == PersonPropertiesMode.EXCLUDE:
+                    person_id_query, cohort_filter_params = format_cohort_subquery(
+                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                    )
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {person_id_query}")
+                else:
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns

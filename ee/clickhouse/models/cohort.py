@@ -235,10 +235,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    is_precalculated = is_precalculated_query(cohort)
-    person_query, params = (
-        format_precalculated_cohort_query(cohort.pk, index) if is_precalculated else format_person_query(cohort, index)
-    )
+    person_query, params = format_cohort_subquery(cohort, index)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
@@ -246,6 +243,16 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
     return person_id_query, params
+
+
+def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+    is_precalculated = is_precalculated_query(cohort)
+    person_query, params = (
+        format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
+        if is_precalculated
+        else format_person_query(cohort, index, custom_match_field=custom_match_field)
+    )
+    return person_query, params
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):

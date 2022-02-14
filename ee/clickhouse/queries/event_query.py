@@ -2,7 +2,12 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
+from ee.clickhouse.models.cohort import (
+    format_cohort_subquery,
+    format_person_query,
+    format_precalculated_cohort_query,
+    is_precalculated_query,
+)
 from ee.clickhouse.models.property import parse_prop_clauses, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
@@ -163,9 +168,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         return parse_prop_grouped_clauses(
             property_group=prop_group,
-            prepend=f"global",
+            prepend="global",
+            table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
     def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
@@ -194,14 +201,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         except Cohort.DoesNotExist:
             return "0 = 11", {}  # If cohort doesn't exist, nothing can match
 
-        is_precalculated = is_precalculated_query(cohort)
-
-        person_id_query, cohort_filter_params = (
-            format_precalculated_cohort_query(
-                cohort.pk, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            )
-            if is_precalculated
-            else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+        person_id_query, cohort_filter_params = format_cohort_subquery(
+            cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
         return person_id_query, cohort_filter_params
