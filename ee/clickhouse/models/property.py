@@ -64,7 +64,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_grouped_clauses(
-    filter_group: PropertyGroup,
+    property_group: PropertyGroup,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -75,16 +75,16 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(filter_group.groups) == 0:
+    if len(property_group.groups) == 0:
         return "", {}
 
-    if isinstance(filter_group.groups[0], PropertyGroup):
+    if isinstance(property_group.groups[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        for idx, group in enumerate(filter_group.groups):
+        for idx, group in enumerate(property_group.groups):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
-                    filter_group=group,
+                    property_group=group,
                     prepend=f"{prepend}_{idx}",
                     table_name=table_name,
                     allow_denormalized_props=allow_denormalized_props,
@@ -97,10 +97,10 @@ def parse_prop_grouped_clauses(
                 group_clauses.append(clause)
                 final_params.update(params)
 
-        _final = f"{filter_group.type} ".join(group_clauses)
+        _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], filter_group.groups),
+            filters=cast(List[Property], property_group.groups),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -108,7 +108,7 @@ def parse_prop_grouped_clauses(
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,
             group_properties_joined=group_properties_joined,
-            property_operator=filter_group.type,
+            property_operator=property_group.type,
         )
 
     if not _final:
