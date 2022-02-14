@@ -102,15 +102,17 @@ def test_property_multi_level_to_dict():
     )
 
     assert filter.property_groups.to_dict() == {
-        "AND": [
+        "type": "AND",
+        "groups": [
             {
-                "AND": [
+                "type": "AND",
+                "groups": [
                     {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
                     {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
                 ],
             },
-            {"OR": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
-        ]
+            {"type": "OR", "groups": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
+        ],
     }
 
 
@@ -125,10 +127,11 @@ def test_property_group_simple_to_dict():
     )
 
     assert filter.property_groups.to_dict() == {
-        "AND": [
+        "type": "AND",
+        "groups": [
             {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
             {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
-        ]
+        ],
     }
 
 

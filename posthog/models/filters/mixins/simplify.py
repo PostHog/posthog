@@ -40,7 +40,7 @@ class SimplifyFilterMixin:
         properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
         if getattr(result, "aggregation_group_type_index", None) is not None:
             properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
-            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))
+            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
 
         combined_group = {}
         if new_group_props and result.property_groups_to_dict():
