@@ -8,6 +8,11 @@ interface ObjectTagsLogicProps {
     tags: string[]
 }
 
+function cleanTag(tag?: string): string {
+    // Same clean done in posthog/api/tagged_item.py on frontend to mitigate confusion on tag create.
+    return (tag ?? '').trim().toLowerCase()
+}
+
 export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
     path: (key) => ['lib', 'components', 'ObjectTags', 'objectTagsLogic', key],
     props: {} as ObjectTagsLogicProps,
@@ -45,27 +50,29 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
             },
         ],
     }),
+    selectors: {
+        cleanedNewTag: [(s) => [s.newTag], (newTag) => cleanTag(newTag)],
+    },
     listeners: ({ values, props, actions }) => ({
         handleDelete: async ({ tag }, breakpoint) => {
             // Universal breakpoint since object tags can be used async or sync
-            await breakpoint(100)
-            props.onChange?.(
-                tag,
-                values.tags.filter((_t) => _t !== tag),
-                props.id
-            )
+            const newTags = values.tags.filter((_t) => _t !== tag)
+            props.onChange?.(tag, newTags, props.id)
+            actions.setTags(newTags) // Update local state
+            breakpoint()
         },
-        handleAdd: async ({ tag }, breakpoint) => {
+        handleAdd: async (_, breakpoint) => {
             // Universal breakpoint since object tags can be used async or sync
-            await breakpoint(100)
-
-            if (props.tags?.includes(tag)) {
-                errorToast("Oops! Can't add that tag", 'That tag already exists.')
+            if (values.tags?.includes(values.cleanedNewTag)) {
+                errorToast("Oops! Can't add that tag", 'That tag already exists.', 'Validation error')
                 return
             }
-            props.onChange?.(tag, [...(values.tags || []), tag], props.id)
+            const newTags = [...(values.tags || []), values.cleanedNewTag]
+            props.onChange?.(values.cleanedNewTag, newTags, props.id)
+            actions.setTags(newTags) // Update local state
             actions.setNewTag('')
             actions.setAddingNewTag(false)
+            breakpoint()
         },
     }),
 })

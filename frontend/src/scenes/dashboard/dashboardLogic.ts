@@ -502,6 +502,13 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 },
             ],
         ],
+        staticChildTags: [
+            (s) => [s.items, s.dashboard],
+            (items, dashboard) => {
+                const childTags = new Set((items ?? []).map((item) => item.tags ?? []).flat())
+                return (dashboard?.tags ?? []).filter((dashboardTag) => childTags.has(dashboardTag))
+            },
+        ],
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {

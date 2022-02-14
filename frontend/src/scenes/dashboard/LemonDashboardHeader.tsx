@@ -22,7 +22,7 @@ import { IconLock } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, dashboardMode, canEditDashboard, staticChildTags } = useValues(dashboardLogic)
     const { setDashboardMode, addGraph, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -226,10 +226,11 @@ export function DashboardHeader(): JSX.Element | null {
                             {canEditDashboard ? (
                                 <ObjectTags
                                     tags={dashboard.tags}
-                                    onChange={(_, tags) => triggerDashboardUpdate(tags)}
+                                    onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                     saving={dashboardLoading}
                                     tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                                     className="insight-metadata-tags"
+                                    staticTags={staticChildTags}
                                 />
                             ) : dashboard.tags.length ? (
                                 <ObjectTags
