@@ -1,3 +1,4 @@
+import { SystemStatusSubrows } from '~/types'
 import { SystemStatusRow } from './../../../types'
 import api from 'lib/api'
 import { kea } from 'kea'
@@ -22,8 +23,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
     actions: () => ({
         setActiveTab: (tabKey: string) => ({ tabKey }),
         loadMoreRows: (key: string) => ({ key }),
-        addRowsToMetric: (key: string, rows: any[]) => ({ key, rows }),
-        setRowsPerMetricKey: (map: Record<string, any[]>) => ({ map }),
+        addRowsToMetric: (key: string, rows: SystemStatusSubrows['rows'][]) => ({ key, rows }),
     }),
 
     reducers: () => ({
@@ -34,17 +34,25 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
             },
         ],
         rowsPerMetric: [
-            {} as Record<string, any[]>,
+            {} as Record<string, SystemStatusSubrows['rows'][]>,
             {
                 addRowsToMetric: (state, { key, rows }) => {
                     return { ...state, [key]: [...(state[key] || []), ...rows] }
                 },
-                setRowsPerMetricKey: (_, { map }) => map,
+                loadDeadLetterQueueMetricsSuccess: (_, { deadLetterQueueMetrics }) => {
+                    const rowsPerMetric = {}
+                    for (const metric of deadLetterQueueMetrics) {
+                        if (metric.subrows) {
+                            rowsPerMetric[metric.key] = metric.subrows.rows
+                        }
+                    }
+                    return rowsPerMetric
+                },
             },
         ],
     }),
 
-    loaders: ({ actions }) => ({
+    loaders: () => ({
         deadLetterQueueMetrics: [
             [] as DeadLetterQueueMetricRow[],
             {
@@ -52,14 +60,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
-                    const metrics = (await api.get('api/dead_letter_queue')).results
-
-                    const rowsPerMetric = {}
-                    for (const metric of metrics.filter((m: DeadLetterQueueMetricRow) => !!m.subrows)) {
-                        rowsPerMetric[metric.key] = metric.subrows.rows
-                    }
-                    actions.setRowsPerMetricKey(rowsPerMetric)
-                    return metrics
+                    return (await api.get('api/dead_letter_queue')).results
                 },
             },
         ],
