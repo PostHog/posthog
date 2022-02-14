@@ -72,6 +72,7 @@ def get_decide(request: HttpRequest):
         "editorParams": {},
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
+        "X-Robots-Tag": "noindex,nofollow",
     }
 
     if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME) and request.user.is_authenticated:
