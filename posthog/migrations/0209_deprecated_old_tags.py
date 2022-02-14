@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0207_cohort_count"),
+        ("posthog", "0208_alter_plugin_updated_at"),
     ]
 
     operations = [

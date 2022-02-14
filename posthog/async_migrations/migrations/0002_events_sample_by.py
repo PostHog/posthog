@@ -13,6 +13,7 @@ from posthog.version_requirement import ServiceVersionRequirement
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
 EVENTS_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.{EVENTS_TABLE}"
 BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0002_events_sample_by"
+FAILED_EVENTS_TABLE_NAME = f"{EVENTS_TABLE_NAME}_failed"
 
 """
 Migration Summary
@@ -115,7 +116,7 @@ class Migration(AsyncMigrationDefinition):
                 """,
                 rollback=f"""
                     RENAME TABLE
-                        {EVENTS_TABLE_NAME} to {EVENTS_TABLE_NAME}_failed,
+                        {EVENTS_TABLE_NAME} to {FAILED_EVENTS_TABLE_NAME},
                         {BACKUP_TABLE_NAME} to {EVENTS_TABLE_NAME}
                     ON CLUSTER {CLICKHOUSE_CLUSTER}
                 """,
@@ -151,6 +152,13 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
+        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0][0]
+        if events_failed_table_exists:
+            return (
+                False,
+                f"{FAILED_EVENTS_TABLE_NAME} already exists. We use this table as a backup if the migration fails. You can delete or rename it and restart the migration.",
+            )
+
         events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
@@ -193,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
                 )
             )
         )
