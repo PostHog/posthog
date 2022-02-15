@@ -13,7 +13,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 

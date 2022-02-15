@@ -15,7 +15,7 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -265,7 +265,6 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_funnel_correlation_on_event_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
@@ -365,7 +364,6 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_funnel_correlation_on_properties_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
@@ -423,7 +421,6 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_strict_funnel_correlation_with_recordings(self):
 
