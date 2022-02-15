@@ -52,12 +52,14 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
-    const { addingNewTag, newTag, cleanedNewTag, deletedTags } = useValues(logic)
+    const { addingNewTag, newTag, cleanedNewTag, deletedTags, tags: _tags } = useValues(logic)
     const { setAddingNewTag, setNewTag, handleDelete, handleAdd, setTags } = useActions(logic)
 
     // Necessary to keep logic updated with component props
     useEffect(() => {
-        setTags(tags)
+        if (tags.sort() !== _tags.sort()) {
+            setTags(tags)
+        }
     }, [tags])
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
