@@ -37,9 +37,12 @@ export function addHistoricalEventsExportCapability(
 ): void {
     const { methods, tasks, meta } = response
 
+    const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
     // we can void this as the job appearing on the interface is not time-sensitive
-    void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
-
+    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
+        void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    }
+    g
     const oldSetupPlugin = methods.setupPlugin
 
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec

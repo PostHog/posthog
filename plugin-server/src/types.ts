@@ -215,7 +215,7 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-
+export type PluginPublicJobPayload = Record<string, string>
 export interface Plugin {
     id: number
     organization_id: string
@@ -237,6 +237,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    public_jobs?: Record<string, PluginPublicJobPayload>
 }
 
 export interface PluginCapabilities {
