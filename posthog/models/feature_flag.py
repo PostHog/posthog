@@ -100,6 +100,18 @@ class FeatureFlag(models.Model):
                 ]
             }
 
+    @property
+    def cohort_ids(self) -> List[int]:
+        cohort_ids = []
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type", None) == "cohort":
+                    cohort_id = prop.get("value", None)
+                    if cohort_id:
+                        cohort_ids.append(cohort_id)
+        return cohort_ids
+
 
 @receiver(pre_delete, sender=Experiment)
 def delete_experiment_flags(sender, instance, **kwargs):

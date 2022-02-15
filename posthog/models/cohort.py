@@ -12,6 +12,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.models.utils import UUIDT, sane_repr
+from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
 from .action import Action
 from .event import Event
@@ -147,13 +148,19 @@ class Cohort(models.Model):
 
         try:
             count = recalculate_cohortpeople(self)
-            self.calculate_people(new_version=pending_version)
 
-            # Update filter to match pending version if still valid
-            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                version=pending_version, count=count
-            )
-            self.refresh_from_db()
+            # only precalculate if used in feature flag
+            ids = get_cohort_ids_in_feature_flags()
+
+            if self.pk in ids:
+                self.calculate_people(new_version=pending_version)
+                # Update filter to match pending version if still valid
+                Cohort.objects.filter(pk=self.pk).filter(
+                    Q(version__lt=pending_version) | Q(version__isnull=True)
+                ).update(version=pending_version, count=count)
+                self.refresh_from_db()
+            else:
+                self.count = count
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
