@@ -20,7 +20,7 @@
        AND timestamp <= '2020-01-08 23:59:59'
        AND (NOT has([''], $group_0))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
@@ -76,7 +76,7 @@
                                         min(latest_2) over (PARTITION by aggregation_target,
                                                                          prop
                                                             ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['finance', 'technology'], prop), prop, 'Other') as prop
+                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -145,7 +145,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
@@ -268,7 +268,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
@@ -388,7 +388,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
@@ -508,7 +508,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
@@ -628,7 +628,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-08 23:59:59'
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 10
      OFFSET 0)
   '
