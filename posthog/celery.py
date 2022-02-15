@@ -91,6 +91,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
+
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
@@ -321,6 +323,13 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
+
+
+@app.task(ignore_result=True)
+def calculate_cohort_ids_in_feature_flags_task():
+    from posthog.tasks.cohorts_in_feature_flag import calculate_cohort_ids_in_feature_flags
+
+    calculate_cohort_ids_in_feature_flags()
 
 
 @app.task(ignore_result=True)
