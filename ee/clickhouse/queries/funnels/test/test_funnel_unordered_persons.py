@@ -161,7 +161,6 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(10, len(serialized_results))
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$window_id", "$session_id"])
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_unordered_funnel_does_not_return_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
