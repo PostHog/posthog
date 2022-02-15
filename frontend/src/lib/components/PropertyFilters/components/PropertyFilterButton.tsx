@@ -57,7 +57,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
                 </Tooltip>
             )}
             {isPersonProperty && (
-                <Tooltip title={'a person property'}>
+                <Tooltip title={'filter for this person property'}>
                     <IconPerson style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
                 </Tooltip>
             )}
