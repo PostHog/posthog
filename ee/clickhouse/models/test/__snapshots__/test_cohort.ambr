@@ -109,7 +109,7 @@
                  GROUP BY person_id
                  HAVING count(*) = 1) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.13
@@ -163,8 +163,8 @@
                  GROUP BY person_id
                  HAVING count(*) = 1) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.14
@@ -254,7 +254,7 @@
                    AND ((event = '$pageview'))
                  GROUP BY person_id) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.18
@@ -307,8 +307,8 @@
                    AND ((event = '$pageview'))
                  GROUP BY person_id) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.19
@@ -369,7 +369,7 @@
                  GROUP BY person_id
                  HAVING count(*) >= 2) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.3
@@ -423,8 +423,8 @@
                  GROUP BY person_id
                  HAVING count(*) >= 2) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.4
@@ -515,7 +515,7 @@
                  GROUP BY person_id
                  HAVING count(*) <= 1) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.8
@@ -569,8 +569,8 @@
                  GROUP BY person_id
                  HAVING count(*) <= 1) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.9

@@ -109,7 +109,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, new_version: int, batch_size=50000, pg_batch_size=1000):
+    def calculate_people(self, new_version: int, batch_size=10000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
@@ -123,6 +123,7 @@ class Cohort(models.Model):
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+                time.sleep(1)
 
         except Exception as err:
             # Clear the pending version people if there's an error
@@ -133,13 +134,10 @@ class Cohort(models.Model):
     def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
+        logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        start_time = time.monotonic()
+
         try:
-            start_time = time.time()
-
-            logger.info(
-                "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
-            )
-
             count = recalculate_cohortpeople(self)
             self.calculate_people(new_version=pending_version)
 
@@ -151,15 +149,26 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-            logger.info(
-                "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
-            )
-        except Exception as e:
+        except Exception:
             self.errors_calculating = F("errors_calculating") + 1
-            raise e
+            logger.warning(
+                "cohort_calculation_failed",
+                id=self.pk,
+                current_version=self.version,
+                new_version=pending_version,
+                exc_info=True,
+            )
+            raise
         finally:
             self.is_calculating = False
             self.save()
+
+        logger.info(
+            "cohort_calculation_completed",
+            id=self.pk,
+            version=pending_version,
+            duration=(time.monotonic() - start_time),
+        )
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
