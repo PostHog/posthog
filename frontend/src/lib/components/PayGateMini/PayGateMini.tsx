@@ -27,7 +27,7 @@ const FEATURE_SUMMARIES: Record<
         icon: <IconEmojiPeople />,
         description:
             'Share insights, collaborate on dashboards, manage permissions, and make decisions with your team.',
-        umbrella: 'collaboration features',
+        umbrella: 'advanced permissioning',
     },
 }
 
