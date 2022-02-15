@@ -11,8 +11,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test'], trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+       AND (has(['control', 'test'], trim(BOTH '"'
+                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 10
@@ -85,8 +85,8 @@
                       AND event IN ['$pageleave', '$pageview']
                       AND timestamp >= '2020-01-01 00:00:00'
                       AND timestamp <= '2020-01-06 23:59:59'
-                      AND has(['control', 'test'], trim(BOTH '"'
-                                                        FROM JSONExtractRaw(properties, '$feature/a-b-test'))) ) events
+                      AND (has(['control', 'test'], trim(BOTH '"'
+                                                         FROM JSONExtractRaw(properties, '$feature/a-b-test')))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -110,8 +110,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                             FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+       AND (has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
+                                                              FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 10
@@ -184,8 +184,8 @@
                       AND event IN ['$pageleave', '$pageview']
                       AND timestamp >= '2020-01-01 00:00:00'
                       AND timestamp <= '2020-01-06 23:59:59'
-                      AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                                            FROM JSONExtractRaw(properties, '$feature/a-b-test'))) ) events
+                      AND (has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
+                                                                             FROM JSONExtractRaw(properties, '$feature/a-b-test')))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -209,8 +209,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test'], trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+       AND (has(['control', 'test'], trim(BOTH '"'
+                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -251,8 +251,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND has(['control', 'test'], trim(BOTH '"'
-                                               FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+             AND (has(['control', 'test'], trim(BOTH '"'
+                                                FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-06 23:59:59'
              AND trim(BOTH '"'
@@ -279,10 +279,10 @@
        AND event = '$feature_flag_called'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test'], trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
-       AND has(['a-b-test'], trim(BOTH '"'
-                                  FROM JSONExtractRaw(e.properties, '$feature_flag')))
+       AND (has(['control', 'test'], trim(BOTH '"'
+                                          FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+            AND has(['a-b-test'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(e.properties, '$feature_flag'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -338,10 +338,10 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
-                   AND has(['control', 'test'], trim(BOTH '"'
-                                                     FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
-                   AND has(['a-b-test'], trim(BOTH '"'
-                                              FROM JSONExtractRaw(e.properties, '$feature_flag')))
+                   AND (has(['control', 'test'], trim(BOTH '"'
+                                                      FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+                        AND has(['a-b-test'], trim(BOTH '"'
+                                                   FROM JSONExtractRaw(e.properties, '$feature_flag'))))
                    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
                    AND timestamp <= '2020-01-06 23:59:59'
                    AND trim(BOTH '"'
@@ -370,8 +370,8 @@
        AND event = '$pageview1'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                             FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+       AND (has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
+                                                              FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -412,8 +412,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview1'
-             AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                                   FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+             AND (has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
+                                                                    FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-06 23:59:59'
              AND trim(BOTH '"'
@@ -440,10 +440,10 @@
        AND event = '$feature_flag_called'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
-       AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                             FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
-       AND has(['a-b-test'], trim(BOTH '"'
-                                  FROM JSONExtractRaw(e.properties, '$feature_flag')))
+       AND (has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
+                                                              FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+            AND has(['a-b-test'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(e.properties, '$feature_flag'))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25

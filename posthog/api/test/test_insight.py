@@ -557,7 +557,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("offset=20", response.json()["next"])
+        self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])

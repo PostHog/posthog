@@ -13720,7 +13720,7 @@
         },
         "dashboard": {
             "dashboardsLogic": {
-                "newDashboardDrawer": false,
+                "newDashboardModalVisible": false,
                 "searchTerm": null
             },
             "dashboardLogic": {
