@@ -149,7 +149,7 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-        except Exception as e:
+        except Exception:
             self.errors_calculating = F("errors_calculating") + 1
             logger.warning(
                 "cohort_calculation_failed",
@@ -158,7 +158,7 @@ class Cohort(models.Model):
                 new_version=pending_version,
                 exc_info=True,
             )
-            raise e
+            raise
         finally:
             self.is_calculating = False
             self.save()
