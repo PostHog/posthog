@@ -191,7 +191,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 return []
             if action.steps.count() == 0:
                 return []
-            action_query, params = format_action_filter(action)
+            action_query, params = format_action_filter(team_id=team.pk, action=action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 

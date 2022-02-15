@@ -178,7 +178,9 @@ def _get_entity_query(
         return "event = %(event)s", {"event": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
-        action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+        action_filter_query, action_params = format_action_filter(
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+        )
         return action_filter_query, action_params
     else:
         raise ValidationError("Cohort query requires action_id or event_id")

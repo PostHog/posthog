@@ -59,7 +59,7 @@ def get_breakdown_prop_values(
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team_id, table_name="e")
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
