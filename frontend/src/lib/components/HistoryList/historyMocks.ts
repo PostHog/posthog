@@ -61,7 +61,7 @@ const featureFlagsHistoryResponseJson = [
         action: HistoryActions.FEATURE_FLAG_DESCRIPTION_CHANGED,
         detail: {
             id: 7,
-            description: 'this is what was added',
+            to: 'this is what was added',
         },
         created_at: '2022-02-06T16:28:39.594Z',
     },
@@ -71,7 +71,7 @@ const featureFlagsHistoryResponseJson = [
         action: HistoryActions.FEATURE_FLAG_FILTERS_CHANGED,
         detail: {
             id: 7,
-            filter: "{ 'filter': 'info' }",
+            to: "{ 'filter': 'info' }",
         },
         created_at: '2022-02-08T16:28:39.594Z',
     },
@@ -81,6 +81,7 @@ const featureFlagsHistoryResponseJson = [
         action: HistoryActions.FEATURE_FLAG_ACTIVE_CHANGED,
         detail: {
             id: 7,
+            to: false,
         },
         created_at: '2022-02-08T16:45:39.594Z',
     },
