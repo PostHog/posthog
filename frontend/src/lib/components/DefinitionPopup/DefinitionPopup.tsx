@@ -5,7 +5,7 @@ import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/Defin
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { KeyMapping, UserBasicType } from '~/types'
+import { KeyMapping, UserBasicType, PropertyDefinition } from '~/types'
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -191,12 +191,30 @@ function Section({ children }: GridProps): JSX.Element {
     return <Grid cols={1}>{children}</Grid>
 }
 
-function Card({ title, value }: { title: string; value: React.ReactNode }): JSX.Element {
+function Card({
+    title,
+    value,
+    alignItems = 'baseline',
+}: {
+    title: string | JSX.Element
+    value: React.ReactNode
+    alignItems?: 'baseline' | 'center' | 'end'
+}): JSX.Element {
     return (
-        <div className="definition-popup-grid-card">
+        <div className="definition-popup-grid-card" style={{ alignItems }}>
             <div className="definition-popup-grid-card-title">{title}</div>
             <div className="definition-popup-grid-card-content">{value}</div>
         </div>
+    )
+}
+
+function Type({ propertyType }: { propertyType: PropertyDefinition['property_type'] | null }): JSX.Element {
+    return propertyType ? (
+        <div className="definition-popup-grid-card">
+            <div className="property-value-type">{propertyType}</div>
+        </div>
+    ) : (
+        <></>
     )
 }
 
@@ -244,4 +262,5 @@ export const DefinitionPopup = {
     Section,
     Card,
     OwnerDropdown,
+    Type,
 }
