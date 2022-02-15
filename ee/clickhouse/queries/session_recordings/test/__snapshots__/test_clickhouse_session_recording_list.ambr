@@ -194,7 +194,7 @@
                       AND (has(['some_val'], trim(BOTH '"'
                                                   FROM JSONExtractRaw(properties, '$some_prop')))) )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.3
@@ -249,8 +249,8 @@
                       AND (has(['some_val'], trim(BOTH '"'
                                                   FROM JSONExtractRaw(properties, '$some_prop')))) )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.4

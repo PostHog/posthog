@@ -173,7 +173,7 @@
                       AND (trim(BOTH '"'
                                 FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.3
@@ -228,8 +228,8 @@
                       AND (trim(BOTH '"'
                                 FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestClickhouseFunnel.test_funnel_with_precalculated_cohort_step_filter.4
