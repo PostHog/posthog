@@ -49,7 +49,7 @@ export function PropertyFilters({
     return (
         <div className="property-filters" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filtersWithNew.map((item, index) => {
+                {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                     return (
                         <FilterRow
                             key={index}

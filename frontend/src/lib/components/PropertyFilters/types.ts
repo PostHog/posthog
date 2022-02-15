@@ -13,7 +13,7 @@ export interface PropertyFilterBaseProps {
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null | AndOrPropertyFilter
-    onChange: (filters: PropertyFilter[]) => void
+    onChange: (filters: PropertyFilter[] | AndOrPropertyFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>

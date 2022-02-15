@@ -882,6 +882,7 @@ export interface FilterType {
     date_from?: string | null
     date_to?: string | null
     properties?: PropertyFilter[]
+    property_groups?: AndOrPropertyFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null

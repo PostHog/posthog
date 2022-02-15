@@ -3,7 +3,7 @@ import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from '../PropertyFilters/propertyFilterLogic'
 import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AndOrPropertyFilter, AndOrPropertyGroup, AnyPropertyFilter, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
@@ -14,8 +14,8 @@ import './MatchPropertyFilters.scss'
 
 interface MatchPropertyFiltersProps {
     endpoint?: string | null
-    propertyFilters?: AnyPropertyFilter[] | null
-    onChange: (filters: PropertyFilter[]) => void
+    propertyFilters?: AndOrPropertyFilter | null | PropertyFilter[]
+    onChange: (filters: AndOrPropertyFilter) => void
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -56,7 +56,7 @@ export function MatchPropertyFilters({
                 <div className="property-filters">
                     <BindLogic logic={propertyFilterLogic} props={logicProps}>
                         {filtersWithNew.type && <AndOrFilterSelect value={filtersWithNew.type} onChange={() => {}} />}
-                        {filtersWithNew.groups.map((group, propertyGroupIndex: number) => {
+                        {filtersWithNew.groups.map((group: AndOrPropertyGroup, propertyGroupIndex: number) => {
                             return (
                                 <>
                                     <div className="mt" style={style} key={propertyGroupIndex}>
@@ -70,13 +70,13 @@ export function MatchPropertyFilters({
                                                     background: '#d9d9d9',
                                                     flex: 1,
                                                 }}
-                                             />
+                                            />
                                             <DeleteOutlined
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                 style={{ fontSize: 16, color: 'var(--primary-alt)' }}
                                             />
                                         </Row>
-                                        {group.groups.map((item: AnyPropertyFilter[], propertyIndex: number) => (
+                                        {group.groups.map((item: AnyPropertyFilter, propertyIndex: number) => (
                                             <FilterRow
                                                 key={propertyIndex}
                                                 item={item}

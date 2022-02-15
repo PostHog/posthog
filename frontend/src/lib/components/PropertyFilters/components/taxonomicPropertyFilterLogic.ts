@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
@@ -9,6 +9,7 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { isAndOrPropertyFilter } from '../propertyFilterLogic'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
@@ -51,11 +52,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors: {
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex, (_, props) => props.propertyIndex],
-            (filters, filterIndex, propertyIndex): AnyPropertyFilter | null => {
-                if (propertyIndex !== undefined) {
-                    return filters.groups[filterIndex].groups[propertyIndex] || null
+            (filters, filterIndex, propertyIndex) => {
+                if (isAndOrPropertyFilter(filters)) {
+                    if (propertyIndex !== undefined) {
+                        return filters.groups[filterIndex].groups[propertyIndex] || null
+                    }
+                } else {
+                    return filters[filterIndex] || null
                 }
-                return filters[filterIndex] || null
             },
         ],
         andOrCondition: [(s) => [s.filter], () => 'AND'],
