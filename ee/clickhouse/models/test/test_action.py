@@ -23,12 +23,12 @@ def _create_event(**kwargs) -> Event:
 
 
 def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(team_id=action.team.primary_key, action=action, prepend="")
+    formatted_query, params = format_action_filter(team_id=action.team.id, action=action, prepend="")
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
 
     if query:
-        return sync_execute(query, {"team_id": action.team.primary_key, **params})
+        return sync_execute(query, {"team_id": action.team.id, **params})
 
     return None
 
@@ -175,5 +175,5 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
         )
 
-        events = query_action(action1, self.team.pk)
+        events = query_action(action1)
         self.assertEqual(len(events), 1)  # type: ignore
