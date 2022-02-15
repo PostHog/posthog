@@ -119,6 +119,7 @@ class ClickhouseTrendExperimentResult:
             "filters": self.query_filter.to_dict(),
             "significance_code": significance_code,
             "p_value": p_value,
+            "variants": [dataclasses.asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, insight_results, exposure_results):
