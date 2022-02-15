@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, Iterator, List, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -40,6 +40,17 @@ class PropertyMixin(BaseParamMixin):
             loaded_props = _props
 
         return self._parse_property_group(loaded_props)
+
+    @cached_property
+    def property_groups_flat(self) -> List[Property]:
+        return list(self._property_groups_flat(self.property_groups))
+
+    def _property_groups_flat(self, prop_group: PropertyGroup):
+        for _group in prop_group.groups:
+            if isinstance(_group, PropertyGroup):
+                yield from self._property_groups_flat(_group)
+            else:
+                yield _group
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):

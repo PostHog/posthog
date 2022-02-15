@@ -1,3 +1,5 @@
+import pytest
+
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -15,6 +17,7 @@ PROPERTIES_OF_ALL_TYPES = [
 
 BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
 FILTER_WITH_PROPERTIES = BASE_FILTER.with_data({"properties": PROPERTIES_OF_ALL_TYPES})
+FILTER_WITH_GROUPS = BASE_FILTER.with_data({"property_groups": {"type": "AND", "groups": PROPERTIES_OF_ALL_TYPES}})
 
 
 class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
@@ -29,6 +32,16 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(
             properties_used_in_filter(FILTER_WITH_PROPERTIES),
+            {
+                ("event_prop", "event", None): 1,
+                ("person_prop", "person", None): 1,
+                ("id", "cohort", None): 1,
+                ("tag_name", "element", None): 1,
+                ("group_prop", "group", 2): 1,
+            },
+        )
+        self.assertEqual(
+            properties_used_in_filter(FILTER_WITH_GROUPS),
             {
                 ("event_prop", "event", None): 1,
                 ("person_prop", "person", None): 1,
@@ -160,6 +173,18 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(optimizer().event_columns_to_query, {"mat_event_prop"})
         self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
 
+    def test_materialized_columns_checks_with_prop_group(self):
+        optimizer = lambda: ColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
+
+        self.assertEqual(optimizer().event_columns_to_query, {"properties"})
+        self.assertEqual(optimizer().person_columns_to_query, {"properties"})
+
+        materialize("events", "event_prop")
+        materialize("person", "person_prop")
+
+        self.assertEqual(optimizer().event_columns_to_query, {"mat_event_prop"})
+        self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
+
     def test_should_query_element_chain_column(self):
         should_query_elements_chain_column = lambda filter: ColumnOptimizer(
             filter, self.team.id
@@ -167,6 +192,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(should_query_elements_chain_column(BASE_FILTER), False)
         self.assertEqual(should_query_elements_chain_column(FILTER_WITH_PROPERTIES), True)
+        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_GROUPS), True)
 
         filter = Filter(
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES,}]}
@@ -197,8 +223,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
         )
 
-    def group_types_to_query(self):
+    def test_group_types_to_query(self):
         group_types_to_query = lambda filter: ColumnOptimizer(filter, self.team.id).group_types_to_query
 
         self.assertEqual(group_types_to_query(BASE_FILTER), set())
         self.assertEqual(group_types_to_query(FILTER_WITH_PROPERTIES), {2})
+        self.assertEqual(group_types_to_query(FILTER_WITH_GROUPS), {2})
