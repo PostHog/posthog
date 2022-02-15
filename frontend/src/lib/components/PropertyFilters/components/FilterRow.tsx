@@ -55,11 +55,14 @@ export const FilterRow = React.memo(function FilterRow({
         setOpen(visible)
     }
 
-
     return (
         <Row
             align="middle"
-            className={clsx('property-filter-row', !disablePopover && 'wrap-filters', orFiltering && index !== 0 && 'mt-05')}
+            className={clsx(
+                'property-filter-row',
+                !disablePopover && 'wrap-filters',
+                orFiltering && index !== 0 && 'mt-05'
+            )}
             data-attr={'property-filter-' + index}
             wrap={false}
         >
@@ -75,7 +78,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 float: 'none',
                                 paddingLeft: 8,
                                 paddingTop: 4,
-                                color: 'var(--primary-alt)'
+                                color: 'var(--primary-alt)',
                             }}
                         />
                     )}
