@@ -353,7 +353,7 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"

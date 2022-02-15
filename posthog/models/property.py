@@ -12,6 +12,7 @@ from typing import (
 
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.constants import PropertyOperatorType
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
@@ -99,8 +100,17 @@ class Property:
 
         value = self._parse_value(self.value)
         if self.type == "cohort":
+            from posthog.models.cohort import Cohort
+
             cohort_id = int(cast(Union[str, int], value))
-            return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
+            cohort = Cohort.objects.get(pk=cohort_id)
+            return Q(
+                Exists(
+                    CohortPeople.objects.filter(
+                        cohort_id=cohort.pk, person_id=OuterRef("id"), version=cohort.version
+                    ).only("id")
+                )
+            )
 
         column = "group_properties" if self.type == "group" else "properties"
 
@@ -132,3 +142,23 @@ def lookup_q(key: str, value: Any) -> Q:
     if isinstance(value, list):
         return Q(**{f"{key}__in": value})
     return Q(**{key: value})
+
+
+class PropertyGroup:
+    type: PropertyOperatorType
+    groups: Union[List[Property], List["PropertyGroup"]]
+
+    def __init__(self, type: PropertyOperatorType, groups: Union[List[Property], List["PropertyGroup"]]) -> None:
+        self.type = type
+        self.groups = groups
+
+    def to_dict(self):
+        result: Dict = {}
+        if not self.groups:
+            return result
+
+        return {f"{self.type}": [prop.to_dict() for prop in self.groups]}
+
+    def __repr__(self):
+        params_repr = ", ".join(f"{repr(prop)}" for prop in self.groups)
+        return f"PropertyGroup(type={self.type}-{params_repr})"

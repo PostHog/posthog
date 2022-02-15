@@ -751,7 +751,7 @@ describe('ActionMatcher', () => {
                 new UUIDT().toString(),
                 ['cohort']
             )
-            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id)
+            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 
             const eventExamplePersonBad: PluginEvent = createTestEvent({
                 event: 'meow',

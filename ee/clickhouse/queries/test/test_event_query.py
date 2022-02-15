@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
@@ -207,7 +208,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
         cohort = Cohort.objects.create(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
 
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
         self.team.save()

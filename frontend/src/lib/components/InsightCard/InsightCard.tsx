@@ -1,10 +1,8 @@
-import { Alert } from 'antd'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
-import { displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -16,7 +14,15 @@ import {
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, InsightColor, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import {
+    ChartDisplayType,
+    DashboardType,
+    FilterType,
+    InsightColor,
+    InsightLogicProps,
+    InsightModel,
+    InsightType,
+} from '~/types'
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
@@ -33,9 +39,74 @@ import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
+import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
+import { Funnel } from 'scenes/funnels/Funnel'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import { Paths } from 'scenes/paths/Paths'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
+
+type DisplayedType = ChartDisplayType | 'RetentionContainer'
+
+const displayMap: Record<
+    DisplayedType,
+    {
+        className: string
+        element: (props: any) => JSX.Element | null
+    }
+> = {
+    ActionsLineGraph: {
+        className: 'graph',
+        element: ActionsLineGraph,
+    },
+    ActionsLineGraphCumulative: {
+        className: 'graph',
+        element: ActionsLineGraph,
+    },
+    ActionsBar: {
+        className: 'bar',
+        element: ActionsLineGraph,
+    },
+    ActionsBarValue: {
+        className: 'bar',
+        element: ActionsHorizontalBar,
+    },
+    ActionsTable: {
+        className: 'table',
+        element: DashboardInsightsTable,
+    },
+    ActionsPie: {
+        className: 'pie',
+        element: ActionsPie,
+    },
+    FunnelViz: {
+        className: 'funnel',
+        element: Funnel,
+    },
+    RetentionContainer: {
+        className: 'retention',
+        element: RetentionContainer,
+    },
+    PathsViz: {
+        className: 'paths-viz',
+        element: Paths,
+    },
+}
+
+function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
+    return (
+        filters.insight === InsightType.RETENTION
+            ? 'RetentionContainer'
+            : filters.insight === InsightType.PATHS
+            ? 'PathsViz'
+            : filters.insight === InsightType.FUNNELS
+            ? 'FunnelViz'
+            : filters.display || 'ActionsLineGraph'
+    ) as DisplayedType
+}
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
@@ -94,6 +165,7 @@ function InsightMeta({
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboard } = insight
 
+    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
@@ -141,10 +213,10 @@ function InsightMeta({
                                 <h5>
                                     <span
                                         title={
-                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].description
+                                            INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description
                                         }
                                     >
-                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS].name}
+                                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.name}
                                     </span>{' '}
                                     • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
@@ -168,7 +240,14 @@ function InsightMeta({
                                                     View
                                                 </LemonButton>
                                                 {refresh && (
-                                                    <LemonButton type="stealth" onClick={() => refresh()} fullWidth>
+                                                    <LemonButton
+                                                        type="stealth"
+                                                        onClick={() => {
+                                                            refresh()
+                                                            reportDashboardItemRefreshed(insight)
+                                                        }}
+                                                        fullWidth
+                                                    >
                                                         Refresh
                                                     </LemonButton>
                                                 )}
@@ -352,9 +431,12 @@ function InsightViz({
             ) : apiErrored ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
-                    <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
-                </Alert.ErrorBoundary>
+                <VizComponent
+                    dashboardItemId={short_id}
+                    cachedResults={cachedResults}
+                    filters={filters}
+                    showPersonsModal={false}
+                />
             )}
         </div>
     )

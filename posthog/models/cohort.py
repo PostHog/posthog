@@ -1,28 +1,31 @@
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
+import structlog
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.core.exceptions import EmptyResultSet
-from django.db import connection, models, transaction
-from django.db.models import Q
+from django.db import connection, models
+from django.db.models import Case, Q, When
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.models.utils import sane_repr
+from posthog.models.utils import UUIDT, sane_repr
 
 from .action import Action
 from .event import Event
 from .filters import Filter
 from .person import Person
 
+logger = structlog.get_logger(__name__)
+
 DELETE_QUERY = """
 DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
 """
 
 UPDATE_QUERY = """
-INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
+INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
 {values_query}
 ON CONFLICT DO NOTHING
 """
@@ -75,9 +78,13 @@ class Cohort(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
+    version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
+
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
@@ -102,41 +109,51 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self):
+    def calculate_people(self, new_version: int, batch_size=50000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
-            persons_query = self._clickhouse_persons_query()
 
-            try:
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-            except EmptyResultSet:
-                query = DELETE_QUERY.format(cohort_id=self.pk)
-                params = {}
-            else:
-                query = f"""
-                    {DELETE_QUERY};
-                    {UPDATE_QUERY};
-                """.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
-                )
+            # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
+            cursor = 0
+            persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+            while persons:
+                to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk, version=new_version) for p in persons]
+                CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
 
-            cursor = connection.cursor()
-            with transaction.atomic():
-                cursor.execute(query, params)
+                cursor += batch_size
+                persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+
         except Exception as err:
+            # Clear the pending version people if there's an error
+            batch_delete_cohort_people(self.pk, new_version)
+
             raise err
 
-    def calculate_people_ch(self):
+    def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import calculate_cohort
 
         try:
-            recalculate_cohortpeople(self)
-            calculate_cohort(self.id)
+            start_time = time.time()
+
+            logger.info(
+                "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
+            )
+
+            count = recalculate_cohortpeople(self)
+            self.calculate_people(new_version=pending_version)
+
+            # Update filter to match pending version if still valid
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                version=pending_version, count=count
+            )
+            self.refresh_from_db()
+
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            logger.info(
+                "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
+            )
         except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
             raise e
@@ -165,7 +182,9 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
+                    values_query=sql.replace(
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                    ),
                 )
                 cursor.execute(query, params)
             self.is_calculating = False
@@ -192,7 +211,9 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
+                    values_query=sql.replace(
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                    ),
                 )
                 cursor.execute(query, params)
 
@@ -211,10 +232,10 @@ class Cohort(models.Model):
     def __str__(self):
         return self.name
 
-    def _clickhouse_persons_query(self):
+    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
         from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id
 
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk)
+        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)
 
     def _postgres_persons_query(self):
@@ -252,12 +273,26 @@ class Cohort(models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
+def get_and_update_pending_version(cohort: Cohort):
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    cohort.save()
+    cohort.refresh_from_db()
+    return cohort.pending_version
+
+
 class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+    version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["cohort_id", "person_id"]),
         ]
+
+
+def batch_delete_cohort_people(cohort_id: int, version: int, batch_size: int = 1000):
+    while batch := CohortPeople.objects.filter(cohort_id=cohort_id, version=version).values("id")[:batch_size]:
+        CohortPeople.objects.filter(id__in=batch)._raw_delete(batch.db)  # type: ignore
+        time.sleep(1)
