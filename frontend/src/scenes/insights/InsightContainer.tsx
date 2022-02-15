@@ -78,7 +78,7 @@ export function InsightContainer(
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelSingleStepState />
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />

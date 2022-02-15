@@ -5,7 +5,14 @@ import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import { displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
-import { InsightErrorState, InsightTimeoutState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import {
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
+    InsightErrorState,
+    InsightTimeoutState,
+    UNNAMED_INSIGHT_NAME,
+} from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -25,6 +32,7 @@ import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -298,6 +306,9 @@ function InsightMeta({
 interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'style'> {
     /** Whether loading timed out. */
     timedOut?: boolean
+    tooFewFunnelSteps?: boolean
+    invalidFunnelExclusion?: boolean
+    empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
@@ -308,6 +319,9 @@ function InsightViz({
     style,
     apiErrored,
     timedOut,
+    empty,
+    tooFewFunnelSteps,
+    invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
@@ -326,11 +340,17 @@ function InsightViz({
                     : undefined
             }
         >
-            {loading && <Loading />}
-            {timedOut ? (
-                <InsightErrorState excludeDetail />
-            ) : apiErrored ? (
+            {loading && !timedOut && <Loading />}
+            {tooFewFunnelSteps ? (
+                <FunnelSingleStepState actionable={false} />
+            ) : invalidFunnelExclusion ? (
+                <FunnelInvalidExclusionState />
+            ) : empty ? (
+                <InsightEmptyState />
+            ) : timedOut ? (
                 <InsightTimeoutState isLoading={!!loading} />
+            ) : apiErrored ? (
+                <InsightErrorState excludeDetail />
             ) : (
                 <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
                     <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
@@ -370,7 +390,21 @@ function InsightCardInternal(
     }
 
     const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
 
+    let tooFewFunnelSteps = false
+    let invalidFunnelExclusion = false
+    let empty = false
+    if (filters.insight === InsightType.FUNNELS) {
+        if (!areFiltersValid) {
+            tooFewFunnelSteps = true
+        } else if (!areExclusionFiltersValid) {
+            invalidFunnelExclusion = true
+        }
+        if (!isValidFunnel) {
+            empty = true
+        }
+    }
     if (!loading) {
         loading = insightLoading
     }
@@ -408,6 +442,9 @@ function InsightCardInternal(
                     loading={loading}
                     apiErrored={apiErrored}
                     timedOut={timedOut}
+                    empty={empty}
+                    tooFewFunnelSteps={tooFewFunnelSteps}
+                    invalidFunnelExclusion={invalidFunnelExclusion}
                     style={
                         metaPrimaryHeight
                             ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
