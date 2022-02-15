@@ -9,7 +9,7 @@ describe('objectTagsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         props = {
-            id: '1',
+            id: 1,
             onChange: jest.fn(),
             tags: ['a', 'b', 'c'],
         }
@@ -36,12 +36,7 @@ describe('objectTagsLogic', () => {
                     newTag: 'Nightly',
                     cleanedNewTag: 'nightly',
                 })
-                .toDispatchActions([
-                    'handleAdd',
-                    logic.actionCreators.setTags(['a', 'b', 'c', 'nightly']),
-                    logic.actionCreators.setNewTag(''),
-                    logic.actionCreators.setAddingNewTag(false),
-                ])
+                .toDispatchActions(['handleAdd', logic.actionCreators.setTags(['a', 'b', 'c', 'nightly'])])
                 .toMatchValues({
                     tags: ['a', 'b', 'c', 'nightly'],
                     addingNewTag: false,
@@ -52,7 +47,6 @@ describe('objectTagsLogic', () => {
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('nightly')
             expect(mockedOnChange.calls[0][1]).toEqual(['a', 'b', 'c', 'nightly'])
-            expect(mockedOnChange.calls[0][2]).toBe('1')
         })
         it('noop on duplicate tag', async () => {
             await expectLogic(logic, async () => {
@@ -60,7 +54,7 @@ describe('objectTagsLogic', () => {
                 logic.actions.handleAdd()
             })
                 .toDispatchActions(['setNewTag', 'handleAdd'])
-                .toNotHaveDispatchedActions(['setTags', 'setNewTag', 'setAddingNewTag'])
+                .toNotHaveDispatchedActions(['setTags'])
                 .toMatchValues({
                     tags: ['a', 'b', 'c'],
                 })
@@ -80,7 +74,6 @@ describe('objectTagsLogic', () => {
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('a')
             expect(mockedOnChange.calls[0][1]).toEqual(['b', 'c'])
-            expect(mockedOnChange.calls[0][2]).toBe('1')
         })
     })
 })

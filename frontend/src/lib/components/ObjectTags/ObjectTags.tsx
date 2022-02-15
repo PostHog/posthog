@@ -1,6 +1,6 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
@@ -19,15 +19,12 @@ type ObjectTagsProps =
     | (ObjectTagsPropsBase & {
           /** Tags CAN'T be added or removed. */
           staticOnly: true
-          staticTags?: never
           onChange?: never
           tagsAvailable?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
           staticOnly?: false
-          /** Pass in boolean or subset of tags that should remain static. Equal to [] by default */
-          staticTags?: string[]
           onChange?: (tag: string, tags?: string[], id?: string) => void
           /** List of all tags that already exist. */
           tagsAvailable?: string[]
@@ -40,6 +37,8 @@ const COLOR_OVERRIDES: Record<string, string> = {
     deprecated: 'red',
 }
 
+let uniqueMemoizedIndex = 1
+
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
@@ -47,12 +46,12 @@ export function ObjectTags({
     tagsAvailable,
     style = {},
     staticOnly = false,
-    staticTags = [], // Required unless `staticOnly`
     id, // For pages that allow multiple object tags
     className,
     'data-attr': dataAttr,
 }: ObjectTagsProps): JSX.Element {
-    const logic = objectTagsLogic({ id, onChange, tags })
+    const objectTagId = useMemo(() => uniqueMemoizedIndex++, [tags])
+    const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
     const { addingNewTag, newTag, cleanedNewTag, deletedTags } = useValues(logic)
     const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 
@@ -77,7 +76,6 @@ export function ObjectTags({
                               >
                                   {tag}{' '}
                                   {!staticOnly &&
-                                      !staticTags?.includes(tag) &&
                                       onChange &&
                                       (deletedTags.includes(tag) ? (
                                           <SyncOutlined spin />

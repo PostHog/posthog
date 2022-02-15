@@ -3,8 +3,8 @@ import { objectTagsLogicType } from './objectTagsLogicType'
 import { errorToast } from 'lib/utils'
 
 export interface ObjectTagsLogicProps {
-    id?: string
-    onChange?: (tag: string, tags: string[], id?: string) => void
+    id: number
+    onChange?: (tag: string, tags: string[]) => void
     tags: string[]
 }
 
@@ -16,7 +16,7 @@ function cleanTag(tag?: string): string {
 export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
     path: (key) => ['lib', 'components', 'ObjectTags', 'objectTagsLogic', key],
     props: {} as ObjectTagsLogicProps,
-    key: (props) => props?.id || 'tags',
+    key: (props) => props.id,
     actions: {
         setTags: (tags: string[]) => ({ tags }),
         setAddingNewTag: (addingNewTag: boolean) => ({ addingNewTag }),
@@ -35,12 +35,14 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
             false,
             {
                 setAddingNewTag: (_, { addingNewTag }) => addingNewTag,
+                setTags: () => false,
             },
         ],
         newTag: [
             '',
             {
                 setNewTag: (_, { newTag }) => newTag,
+                setTags: () => '',
             },
         ],
         deletedTags: [
@@ -54,27 +56,23 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
         cleanedNewTag: [(s) => [s.newTag], (newTag) => cleanTag(newTag)],
     },
     listeners: ({ values, props, actions }) => ({
-        handleDelete: async ({ tag }, breakpoint) => {
+        handleDelete: async ({ tag }) => {
             const newTags = values.tags.filter((_t) => _t !== tag)
-            props.onChange?.(tag, newTags, props.id)
+            props.onChange?.(tag, newTags)
 
             // Update local state so that frontend is not blocked by server requests
             actions.setTags(newTags)
-            breakpoint()
         },
-        handleAdd: async (_, breakpoint) => {
+        handleAdd: async () => {
             if (values.tags?.includes(values.cleanedNewTag)) {
                 errorToast("Oops! Can't add that tag", 'That tag already exists.', 'Validation error')
                 return
             }
             const newTags = [...(values.tags || []), values.cleanedNewTag]
-            props.onChange?.(values.cleanedNewTag, newTags, props.id)
+            props.onChange?.(values.cleanedNewTag, newTags)
 
             // Update local state so that frontend is not blocked by server requests
             actions.setTags(newTags)
-            actions.setNewTag('')
-            actions.setAddingNewTag(false)
-            breakpoint()
         },
     }),
 })

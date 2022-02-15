@@ -32,8 +32,6 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
         }),
         setCreateNew: (createNew: boolean) => ({ createNew }),
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
-        saveNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
     }),
 
     reducers: () => ({
