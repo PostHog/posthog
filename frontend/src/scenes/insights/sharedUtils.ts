@@ -7,18 +7,14 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
  * The key will equals either 'scene', 'new' or an ID.
  *
  * @param defaultKey
- * @param sceneKey
  */
-export function keyForInsightLogicProps(defaultKey = 'new', sceneKey = 'scene'): (props: InsightLogicProps) => string {
+export function keyForInsightLogicProps(defaultKey = 'new'): (props: InsightLogicProps) => string {
     return (props) => {
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        let key = props.dashboardItemId || defaultKey
-        if (props.syncWithUrl) {
-            key = `${sceneKey}-${key}`
-        }
-        return key
+        const key = props.dashboardItemId || defaultKey
+        return props.syncWithUrl ? `scene-${key}` : key
     }
 }
 
