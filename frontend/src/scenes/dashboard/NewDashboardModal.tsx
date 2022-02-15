@@ -1,5 +1,5 @@
 import React from 'react'
-import { Input, Form, Select } from 'antd'
+import { Input, Form } from 'antd'
 import { useActions, useValues } from 'kea'
 import { slugify } from 'lib/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -99,16 +99,28 @@ export function NewDashboardModal(): JSX.Element {
                     />
                 </Form.Item>
                 <Form.Item name="useTemplate" label="Template">
-                    <Select
-                        data-attr="copy-from-template"
-                        style={{ width: '100%' }}
+                    <LemonSelect
+                        value={form.getFieldValue('useTemplate')}
+                        onChange={(newValue) =>
+                            form.setFieldsValue({
+                                useTemplate: newValue,
+                            })
+                        }
                         placeholder="Optionally start from template"
                         allowClear
-                    >
-                        <Select.Option data-attr="dashboard-select-default-app" value="DEFAULT_APP">
-                            Website
-                        </Select.Option>
-                    </Select>
+                        options={{
+                            DEFAULT_APP: {
+                                label: 'Website',
+                                'data-attr': 'dashboard-select-default-app',
+                            },
+                        }}
+                        type="stealth"
+                        outlined
+                        style={{
+                            width: '100%',
+                        }}
+                        data-attr="copy-from-template"
+                    />
                 </Form.Item>
                 {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
                     <Form.Item
@@ -128,7 +140,6 @@ export function NewDashboardModal(): JSX.Element {
                             type="stealth"
                             outlined
                             style={{
-                                height: '3rem',
                                 width: '100%',
                             }}
                         />
