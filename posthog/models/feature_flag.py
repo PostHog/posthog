@@ -114,10 +114,10 @@ class FeatureFlag(models.Model):
 
     def update_cohorts(self) -> None:
         from posthog.tasks.calculate_cohort import update_cohort
-        from posthog.tasks.cohorts_in_feature_flag import cohort_id_in_ff_key
+        from posthog.tasks.cohorts_in_feature_flag import COHORT_ID_IN_FF_KEY
 
         if self.cohort_ids:
-            cache.delete(cohort_id_in_ff_key)
+            cache.delete(COHORT_ID_IN_FF_KEY)
             for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
                 update_cohort(cohort)
 
