@@ -31,10 +31,10 @@ class PostHogConfig(AppConfig):
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
 
-                if SELF_CAPTURE:
-                    posthoganalytics.api_key = get_self_capture_api_token(None)
-                else:
-                    posthoganalytics.disabled = True
+            if SELF_CAPTURE:
+                posthoganalytics.api_key = get_self_capture_api_token(None)
+            else:
+                posthoganalytics.disabled = True
 
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
