@@ -6,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import React from 'react'
 interface HistoryListLogicProps {
     type: 'FeatureFlag'
+    id: number
 }
 
 export enum HistoryActions {
@@ -88,22 +89,26 @@ function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
  * We have a single logic for all items of a type which caches its responses
  *
  */
-export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps>>({
+export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps, HumanizedHistoryListItem>>({
     path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
     props: {} as HistoryListLogicProps,
-    key: (props) => `history/${props.type}`,
-    loaders: ({ values }) => ({
+    key: ({ id, type }) => `history/${type}/${id}`,
+    loaders: ({ props, values }) => ({
         history: [
-            [],
+            [] as HumanizedHistoryListItem[],
             {
-                fetchHistory: async (id: number) => {
+                fetchHistory: async () => {
                     const apiResponse: PaginatedResponse<HistoryListItem> = await api.get(
-                        `/api/projects/@current/feature_flags/${id}/history`
+                        `/api/projects/@current/feature_flags/${props.id}/history`
                     )
-                    const newForId = [...(values.history[id] || []), ...humanize(apiResponse?.results)]
-                    return { ...values.history, [id]: newForId }
+                    return [...(values.history || []), ...humanize(apiResponse?.results)]
                 },
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.fetchHistory()
+        },
     }),
 })

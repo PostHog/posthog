@@ -88,13 +88,13 @@ describe('the history list logic', () => {
     })
 
     it('sets a key', () => {
-        expect(logic.key).toEqual('history/FeatureFlag')
+        expect(logic.key).toEqual('history/FeatureFlag/7')
     })
 
     it('can load a page of history', async () => {
         await expectLogic(logic).toMatchValues({
-            isLoading: false,
-            history: { 7: aHumanizedPageOfHistory },
+            historyLoading: false,
+            history: aHumanizedPageOfHistory,
         })
     })
 })

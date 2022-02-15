@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import './HistoryList.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { historyListLogic, HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 interface HistoryListProps {
     type: 'FeatureFlag'
@@ -12,12 +12,9 @@ interface HistoryListProps {
 }
 
 export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
-    const logic = historyListLogic({ type })
+    const logic = historyListLogic({ type, id })
     const { history, historyLoading } = useValues(logic)
-    const { fetchHistory } = useActions(logic)
-    useEffect(() => {
-        fetchHistory(id)
-    }, [type, id])
+
     const columns: LemonTableColumns<HumanizedHistoryListItem> = [
         {
             key: 'profile',
@@ -52,7 +49,7 @@ export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
     return (
         <>
             <LemonTable
-                dataSource={history[id]}
+                dataSource={history}
                 showHeader={false}
                 loading={historyLoading}
                 columns={columns}
