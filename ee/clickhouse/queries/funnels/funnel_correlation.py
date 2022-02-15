@@ -18,6 +18,7 @@ from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
@@ -128,9 +129,8 @@ class FunnelCorrelation:
         )
         filter = Filter(data=filter_data)
 
-        from posthog.api.person import get_funnel_actor_class
+        funnel_order_actor_class = get_funnel_order_actor_class(filter)
 
-        funnel_order_actor_class = get_funnel_actor_class(filter)
         self._funnel_actors_generator = funnel_order_actor_class(
             filter,
             self._team,
