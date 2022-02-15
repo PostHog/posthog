@@ -61,9 +61,8 @@ export class ExportEventsBuffer {
             clearTimeout(this.timeout)
             this.timeout = null
         }
-        if (this.buffer.length > 0 || this.points !== 0) {
-            await this.options.onFlush?.(oldBuffer, oldPoints)
-        }
+
+        await this.options.onFlush?.(oldBuffer, oldPoints)
         this.hub.statsd?.timing(`buffer_promise_duration`, timer)
     }
 }
