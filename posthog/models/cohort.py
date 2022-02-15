@@ -152,7 +152,11 @@ class Cohort(models.Model):
         except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
             logger.warning(
-                "cohort_calculation_failed", id=self.pk, current_version=self.version, new_version=pending_version
+                "cohort_calculation_failed",
+                id=self.pk,
+                current_version=self.version,
+                new_version=pending_version,
+                exc_info=True,
             )
             raise e
         finally:
