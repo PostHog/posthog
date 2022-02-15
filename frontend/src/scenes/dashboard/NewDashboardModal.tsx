@@ -9,9 +9,9 @@ import { dashboardsLogic } from './dashboardsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardRestrictionLevel, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './ShareModal'
 
 export function NewDashboardModal(): JSX.Element {
@@ -20,19 +20,6 @@ export function NewDashboardModal(): JSX.Element {
     const { addDashboard } = useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const permissioningAvailable = hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-
-    const restrictionOptions: LemonSelectOptions = Object.fromEntries(
-        Object.entries(DASHBOARD_RESTRICTION_OPTIONS).map(([key, option]) => [
-            key,
-            {
-                ...option,
-                disabled: !permissioningAvailable,
-            },
-        ])
-    )
 
     const [form] = Form.useForm()
 
@@ -125,24 +112,26 @@ export function NewDashboardModal(): JSX.Element {
                 {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
                     <Form.Item
                         name="restrictionLevel"
-                        label="Collaboration"
+                        label="Collaboration restrictions"
                         rules={[{ required: true, message: 'Restriction level needs to be specified.' }]}
                     >
-                        <LemonSelect
-                            value={form.getFieldValue('restrictionLevel')}
-                            onChange={(newValue) =>
-                                form.setFieldsValue({
-                                    restrictionLevel: newValue,
-                                })
-                            }
-                            options={restrictionOptions}
-                            loading={dashboardLoading}
-                            type="stealth"
-                            outlined
-                            style={{
-                                width: '100%',
-                            }}
-                        />
+                        <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
+                            <LemonSelect
+                                value={form.getFieldValue('restrictionLevel')}
+                                onChange={(newValue) =>
+                                    form.setFieldsValue({
+                                        restrictionLevel: newValue,
+                                    })
+                                }
+                                options={DASHBOARD_RESTRICTION_OPTIONS}
+                                loading={dashboardLoading}
+                                type="stealth"
+                                outlined
+                                style={{
+                                    width: '100%',
+                                }}
+                            />
+                        </PayGateMini>
                     </Form.Item>
                 )}
             </Form>

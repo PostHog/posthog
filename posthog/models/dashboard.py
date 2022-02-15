@@ -48,7 +48,7 @@ class Dashboard(models.Model):
     def effective_restriction_level(self) -> RestrictionLevel:
         return (
             self.restriction_level
-            if self.team.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
             else self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 

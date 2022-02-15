@@ -12,6 +12,7 @@ class AvailableFeature(str, Enum):
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"

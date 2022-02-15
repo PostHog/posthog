@@ -510,7 +510,7 @@ export function IconComment(): JSX.Element {
     )
 }
 
-/** Material Design Comment Outlined icon. */
+/** Material Design Person Outlined icon. */
 export function IconPerson(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -522,7 +522,7 @@ export function IconPerson(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Comment Filled icon. */
+/** Material Design Person Filled icon. */
 export function IconPersonFilled(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
@@ -535,6 +535,24 @@ export function IconPersonFilled(props: React.SVGProps<SVGSVGElement>): JSX.Elem
         >
             <path d="M0 0h24v24H0z" fill="none" />
             <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+        </svg>
+    )
+}
+
+/** Material Design Emoji People icon. */
+export function IconEmojiPeople(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            {...props}
+        >
+            <path d="m0 0h24v24h-24z" fill="none" />
+            <circle cx="12" cy="4" r="2" />
+            <path d="m15.89 8.11c-.39-.39-1.06-1.11-2.36-1.11-.21 0-1.42 0-2.54 0-2.75-.01-4.99-2.25-4.99-5h-2c0 3.16 2.11 5.84 5 6.71v13.29h2v-6h2v6h2v-11.95l3.95 3.95 1.41-1.41z" />
         </svg>
     )
 }
