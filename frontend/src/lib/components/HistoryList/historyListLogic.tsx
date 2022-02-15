@@ -25,7 +25,7 @@ export interface HistoryDetail {
     key?: string
     name?: string
     filter?: string
-    to?: string | Record<string, any>
+    to?: string | Record<string, any> | boolean
 }
 
 export interface HistoryListItem {
