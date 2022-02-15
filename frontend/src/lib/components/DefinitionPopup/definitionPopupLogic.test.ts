@@ -13,7 +13,6 @@ import { initKeaTests } from '~/test/init'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -322,15 +321,18 @@ describe('definitionPopupLogic', () => {
                     })
                     logic.mount()
 
-                    const expectChain = expectLogic(logic, async () => {
-                        await logic.actions.setDefinition({ id: mockDefinitionId })
-                        await logic.actions.handleView()
-                    }).toDispatchActions(['setDefinitionSuccess', 'handleView'])
+                    const expectChain = expectLogic(logic, () => {
+                        logic.actions.setDefinition({ id: mockDefinitionId })
+                    }).toDispatchActions(['setDefinitionSuccess'])
 
                     if (group.url) {
-                        expectChain.toDispatchActions([router.actionCreators.push(group.url)])
+                        expectChain.toMatchValues({
+                            viewFullDetailUrl: group.url,
+                        })
                     } else {
-                        expectChain.toNotHaveDispatchedActions(['router.actions.push'])
+                        expectChain.toMatchValues({
+                            viewFullDetailUrl: undefined,
+                        })
                     }
                     await expectChain
                 })

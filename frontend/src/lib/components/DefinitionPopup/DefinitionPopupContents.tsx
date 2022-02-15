@@ -230,9 +230,9 @@ function DefinitionEdit(): JSX.Element {
         isViewable,
         type,
         dirty,
+        viewFullDetailUrl,
     } = useValues(definitionPopupLogic)
-    const { setLocalDefinition, setNewTag, deleteTag, handleView, handleCancel, handleSave } =
-        useActions(definitionPopupLogic)
+    const { setLocalDefinition, setNewTag, deleteTag, handleCancel, handleSave } = useActions(definitionPopupLogic)
 
     if (!definition || !hasTaxonomyFeatures) {
         return <></>
@@ -297,14 +297,16 @@ function DefinitionEdit(): JSX.Element {
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
                     {isViewable && type !== TaxonomicFilterGroupType.Events ? (
-                        <Button
-                            onClick={handleView}
-                            className="definition-popup-edit-form-buttons-secondary"
-                            style={{ color: 'var(--primary)' }}
-                            disabled={definitionLoading}
-                        >
-                            More options
-                        </Button>
+                        <Link target="_blank" to={viewFullDetailUrl}>
+                            <Button
+                                className="definition-popup-edit-form-buttons-secondary"
+                                style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center' }}
+                                disabled={definitionLoading}
+                            >
+                                More options
+                                <IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />
+                            </Button>
+                        </Link>
                     ) : (
                         <div style={{ flex: 1 }} />
                     )}

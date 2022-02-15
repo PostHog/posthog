@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter, errorToast, successToast } from 'lib/utils'
@@ -35,7 +34,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         setPopupState: (state: DefinitionPopupState) => ({ state }),
         setNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
-        handleView: true,
         handleCancel: true,
     },
     reducers: {
@@ -158,6 +156,25 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isElement: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Elements],
+        viewFullDetailUrl: [
+            (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
+            (definition, isAction, isEvent, isProperty, isCohort) => {
+                if (isAction) {
+                    // Action Definitions
+                    return urls.action((definition as ActionType).id)
+                } else if (isEvent) {
+                    // Event Definitions
+                    return urls.eventStat((definition as EventDefinition).id)
+                } else if (isProperty) {
+                    // Property Definitions
+                    return urls.eventPropertyStat((definition as PropertyDefinition).id)
+                } else if (isCohort) {
+                    // Cohort
+                    return urls.cohort((definition as CohortType).id)
+                }
+                return undefined
+            },
+        ],
     },
     listeners: ({ actions, selectors, values }) => ({
         setDefinition: (_, __, ___, previousState) => {
@@ -186,22 +203,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             }
             const _definition = values.localDefinition as EventDefinition | PropertyDefinition | ActionType
             actions.setLocalDefinition({ tags: _definition.tags?.filter((_tag: string) => _tag !== tag) || [] })
-        },
-        handleView: () => {
-            // Redirect to the correct full definition page
-            if (values.isAction) {
-                // Action Definitions
-                router.actions.push(urls.action((values.definition as ActionType).id))
-            } else if (values.isEvent) {
-                // Event Definitions
-                router.actions.push(urls.eventStat((values.definition as EventDefinition).id))
-            } else if (values.isProperty) {
-                // Property Definitions
-                router.actions.push(urls.eventPropertyStat((values.definition as PropertyDefinition).id))
-            } else if (values.isCohort) {
-                // Cohort
-                router.actions.push(urls.cohort((values.definition as CohortType).id))
-            }
         },
         handleSave: () => {
             actions.setPopupState(DefinitionPopupState.View)
