@@ -80,7 +80,7 @@
                       AND (has(['Jane'], trim(BOTH '"'
                                               FROM JSONExtractRaw(properties, 'name')))) )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
+  LIMIT 10000
   '
 ---
 # name: TestEventQuery.test_account_filters.3
@@ -135,8 +135,8 @@
                       AND (has(['Jane'], trim(BOTH '"'
                                               FROM JSONExtractRaw(properties, 'name')))) )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestEventQuery.test_account_filters.4
