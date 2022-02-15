@@ -54,7 +54,7 @@ const actionsMapping: {
     [HistoryActions.FEATURE_FLAG_FILTERS_CHANGED]: function onChangedFilter(detail) {
         return (
             <>
-                changed the filters to <pre>{JSON.stringify(detail.to)}</pre>
+                changed the filters to <code>{JSON.stringify(detail.to)}</code>
             </>
         )
     },
