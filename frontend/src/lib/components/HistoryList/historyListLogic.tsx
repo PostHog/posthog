@@ -49,12 +49,13 @@ const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => stri
     [HistoryActions.CHANGED_DESCRIPTION_ON_FLAG]: (detail) => `changed the description of the flag to: ${detail.to}`,
     [HistoryActions.CHANGED_ACTIVE_ON_FLAG]: (detail) => (detail.to ? 'enabled the flag' : 'disabled the flag'),
     [HistoryActions.HISTORY_HOG_IMPORTED_FLAG]: () => `imported the flag`,
-    // eslint-disable-next-line react/display-name
-    [HistoryActions.CHANGED_FILTERS_ON_FLAG]: (detail) => (
-        <>
-            changed the filters to <pre>{JSON.stringify(detail.to)}</pre>
-        </>
-    ),
+    [HistoryActions.CHANGED_FILTERS_ON_FLAG]: function onChangedFilter(detail) {
+        return (
+            <>
+                changed the filters to <pre>{JSON.stringify(detail.to)}</pre>
+            </>
+        )
+    },
     [HistoryActions.SOFT_DELETED_FLAG]: () => `deleted the flag`,
     [HistoryActions.CHANGED_ROLLOUT_PERCENTAGE_ON_FLAG]: (detail) => `changed rollout percentage to ${detail.to}`,
     [HistoryActions.CHANGED_KEY_ON_FLAG]: (detail) => `changed the flag key to ${detail.to}`,
