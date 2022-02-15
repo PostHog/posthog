@@ -48,7 +48,7 @@ const featureFlagsHistoryResponseJson = [
     {
         email: 'kunal@posthog.com',
         name: 'kunal',
-        action: HistoryActions.CREATED_FEATURE_FLAG,
+        action: HistoryActions.FEATURE_FLAG_CREATED,
         detail: {
             id: 7,
             name: 'test flag',
@@ -58,7 +58,7 @@ const featureFlagsHistoryResponseJson = [
     {
         email: 'eli@posthog.com',
         name: 'eli',
-        action: HistoryActions.CHANGED_DESCRIPTION_ON_FLAG,
+        action: HistoryActions.FEATURE_FLAG_DESCRIPTION_CHANGED,
         detail: {
             id: 7,
             description: 'this is what was added',
@@ -68,7 +68,7 @@ const featureFlagsHistoryResponseJson = [
     {
         email: 'guido@posthog.com',
         name: 'guido',
-        action: HistoryActions.CHANGED_FILTERS_ON_FLAG,
+        action: HistoryActions.FEATURE_FLAG_FILTERS_CHANGED,
         detail: {
             id: 7,
             filter: "{ 'filter': 'info' }",
@@ -78,7 +78,7 @@ const featureFlagsHistoryResponseJson = [
     {
         email: 'paul@posthog.com',
         name: 'paul',
-        action: HistoryActions.CHANGED_ACTIVE_ON_FLAG,
+        action: HistoryActions.FEATURE_FLAG_ACTIVE_CHANGED,
         detail: {
             id: 7,
         },

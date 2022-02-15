@@ -41,7 +41,7 @@ const aPageOfHistory: HistoryListItem[] = [
     {
         email: 'kunal@posthog.com',
         name: 'kunal',
-        action: HistoryActions.CREATED_FEATURE_FLAG,
+        action: HistoryActions.FEATURE_FLAG_CREATED,
         detail: {
             id: 7,
             name: 'test flag',
@@ -51,7 +51,7 @@ const aPageOfHistory: HistoryListItem[] = [
     {
         email: 'eli@posthog.com',
         name: 'eli',
-        action: HistoryActions.CHANGED_DESCRIPTION_ON_FLAG,
+        action: HistoryActions.FEATURE_FLAG_DESCRIPTION_CHANGED,
         detail: {
             id: 7,
             to: 'this is what was added',
@@ -61,7 +61,7 @@ const aPageOfHistory: HistoryListItem[] = [
     {
         email: 'guido@posthog.com',
         name: 'guido',
-        action: HistoryActions.CHANGED_FILTERS_ON_FLAG,
+        action: HistoryActions.FEATURE_FLAG_FILTERS_CHANGED,
         detail: {
             id: 7,
             to: { filter: 'info' },

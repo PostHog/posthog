@@ -1,12 +1,27 @@
 from datetime import datetime
+from unittest import mock
+
+from freezegun import freeze_time
 
 from posthog.helpers.item_history import HistoryListItem, compute_history
 from posthog.mixins import pairwise
 from posthog.models import HistoricalVersion
 
 
-def test_no_history_returns_an_empty_list():
-    assert compute_history("anything", []) == []
+@mock.patch.object(HistoricalVersion, "save")
+@freeze_time("2021-01-02 00:06:34")
+def test_viewing_an_item_with_no_history(mock_historical_version_save):
+    assert compute_history(history_type="FeatureFlag", version_pairs=[], team_id=1, item_id=4) == [
+        HistoryListItem(
+            email="history.hog@posthog.com",
+            name="history hog",
+            user_id=-1,
+            action="FeatureFlag_imported",
+            detail={"id": 4, "key": "unknown"},
+            created_at="2021-01-02T00:06:34+00:00",
+        )
+    ]
+    mock_historical_version_save.assert_called_once()
 
 
 def test_a_single_update_shows_updated_by_history_hog():
@@ -18,12 +33,12 @@ def test_a_single_update_shows_updated_by_history_hog():
         versioned_at=datetime.fromisoformat("2020-04-01T12:34:56"),
         team_id=1,
     )
-    assert compute_history("FeatureFlag", [(an_update, None)]) == [
+    assert compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)], team_id=1, item_id=4) == [
         HistoryListItem(
             email="history.hog@posthog.com",
             name="history hog",
             user_id=-1,
-            action="history_hog_imported_FeatureFlag",
+            action="FeatureFlag_imported",
             detail={"id": 4, "key": "the-key"},
             created_at="2020-04-01T12:34:56",
         )
@@ -189,7 +204,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_filters_on_FeatureFlag",
+            action="FeatureFlag_filters_changed",
             detail={"id": 4, "key": "the-new-key", "from": {"some": "json"}, "to": {"some": "json", "and": "more"}},
             created_at="2020-04-04T12:34:56",
         ),
@@ -197,7 +212,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_filters_on_FeatureFlag",
+            action="FeatureFlag_filters_changed",
             detail={"id": 4, "key": "the-new-key", "to": {"some": "json"}},
             created_at="2020-04-04T12:34:56",
         ),
@@ -205,7 +220,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_deleted_on_FeatureFlag",
+            action="FeatureFlag_deleted_changed",
             detail={"id": 4, "key": "the-new-key", "to": True},
             created_at="2020-04-04T12:34:56",
         ),
@@ -213,7 +228,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_rollout_percentage_on_FeatureFlag",
+            action="FeatureFlag_rollout_percentage_changed",
             detail={"id": 4, "key": "the-new-key", "from": 50, "to": 25},
             created_at="2020-04-04T12:34:56",
         ),
@@ -221,7 +236,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_rollout_percentage_on_FeatureFlag",
+            action="FeatureFlag_rollout_percentage_changed",
             detail={"id": 4, "key": "the-new-key", "to": 50},
             created_at="2020-04-04T12:34:56",
         ),
@@ -229,7 +244,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_active_on_FeatureFlag",
+            action="FeatureFlag_active_changed",
             detail={"id": 4, "key": "the-new-key", "from": False, "to": True},
             created_at="2020-04-04T12:34:56",
         ),
@@ -237,7 +252,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_active_on_FeatureFlag",
+            action="FeatureFlag_active_changed",
             detail={"id": 4, "key": "the-new-key", "to": False},
             created_at="2020-04-04T12:34:56",
         ),
@@ -245,7 +260,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_name_on_FeatureFlag",
+            action="FeatureFlag_name_changed",
             detail={"id": 4, "key": "the-new-key", "from": "a description", "to": "a new description"},
             created_at="2020-04-04T12:34:56",
         ),
@@ -253,7 +268,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_name_on_FeatureFlag",
+            action="FeatureFlag_name_changed",
             detail={"id": 4, "key": "the-new-key", "to": "a description"},
             created_at="2020-04-03T12:34:56",
         ),
@@ -261,7 +276,7 @@ def test_possible_feature_flag_changes():
             email="darth.vader@posthog.com",
             name="darth",
             user_id=3,
-            action="changed_key_on_FeatureFlag",
+            action="FeatureFlag_key_changed",
             detail={"id": 4, "key": "the-new-key", "from": "the-key", "to": "the-new-key"},
             created_at="2020-04-02T12:34:56",
         ),
@@ -269,10 +284,10 @@ def test_possible_feature_flag_changes():
             email="han.solo@posthog.com",
             name="han",
             user_id=2,
-            action="created_FeatureFlag",
+            action="FeatureFlag_created",
             detail={"id": 4, "key": "the-key"},
             created_at="2020-04-01T12:34:56",
         ),
     ]
-    history = compute_history("FeatureFlag", pairwise(versions))
+    history = compute_history(history_type="FeatureFlag", version_pairs=pairwise(versions), item_id=4, team_id=1)
     assert history == expected

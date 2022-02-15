@@ -99,7 +99,13 @@ class HistoryLoggingMixin:
         return Response(
             {
                 "results": HistoryListItemSerializer(
-                    compute_history(history_type, pairwise(list(versions))), many=True
+                    compute_history(  # TODO handle items with org id not team id
+                        history_type=history_type,
+                        version_pairs=pairwise(list(versions)),
+                        item_id=kwargs["pk"],
+                        team_id=self.team.id,  # type: ignore
+                    ),
+                    many=True,
                 ).data,
                 "next": None,
                 "previous": None,

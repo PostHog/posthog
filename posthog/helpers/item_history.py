@@ -2,6 +2,7 @@ import dataclasses
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from posthog.models import HistoricalVersion
+from posthog.models.utils import UUIDT
 
 
 @dataclasses.dataclass(frozen=True)
@@ -14,7 +15,13 @@ class HistoryListItem:
     created_at: str
 
 
-def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]]):
+def compute_history(
+    history_type: str,
+    item_id: int,
+    version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
+    team_id: Optional[int] = None,
+    organization_id: Optional[UUIDT] = None,
+):
     """
     TODO Purposefully leaving this as unstructured "Arrow code" to get to "shameless green"
     TODO until there are at least two or three types having history computed
@@ -31,6 +38,30 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
     """
     history: List[HistoryListItem] = []
 
+    _process_pairs(history, history_type, version_pairs)
+
+    if len(history) == 0:
+        imported_version = HistoricalVersion(
+            state={"key": "unknown"},
+            name="FeatureFlag",
+            action="update",
+            item_id=item_id,
+            created_by_name="history hog",
+            created_by_email="history.hog@posthog.com",
+            created_by_id=0,
+        )
+        if team_id:
+            imported_version.team_id = team_id
+        elif organization_id:
+            imported_version.organization_id = organization_id
+        imported_version.save()
+
+        return _process_pairs(history, history_type, [(imported_version, None)])
+
+    return history
+
+
+def _process_pairs(history, history_type, version_pairs):
     for (current, previous) in version_pairs:
         if current.action == "create":
             history.append(
@@ -38,7 +69,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                     email=current.created_by_email,
                     name=current.created_by_name,
                     user_id=current.created_by_id,
-                    action=f"created_{history_type}",
+                    action=f"{history_type}_created",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
                 )
@@ -49,7 +80,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                     email=current.created_by_email,
                     name=current.created_by_name,
                     user_id=current.created_by_id,
-                    action=f"deleted_{history_type}",
+                    action=f"{history_type}_deleted",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
                 )
@@ -62,7 +93,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                             email=current.created_by_email,
                             name=current.created_by_name,
                             user_id=current.created_by_id,
-                            action=f"changed_{current_key}_on_{history_type}",
+                            action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
@@ -77,7 +108,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                             email=current.created_by_email,
                             name=current.created_by_name,
                             user_id=current.created_by_id,
-                            action=f"changed_{current_key}_on_{history_type}",
+                            action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
@@ -95,7 +126,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                             email=current.created_by_email,
                             name=current.created_by_name,
                             user_id=current.created_by_id,
-                            action=f"deleted_{previous_key}_from_{history_type}",
+                            action=f"{history_type}_{previous_key}_deleted",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
@@ -110,7 +141,7 @@ def compute_history(history_type: str, version_pairs: Iterable[Tuple[HistoricalV
                     email="history.hog@posthog.com",
                     name="history hog",
                     user_id=-1,
-                    action=f"history_hog_imported_{history_type}",
+                    action=f"{history_type}_imported",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
                 )

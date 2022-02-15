@@ -11,14 +11,14 @@ interface HistoryListLogicProps {
 }
 
 export enum HistoryActions {
-    CREATED_FEATURE_FLAG = 'created_FeatureFlag',
-    CHANGED_DESCRIPTION_ON_FLAG = 'changed_name_on_FeatureFlag',
-    HISTORY_HOG_IMPORTED_FLAG = 'history_hog_imported_FeatureFlag',
-    CHANGED_FILTERS_ON_FLAG = 'changed_filters_on_FeatureFlag',
-    SOFT_DELETED_FLAG = 'added_deleted_to_FeatureFlag',
-    CHANGED_ROLLOUT_PERCENTAGE_ON_FLAG = 'changed_rollout_percentage_on_FeatureFlag',
-    CHANGED_ACTIVE_ON_FLAG = 'changed_active_on_FeatureFlag',
-    CHANGED_KEY_ON_FLAG = 'changed_key_on_FeatureFlag',
+    FEATURE_FLAG_CREATED = 'FeatureFlag_created',
+    FEATURE_FLAG_DESCRIPTION_CHANGED = 'FeatureFlag_name_changed',
+    FEATURE_FLAG_IMPORTED = 'FeatureFlag_imported',
+    FEATURE_FLAG_FILTERS_CHANGED = 'FeatureFlag_filters_changed',
+    FEATURE_FLAG_SOFT_DELETED = 'FeatureFlag_deleted_added',
+    FEATURE_FLAG_ROLLOUT_PERCENTAGE_CHANGED = 'FeatureFlag_rollout_percentage_changed',
+    FEATURE_FLAG_ACTIVE_CHANGED = 'FeatureFlag_active_changed',
+    FEATURE_FLAG_KEY_CHANGED = 'FeatureFlag_key_changed',
 }
 
 export interface HistoryDetail {
@@ -45,20 +45,21 @@ export interface HumanizedHistoryListItem {
 }
 
 const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string | JSX.Element } = {
-    [HistoryActions.CREATED_FEATURE_FLAG]: () => `created the flag`,
-    [HistoryActions.CHANGED_DESCRIPTION_ON_FLAG]: (detail) => `changed the description of the flag to: ${detail.to}`,
-    [HistoryActions.CHANGED_ACTIVE_ON_FLAG]: (detail) => (detail.to ? 'enabled the flag' : 'disabled the flag'),
-    [HistoryActions.HISTORY_HOG_IMPORTED_FLAG]: () => `imported the flag`,
-    [HistoryActions.CHANGED_FILTERS_ON_FLAG]: function onChangedFilter(detail) {
+    [HistoryActions.FEATURE_FLAG_CREATED]: () => `created the flag`,
+    [HistoryActions.FEATURE_FLAG_DESCRIPTION_CHANGED]: (detail) =>
+        `changed the description of the flag to: ${detail.to}`,
+    [HistoryActions.FEATURE_FLAG_ACTIVE_CHANGED]: (detail) => (detail.to ? 'enabled the flag' : 'disabled the flag'),
+    [HistoryActions.FEATURE_FLAG_IMPORTED]: () => `imported the flag`,
+    [HistoryActions.FEATURE_FLAG_FILTERS_CHANGED]: function onChangedFilter(detail) {
         return (
             <>
                 changed the filters to <pre>{JSON.stringify(detail.to)}</pre>
             </>
         )
     },
-    [HistoryActions.SOFT_DELETED_FLAG]: () => `deleted the flag`,
-    [HistoryActions.CHANGED_ROLLOUT_PERCENTAGE_ON_FLAG]: (detail) => `changed rollout percentage to ${detail.to}`,
-    [HistoryActions.CHANGED_KEY_ON_FLAG]: (detail) => `changed the flag key to ${detail.to}`,
+    [HistoryActions.FEATURE_FLAG_SOFT_DELETED]: () => `deleted the flag`,
+    [HistoryActions.FEATURE_FLAG_ROLLOUT_PERCENTAGE_CHANGED]: (detail) => `changed rollout percentage to ${detail.to}`,
+    [HistoryActions.FEATURE_FLAG_KEY_CHANGED]: (detail) => `changed the flag key to ${detail.to}`,
 }
 
 function descriptionFrom(historyListItem: HistoryListItem): string | JSX.Element | null {
