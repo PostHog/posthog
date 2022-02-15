@@ -292,12 +292,21 @@ def get_and_update_pending_version(cohort: Cohort):
 class CohortPeople(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person: models.ForeignKey = models.ForeignKey(
+    # NOTE: we "hide" the field as we do not want people to use this ForeignKey
+    # but rather to use this model as a django style "through model" to go from
+    # `Cohort` id to a list of `Person`. It is possible that if this attribute
+    # is accessed and the corresponding `Person` with `person_id` does not exist
+    # then it will raise a `Person.DoesNotExist`
+    # NOTE: ideally I'd want to convert this field to an IntegerField, but this
+    # seems to be a little more involved in terms of migrations so am deferring
+    # for now.
+    __person: models.ForeignKey = models.ForeignKey(
         "Person",
         # NOTE: avoid constraint, we want to avoid any locks on related tables
         # when inserting
         db_constraint=False,
-        on_delete=models.CASCADE,
+        db_column="person_id",
+        on_delete=models.DO_NOTHING,
     )
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
