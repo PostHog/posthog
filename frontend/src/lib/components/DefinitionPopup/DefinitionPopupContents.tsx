@@ -20,6 +20,7 @@ import { Button, Checkbox, Input } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
+import { humanFriendlyNumber } from 'lib/utils'
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -111,8 +112,20 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopup.Grid cols={2}>
                         <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
                         <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
-                        <DefinitionPopup.Card title="30 day volume" value={_definition.volume_30_day ?? '-'} />
-                        <DefinitionPopup.Card title="30 day queries" value={_definition.query_usage_30_day ?? '-'} />
+                        <DefinitionPopup.Card
+                            title="30 day volume"
+                            value={
+                                _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
+                            }
+                        />
+                        <DefinitionPopup.Card
+                            title="30 day queries"
+                            value={
+                                _definition.query_usage_30_day == null
+                                    ? '-'
+                                    : humanFriendlyNumber(_definition.query_usage_30_day)
+                            }
+                        />
                     </DefinitionPopup.Grid>
                 ) : (
                     <TaxonomyIntroductionSection />
