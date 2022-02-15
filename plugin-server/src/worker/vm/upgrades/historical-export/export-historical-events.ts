@@ -42,7 +42,7 @@ export function addHistoricalEventsExportCapability(
     if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
         void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
     }
-    g
+
     const oldSetupPlugin = methods.setupPlugin
 
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
