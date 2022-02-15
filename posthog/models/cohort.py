@@ -12,7 +12,6 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.models.utils import UUIDT, sane_repr
-from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
 from .action import Action
 from .event import Event
@@ -142,6 +141,7 @@ class Cohort(models.Model):
 
     def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
+        from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
         start_time = time.monotonic()

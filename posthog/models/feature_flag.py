@@ -18,11 +18,8 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
-from posthog.tasks.calculate_cohort import update_cohort
-from posthog.tasks.cohorts_in_feature_flag import cohort_id_in_ff_key
 
 from .filters import Filter
 from .person import Person, PersonDistinctId
@@ -116,6 +113,9 @@ class FeatureFlag(models.Model):
         return cohort_ids
 
     def update_cohorts(self) -> None:
+        from posthog.tasks.calculate_cohort import update_cohort
+        from posthog.tasks.cohorts_in_feature_flag import cohort_id_in_ff_key
+
         if self.cohort_ids:
             cache.delete(cohort_id_in_ff_key)
             for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
