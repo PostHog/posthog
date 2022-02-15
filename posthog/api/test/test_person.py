@@ -101,15 +101,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["count"], 1)
 
     def test_filter_by_cohort(self):
+
         _create_person(
-            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+            team=self.team, distinct_ids=[f"fake"], properties={},
         )
-        _create_person(team=self.team, distinct_ids=["person_2"])
+        for i in range(150):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people_ch(pending_version=0)
-        response = self.client.get(f"/api/person/?cohort={cohort.pk}")
-        self.assertEqual(len(response.json()["results"]), 1, response)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 100, response)
+
+        response = self.client.get(response.json()["next"])
+        self.assertEqual(len(response.json()["results"]), 50, response)
 
     def test_filter_person_list(self):
 

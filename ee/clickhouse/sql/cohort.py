@@ -85,3 +85,14 @@ WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 GROUP BY person_id, cohort_id, team_id
 HAVING sum(sign) > 0
 """
+
+GET_COHORTPEOPLE_BY_COHORT_ID = """
+SELECT person_id
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+GROUP BY person_id, cohort_id, team_id
+HAVING sum(sign) > 0
+ORDER BY person_id
+LIMIT %(limit)s
+OFFSET %(offset)s
+"""
