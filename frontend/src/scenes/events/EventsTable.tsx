@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined, FilterOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Typography } from 'antd'
+import { Button, Row, Typography } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -23,7 +23,7 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconSync } from 'lib/components/icons'
+import { IconSync, IconUnfoldLess } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -361,38 +361,42 @@ export function EventsTable({
                                 }}
                             >
                                 <div>
-                                    <Typography.Text strong style={{ marginBottom: '1rem' }}>
-                                        Filter by event
-                                        <Tooltip title="Show all occurrences of a specific event.">
-                                            <InfoCircleOutlined
-                                                className="info-icon ml-05"
-                                                style={{ color: 'var(--primary)' }}
-                                            />
-                                        </Tooltip>
-                                    </Typography.Text>
+                                    <Row justify="space-between" align="middle">
+                                        <Typography.Text strong>
+                                            Filter by event
+                                            <Tooltip title="Show all occurrences of a specific event.">
+                                                <InfoCircleOutlined className="info-icon ml-05" />
+                                            </Tooltip>
+                                        </Typography.Text>
+                                        <LemonButton
+                                            type="stealth"
+                                            onClick={() => {
+                                                setShowFilters(false)
+                                            }}
+                                            icon={<IconUnfoldLess />}
+                                            title="Minimize filter"
+                                        />
+                                    </Row>
                                     <EventName
                                         value={eventFilter}
                                         onChange={(value: string) => {
                                             setEventFilter(value || '')
                                         }}
-                                        style={{ marginTop: '1rem' }}
+                                        style={{ marginTop: '0.5rem' }}
                                     />
                                 </div>
-                                <div style={{ marginTop: '2rem' }}>
+                                <div style={{ marginTop: '1rem' }}>
                                     <Typography.Text strong>
                                         Filter by properties, cohorts, and elements
                                         <Tooltip title="Show events by properties or cohorts that match the set criteria.">
-                                            <InfoCircleOutlined
-                                                className="info-icon ml-05"
-                                                style={{ color: 'var(--primary)' }}
-                                            />
+                                            <InfoCircleOutlined className="info-icon ml-05" />
                                         </Tooltip>
                                     </Typography.Text>
                                     <PropertyFilters
                                         propertyFilters={properties}
                                         onChange={setProperties}
                                         pageKey={pageKey}
-                                        style={{ marginBottom: 0, marginTop: '1rem' }}
+                                        style={{ marginBottom: 0, marginTop: '0.5rem' }}
                                         eventNames={eventFilter ? [eventFilter] : []}
                                     />
                                 </div>
@@ -408,7 +412,15 @@ export function EventsTable({
                             </Button>
                         </div>
 
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                                alignSelf: 'flex-end',
+                                gap: '0.75rem',
+                            }}
+                        >
                             <LemonSwitch
                                 id="autoload-switch"
                                 label="Automatically load new events"

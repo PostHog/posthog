@@ -18,6 +18,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconUnfoldLess } from 'lib/components/icons'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -71,7 +73,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         loadPrev,
         setDateRange,
         setDurationFilter,
-        enableFilter,
+        setFilterEnabled,
         reportRecordingsListFilterAdded,
     } = useActions(sessionRecordingsTableLogicInstance)
 
@@ -117,12 +119,22 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
             <Row className="filter-row">
                 <div className="filter-container" style={{ display: showFilters ? undefined : 'none' }}>
                     <div>
-                        <Typography.Text strong>
-                            {`Filter by events and actions `}
-                            <Tooltip title="Show recordings where all of the events or actions listed below happen.">
-                                <InfoCircleOutlined className="info-icon" />
-                            </Tooltip>
-                        </Typography.Text>
+                        <Row justify="space-between" align="middle">
+                            <Typography.Text strong>
+                                {`Filter by events and actions `}
+                                <Tooltip title="Show recordings where all of the events or actions listed below happen.">
+                                    <InfoCircleOutlined className="info-icon" />
+                                </Tooltip>
+                            </Typography.Text>
+                            <LemonButton
+                                type="stealth"
+                                onClick={() => {
+                                    setFilterEnabled(false)
+                                }}
+                                icon={<IconUnfoldLess />}
+                                title="Minimize filter"
+                            />
+                        </Row>
                         <ActionFilter
                             fullWidth={true}
                             filters={entityFilters}
@@ -178,7 +190,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 <Button
                     style={{ display: showFilters ? 'none' : undefined }}
                     onClick={() => {
-                        enableFilter()
+                        setFilterEnabled(true)
                         if (isPersonPage) {
                             const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
                             if (entityFilterButtons.length > 0) {

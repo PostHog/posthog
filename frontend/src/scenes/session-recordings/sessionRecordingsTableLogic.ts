@@ -78,7 +78,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         },
         loadNext: true,
         loadPrev: true,
-        enableFilter: true,
+        setFilterEnabled: (filterEnabled: boolean) => ({ filterEnabled }),
         setOffset: (offset: number) => ({ offset }),
         setDateRange: (incomingFromDate: string | undefined, incomingToDate: string | undefined) => ({
             incomingFromDate,
@@ -123,7 +123,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         filterEnabled: [
             false,
             {
-                enableFilter: () => true,
+                setFilterEnabled: (_, { filterEnabled }) => filterEnabled,
             },
         ],
         sessionRecordings: [
