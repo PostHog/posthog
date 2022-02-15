@@ -873,8 +873,14 @@ body {
     .ant-modal-content {
         box-shadow: var(--shadow-elevation);
     }
-    .ant-form label {
-        font-weight: 600;
+    .ant-form-item-label {
+        > label {
+            font-weight: 600;
+            .ant-form-item-optional {
+                font-weight: 400;
+                color: var(--muted);
+            }
+        }
     }
     .ant-form-item {
         margin-bottom: 1rem;

@@ -73,6 +73,7 @@ export function NewDashboardModal(): JSX.Element {
                     addDashboard(values)
                 }}
                 id="new-dashboard-form"
+                requiredMark="optional"
                 initialValues={{
                     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
                 }}
@@ -111,7 +112,11 @@ export function NewDashboardModal(): JSX.Element {
                     </Select>
                 </Form.Item>
                 {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
-                    <Form.Item name="restrictionLevel" label="Collaboration">
+                    <Form.Item
+                        name="restrictionLevel"
+                        label="Collaboration"
+                        rules={[{ required: true, message: 'Restriction level needs to be specified.' }]}
+                    >
                         <LemonSelect
                             value={form.getFieldValue('restrictionLevel')}
                             onChange={(newValue) =>
