@@ -38,6 +38,7 @@ export enum AvailableFeature {
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
 }
 
 export enum Realm {

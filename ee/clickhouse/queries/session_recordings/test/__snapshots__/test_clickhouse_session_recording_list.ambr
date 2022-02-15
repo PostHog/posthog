@@ -167,32 +167,32 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
                WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['some_val'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (select id
+                 from
+                   (SELECT *
+                    FROM person
+                    JOIN
+                      (SELECT id,
+                              max(_timestamp) as _timestamp,
+                              max(is_deleted) as is_deleted
+                       FROM person
+                       WHERE team_id = 2
+                       GROUP BY id) as person_max ON person.id = person_max.id
+                    AND person._timestamp = person_max._timestamp
+                    WHERE team_id = 2
+                      AND person_max.is_deleted = 0
+                      AND (has(['some_val'], trim(BOTH '"'
+                                                  FROM JSONExtractRaw(properties, '$some_prop')))) )) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   '
@@ -222,32 +222,32 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
-    AND pdi.distinct_id IN
-      (SELECT distinct_id
-       FROM
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
-          FROM person_distinct_id2
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0)
-       WHERE person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
                WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['some_val'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(properties, '$some_prop')))) )) )
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (select id
+                 from
+                   (SELECT *
+                    FROM person
+                    JOIN
+                      (SELECT id,
+                              max(_timestamp) as _timestamp,
+                              max(is_deleted) as is_deleted
+                       FROM person
+                       WHERE team_id = 2
+                       GROUP BY id) as person_max ON person.id = person_max.id
+                    AND person._timestamp = person_max._timestamp
+                    WHERE team_id = 2
+                      AND person_max.is_deleted = 0
+                      AND (has(['some_val'], trim(BOTH '"'
+                                                  FROM JSONExtractRaw(properties, '$some_prop')))) )) ))
   ORDER BY _timestamp ASC
   LIMIT 50000
   OFFSET 50000
@@ -291,15 +291,15 @@
      GROUP BY id
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
-    AND person_id IN
-      (SELECT person_id
-       FROM cohortpeople
-       WHERE team_id = 2
-         AND cohort_id = 2
-       GROUP BY person_id,
-                cohort_id,
-                team_id
-       HAVING sum(sign) > 0)
+    AND (person_id IN
+           (SELECT person_id
+            FROM cohortpeople
+            WHERE team_id = 2
+              AND cohort_id = 2
+            GROUP BY person_id,
+                     cohort_id,
+                     team_id
+            HAVING sum(sign) > 0))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51

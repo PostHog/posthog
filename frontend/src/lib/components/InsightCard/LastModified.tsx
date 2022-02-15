@@ -9,11 +9,15 @@ export function LastModified({
 }: {
     at: string | null | undefined
     by?: UserBasicType | null | undefined
-}): JSX.Element {
-    return (
+}): JSX.Element | null {
+    return at || by ? (
         <div className="LastModified">
-            <div>Last modified {at && <TZLabel time={at} />} by</div>
-            <ProfilePicture name={by?.first_name} email={by?.email} showName size="md" />
+            <div>
+                Last modified{at && ' '}
+                {at && <TZLabel time={at} />}
+                {by && ' by'}
+            </div>
+            {by && <ProfilePicture name={by.first_name} email={by.email} showName size="md" />}
         </div>
-    )
+    ) : null
 }

@@ -80,6 +80,7 @@ class Cohort(models.Model):
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
@@ -139,12 +140,12 @@ class Cohort(models.Model):
                 "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
             )
 
-            recalculate_cohortpeople(self)
+            count = recalculate_cohortpeople(self)
             self.calculate_people(new_version=pending_version)
 
             # Update filter to match pending version if still valid
             Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                version=pending_version
+                version=pending_version, count=count
             )
             self.refresh_from_db()
 

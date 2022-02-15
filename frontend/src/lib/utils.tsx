@@ -7,8 +7,6 @@ import {
     FilterType,
     ActionFilter,
     IntervalType,
-    ItemMode,
-    DashboardMode,
     dateMappingOption,
     GroupActorType,
     ActorType,
@@ -21,7 +19,6 @@ import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
@@ -153,30 +150,6 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
-}
-
-export function editingToast(
-    item: string,
-    setItemMode:
-        | ((mode: DashboardMode | null, source: DashboardEventSource) => void)
-        | ((mode: ItemMode | null, source: DashboardEventSource) => void)
-): any {
-    return toast(
-        <>
-            <h1>{item} edit mode</h1>
-            <p>Tap below when finished.</p>
-            <div className="text-right">
-                <Button>Finish editing</Button>
-            </div>
-        </>,
-        {
-            type: 'info',
-            autoClose: false,
-            onClick: () => setItemMode(null, DashboardEventSource.Toast),
-            closeButton: false,
-            className: 'drag-items-toast accent-border',
-        }
-    )
 }
 
 export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
