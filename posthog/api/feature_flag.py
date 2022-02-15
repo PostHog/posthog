@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, Optional, cast
 
+from django.core.cache import cache
 from django.db.models import Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -16,6 +17,7 @@ from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.tasks.cohorts_in_feature_flag import cohort_id_in_ff_key
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -110,7 +112,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             )
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
-        instance = super().create(validated_data)
+        instance: FeatureFlag = super().create(validated_data)
+
+        # make sure cache is up to date so cohort will be calculated
+        cache.delete(cohort_id_in_ff_key)
+        instance.update_cohorts()
 
         report_user_action(
             request.user, "feature flag created", instance.get_analytics_metadata(),
@@ -125,6 +131,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
+
+        # make sure cache is up to date so cohort will be calculated
+        cache.delete(cohort_id_in_ff_key)
+        instance.update_cohorts()
 
         report_user_action(
             request.user, "feature flag updated", instance.get_analytics_metadata(),

@@ -12,6 +12,7 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -20,6 +21,7 @@ from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
+from posthog.tasks.calculate_cohort import update_cohort
 
 from .filters import Filter
 from .person import Person, PersonDistinctId
@@ -111,6 +113,11 @@ class FeatureFlag(models.Model):
                     if cohort_id:
                         cohort_ids.append(cohort_id)
         return cohort_ids
+
+    def update_cohorts(self) -> None:
+        if self.cohort_ids:
+            for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
+                update_cohort(cohort)
 
 
 @receiver(pre_delete, sender=Experiment)
