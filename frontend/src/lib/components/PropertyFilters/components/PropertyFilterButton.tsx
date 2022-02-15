@@ -48,7 +48,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return (
         <>
             {isEventProperty && (
-                <Tooltip title={'filter for this event property'}>
+                <Tooltip title={'Event property'}>
                     <UnverifiedEventStack
                         style={{ marginRight: '0.5em', verticalAlign: 'middle' }}
                         width={'14'}
@@ -57,12 +57,12 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
                 </Tooltip>
             )}
             {isPersonProperty && (
-                <Tooltip title={'filter for this person property'}>
+                <Tooltip title={'Person property'}>
                     <IconPerson style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
                 </Tooltip>
             )}
             {isCohortProperty && (
-                <Tooltip title={'filter for this cohort'}>
+                <Tooltip title={'Cohort filter'}>
                     <IconCohort style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
                 </Tooltip>
             )}
