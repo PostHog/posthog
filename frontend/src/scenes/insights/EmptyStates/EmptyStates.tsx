@@ -209,7 +209,8 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
                     You’re almost there! Funnels require at least two steps before calculating.
-                    {' Once you have two steps defined, additional changes will recalculate automatically.'}
+                    {actionable &&
+                        ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 {actionable && (
                     <div className="mt text-center">
@@ -233,7 +234,7 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         className={actionable ? 'flex-center' : undefined}
                         style={{ justifyContent: 'center' }}
                     >
-                        Learn more about funnels in our support documentation
+                        Learn more about funnels in our PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
@@ -254,14 +255,14 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
                     filters, or removing the overlapping exclusion event.
                 </p>
-                <div className="mt text-center">
+                <div className="mt">
                     <a
                         data-attr="insight-funnels-emptystate-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
                         rel="noopener"
                     >
-                        Learn more about funnels in our support documentation
+                        Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
