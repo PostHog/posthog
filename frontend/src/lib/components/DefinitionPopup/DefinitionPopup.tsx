@@ -44,14 +44,13 @@ function Header({
     onView: _onView,
 }: HeaderProps): JSX.Element {
     const { state } = useValues(definitionPopupLogic)
-    const { setPopupState, handleView } = useActions(definitionPopupLogic)
+    const { setPopupState } = useActions(definitionPopupLogic)
     const onEdit = (): void => {
         setPopupState(DefinitionPopupState.Edit)
         _onEdit?.()
     }
     const onView = (): void => {
         setPopupState(DefinitionPopupState.View)
-        handleView()
         _onView?.()
     }
 
