@@ -25,15 +25,6 @@
     &:not(:first-child) {
         margin-left: 0.25rem;
     }
-
-    /*
-        generates .item-popup .property-value-type
-        only needed until feature flag collaborations-taxonomy is removed
-    */
-    @at-root .item-popup & {
-        margin-left: -1px;
-        margin-top: 0.5em;
-    }
 }
 
 .properties-table-value {
