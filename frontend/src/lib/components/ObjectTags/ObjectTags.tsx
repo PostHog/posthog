@@ -57,7 +57,7 @@ export function ObjectTags({
 
     // Necessary to keep logic updated with component props
     useEffect(() => {
-        if (tags.sort() !== _tags.sort()) {
+        if ([...tags].sort() !== [..._tags].sort()) {
             setTags(tags)
         }
     }, [tags])
