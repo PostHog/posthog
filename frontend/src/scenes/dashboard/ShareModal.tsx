@@ -95,14 +95,14 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
     )
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const dashboardCollaborationAvailable = hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
+    const permissioningAvailable = hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
 
     const restrictionOptions: LemonSelectOptions = Object.fromEntries(
         Object.entries(DASHBOARD_RESTRICTION_OPTIONS).map(([key, option]) => [
             key,
             {
                 ...option,
-                disabled: !dashboardCollaborationAvailable,
+                disabled: !permissioningAvailable,
             },
         ])
     )
@@ -137,7 +137,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                         disabled={!canRestrictDashboard}
                     />
                 </section>
-                {dashboardCollaborationAvailable &&
+                {permissioningAvailable &&
                     dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
                         <section>
                             <h5>Collaborators</h5>
