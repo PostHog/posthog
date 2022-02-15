@@ -174,7 +174,7 @@ const renderItemPopupWithoutTaxonomy = (
 
         if (data) {
             return (
-                <div style={{ width, overflowWrap: 'break-word' }} className={'item-popup'}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription
