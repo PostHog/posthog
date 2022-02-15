@@ -18,7 +18,7 @@ import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { Divider, DividerProps } from 'antd'
+import { Divider, DividerProps, Typography } from 'antd'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
 import { LockOutlined } from '@ant-design/icons'
@@ -219,23 +219,71 @@ function Section({ children }: GridProps): JSX.Element {
     return <Grid cols={1}>{children}</Grid>
 }
 
-function Card({ title, value }: { title: string; value: React.ReactNode }): JSX.Element {
+function Card({
+    title,
+    value,
+    alignItems = 'baseline',
+}: {
+    title: string | JSX.Element
+    value: React.ReactNode
+    alignItems?: 'baseline' | 'center' | 'end'
+}): JSX.Element {
     return (
-        <div className="definition-popup-grid-card">
+        <div className="definition-popup-grid-card" style={{ alignItems }}>
             <div className="definition-popup-grid-card-title">{title}</div>
             <div className="definition-popup-grid-card-content">{value}</div>
         </div>
     )
 }
 
+function Type({ propertyType }: { propertyType: PropertyDefinition['property_type'] | null }): JSX.Element {
+    return propertyType ? (
+        <div className="definition-popup-grid-card">
+            <div className="property-value-type">{propertyType}</div>
+        </div>
+    ) : (
+        <></>
+    )
+}
+
+function Footer({
+    name,
+    propertyType,
+}: {
+    name: string | null | undefined
+    propertyType: PropertyDefinition['property_type'] | null
+}): JSX.Element {
+    return (
+        <Grid cols={2}>
+            <Card
+                title="Sent as"
+                value={
+                    <>
+                        <Typography.Text
+                            ellipsis={true}
+                            title={name ?? undefined} // because Text can cope with undefined but not null ¯\_(ツ)_/¯
+                            style={{ fontFamily: 'monaco', fontSize: 12, maxWidth: '20em' }}
+                        >
+                            {name !== '' ? name : <i>(empty string)</i>}
+                        </Typography.Text>
+                    </>
+                }
+            />
+            <Card title={<>&nbsp;</>} value={<DefinitionPopup.Type propertyType={propertyType} />} alignItems={'end'} />
+        </Grid>
+    )
+}
+
 DefinitionPopup.Description = Description
 DefinitionPopup.DescriptionEmpty = DescriptionEmpty
 DefinitionPopup.Example = Example
+DefinitionPopup.Type = Type
 DefinitionPopup.TimeMeta = TimeMeta
 DefinitionPopup.HorizontalLine = HorizontalLine
 DefinitionPopup.Grid = Grid
 DefinitionPopup.Section = Section
 DefinitionPopup.Card = Card
+DefinitionPopup.Footer = Footer
 
 const formatTimeFromNow = (day?: string): string => (day ? dayjs.utc(day).fromNow() : '-')
 
@@ -297,12 +345,7 @@ const renderRestOfDefinition = (
                     <TaxonomyIntroductionSection />
                 )}
                 <HorizontalLine />
-                <Section>
-                    <Card
-                        title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
-                    />
-                </Section>
+                <DefinitionPopup.Footer name={item.name} propertyType={(item as PropertyDefinition)?.property_type} />
             </>
         )
     }
@@ -332,12 +375,7 @@ const renderRestOfDefinition = (
                     <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
                 </Grid>
                 <HorizontalLine />
-                <Section>
-                    <Card
-                        title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
-                    />
-                </Section>
+                <DefinitionPopup.Footer name={_item.name} propertyType={_item.property_type} />
             </>
         )
     }

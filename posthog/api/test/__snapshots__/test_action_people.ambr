@@ -2,8 +2,8 @@
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
@@ -35,8 +35,8 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-08 00:00:00'))
        AND timestamp <= '2020-01-12 23:59:59'
-       AND has([''], trim(BOTH '"'
-                          FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has([''], trim(BOTH '"'
+                           FROM JSONExtractRaw(properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

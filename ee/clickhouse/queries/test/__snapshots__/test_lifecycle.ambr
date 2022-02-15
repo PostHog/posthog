@@ -409,8 +409,8 @@
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
                       AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day
-                      AND has(['value'], trim(BOTH '"'
-                                              FROM JSONExtractRaw(group_properties_0, 'key'))) )))
+                      AND (has(['value'], trim(BOTH '"'
+                                               FROM JSONExtractRaw(group_properties_0, 'key')))) )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00'))

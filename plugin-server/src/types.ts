@@ -257,7 +257,7 @@ export interface PluginConfig {
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
-    updated_at: string
+    updated_at?: string
 }
 
 export interface PluginJsonConfig {
@@ -849,4 +849,10 @@ export enum OrganizationPluginsAccessLevel {
     CONFIG = 3,
     INSTALL = 6,
     ROOT = 9,
+}
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
 }
