@@ -494,6 +494,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.api.cohort import CohortSerializer
 
         team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
         cohort_ids = get_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
