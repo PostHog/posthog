@@ -135,7 +135,7 @@ class Cohort(models.Model):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
-        start_time = time.time()
+        start_time = time.monotonic()
 
         try:
             count = recalculate_cohortpeople(self)
@@ -164,7 +164,10 @@ class Cohort(models.Model):
             self.save()
 
         logger.info(
-            "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
+            "cohort_calculation_completed",
+            id=self.pk,
+            version=pending_version,
+            duration=(time.monotonic() - start_time),
         )
 
     def insert_users_by_list(self, items: List[str]) -> None:
