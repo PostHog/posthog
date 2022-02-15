@@ -3,7 +3,7 @@ from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -214,9 +214,9 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
         filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
         if entity.properties:
-            filters, filter_params = parse_prop_clauses(
+            filters, filter_params = parse_prop_grouped_clauses(
                 team_id=team_id,
-                filters=entity.properties,
+                property_group=entity.property_groups,
                 prepend=prepend,
                 allow_denormalized_props=True,
                 has_person_id_joined=True,

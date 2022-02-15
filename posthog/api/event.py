@@ -17,7 +17,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
-from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -180,8 +180,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             },
             long_date_from,
         )
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            team_id=team.pk, filters=filter.properties, has_person_id_joined=False
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
         )
 
         if request.GET.get("action_id"):

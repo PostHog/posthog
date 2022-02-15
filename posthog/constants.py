@@ -82,6 +82,7 @@ ACTIONS = "actions"
 EVENTS = "events"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
+PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
 DISPLAY = "display"
@@ -211,5 +212,11 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class PropertyOperatorType(str, Enum):
+    AND = "AND"
+    OR = "OR"
+
+
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+BREAKDOWN_VALUES_LIMIT = 25

@@ -346,7 +346,7 @@ WHERE person_id IN
         GROUP BY id
         HAVING is_deleted = 0
     )
-    WHERE 1 = 1 {filters}
+    WHERE {filters}
 )
 """
 

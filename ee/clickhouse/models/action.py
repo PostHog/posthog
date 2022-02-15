@@ -42,11 +42,11 @@ def format_action_filter(
         conditions += event_conditions
 
         if step.properties:
-            from ee.clickhouse.models.property import parse_prop_clauses
+            from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
-            prop_query, prop_params = parse_prop_clauses(
+            prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=action.team.pk if filter_by_team else None,
-                filters=Filter(data={"properties": step.properties}).properties,
+                property_group=Filter(data={"properties": step.properties}).property_groups,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,

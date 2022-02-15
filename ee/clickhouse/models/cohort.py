@@ -249,10 +249,12 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
-    from ee.clickhouse.models.property import parse_prop_clauses
+    from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_clauses(team_id=team.pk, filters=filters.properties, table_name="pdi")
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+    )
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
@@ -282,7 +284,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def recalculate_cohortpeople(cohort: Cohort):
+def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
     cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
     before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
@@ -307,14 +309,21 @@ def recalculate_cohortpeople(cohort: Cohort):
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
 
-    count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
-    logger.info(
-        "Recalculating cohortpeople done",
-        team_id=cohort.team_id,
-        cohort_id=cohort.pk,
-        size_before=before_count[0][0],
-        size=count[0][0],
-    )
+    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+
+    if count_result and len(count_result) and len(count_result[0]):
+        count = count_result[0][0]
+
+        logger.info(
+            "Recalculating cohortpeople done",
+            team_id=cohort.team_id,
+            cohort_id=cohort.pk,
+            size_before=before_count[0][0],
+            size=count,
+        )
+        return count
+
+    return None
 
 
 def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:
