@@ -119,6 +119,8 @@ export class EventsProcessor {
                 properties['$set_once'] = { ...properties['$set_once'], ...data['$set_once'] }
             }
 
+            distinctId = this.trimDistinctId(distinctId)
+
             const personUuid = new UUIDT().toString()
 
             // TODO: we should just handle all person's related changes together not here and in capture separately
@@ -186,6 +188,11 @@ export class EventsProcessor {
             clearTimeout(timeout)
         }
         return result
+    }
+
+    public trimDistinctId(id: string): string {
+        // Postgres DB distinct_id is VARCHAR(400)
+        return id.substring(0, 399)
     }
 
     public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
@@ -302,6 +309,8 @@ export class EventsProcessor {
         if (distinctId === previousDistinctId) {
             return
         }
+        distinctId = this.trimDistinctId(distinctId)
+        previousDistinctId = this.trimDistinctId(previousDistinctId)
         if (this.isNewPersonPropertiesUpdateEnabled(teamId)) {
             await this.mergeNew(distinctId, previousDistinctId, teamId, timestamp)
         } else {

@@ -1051,6 +1051,30 @@ export const createProcessEventTests = (
         ])
     })
 
+    test('alias too long distinct id', async () => {
+        await createPerson(hub, team, ['a'.repeat(500)])
+
+        await processEvent(
+            'b'.repeat(500),
+            '',
+            '',
+            {
+                event: '$create_alias',
+                properties: { distinct_id: 'b'.repeat(500), token: team.api_token, alias: 'a'.repeat(500) },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+        expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+            'a'.repeat(400),
+            'b'.repeat(400),
+        ])
+    })
+
     test('offset timestamp', async () => {
         now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
