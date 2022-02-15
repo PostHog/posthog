@@ -66,7 +66,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 def parse_prop_grouped_clauses(
     property_group: PropertyGroup,
-    team_id: Optional[int] = None,
+    team_id: int,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -134,7 +134,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 def parse_prop_clauses(
     filters: List[Property],
-    team_id: Optional[int] = None,
+    team_id: int,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -180,7 +180,6 @@ def parse_prop_clauses(
             else:
                 # Subquery filter here always should be blank as it's the first
                 filter_query = filter_query.replace(property_operator, "", 1)
-                assert isinstance(team_id, int)
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
@@ -244,7 +243,6 @@ def parse_prop_clauses(
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                assert isinstance(team_id, int)
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )

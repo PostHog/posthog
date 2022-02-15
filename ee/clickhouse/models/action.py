@@ -11,6 +11,7 @@ from posthog.models.property import Property, PropertyIdentifier, PropertyName, 
 
 def format_action_filter(
     action: Action,
+    team_id: int,
     prepend: str = "action",
     use_loop: bool = False,
     filter_by_team=True,
@@ -45,7 +46,7 @@ def format_action_filter(
             from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
             prop_query, prop_params = parse_prop_grouped_clauses(
-                team_id=action.team.pk if filter_by_team else None,
+                team_id=team_id,
                 property_group=Filter(data={"properties": step.properties}).property_groups,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
@@ -94,10 +95,14 @@ def filter_event(
     return conditions, params
 
 
-def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team=True) -> Tuple[str, Dict]:
+def format_entity_filter(
+    entity: Entity, team_id: int, prepend: str = "action", filter_by_team=True
+) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
-        entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
+        entity_filter, params = format_action_filter(
+            team_id=team_id, action=action, prepend=prepend, filter_by_team=filter_by_team
+        )
     else:
         key = f"{prepend}_event"
         entity_filter = f"event = %({key})s"
