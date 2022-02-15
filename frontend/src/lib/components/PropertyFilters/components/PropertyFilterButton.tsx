@@ -49,21 +49,17 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
         <>
             {isEventProperty && (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEventStack
-                        style={{ marginRight: '0.5em', verticalAlign: 'middle' }}
-                        width={'14'}
-                        height={'14'}
-                    />
+                    <UnverifiedEventStack style={{ marginRight: '0.5em' }} width={'14'} height={'14'} />
                 </Tooltip>
             )}
             {isPersonProperty && (
                 <Tooltip title={'Person property'}>
-                    <IconPerson style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
+                    <IconPerson style={{ marginRight: '0.5em' }} />
                 </Tooltip>
             )}
             {isCohortProperty && (
                 <Tooltip title={'Cohort filter'}>
-                    <IconCohort style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
+                    <IconCohort style={{ marginRight: '0.5em' }} />
                 </Tooltip>
             )}
         </>
@@ -82,7 +78,13 @@ export function FilterButton({ onClick, onClose, setRef, children, item }: Filte
         >
             <span
                 className="ph-no-capture property-filter-button-label"
-                style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                style={{
+                    width: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: 'flex',
+                    alignItems: 'center',
+                }}
             >
                 <PropertyFilterIcon item={item} />
                 {children}
