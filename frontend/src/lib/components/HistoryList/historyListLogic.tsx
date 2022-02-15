@@ -2,12 +2,10 @@ import { kea } from 'kea'
 import api, { PaginatedResponse } from 'lib/api'
 
 import { historyListLogicType } from './historyListLogicType'
-import { ApiError } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
 interface HistoryListLogicProps {
     type: 'FeatureFlag'
-    id: number
 }
 
 export enum HistoryActions {
@@ -44,7 +42,9 @@ export interface HumanizedHistoryListItem {
     created_at: dayjs.Dayjs
 }
 
-const actionsMapping: { [key in HistoryActions]: (detail: HistoryDetail) => string | JSX.Element } = {
+const actionsMapping: {
+    [key in HistoryActions]: (detail: HistoryDetail) => string | JSX.Element
+} = {
     [HistoryActions.FEATURE_FLAG_CREATED]: () => `created the flag`,
     [HistoryActions.FEATURE_FLAG_DESCRIPTION_CHANGED]: (detail) =>
         `changed the description of the flag to: ${detail.to}`,
@@ -87,55 +87,23 @@ function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
  * E.g. insights on a dashboard
  * We have a single logic for all items of a type which caches its responses
  *
- * TODO It may be slightly more complex than necessary as paging and filtering are likely to follow soon
  */
-export const historyListLogic = kea<
-    historyListLogicType<HistoryListItem, HistoryListLogicProps, HumanizedHistoryListItem>
->({
+export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps>>({
     path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
     props: {} as HistoryListLogicProps,
     key: (props) => `history/${props.type}`,
-    actions: {
-        fetchHistory: () => {},
-        fetchHistorySuccess: (apiResponse: PaginatedResponse<HistoryListItem>) => apiResponse,
-        fetchHistoryFailure: (error: ApiError) => ({ error }),
-    },
-    reducers: ({ props }) => ({
-        isLoading: [
-            false,
-            {
-                fetchHistory: () => true,
-                fetchHistorySuccess: () => false,
-                fetchHistoryFailure: () => false,
-            },
-        ],
+    loaders: ({ values }) => ({
         history: [
-            {} as Record<number, HumanizedHistoryListItem[]>,
+            [],
             {
-                fetchHistorySuccess: (state, { results }) => {
-                    const newForId = [...(state[props.id] || []), ...humanize(results)]
-                    return { ...state, [props.id]: newForId }
+                fetchHistory: async (id: number) => {
+                    const apiResponse: PaginatedResponse<HistoryListItem> = await api.get(
+                        `/api/projects/@current/feature_flags/${id}/history`
+                    )
+                    const newForId = [...(values.history[id] || []), ...humanize(apiResponse?.results)]
+                    return { ...values.history, [id]: newForId }
                 },
             },
         ],
-    }),
-    listeners: ({ props, actions }) => ({
-        fetchHistory: async (_, breakpoint) => {
-            let apiResponse: PaginatedResponse<HistoryListItem>
-
-            try {
-                apiResponse = await api.get(`/api/projects/@current/feature_flags/${props.id}/history`)
-                breakpoint()
-                actions.fetchHistorySuccess(apiResponse)
-            } catch (error) {
-                actions.fetchHistoryFailure(error as ApiError)
-                return
-            }
-        },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.fetchHistory()
-        },
     }),
 })
