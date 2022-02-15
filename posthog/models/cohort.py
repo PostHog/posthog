@@ -118,7 +118,15 @@ class Cohort(models.Model):
             cursor = 0
             persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
             while persons:
-                to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk, version=new_version) for p in persons]
+                # TODO: Insert from a subquery instead of pulling retrieving
+                # then sending large lists of data backwards and forwards.
+                to_insert = [
+                    CohortPeople(person_id=person_id, cohort_id=self.pk, version=new_version)
+                    #  Just pull out the person id as we don't need anything
+                    #  else.
+                    for person_id in persons.values_list("id", flat=True)
+                ]
+                #  TODO: make sure this bulk_create doesn't actually return anything
                 CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
 
                 cursor += batch_size
