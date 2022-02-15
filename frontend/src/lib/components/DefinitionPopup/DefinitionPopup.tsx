@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { Link } from 'lib/components/Link'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
@@ -43,7 +44,7 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state } = useValues(definitionPopupLogic)
+    const { state, viewFullDetailUrl } = useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
     const onEdit = (): void => {
         setPopupState(DefinitionPopupState.Edit)
@@ -63,7 +64,11 @@ function Header({
                 {state === DefinitionPopupState.View && (
                     <div className="definition-popup-header-row-buttons click-outside-block">
                         {!hideEdit && <a onClick={onEdit}>Edit</a>}
-                        {!hideView && <a onClick={onView}>View</a>}
+                        {!hideView && (
+                            <Link target="_blank" to={viewFullDetailUrl} onClick={onView}>
+                                View
+                            </Link>
+                        )}
                     </div>
                 )}
             </div>

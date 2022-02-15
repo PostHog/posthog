@@ -268,13 +268,15 @@ function DefinitionEdit(): JSX.Element {
                             <span className="label-text">Tags</span>
                             <span className="text-muted-alt">(optional)</span>
                         </label>
-                        <ObjectTags
-                            className="definition-popup-edit-form-value"
-                            tags={localDefinition.tags || []}
-                            onTagSave={setNewTag}
-                            onTagDelete={deleteTag}
-                            saving={false}
-                        />
+                        <div className="definition-popup-tags">
+                            <ObjectTags
+                                className="definition-popup-edit-form-value"
+                                tags={localDefinition.tags || []}
+                                onTagSave={setNewTag}
+                                onTagDelete={deleteTag}
+                                saving={false}
+                            />
+                        </div>
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
