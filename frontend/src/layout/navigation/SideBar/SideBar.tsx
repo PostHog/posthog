@@ -224,12 +224,18 @@ function Pages(): JSX.Element {
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
-            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton
+                icon={<IconGroupedEvents />}
+                identifier={Scene.Events}
+                to={urls.events()}
+                title={featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? 'Events' : undefined}
+            />
             {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
                 <PageButton
                     icon={<IconGroupedDefinitions />}
                     identifier={Scene.DataManagement}
                     to={urls.dataManagement()}
+                    highlight="beta"
                 />
             )}
             <PageButton
