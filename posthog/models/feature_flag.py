@@ -2,7 +2,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -22,6 +22,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 from posthog.tasks.calculate_cohort import update_cohort
+from posthog.tasks.cohorts_in_feature_flag import cohort_id_in_ff_key
 
 from .filters import Filter
 from .person import Person, PersonDistinctId
@@ -116,6 +117,7 @@ class FeatureFlag(models.Model):
 
     def update_cohorts(self) -> None:
         if self.cohort_ids:
+            cache.delete(cohort_id_in_ff_key)
             for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
                 update_cohort(cohort)
 
