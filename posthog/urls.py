@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
+from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
@@ -22,7 +23,6 @@ from posthog.api import (
     user,
 )
 from posthog.demo import demo
-from posthog.health import livez, readyz
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
@@ -37,6 +37,7 @@ else:
     extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
 
+@csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
@@ -77,8 +78,6 @@ urlpatterns = [
     # is only included for compatability with old installations. For new
     # operations livez and readyz should be used.
     opt_slash_path("_health", health),
-    opt_slash_path("_livez", livez),
-    opt_slash_path("_readyz", readyz),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     # ee

@@ -1,9 +1,9 @@
 from typing import Any, Dict, cast
 
 from django.db import IntegrityError
-from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, mixins, request, serializers, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.request import Request
 
 from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.api.routing import StructuredViewSetMixin
@@ -12,10 +12,10 @@ from posthog.models import Dashboard, Team, User
 from posthog.permissions import TeamMemberAccessPermission
 
 
-class CanEditDashboard(BasePermission):
-    message = "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
+class CanEditDashboardCollaborator(BasePermission):
+    message = "You don't have edit permissions for this dashboard."
 
-    def has_permission(self, request: request.Request, view) -> bool:
+    def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
         try:
@@ -81,7 +81,7 @@ class DashboardCollaboratorViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission, CanEditDashboard]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission, CanEditDashboardCollaborator]
     pagination_class = None
     queryset = DashboardPrivilege.objects.all().select_related("dashboard")
     lookup_field = "user__uuid"

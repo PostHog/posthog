@@ -1,3 +1,4 @@
+import inspect
 from datetime import datetime
 from typing import List, Literal, Union
 from uuid import UUID, uuid4
@@ -9,20 +10,22 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
+    PropertyGroup,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
-    parse_prop_clauses,
+    parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs) -> UUID:
@@ -40,8 +43,8 @@ def _create_person(**kwargs) -> Person:
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _run_query(self, filter: Filter) -> List:
-        query, params = parse_prop_clauses(filter.properties, allow_denormalized_props=True)
+    def _run_query(self, filter: Filter, **kwargs) -> List:
+        query, params = parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=True, **kwargs)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -353,13 +356,80 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}],})
         self.assertEqual(len(self._run_query(filter)), 3)
 
+    @snapshot_clickhouse_queries
+    def test_parse_groups(self):
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1", "attr_2": "val_2"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_2"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
+        )
+
+        filter = Filter(
+            data={
+                "property_groups": {
+                    "type": "OR",
+                    "groups": [
+                        {
+                            "type": "AND",
+                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                        },
+                        {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}],},
+                    ],
+                }
+            }
+        )
+
+        self.assertEqual(len(self._run_query(filter)), 2)
+
+    @snapshot_clickhouse_queries
+    def test_parse_groups_persons(self):
+        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})
+
+        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"email": "2@posthog.com"})
+        _create_person(
+            distinct_ids=["some_other_random_id"], team_id=self.team.pk, properties={"email": "X@posthog.com"}
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_random_id", properties={"attr": "val_3"},
+        )
+
+        filter = Filter(
+            data={
+                "property_groups": {
+                    "type": "OR",
+                    "groups": [
+                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
+                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
+                    ],
+                }
+            }
+        )
+
+        self.assertEqual(len(self._run_query(filter)), 2)
+
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
-        query, params = parse_prop_clauses(
-            filter.properties, allow_denormalized_props=True, person_properties_mode=PersonPropertiesMode.EXCLUDE,
+        query, params = parse_prop_grouped_clauses(
+            filter.property_groups, allow_denormalized_props=True, person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         joins = ""
         if join_person_tables:
@@ -473,18 +543,34 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_clauses(filter.properties, allow_denormalized_props=False) == snapshot
+    assert parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=False) == snapshot
     assert (
-        parse_prop_clauses(
-            filter.properties,
+        parse_prop_grouped_clauses(
+            filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
         )
         == snapshot
     )
     assert (
-        parse_prop_clauses(
-            filter.properties, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
+        parse_prop_grouped_clauses(
+            filter.property_groups, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
+        )
+        == snapshot
+    )
+
+
+def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
+    filter = Filter(
+        data={
+            "property_groups": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}
+        }
+    )
+    assert (
+        parse_prop_grouped_clauses(
+            filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            allow_denormalized_props=True,
         )
         == snapshot
     )

@@ -10,6 +10,9 @@ import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+const DAYS_FIRST_FETCH = 5
+const DAYS_SECOND_FETCH = 365
+
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -34,6 +37,8 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
     }
     return eventsFormatted
 }
+
+const daysAgo = (days: number): string => now().subtract(days, 'day').toISOString()
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
@@ -90,7 +95,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        fetchEvents: (nextParams = null) => ({ nextParams }),
+        fetchEvents: (nextParams: { before: string } | null = null) => ({ nextParams }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
@@ -212,23 +217,22 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.miniumumQueryDate,
+                selectors.minimumQueryDate,
             ],
-            (teamId, eventFilter, orderBy, properties, miniumumQueryDate) =>
+            (teamId, eventFilter, orderBy, properties, minimumQueryDate) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after: miniumumQueryDate,
+                    after: minimumQueryDate,
                 })}`,
         ],
-        months: [() => [], () => props.fetchMonths || 12],
-        miniumumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
+        months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
+        minimumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         pollAfter: [
-            () => [selectors.events, selectors.miniumumQueryDate],
-            (events, miniumumQueryDate) =>
-                events?.length > 0 && events[0].timestamp ? events[0].timestamp : miniumumQueryDate,
+            () => [selectors.events],
+            (events) => (events?.length > 0 && events[0].timestamp ? events[0].timestamp : daysAgo(0)),
         ],
     }),
 
@@ -303,19 +307,26 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
 
-            const params = {
-                ...(props.fixedFilters || {}),
-                properties,
-                ...(nextParams || {}),
-                ...(values.eventFilter ? { event: values.eventFilter } : {}),
-                orderBy: [values.orderBy],
-                after: values.miniumumQueryDate,
+            async function getAPIResponse(after: string): Promise<any> {
+                const params = {
+                    after: after,
+                    ...(props.fixedFilters || {}),
+                    properties,
+                    ...(nextParams || {}),
+                    ...(values.eventFilter ? { event: values.eventFilter } : {}),
+                    orderBy: [values.orderBy],
+                }
+                return api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
             }
 
             let apiResponse = null
 
             try {
-                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
+                apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
+
+                if (apiResponse.results.length === 0) {
+                    apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                }
             } catch (error) {
                 actions.fetchOrPollFailure(error as ApiError)
                 return

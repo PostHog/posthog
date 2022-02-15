@@ -80,6 +80,7 @@ class Cohort(models.Model):
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
+    count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
@@ -108,7 +109,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, new_version: int, batch_size=50000, pg_batch_size=1000):
+    def calculate_people(self, new_version: int, batch_size=10000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
@@ -117,11 +118,20 @@ class Cohort(models.Model):
             cursor = 0
             persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
             while persons:
-                to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk, version=new_version) for p in persons]
+                # TODO: Insert from a subquery instead of pulling retrieving
+                # then sending large lists of data backwards and forwards.
+                to_insert = [
+                    CohortPeople(person_id=person_id, cohort_id=self.pk, version=new_version)
+                    #  Just pull out the person id as we don't need anything
+                    #  else.
+                    for person_id in persons.values_list("id", flat=True)
+                ]
+                #  TODO: make sure this bulk_create doesn't actually return anything
                 CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+                time.sleep(5)
 
         except Exception as err:
             # Clear the pending version people if there's an error
@@ -132,33 +142,41 @@ class Cohort(models.Model):
     def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
+        logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        start_time = time.monotonic()
+
         try:
-            start_time = time.time()
-
-            logger.info(
-                "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
-            )
-
-            recalculate_cohortpeople(self)
+            count = recalculate_cohortpeople(self)
             self.calculate_people(new_version=pending_version)
 
             # Update filter to match pending version if still valid
             Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                version=pending_version
+                version=pending_version, count=count
             )
             self.refresh_from_db()
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-            logger.info(
-                "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
-            )
-        except Exception as e:
+        except Exception:
             self.errors_calculating = F("errors_calculating") + 1
-            raise e
+            logger.warning(
+                "cohort_calculation_failed",
+                id=self.pk,
+                current_version=self.version,
+                new_version=pending_version,
+                exc_info=True,
+            )
+            raise
         finally:
             self.is_calculating = False
             self.save()
+
+        logger.info(
+            "cohort_calculation_completed",
+            id=self.pk,
+            version=pending_version,
+            duration=(time.monotonic() - start_time),
+        )
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """

@@ -1,8 +1,7 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Card, Button, Popconfirm } from 'antd'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Row, Col, Button, Popconfirm, Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
@@ -10,7 +9,6 @@ import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
@@ -53,11 +51,10 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const verticalLayout =
-        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] !== 'test' // Whether to display the control tab on the side instead of on top
+    // Whether to display the control tab on the side instead of on top
+    const verticalLayout = activeView === InsightType.FUNNELS
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -201,9 +198,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                     staticOnly
                                 />
                             ) : null)}
-                        {featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] && (
-                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
-                        )}
+                        <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                     </>
                 }
             />

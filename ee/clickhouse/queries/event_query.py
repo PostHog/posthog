@@ -3,20 +3,21 @@ from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_clauses, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
+from posthog.constants import PropertyOperatorType
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyName
+from posthog.models.property import PropertyGroup, PropertyName
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -166,8 +167,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 params = {**params, **cohort_filter_params}
                 final.append(f"AND {person_id_query}")
             else:
-                filter_query, filter_params = parse_prop_clauses(
-                    [prop],
+                filter_query, filter_params = parse_prop_grouped_clauses(
+                    property_group=PropertyGroup(type=PropertyOperatorType.AND, groups=[prop]),
                     prepend=f"global_{idx}",
                     allow_denormalized_props=True,
                     person_properties_mode=PersonPropertiesMode.EXCLUDE,

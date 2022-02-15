@@ -217,6 +217,7 @@ export async function performMmdbStalenessCheck(serverInstance: MMDBPrepServerIn
 }
 
 export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): Promise<net.Server> {
+    const { hub } = serverInstance
     status.info('🗺', 'Starting internal MMDB server...')
     const mmdbServer = net.createServer((socket) => {
         socket.setEncoding('utf8')
@@ -224,6 +225,7 @@ export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): 
         let status: MMDBRequestStatus = MMDBRequestStatus.OK
 
         socket.on('data', (partialData) => {
+            const timer = new Date()
             // partialData SHOULD be an IP address string
             let responseData: any
             if (status === MMDBRequestStatus.OK) {
@@ -242,12 +244,14 @@ export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): 
                 responseData = status
             }
             socket.write(serialize(responseData ?? null))
+            hub.statsd?.timing('mmdb_lookup_success_main_thread', timer)
         })
 
         socket.setTimeout(MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS * 1000).on('timeout', () => {
             captureException(new Error(status))
             status = MMDBRequestStatus.TimedOut
             socket.emit('end')
+            hub.statsd?.increment('mmdb_lookup_timeout')
         })
 
         socket.once('end', () => {

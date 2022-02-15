@@ -6,7 +6,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Action, ActionStep, Element, Event, Organization
+from posthog.models import Action, ActionStep, Element, Event, Organization, Tag
 from posthog.test.base import APIBaseTest
 
 
@@ -166,8 +166,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         # test queries
-        with self.assertNumQueries(6):
-            # Django session, PostHog user, PostHog team, PostHog org membership,
+        with self.assertNumQueries(7):
+            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
             # PostHog action, PostHog action step
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
@@ -280,3 +280,63 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         action.calculate_events()
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
+
+    def test_get_tags_on_non_ee_returns_empty_list(self):
+        action = Action.objects.create(team=self.team, name="bla")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Action.objects.all().count(), 1)
+
+    def test_create_tags_on_non_ee_not_allowed(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(Tag.objects.all().count(), 0)
+
+    def test_update_tags_on_non_ee_not_allowed(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics.",},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+
+    def test_undefined_tags_allows_other_props_to_update(self):
+        action = Action.objects.create(team_id=self.team.id, name="private action")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics.",},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "action new name")
+        self.assertEqual(response.json()["description"], "Internal system metrics.")
+
+    def test_empty_tags_does_not_delete_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        self.assertEqual(Action.objects.all().count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics.", "tags": []},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(Action.objects.all().count(), 1)
