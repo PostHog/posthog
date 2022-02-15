@@ -75,6 +75,7 @@ class ClickhouseTrendExperimentResult:
             {
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
+                "display": TRENDS_CUMULATIVE,
                 ACTIONS: [],
                 EVENTS: [
                     {
