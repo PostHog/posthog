@@ -16,7 +16,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
-import { DashboardHeader } from './LemonDashboardHeader'
+import { DashboardHeader } from './DashboardHeader'
 
 interface Props {
     id?: string

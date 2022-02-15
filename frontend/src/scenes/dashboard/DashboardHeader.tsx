@@ -20,6 +20,8 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Button } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
@@ -67,22 +69,21 @@ export function DashboardHeader(): JSX.Element | null {
                     }
                     buttons={
                         dashboardMode === DashboardMode.Edit ? (
-                            <LemonButton
+                            <Button
                                 data-attr="dashboard-edit-mode-save"
                                 type="primary"
                                 onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                                 tabIndex={10}
                             >
                                 Done editing
-                            </LemonButton>
+                            </Button>
                         ) : dashboardMode === DashboardMode.Fullscreen ? (
-                            <LemonButton
-                                type="secondary"
+                            <Button
                                 onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                                 data-attr="dashboard-exit-presentation-mode"
                             >
                                 Exit full screen
-                            </LemonButton>
+                            </Button>
                         ) : (
                             <>
                                 <More
@@ -190,21 +191,21 @@ export function DashboardHeader(): JSX.Element | null {
                                         onClick={() => setIsShareModalVisible((state) => !state)}
                                     />
                                 )}
-                                <LemonButton
-                                    type="secondary"
+                                <Button
                                     data-attr="dashboard-share-button"
                                     onClick={() => setIsShareModalVisible((state) => !state)}
                                 >
                                     Share
-                                </LemonButton>
+                                </Button>
                                 {canEditDashboard && (
-                                    <LemonButton
+                                    <Button
                                         type="primary"
                                         onClick={() => addGraph()}
                                         data-attr="dashboard-add-graph-header"
+                                        icon={<PlusOutlined />}
                                     >
-                                        New insight
-                                    </LemonButton>
+                                        New Insight
+                                    </Button>
                                 )}
                             </>
                         )
