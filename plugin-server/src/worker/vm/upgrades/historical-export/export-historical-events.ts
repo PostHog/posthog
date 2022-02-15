@@ -9,7 +9,6 @@ import {
     PluginLogEntryType,
     PluginTaskType,
 } from '../../../../types'
-import { addPublicJobIfNotExists } from '../../utils'
 import {
     ExportEventsJobPayload,
     ExportHistoricalEventsUpgrade,
@@ -39,7 +38,7 @@ export async function addHistoricalEventsExportCapability(
     const { methods, tasks, meta } = response
 
     // we can void this as the job appearing on the interface is not time-sensitive
-    await addPublicJobIfNotExists(hub.db, pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    await hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
 
     const oldSetupPlugin = methods.setupPlugin
 

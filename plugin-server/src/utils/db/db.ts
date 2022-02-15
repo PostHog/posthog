@@ -1585,4 +1585,36 @@ export class DB {
             )
         ).rows as Team[]
     }
+
+    public async addOrUpdatePublicJob(
+        pluginId: number,
+        jobName: string,
+        jobPayloadJson: Record<string, any>
+    ): Promise<void> {
+        await this.postgresTransaction(async (client) => {
+            let publicJobs: Record<string, any> = (
+                await this.postgresQuery(
+                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
+                    [pluginId],
+                    'selectPluginPublicJobsForUpdate',
+                    client
+                )
+            ).rows[0].public_jobs
+
+            if (
+                !publicJobs ||
+                !(jobName in publicJobs) ||
+                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
+            ) {
+                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
+
+                await this.postgresQuery(
+                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
+                    [JSON.stringify(publicJobs), pluginId],
+                    'updatePublicJob',
+                    client
+                )
+            }
+        })
+    }
 }
