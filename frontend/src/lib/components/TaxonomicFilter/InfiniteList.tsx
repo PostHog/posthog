@@ -266,7 +266,7 @@ export function InfiniteList(): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
-    const { styles, attributes } = usePopper(referenceElement, popperElement, {
+    const { styles, attributes, forceUpdate } = usePopper(referenceElement, popperElement, {
         placement: 'right',
         modifiers: [
             {
@@ -375,6 +375,7 @@ export function InfiniteList(): JSX.Element {
                                         popper={{
                                             styles: styles.popper,
                                             attributes: attributes.popper,
+                                            forceUpdate,
                                             setRef: setPopperElement,
                                             ref: popperElement,
                                         }}

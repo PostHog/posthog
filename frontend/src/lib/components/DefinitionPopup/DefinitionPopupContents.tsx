@@ -383,6 +383,7 @@ interface DefinitionPopupContentsProps {
     popper: {
         styles: CSSProperties
         attributes?: Record<string, any>
+        forceUpdate: (() => void) | null
         setRef: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>
         ref: HTMLDivElement | null
     }
@@ -405,6 +406,11 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
     useEffect(() => {
         setDefinition(item)
     }, [item])
+
+    // Force popper to recalculate position when popup state changes. Keep this independent of logic
+    useEffect(() => {
+        popper.forceUpdate?.()
+    }, [state])
 
     return (
         <>
