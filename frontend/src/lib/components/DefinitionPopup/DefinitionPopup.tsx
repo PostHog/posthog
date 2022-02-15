@@ -12,6 +12,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
@@ -44,11 +45,13 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, viewFullDetailUrl } = useValues(definitionPopupLogic)
+    const { state, viewFullDetailUrl, hasTaxonomyFeatures } = useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
     const onEdit = (): void => {
-        setPopupState(DefinitionPopupState.Edit)
-        _onEdit?.()
+        if (hasTaxonomyFeatures) {
+            setPopupState(DefinitionPopupState.Edit)
+            _onEdit?.()
+        }
     }
     const onView = (): void => {
         setPopupState(DefinitionPopupState.View)
@@ -63,7 +66,16 @@ function Header({
                 </div>
                 {state === DefinitionPopupState.View && (
                     <div className="definition-popup-header-row-buttons click-outside-block">
-                        {!hideEdit && <a onClick={onEdit}>Edit</a>}
+                        {!hideEdit &&
+                            (hasTaxonomyFeatures ? (
+                                <a onClick={onEdit}>Edit</a>
+                            ) : (
+                                <Tooltip title="Creating and editing definitions require a premium license">
+                                    <a onClick={onEdit} className="definition-popup-disabled-button">
+                                        Edit
+                                    </a>
+                                </Tooltip>
+                            ))}
                         {!hideView && (
                             <Link target="_blank" to={viewFullDetailUrl} onClick={onView}>
                                 View

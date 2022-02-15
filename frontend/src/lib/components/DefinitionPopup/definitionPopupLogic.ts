@@ -3,7 +3,7 @@ import { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter, errorToast, successToast } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -11,6 +11,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
+import { userLogic } from 'scenes/userLogic'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -20,13 +21,15 @@ export enum DefinitionPopupState {
 export interface DefinitionPopupLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
-    hasTaxonomyFeatures?: boolean
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: Partial<TaxonomicDefinitionTypes>) => void
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
     props: {} as DefinitionPopupLogicProps,
+    connect: {
+        values: [userLogic, ['hasAvailableFeature']],
+    },
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPopupLogic'],
     actions: {
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
@@ -57,8 +60,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             {
                 setDefinition: ({ item }) => item as TaxonomicDefinitionTypes,
                 handleSave: async (_, breakpoint) => {
-                    await breakpoint(100)
-
                     if (!values.definition) {
                         return {}
                     }
@@ -72,7 +73,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             // Action Definitions
                             const _action = definition as ActionType
                             definition = await api.update(`api/projects/@current/actions/${_action.id}`, _action)
-                            actionsModel?.isMounted() && actionsModel.actions.updateAction(definition as ActionType)
+                            actionsModel.findMounted()?.actions.updateAction(definition as ActionType)
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
@@ -81,8 +82,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                                 owner: _event.owner?.id ?? null,
                                 verified: !!_event.verified,
                             })
-                            eventDefinitionsModel?.isMounted() &&
-                                eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
+                            eventDefinitionsModel
+                                .findMounted()
+                                ?.actions.updateEventDefinition(definition as EventDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.EventProperties) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
@@ -90,15 +92,14 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
-                            propertyDefinitionsModel?.isMounted() &&
-                                propertyDefinitionsModel.actions.updatePropertyDefinition(
-                                    definition as PropertyDefinition
-                                )
+                            propertyDefinitionsModel
+                                .findMounted()
+                                ?.actions.updatePropertyDefinition(definition as PropertyDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
                             definition = await api.update(`api/projects/@current/cohorts/${_cohort.id}`, _cohort)
-                            cohortsModel?.isMounted() && cohortsModel.actions.updateCohort(definition as CohortType)
+                            cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
                     } catch (error) {
                         errorToast(
@@ -126,8 +127,8 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 state === DefinitionPopupState.Edit && !equal(definition, localDefinition),
         ],
         hasTaxonomyFeatures: [
-            () => [(_, props) => props.hasTaxonomyFeatures],
-            (hasTaxonomyFeatures) => hasTaxonomyFeatures,
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
         ],
         isViewable: [
             (s) => [s.type],

@@ -19,6 +19,7 @@ import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
 import { Button, Checkbox, Input } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
+import { Tooltip } from 'lib/components/Tooltip'
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -31,7 +32,9 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 color: 'var(--text-muted)',
             }}
         >
-            <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
+            <Tooltip title="Viewing ingestion data requires a premium license">
+                <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
+            </Tooltip>
         </div>
     )
 
@@ -384,7 +387,6 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
                     }}
                 />
             </CSSTransition>
-            ,
             <div
                 className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
                 tabIndex={-1} // Only programmatically focusable

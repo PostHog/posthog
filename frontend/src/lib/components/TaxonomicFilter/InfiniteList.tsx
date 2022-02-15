@@ -20,7 +20,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
@@ -30,7 +30,6 @@ import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
@@ -252,7 +251,6 @@ export function InfiniteList(): JSX.Element {
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -272,6 +270,12 @@ export function InfiniteList(): JSX.Element {
                 name: 'offset',
                 options: {
                     offset: [0, 10],
+                },
+            },
+            {
+                name: 'preventOverflow',
+                options: {
+                    padding: 10,
                 },
             },
         ],
@@ -359,7 +363,6 @@ export function InfiniteList(): JSX.Element {
                                     logic={definitionPopupLogic}
                                     props={{
                                         type: listGroupType,
-                                        hasTaxonomyFeatures: hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
                                         updateRemoteItem,
                                     }}
                                 >

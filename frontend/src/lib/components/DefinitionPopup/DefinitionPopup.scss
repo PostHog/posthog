@@ -58,6 +58,11 @@
                     user-select: none;
                     margin-left: 16px;
                 }
+
+                .definition-popup-disabled-button {
+                    color: var(--text-muted);
+                    cursor: not-allowed;
+                }
             }
         }
 
