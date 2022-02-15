@@ -848,9 +848,6 @@ def format_query_params_absolute_url(
     if not url_to_format:
         return None
 
-    if not offset and not limit:
-        return None
-
     if offset:
         if OFFSET_REGEX.search(url_to_format):
             url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)

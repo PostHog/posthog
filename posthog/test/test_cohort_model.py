@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
+from posthog.models import Action, ActionStep, Cohort, Event, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
 from posthog.test.base import BaseTest
 
@@ -49,7 +49,6 @@ class TestCohort(BaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
-        self.assertCountEqual(list(cohort.people.all()), [person1, person3])
         uuids = [
             row[0]
             for row in sync_execute(
@@ -80,6 +79,18 @@ class TestCohort(BaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": None}
+                ]
+            },
+            key="default-flag-1",
+            created_by=self.user,
+        )
+        flag.update_cohorts()
+
         self.assertEqual(len(CohortPeople.objects.all()), 2)
-        batch_delete_cohort_people(cohort_id=cohort.pk, version=0, batch_size=1)
+        batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
         self.assertEqual(len(CohortPeople.objects.all()), 0)

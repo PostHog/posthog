@@ -176,8 +176,12 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         _should_paginate = should_paginate(actors, filter.limit)
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = format_query_params_absolute_url(
-            request, filter.offset - filter.limit if filter.offset - filter.limit > 0 else 0
+        previous_url = (
+            format_query_params_absolute_url(
+                request, filter.offset - filter.limit if filter.offset - filter.limit > 0 else 0
+            )
+            if filter.offset - filter.limit > 0
+            else None
         )
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
