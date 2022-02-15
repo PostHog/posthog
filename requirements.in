@@ -26,6 +26,7 @@ djangorestframework==3.12.2
 djangorestframework-csv==2.1.0
 drf-exceptions-hog==0.2.0
 drf-extensions==0.7.0
+google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
 grpcio==1.33.1
 idna==2.8
