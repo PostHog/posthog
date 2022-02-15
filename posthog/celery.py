@@ -122,7 +122,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         capture_exception(err)
         print(f"Scheduling materialized column task failed: {err}")
 
-    sender.add_periodic_task(600, calculate_cohort.s(), name="recalculate cohorts")
+    sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
