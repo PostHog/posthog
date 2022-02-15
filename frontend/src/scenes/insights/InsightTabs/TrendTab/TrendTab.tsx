@@ -19,6 +19,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { alphabet } from 'lib/utils'
 import { MatchPropertyFilters } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TrendTabProps {
     view: string
@@ -29,6 +31,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
         { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
@@ -108,37 +111,39 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            {/* <PropertyFilters
-                                propertyFilters={filters.properties}
-                                onChange={(properties) => setFilters({ properties })}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                pageKey="trends-filters"
-                                eventNames={allEventNames}
-                            /> */}
+                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
+                                <MatchPropertyFilters
+                                    propertyFilters={filters.property_groups}
+                                    style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
+                                    onChange={(property_groups) => {
+                                        setFilters({ property_groups })
+                                    }}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    pageKey="trends-filters"
+                                    eventNames={allEventNames}
+                                />
+                            ) : (
+                                <PropertyFilters
+                                    propertyFilters={filters.properties}
+                                    onChange={(properties) => setFilters({ properties })}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    pageKey="trends-filters"
+                                    eventNames={allEventNames}
+                                />
+                            )}
 
-                            <MatchPropertyFilters
-                                propertyFilters={filters.properties}
-                                style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
-                                onChange={(properties) => {
-
-                                    setFilters({ properties })
-                                }}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                pageKey="trends-filters"
-                                eventNames={allEventNames}
-                            />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>

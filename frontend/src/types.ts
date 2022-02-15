@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { AndOr } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1448,6 +1449,16 @@ export interface SecondaryExperimentMetric {
 export interface SelectOption {
     value: string
     label?: string
+}
+
+export interface AndOrPropertyFilter {
+    type: AndOr
+    groups: AndOrPropertyGroup[]
+}
+
+export interface AndOrPropertyGroup {
+    type: AndOr
+    groups: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {

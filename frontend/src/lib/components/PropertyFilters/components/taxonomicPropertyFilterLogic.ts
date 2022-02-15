@@ -50,19 +50,15 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     selectors: {
         filter: [
-            (s) => [s.filters, (_, props) => props.filterIndex],
-            (filters, filterIndex): AnyPropertyFilter | null => {
-                const filters2 = [
-                    { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
-                    { "key": "$device_type", "value": ["Desktop"], "operator": "exact", "type": "event" }
-                ]
-                return filters2[filterIndex] || null
+            (s) => [s.filters, (_, props) => props.filterIndex, (_, props) => props.propertyIndex],
+            (filters, filterIndex, propertyIndex): AnyPropertyFilter | null => {
+                if (propertyIndex !== undefined) {
+                    return filters.groups[filterIndex].groups[propertyIndex] || null
+                }
+                return filters[filterIndex] || null
             },
         ],
-        andOrCondition: [
-            (s) => [s.filter],
-            (filter) => "AND"
-        ],
+        andOrCondition: [(s) => [s.filter], () => 'AND'],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
             (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
@@ -105,7 +101,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         null, // Reset value field
                         operator,
                         propertyType,
-                        taxonomicGroup.groupTypeIndex
+                        taxonomicGroup.groupTypeIndex,
+                        props.filterIndex,
+                        props.propertyIndex
                     )
                 }
                 actions.closeDropdown()

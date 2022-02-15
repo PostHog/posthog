@@ -33,6 +33,7 @@ export function TaxonomicPropertyFilter({
     taxonomicGroupTypes,
     eventNames,
     orFiltering,
+    propertyIndex,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -58,6 +59,7 @@ export function TaxonomicPropertyFilter({
         pageKey,
         propertyFilterLogic: builtPropertyFilterLogic,
         filterIndex: index,
+        propertyIndex: propertyIndex,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
         eventNames,
@@ -67,7 +69,6 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
-    console.log('filter?', filter)
     const { propertyDefinitions } = useValues(propertyDefinitionsModel)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
@@ -99,19 +100,20 @@ export function TaxonomicPropertyFilter({
             ) : (
                 <div className={`taxonomic-filter-row ${orFiltering ? 'and-or' : ''}`}>
                     <Col className="taxonomic-where">
-                        {index === 0 ? (
+                        {(index === 0 && !propertyIndex) || propertyIndex === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
                                 <span className="primary-alt">where</span>
                             </>
                         ) : orFiltering ? (
-                            <div className="primary-alt"><b>{andOrCondition === AndOr.AND ? '&' : AndOr.OR}</b></div>
+                            <div className="primary-alt">
+                                <b>{andOrCondition === AndOr.AND ? '&' : AndOr.OR}</b>
+                            </div>
                         ) : (
                             <span className="stateful-badge and" style={{ fontSize: '90%' }}>
                                 AND
                             </span>
-                        )
-                        }
+                        )}
                     </Col>
 
                     <Popup
@@ -155,7 +157,9 @@ export function TaxonomicPropertyFilter({
                                         newValue || null,
                                         newOperator,
                                         filter?.type,
-                                        filter?.group_type_index
+                                        filter?.group_type_index,
+                                        index,
+                                        propertyIndex
                                     )
                                 }
                                 if (

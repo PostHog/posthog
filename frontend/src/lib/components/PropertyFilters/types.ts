@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AndOrPropertyFilter, AnyPropertyFilter, PropertyFilter } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -12,15 +12,15 @@ export interface PropertyFilterBaseProps {
 }
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: AnyPropertyFilter[] | null | AndOrPropertyFilter
     onChange: (filters: PropertyFilter[]) => void
 }
-
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
+    propertyIndex?: number
     eventNames?: string[]
 }
 
@@ -33,4 +33,5 @@ export interface PropertyFilterInternalProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
     orFiltering?: boolean
+    propertyIndex?: number
 }
