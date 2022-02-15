@@ -103,6 +103,7 @@ export function NewDashboardModal(): JSX.Element {
                         data-attr="copy-from-template"
                         style={{ width: '100%' }}
                         placeholder="Optionally start from template"
+                        allowClear
                     >
                         <Select.Option data-attr="dashboard-select-default-app" value="DEFAULT_APP">
                             Website
