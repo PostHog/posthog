@@ -16,7 +16,7 @@ export enum Scene {
     EventStats = 'EventsVolumeTable', // TODO: Deprecate after `collaborations-taxonomy` is released
     EventPropertyStats = 'PropertiesVolumeTable', // TODO: Deprecate after `collaborations-taxonomy` is released
     EventDefinitions = 'EventDefinitions',
-    PropertyDefinitions = 'PropertyDefinitions',
+    EventPropertyDefinitions = 'EventPropertyDefinitions',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',

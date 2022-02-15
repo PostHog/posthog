@@ -19,7 +19,7 @@ export const urls = {
     actionDefinitionEdit: (id: string) => `/data-management/actions/${id}/edit`,
     actionDefinitionView: (id: string) => `/data-management/actions/${id}`,
     eventDefinitions: () => '/data-management/events',
-    propertyDefinitions: () => '/data-management/properties',
+    eventPropertyDefinitions: () => '/data-management/event-properties',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightRouter: (id: string) => `/i/${id}`,

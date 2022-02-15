@@ -220,16 +220,16 @@ function Pages(): JSX.Element {
                         highlight="beta"
                     />
                 )}
+            {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
+                <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} title="Events" />
+            )}
             {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
-            <PageButton
-                icon={<IconGroupedEvents />}
-                identifier={Scene.Events}
-                to={urls.events()}
-                title={featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? 'Events' : undefined}
-            />
+            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
+                <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            )}
             {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
                 <PageButton
                     icon={<IconGroupedDefinitions />}

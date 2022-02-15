@@ -46,7 +46,7 @@ export function DataManagementHeader(): JSX.Element {
                             </Tooltip>
                         </>
                     }
-                    key={DataManagementTab.Properties}
+                    key={DataManagementTab.EventProperties}
                 />
             </Tabs>
         </div>

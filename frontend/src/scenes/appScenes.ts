@@ -16,7 +16,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.EventPropertyStats]: () => import('./events/PropertiesVolumeTable'),
     [Scene.DataManagement]: () => import('./data-management/events/DataManagementEvents'),
     [Scene.EventDefinitions]: () => import('./data-management/events/DataManagementEvents'),
-    [Scene.PropertyDefinitions]: () => import('./data-management/properties/DataManagementProperties'),
+    [Scene.EventPropertyDefinitions]: () => import('./data-management/event-properties/DataManagementEventProperties'),
     [Scene.ActionDefinitions]: () => import('./data-management/actions/DataManagementActions'),
     [Scene.ActionDefinition]: () => import('./data-management/actions/ActionRead'),
     [Scene.WebPerformance]: () => import('./performance/WebPerformance'),

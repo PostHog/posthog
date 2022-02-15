@@ -11,7 +11,7 @@ export function EventPageHeader({ activeTab, hideTabs }: { activeTab: EventsTab;
     return featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
         <>
             <PageHeader
-                title="Live Events"
+                title="Events"
                 caption="See events being sent to this project. Event history is limited to the last twelve months."
             />
         </>
