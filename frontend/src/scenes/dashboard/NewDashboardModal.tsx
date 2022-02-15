@@ -35,7 +35,7 @@ export function NewDashboardModal(): JSX.Element {
     )
 
     const [form] = Form.useForm()
-    console.log('xyz', form.getFieldValue('restrictionLevel'))
+
     return (
         <LemonModal
             title="New dashboard"
