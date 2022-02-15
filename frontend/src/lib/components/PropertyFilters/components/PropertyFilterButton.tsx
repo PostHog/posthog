@@ -48,7 +48,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return (
         <>
             {isEventProperty && (
-                <Tooltip title={'an event property'}>
+                <Tooltip title={'filter for this event property'}>
                     <UnverifiedEventStack
                         style={{ marginRight: '0.5em', verticalAlign: 'middle' }}
                         width={'14'}
