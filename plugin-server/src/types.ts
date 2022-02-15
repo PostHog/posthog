@@ -371,6 +371,7 @@ export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    responseVar: string
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
