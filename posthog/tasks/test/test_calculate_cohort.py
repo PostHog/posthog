@@ -67,7 +67,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             people = Person.objects.filter(cohort__id=cohort.pk)
             self.assertEqual(len(people), 1)
 
-        def test_calculate_cohorts(self):
+        def test_calculate_cohorts(self) -> None:
             FeatureFlag.objects.create(
                 team=self.team,
                 filters={
