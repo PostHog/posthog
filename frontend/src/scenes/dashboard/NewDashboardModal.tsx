@@ -104,11 +104,8 @@ export function NewDashboardModal(): JSX.Element {
                         style={{ width: '100%' }}
                         placeholder="Optionally start from template"
                     >
-                        <Select.Option data-attr="dashboard-select-empty" value="">
-                            Empty Dashboard
-                        </Select.Option>
                         <Select.Option data-attr="dashboard-select-default-app" value="DEFAULT_APP">
-                            Default Dashboard - Web App
+                            Website
                         </Select.Option>
                     </Select>
                 </Form.Item>
