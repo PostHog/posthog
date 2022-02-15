@@ -191,8 +191,8 @@ export class EventsProcessor {
     }
 
     public trimDistinctId(id: string): string {
-        // Postgres DB distinct_id is VARCHAR(400)
-        return id.substring(0, 399)
+        // Postgres DB distinct_id has various restrictions VARCHAR(400) & VARCHAR(200)
+        return id.substring(0, 200)
     }
 
     public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {

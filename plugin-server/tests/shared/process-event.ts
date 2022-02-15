@@ -1052,7 +1052,7 @@ export const createProcessEventTests = (
     })
 
     test('alias too long distinct id', async () => {
-        await createPerson(hub, team, ['a'.repeat(500)])
+        await createPerson(hub, team, ['a'.repeat(200)])
 
         await processEvent(
             'b'.repeat(500),
@@ -1070,8 +1070,8 @@ export const createProcessEventTests = (
 
         expect((await hub.db.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
-            'a'.repeat(400),
-            'b'.repeat(400),
+            'a'.repeat(200),
+            'b'.repeat(200),
         ])
     })
 
