@@ -143,9 +143,6 @@ export function FeatureFlag(): JSX.Element {
                         requiredMark={false}
                         scrollToFirstError
                     >
-                        <div className="text-muted mb">
-                            General settings for your feature flag and integration instructions.
-                        </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <Form.Item className="enabled-switch">
                                 <Form.Item
