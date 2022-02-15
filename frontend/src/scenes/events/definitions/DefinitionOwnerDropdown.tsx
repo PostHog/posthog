@@ -5,21 +5,14 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { UserBasicType } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { Owner } from '../Owner'
-import clsx from 'clsx'
 
-export function DefinitionOwnerDropdown({
-    owner,
-    className,
-}: {
-    owner: UserBasicType | null
-    className?: string
-}): JSX.Element {
+export function DefinitionOwnerDropdown({ owner }: { owner: UserBasicType | null }): JSX.Element {
     const { members } = useValues(membersLogic)
     const { changeOwner } = useActions(definitionDrawerLogic)
 
     return (
         <Select
-            className={clsx('owner-select', className)}
+            className="owner-select"
             placeholder={<Owner user={owner} />}
             style={{ minWidth: 200 }}
             dropdownClassName="owner-option"

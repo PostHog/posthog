@@ -277,15 +277,6 @@ function DefinitionEdit(): JSX.Element {
                         />
                     </>
                 )}
-                {definition && definition.name && !isPostHogProp(definition.name) && 'owner' in localDefinition && (
-                    <>
-                        <label className="definition-popup-edit-form-label" htmlFor="owner">
-                            <span className="label-text">Owner</span>
-                            <span className="text-muted">(optional)</span>
-                        </label>
-                        <DefinitionPopup.OwnerDropdown />
-                    </>
-                )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
                     <Checkbox
                         checked={localDefinition.verified}

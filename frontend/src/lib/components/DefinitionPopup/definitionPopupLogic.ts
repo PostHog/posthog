@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter, errorToast } from 'lib/utils'
+import { capitalizeFirstLetter, errorToast, successToast } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
@@ -11,7 +11,6 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { toast } from 'react-toastify'
 import equal from 'fast-deep-equal'
 
 export enum DefinitionPopupState {
@@ -54,7 +53,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             },
         ],
     },
-    loaders: ({ values, actions, props }) => ({
+    loaders: ({ values, props }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
@@ -82,6 +81,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             definition = await api.update(`api/projects/@current/event_definitions/${_event.id}`, {
                                 ..._event,
                                 owner: _event.owner?.id ?? null,
+                                verified: !!_event.verified,
                             })
                             eventDefinitionsModel?.isMounted() &&
                                 eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
@@ -111,8 +111,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     }
                     breakpoint()
                     // Disregard save attempts for any other types of taxonomy groups
-                    toast(`${capitalizeFirstLetter(values.singularType)} definition saved`)
-                    actions.setPopupState(DefinitionPopupState.View)
+                    successToast(`${capitalizeFirstLetter(values.singularType)} definition saved`)
                     // Update item in infinite list
                     props.updateRemoteItem?.(definition)
                     return definition
