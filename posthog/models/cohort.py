@@ -123,7 +123,7 @@ class Cohort(models.Model):
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
-                time.sleep(1)
+                time.sleep(5)
 
         except Exception as err:
             # Clear the pending version people if there's an error
