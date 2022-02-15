@@ -42,7 +42,6 @@ from posthog.tasks.calculate_cohort import (
 
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    count = serializers.SerializerMethodField()
     earliest_timestamp_func = get_earliest_timestamp
 
     class Meta:
@@ -144,11 +143,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return cohort
 
-    def get_count(self, action: Cohort) -> Optional[int]:
-        if hasattr(action, "count"):
-            return action.count  # type: ignore
-        return None
-
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
@@ -160,14 +154,6 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        cohort_people_count = (
-            CohortPeople.objects.filter(cohort_id=OuterRef("id"), version=OuterRef("version"))
-            .values("cohort_id")
-            .annotate(count=Count("person_id", distinct=True))
-            .values("count")
-        )
-
-        queryset = queryset.annotate(count=cohort_people_count)
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
 
