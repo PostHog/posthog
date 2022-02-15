@@ -78,6 +78,7 @@ export function NewDashboardModal(): JSX.Element {
                     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
                 }}
             >
+                <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Form.Item
                     name="name"
                     label="Name"
