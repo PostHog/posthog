@@ -62,7 +62,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
                 </Tooltip>
             )}
             {isCohortProperty && (
-                <Tooltip title={'a cohort property'}>
+                <Tooltip title={'filter for this cohort'}>
                     <IconCohort style={{ marginRight: '0.5em', verticalAlign: 'middle', marginBottom: '2px' }} />
                 </Tooltip>
             )}
