@@ -172,8 +172,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -362,8 +362,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -550,8 +550,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -738,8 +738,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -926,8 +926,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1020,8 +1020,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['finance'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['finance'], trim(BOTH '"'
+                                              FROM JSONExtractRaw(group_properties_0, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1115,8 +1115,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1210,8 +1210,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_1, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_1, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY

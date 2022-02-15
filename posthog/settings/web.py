@@ -50,6 +50,10 @@ MIDDLEWARE = [
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
+    # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
+    # using dependencies that the healthcheck should be checking. It should be
+    # ok below the above middlewares however.
+    "posthog.health.healthcheck_middleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -223,3 +227,5 @@ def add_recorder_js_headers(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
+
+CSRF_COOKIE_NAME = "posthog_csrftoken"

@@ -12,14 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.queries.funnels import (
-    ClickhouseFunnel,
-    ClickhouseFunnelBase,
-    ClickhouseFunnelStrict,
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelTrends,
-    ClickhouseFunnelUnordered,
-)
+from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
@@ -36,6 +29,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
+    BREAKDOWN_VALUES_LIMIT,
     FROM_DASHBOARD,
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -43,10 +37,9 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
-    FunnelOrderType,
     FunnelVizType,
 )
-from posthog.decorators import CacheType, cached_function
+from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Event, Filter, Insight, Team
 from posthog.models.dashboard import Dashboard
@@ -56,7 +49,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import get_safe_cache, relative_date_parse, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -187,8 +180,8 @@ class InsightSerializer(InsightBasicSerializer):
             return insight.last_refresh
         if insight.last_refresh is not None:
             # Update last_refresh without updating "updated_at" (insight edit date)
-            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
-            insight.refresh_from_db()
+            insight.last_refresh = None
+            insight.save()
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
@@ -246,9 +239,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "date_from":
-                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
-                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
@@ -299,7 +292,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = (
+            format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
+            if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
+            else None
+        )
         return Response({**result, "next": next})
 
     @cached_function

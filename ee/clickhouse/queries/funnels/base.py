@@ -12,7 +12,7 @@ from ee.clickhouse.models.property import (
     box_value,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
-    parse_prop_clauses,
+    parse_prop_grouped_clauses,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
@@ -427,8 +427,8 @@ class ClickhouseFunnelBase(ABC):
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties,
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            entity.property_groups,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="aggregation_target",
