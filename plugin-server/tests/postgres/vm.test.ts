@@ -6,11 +6,10 @@ import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
 import { delay, pluginDigest } from '../../src/utils/utils'
-import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
-import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql'
+import { resetTestDatabase } from '../helpers/sql'
+import { PluginConfig, PluginConfigVMResponse } from './../../src/types';
 import { LazyPluginVM } from './../../src/worker/vm/lazy'
 import { plugin60 } from './../helpers/plugins'
 
@@ -27,6 +26,15 @@ const defaultEvent = {
     event: 'default event',
 }
 
+// since we introduced super lazy vms, setupPlugin does not run immediately with
+// createPluginConfigVM - this function sets up the VM and runs setupPlugin immediately after
+const createReadyPluginConfigVm = async (hub: Hub, pluginConfig: PluginConfig, indexJs: string): Promise<PluginConfigVMResponse> => {
+    const vmResponse = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    await vmResponse.vm.run(`${vmResponse.vmResponseVariable}.methods.setupPlugin?.()`)
+    return vmResponse
+
+}
+
 let hub: Hub
 let closeHub: () => Promise<void>
 
@@ -40,11 +48,11 @@ afterEach(async () => {
     jest.clearAllMocks()
 })
 
-test('empty plugins', () => {
+test('empty plugins', async () => {
     const indexJs = ''
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-    expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
+    expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
     expect(Object.keys(vm.methods).sort()).toEqual([
         'exportEvents',
         'handleAlert',
@@ -69,7 +77,7 @@ test('setupPlugin sync', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const newEvent = await vm.methods.processEvent!({ ...defaultEvent })
     expect(newEvent.event).toEqual('haha')
 })
@@ -86,7 +94,7 @@ test('setupPlugin async', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const newEvent = await vm.methods.processEvent!({ ...defaultEvent })
     expect(newEvent.event).toEqual('haha')
 })
@@ -105,7 +113,7 @@ test('teardownPlugin', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     await vm.methods.processEvent!({
         ...defaultEvent,
         properties: { haha: 'hoho' },
@@ -123,7 +131,7 @@ test('processEvent', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -144,7 +152,7 @@ test('async processEvent', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -168,7 +176,7 @@ test('processEventBatch', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -191,7 +199,7 @@ test('async processEventBatch', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -218,7 +226,7 @@ test('processEvent && processEventBatch', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -238,7 +246,7 @@ test('processEvent without returning', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
 
     const event: PluginEvent = {
@@ -263,7 +271,7 @@ test('async processEvent', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -284,7 +292,7 @@ describe('vm exports', () => {
             module.exports = { processEvent: myProcessEventFunction }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const event: PluginEvent = {
             ...defaultEvent,
@@ -304,7 +312,7 @@ describe('vm exports', () => {
             module.exports.processEvent = myProcessEventFunction
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const event: PluginEvent = {
             ...defaultEvent,
@@ -324,7 +332,7 @@ describe('vm exports', () => {
             exports = { processEvent: myProcessEventFunction }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
             event: 'original event',
@@ -343,7 +351,7 @@ describe('vm exports', () => {
             exports.processEvent = myProcessEventFunction
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
             event: 'original event',
@@ -360,7 +368,7 @@ describe('vm exports', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
             event: 'export',
@@ -379,7 +387,7 @@ describe('vm exports', () => {
             export default MyPlugin
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
             event: 'default export',
@@ -397,7 +405,7 @@ test('meta.config', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -422,7 +430,7 @@ test('meta.cache set/get', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -467,7 +475,7 @@ test('meta.storage set/get/del', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -500,7 +508,7 @@ test('meta.cache expire', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -533,7 +541,7 @@ test('meta.cache set ttl', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -565,7 +573,7 @@ test('meta.cache incr', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -603,7 +611,7 @@ test('meta.cache lpush/lrange/llen', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -646,7 +654,7 @@ test('meta.cache lrem/lpop/lpush/lrange', async () => {
     `
 
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'original event',
@@ -669,7 +677,7 @@ test('console.log', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'logged event',
@@ -706,7 +714,7 @@ test('fetch', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'fetched',
@@ -728,7 +736,7 @@ test('fetch via import', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'fetched',
@@ -749,7 +757,7 @@ test('fetch via require', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'fetched',
@@ -778,7 +786,7 @@ test('posthog.api', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'fetched',
@@ -850,7 +858,7 @@ test('attachments', async () => {
             contents: Buffer.from('{"name": "plugin"}'),
         },
     }
-    const vm = createPluginConfigVM(
+    const vm = await createReadyPluginConfigVm(
         hub,
         {
             ...pluginConfig39,
@@ -881,7 +889,7 @@ test('runEvery', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     expect(Object.keys(vm.tasks).sort()).toEqual(['job', 'schedule'])
     expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute', 'runEveryHour', 'runEveryDay'])
@@ -903,7 +911,7 @@ test('runEvery must be a function', async () => {
         const runEveryDay = { some: 'object' }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
     expect(Object.values(vm.tasks.schedule).map((v) => v?.name)).toEqual(['runEveryMinute'])
@@ -919,7 +927,7 @@ test('posthog in runEvery', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     expect(Client).not.toHaveBeenCalled
 
@@ -962,7 +970,7 @@ test('posthog in runEvery with timestamp', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     expect(Client).not.toHaveBeenCalled
 
@@ -1002,7 +1010,7 @@ test('posthog.capture accepts user-defined distinct id', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
     expect(Client).not.toHaveBeenCalled
 
@@ -1039,7 +1047,7 @@ test('onEvent', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'onEvent',
@@ -1055,7 +1063,7 @@ test('onSnapshot', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: '$snapshot',
@@ -1072,7 +1080,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1116,7 +1124,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1184,7 +1192,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1225,7 +1233,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1259,7 +1267,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1313,7 +1321,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1352,7 +1360,7 @@ describe('exportEvents', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(
+        const vm = await createReadyPluginConfigVm(
             hub,
             {
                 ...pluginConfig39,
@@ -1386,7 +1394,7 @@ test('imports', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
     const event = await vm.methods.processEvent!({ ...defaultEvent })
 
     expect(event?.properties?.imports).toEqual({
