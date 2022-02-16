@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
-from posthog.models.event import Event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts

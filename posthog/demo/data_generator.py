@@ -1,7 +1,6 @@
 from typing import Dict, List
 
-from posthog.models import Action, Event, Person, PersonDistinctId, Team
-from posthog.models.session_recording_event import SessionRecordingEvent
+from posthog.models import Action, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
 

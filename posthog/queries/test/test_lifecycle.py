@@ -4,9 +4,8 @@ from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
-from posthog.queries.trends import Trends
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.models import Filter
+from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
 

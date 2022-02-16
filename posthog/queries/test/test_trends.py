@@ -4,27 +4,10 @@ from typing import List, Tuple
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_LIFECYCLE,
-    TRENDS_TABLE,
-)
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Entity,
-    Event,
-    Filter,
-    Organization,
-    Person,
-)
-from posthog.queries.trends import Trends, breakdown_label
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
+from posthog.models import Action, ActionStep, Entity, Filter, Organization, Person
+from posthog.queries.trends import breakdown_label
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
-from posthog.utils import generate_cache_key, relative_date_parse
 
 
 # parameterize tests to reuse in EE
