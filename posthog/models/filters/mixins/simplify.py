@@ -69,7 +69,7 @@ class SimplifyFilterMixin:
             if isinstance(group, PropertyGroup):
                 new_groups.append(self._simplify_property_group(team, group))
             elif isinstance(group, Property):
-                new_groups.extend(self._simplify_property(team, group))
+                new_groups.extend(self._simplify_property(team, group))  # type: ignore
 
         prop_group.groups = new_groups
         return prop_group
