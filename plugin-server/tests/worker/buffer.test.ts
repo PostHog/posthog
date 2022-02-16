@@ -10,7 +10,11 @@ describe('PromiseManager', () => {
     let promiseManager: PromiseManager
 
     beforeEach(() => {
-        promiseManager = new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as PluginsServerConfig)
+        promiseManager = new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any)
+    })
+
+    afterEach(async () => {
+        await Promise.all(promiseManager.pendingPromises)
     })
 
     test('promise manager awaits promises if above limit', async () => {
@@ -43,8 +47,8 @@ describe('ExportEventsBuffer', () => {
     let exportEventsBuffer: ExportEventsBuffer
 
     beforeEach(() => {
-        promiseManager = new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as PluginsServerConfig)
-        mockHub = { promiseManager } as Hub
+        promiseManager = new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any)
+        mockHub = { promiseManager } as any
         exportEventsBuffer = new ExportEventsBuffer(mockHub, { limit: 2 })
     })
 
