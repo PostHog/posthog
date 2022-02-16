@@ -4,6 +4,7 @@ from posthog.models.property import GroupTypeIndex
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team
+    from posthog.models.property import PropertyGroup
 
 T = TypeVar("T")
 
@@ -19,7 +20,6 @@ class SimplifyFilterMixin:
         - if aggregating by groups, adds property filter to remove blank groups
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
-
         if self._data.get("is_simplified"):  # type: ignore
             return self
 
@@ -27,9 +27,7 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
         new_group_props = []
         if getattr(result, "filter_test_accounts", False):
-            result = result.with_data(
-                {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
-            )
+            result = result.with_data({"filter_test_accounts": False,})
             new_group_props += team.test_account_filters
 
         updated_entities = {}
@@ -37,18 +35,17 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
+        prop_group = self._simplify_property_group(team, result.property_groups, **kwargs).to_dict()  # type: ignore
+
         if getattr(result, "aggregation_group_type_index", None) is not None:
-            properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
-            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
+            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())  # type: ignore
 
-        combined_group = {}
-        if new_group_props and result.property_groups_to_dict():
+        if new_group_props:
+            new_group_props = [prop for prop in new_group_props]
             new_group = {"type": "AND", "groups": new_group_props}
-            serialized_old_group = result.property_groups_to_dict()["property_groups"]
-            combined_group = {"property_groups": {"type": "AND", "groups": [new_group, serialized_old_group]}}
+            prop_group = {"type": "AND", "groups": [new_group, prop_group]} if prop_group else new_group
 
-        return result.with_data({**updated_entities, "properties": properties, **combined_group})
+        return result.with_data({**updated_entities, "properties": [], "property_groups": prop_group})
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
@@ -63,6 +60,19 @@ class SimplifyFilterMixin:
             properties.append(self._group_set_property(cast(GroupTypeIndex, entity.math_group_type_index)))
 
         return EntityClass({**entity_params, "properties": properties}).to_dict()
+
+    def _simplify_property_group(self, team: "Team", prop_group: "PropertyGroup", **kwargs) -> "PropertyGroup":
+        from posthog.models.property import Property, PropertyGroup
+
+        new_groups = []
+        for group in prop_group.groups:
+            if isinstance(group, PropertyGroup):
+                new_groups.append(self._simplify_property_group(team, group))
+            elif isinstance(group, Property):
+                new_groups.extend(self._simplify_property(team, group))
+
+        prop_group.groups = new_groups
+        return prop_group
 
     def _simplify_properties(self, team: "Team", properties: List["Property"], **kwargs) -> List["Property"]:
         simplified_properties = []

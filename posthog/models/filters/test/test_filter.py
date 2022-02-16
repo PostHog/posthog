@@ -48,31 +48,58 @@ class TestFilter(BaseTest):
 
         filter = Filter(data=data, team=self.team)
         self.assertEqual(
-            filter.properties_to_dict(),
-            {"properties": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],},
+            filter.property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],
+                }
+            },
         )
         self.assertTrue(filter.is_simplified)
 
         filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
 
         self.assertEqual(
-            filter.properties_to_dict(),
+            filter.property_groups_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [
+                        {
+                            "type": "AND",
+                            "groups": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
+                    ],
+                }
             },
         )
         self.assertTrue(filter.is_simplified)
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
+            filter.simplify(self.team).property_groups_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [
+                        {
+                            "type": "AND",
+                            "groups": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
+                    ],
+                }
             },
         )
 
