@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
-import { errorToast, toParams, uniqueBy } from 'lib/utils'
+import { toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -16,12 +16,8 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setDrawerType: (type: string) => ({ type }),
         setDescription: (description: string) => ({ description }),
-        setNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
         changeOwner: (owner: UserBasicType) => ({ owner }),
         setDefinition: (definition: Partial<EventOrPropType>) => ({ definition }),
-        setNewEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
-        deleteEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
         setEventPropertyDescription: (description: string, id: string) => ({ description, id }),
         setEventPropertyDefinition: (propertyDefinition: Partial<PropertyDefinition>, id?: string) => ({
             propertyDefinition,
@@ -200,42 +196,8 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 propertyDefinitionsModel.actions.updatePropertyDefinition(definition as PropertyDefinition)
             }
         },
-        setNewTag: async ({ tag }, breakpoint) => {
-            actions.setTagLoading(true)
-            if (values.definition?.tags?.includes(tag)) {
-                errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
-                return
-            }
-            const currentTags = values.definition?.tags ? [...values.definition.tags, tag] : [tag]
-            actions.setDefinition({ tags: currentTags })
-            await breakpoint(100)
-            actions.setTagLoading(false)
-        },
-        deleteTag: async ({ tag }, breakpoint) => {
-            await breakpoint(100)
-            const tags = values.definition?.tags?.filter((_tag: string) => _tag !== tag) || []
-            actions.setDefinition({ tags })
-        },
         changeOwner: ({ owner }) => {
             actions.setDefinition({ owner })
-        },
-        setNewEventPropertyTag: async ({ tag, currentTags, id }, breakpoint) => {
-            actions.setTagLoading(true)
-            if (currentTags?.includes(tag)) {
-                errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
-                return
-            }
-            const tags = currentTags ? [...currentTags, tag] : []
-            await breakpoint(100)
-            actions.setTagLoading(false)
-            actions.setEventPropertyDefinitionUpdateList(id)
-            actions.setEventPropertyDefinition({ tags }, id)
-        },
-        deleteEventPropertyTag: async ({ tag, currentTags, id }, breakpoint) => {
-            await breakpoint(100)
-            const tags = currentTags?.filter((_tag: string) => _tag !== tag)
-            actions.setEventPropertyDefinitionUpdateList(id)
-            actions.setEventPropertyDefinition({ tags }, id)
         },
         setEventPropertyDescription: ({ description, id }) => {
             actions.setEventPropertyDefinition({ description }, id)

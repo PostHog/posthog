@@ -148,10 +148,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                                 e.$session_id as "$session_id",
+                                 e.$window_id as "$window_id"
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -337,10 +335,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                                 e.$session_id as "$session_id",
+                                 e.$window_id as "$window_id"
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -526,10 +522,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                                 trim(BOTH '"'
-                                      FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                                 e.$session_id as "$session_id",
+                                 e.$window_id as "$window_id"
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
