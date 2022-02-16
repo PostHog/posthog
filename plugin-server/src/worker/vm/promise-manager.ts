@@ -17,7 +17,7 @@ export class PromiseManager {
         })
     }
 
-    public async awaitPromisesIfNeeded() {
+    public async awaitPromisesIfNeeded(): Promise<void> {
         while (this.pendingPromises.size > this.config.MAX_PENDING_PROMISES_PER_WORKER) {
             await Promise.any(this.pendingPromises)
         }
