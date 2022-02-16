@@ -19,11 +19,16 @@ def as_deletion_state(metadata: Dict) -> Dict:
 
 class HistoricalVersion(models.Model):
     """
-    We don't _only_ store foreign references cos the referenced model might get deleted.
-    The history log should be relatively immutable
+    We don't store foreign key references cos the referenced model will change or be deleted.
+    The history log should hold the state at the time it is written not the time it is read
 
     Everything in the log must have either a team id or an organization id
     """
+
+    class Action(models.TextChoices):
+        Create = "create"
+        Update = "update"
+        Delete = "delete"
 
     class Meta:
         constraints = [
@@ -38,13 +43,16 @@ class HistoricalVersion(models.Model):
 
     # JSON of the historical item
     state = models.JSONField(null=False)
-    # e.g. feature_flags
-    name = models.fields.TextField(null=False)
-    # TODO will this only be create, update, or delete
-    action = models.fields.TextField(null=False)
+    # e.g. FeatureFlags - in practice this will be the name of a model class
+    name = models.fields.CharField(max_length=79, null=False)
+
+    action = models.CharField(max_length=6, choices=Action.choices, blank=True, null=False)
 
     # the id of the item being versioned
-    item_id = models.fields.PositiveIntegerField(null=False)
+    # this might be a numerical id, short id, or UUID, so each will be converted to string
+    # it will be used to lookup rows with exactly matching item_ids
+    # it probably only needs to be 36 characters but 72 may be useful to avoid a migration in future
+    item_id = models.fields.CharField(max_length=72, null=False)
 
     # to avoid an integer version field for ordering revisions
     versioned_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
