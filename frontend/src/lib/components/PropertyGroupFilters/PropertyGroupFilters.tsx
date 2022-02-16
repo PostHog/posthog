@@ -50,8 +50,6 @@ export function PropertyGroupFilters({
         setFilters(propertyFilters ?? { groups: [] })
     }, [propertyFilters])
 
-    console.log('filters with new', filtersWithNew)
-
     return (
         <>
             {filtersWithNew.groups && (
