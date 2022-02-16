@@ -10,11 +10,9 @@ from posthog.constants import (
     RETENTION_TYPE,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
-    TRENDS_LINEAR,
 )
-from posthog.models import Action, ActionStep, Event, Person
+from posthog.models import Person
 from posthog.models.filters import RetentionFilter
-from posthog.queries.retention import Retention
 from posthog.test.base import APIBaseTest
 
 

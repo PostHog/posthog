@@ -237,7 +237,7 @@ export async function createPluginConfigVM(
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
         statsdTiming('vm_setup_sync_section')
-        await addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
     } else {
         statsdTiming('vm_setup_sync_section')
     }

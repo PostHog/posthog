@@ -440,7 +440,9 @@ class ClickhouseFunnelBase(ABC):
             for action_step in action.steps.all():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
-            action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
+            action_query, action_params = format_action_filter(
+                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+            )
             if action_query == "":
                 return ""
 
@@ -456,7 +458,8 @@ class ClickhouseFunnelBase(ABC):
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            entity.property_groups,
+            team_id=self._team.pk,
+            property_group=entity.property_groups,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="aggregation_target",

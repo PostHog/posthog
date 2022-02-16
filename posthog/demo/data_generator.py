@@ -1,7 +1,6 @@
 from typing import Dict, List
 
-from posthog.models import Action, Event, Person, PersonDistinctId, Team
-from posthog.models.session_recording_event import SessionRecordingEvent
+from posthog.models import Action, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
 
@@ -26,7 +25,6 @@ class DataGenerator:
         if dashboards:
             self.create_actions_dashboards()
         self.team.save()
-        _recalculate(team=self.team)
 
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
@@ -77,9 +75,3 @@ class DataGenerator:
 
     def add_event(self, **kw):
         self.events.append(kw)
-
-
-def _recalculate(team: Team) -> None:
-    actions = Action.objects.filter(team=team)
-    for action in actions:
-        action.calculate_events()
