@@ -10,7 +10,7 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog import version_requirement
-from posthog.models import Event, GroupTypeMapping, Person, Team, User
+from posthog.models import GroupTypeMapping, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig

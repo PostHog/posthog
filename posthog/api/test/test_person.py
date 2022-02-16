@@ -3,20 +3,19 @@ import unittest
 from unittest import mock
 from uuid import uuid4
 
-from django.utils import timezone
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Cohort, Event, Organization, Person, Team
+from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=create_event(**kwargs))
+    create_event(**kwargs)
 
 
 def _create_person(**kwargs):

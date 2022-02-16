@@ -262,38 +262,6 @@ class Cohort(models.Model):
         uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)
 
-    def _postgres_persons_query(self):
-        return Person.objects.filter(self._people_filter(), team=self.team)
-
-    def _people_filter(self, extra_filter=None):
-        from posthog.queries.base import properties_to_Q
-
-        filters = Q()
-        for group in self.groups:
-            if group.get("action_id"):
-                action = Action.objects.get(pk=group["action_id"], team_id=self.team_id)
-                events = (
-                    Event.objects.filter_by_action(action)
-                    .filter(
-                        team_id=self.team_id,
-                        **(
-                            {"timestamp__gt": timezone.now() - relativedelta(days=int(group["days"]))}
-                            if group.get("days")
-                            else {}
-                        ),
-                        **(extra_filter if extra_filter else {}),
-                    )
-                    .order_by("distinct_id")
-                    .distinct("distinct_id")
-                    .values("distinct_id")
-                )
-
-                filters |= Q(persondistinctid__distinct_id__in=events)
-            elif group.get("properties"):
-                filter = Filter(data=group)
-                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_direct_query=True))
-        return filters
-
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 

@@ -67,7 +67,8 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            PropertyGroup(type=PropertyOperatorType.AND, groups=props_to_filter),
+            team_id=self.team_id,
+            property_group=PropertyGroup(type=PropertyOperatorType.AND, groups=props_to_filter),
             table_name="e",
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
@@ -77,7 +78,7 @@ class ClickhouseTrendsBreakdown:
         action_params: Dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = self.entity.get_action()
-            action_query, action_params = format_action_filter(action, table_name="e")
+            action_query, action_params = format_action_filter(team_id=self.team_id, action=action, table_name="e")
 
         self.params = {
             **self.params,

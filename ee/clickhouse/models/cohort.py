@@ -179,7 +179,9 @@ def _get_entity_query(
         return "event = %(event)s", {"event": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
-        action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+        action_filter_query, action_params = format_action_filter(
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+        )
         return action_filter_query, action_params
     else:
         raise ValidationError("Cohort query requires action_id or event_id")
@@ -253,7 +255,9 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
     from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_grouped_clauses(filters.property_groups, table_name="pdi")
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+    )
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
