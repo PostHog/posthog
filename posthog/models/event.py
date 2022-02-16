@@ -146,13 +146,6 @@ class EventManager(models.QuerySet):
                     filter[f"match_{index}__gt"] = F(f"match_{index - 1}")
         return (subqueries, filter)
 
-    def earliest_timestamp(self, team_id: int):
-        timestamp = self.filter(team_id=team_id).order_by("timestamp").values_list("timestamp", flat=True).first()
-        if timestamp is None:
-            timestamp = timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
-
-        return timestamp.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
