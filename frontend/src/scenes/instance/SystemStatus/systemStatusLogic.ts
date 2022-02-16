@@ -57,7 +57,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         setAnalyzeQuery: (query: string) => ({ query }),
         openAnalyzeModalWithQuery: (query: string) => ({ query }),
         setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
-        updateInstanceConfigValue: (key: string, value: string | boolean | number) => ({ key, value }),
+        updateInstanceConfigValue: (key: string, value?: string | boolean | number) => ({ key, value }),
         clearInstanceConfigEditing: true,
         saveInstanceConfig: true,
         setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
@@ -150,7 +150,14 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         instanceConfigEditingState: [
             {} as Record<string, string | boolean | number>,
             {
-                updateInstanceConfigValue: (s, { key, value }) => ({ ...s, [key]: value }),
+                updateInstanceConfigValue: (s, { key, value }) => {
+                    if (value) {
+                        return { ...s, [key]: value }
+                    }
+                    const newState = { ...s }
+                    delete newState[key]
+                    return newState
+                },
                 clearInstanceConfigEditing: () => ({}),
             },
         ],
@@ -158,6 +165,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             null as number | null, // Number of config items that have been updated; `null` means no update is in progress
             {
                 setUpdatedInstanceConfigCount: (_, { count }) => count,
+                loadInstanceSettings: () => null,
                 increaseUpdatedInstanceConfigCount: (state) => (state ?? 0) + 1,
             },
         ],
@@ -195,11 +203,18 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             }
             actions.setInstanceConfigMode(ConfigMode.View)
         },
+        updateInstanceConfigValue: ({ key, value }) => {
+            if (
+                value &&
+                values.editableInstanceSettings.find((item) => item.key === key)?.value.toString() === value.toString()
+            ) {
+                actions.updateInstanceConfigValue(key, undefined)
+            }
+        },
         saveInstanceConfig: async (_, breakpoint) => {
             actions.setUpdatedInstanceConfigCount(0)
             Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
                 try {
-                    console.log({ value })
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
@@ -210,14 +225,12 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                         'There was an error updating all your settings. Please try again.'
                     )
                     await breakpoint(1000)
-                    actions.setUpdatedInstanceConfigCount(null)
                     actions.loadInstanceSettings()
                 }
             })
             await breakpoint(1000)
             if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
                 actions.loadInstanceSettings()
-                actions.setUpdatedInstanceConfigCount(null)
                 actions.clearInstanceConfigEditing()
                 actions.setInstanceConfigMode(ConfigMode.View)
                 successToast(

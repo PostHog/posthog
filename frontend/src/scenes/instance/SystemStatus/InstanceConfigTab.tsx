@@ -12,6 +12,7 @@ import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { WarningOutlined } from '@ant-design/icons'
 import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
+import { pluralize } from 'lib/utils'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -104,10 +105,10 @@ export function InstanceConfigTab(): JSX.Element {
                     <h3 className="l3" style={{ marginTop: 16 }}>
                         Instance configuration
                     </h3>
-                    <div className="mb text-muted">
+                    <div className="mb">
                         Changing these settings will take effect on your entire instance.{' '}
                         <a href="https://posthog.com/docs/self-host/configure/instance-settings" target="_blank">
-                            Learn more
+                            Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                         </a>
                         .
                     </div>
@@ -129,7 +130,8 @@ export function InstanceConfigTab(): JSX.Element {
                         {Object.keys(instanceConfigEditingState).length > 0 && (
                             <span style={{ color: 'var(--warning)' }}>
                                 <WarningOutlined /> You have <b>{Object.keys(instanceConfigEditingState).length}</b>{' '}
-                                unapplied changes
+                                unapplied{' '}
+                                {pluralize(Object.keys(instanceConfigEditingState).length, 'change', undefined, false)}
                             </span>
                         )}
                         <Button type="link" disabled={instanceSettingsLoading} onClick={discard}>
@@ -152,12 +154,13 @@ export function InstanceConfigTab(): JSX.Element {
             <h3 className="l3" style={{ marginTop: 32 }}>
                 Environment configuration
             </h3>
-            <p>
+            <div className="mb">
                 These settings can only be modified by environment variables.{' '}
                 <a href="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
                     Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                 </a>
-            </p>
+                .
+            </div>
             <LemonTable dataSource={configOptions} columns={envColumns} loading={preflightLoading} rowKey="key" />
             {instanceConfigMode === ConfigMode.Saving && (
                 <InstanceConfigSaveModal onClose={() => setInstanceConfigMode(ConfigMode.Edit)} />

@@ -1,16 +1,21 @@
 import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/InfoMessage/AlertMessage'
+import { pluralize } from 'lib/utils'
 import React from 'react'
 import { RenderMetricValue } from './RenderMetricValue'
 import { MetricRow, systemStatusLogic } from './systemStatusLogic'
 
 interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
-    old_value: any
+    oldValue: any
     metricKey: string
 }
 
-function ChangeRow({ metricKey, old_value, value }: ChangeRowInterface): JSX.Element {
+function ChangeRow({ metricKey, oldValue, value }: ChangeRowInterface): JSX.Element | null {
+    if (value.toString() === oldValue.toString()) {
+        return null
+    }
+
     return (
         <div
             style={{ backgroundColor: 'var(--border-light)', borderRadius: 'var(--radius)', padding: 8, marginTop: 16 }}
@@ -21,7 +26,7 @@ function ChangeRow({ metricKey, old_value, value }: ChangeRowInterface): JSX.Ele
             <div style={{ color: 'var(--text-muted)' }}>
                 Value will be changed from{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value: old_value })}
+                    {RenderMetricValue({ key: metricKey, value: oldValue })}
                 </span>{' '}
                 to{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
@@ -61,9 +66,9 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
                 <AlertMessage style={{ marginBottom: 16 }} type="warning">
                     <>
-                        Changing your recordings TTL requires Clickhouse to have enough free space to perform the
+                        Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                         operation (even when reducing this value). In addition, please mind that removing old recordings
-                        will happen asynchronously.
+                        will be removed asynchronously, not immediately.
                     </>
                 </AlertMessage>
             )}
@@ -73,12 +78,12 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                     key={key}
                     metricKey={key}
                     value={instanceConfigEditingState[key]}
-                    old_value={editableInstanceSettings.find((record) => record.key === key)?.value}
+                    oldValue={editableInstanceSettings.find((record) => record.key === key)?.value}
                 />
             ))}
             {loading && (
                 <div className="mt text-success">
-                    <b>{updatedInstanceConfigCount} changes updated successfully.</b>
+                    <b>{pluralize(updatedInstanceConfigCount, 'change')} updated successfully.</b>
                 </div>
             )}
         </Modal>
