@@ -231,10 +231,10 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
-                        className={actionable ? 'flex-center' : undefined}
+                        className="flex-center"
                         style={{ justifyContent: 'center' }}
                     >
-                        Learn more about funnels in our PostHog docs
+                        Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
