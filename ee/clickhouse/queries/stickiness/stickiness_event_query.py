@@ -21,17 +21,13 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
-        if self._filter.properties:
-            prop_filters = [*self._filter.properties, *self._entity.properties]
-            prop_query, prop_params = self._get_props(prop_filters)
-        else:
-            entity_prop_group = PropertyGroup(type=PropertyOperatorType.AND, groups=self._entity.properties)
-            combined_prop_group = (
-                PropertyGroup(type=PropertyOperatorType.AND, groups=[self._filter.property_groups, entity_prop_group])
-                if self._entity.properties
-                else self._filter.property_groups
-            )
-            prop_query, prop_params = self._get_prop_groups(combined_prop_group)
+        entity_prop_group = PropertyGroup(type=PropertyOperatorType.AND, groups=self._entity.properties)
+        combined_prop_group = (
+            PropertyGroup(type=PropertyOperatorType.AND, groups=[self._filter.property_groups, entity_prop_group])
+            if self._entity.properties
+            else self._filter.property_groups
+        )
+        prop_query, prop_params = self._get_prop_groups(combined_prop_group)
 
         self.params.update(prop_params)
 

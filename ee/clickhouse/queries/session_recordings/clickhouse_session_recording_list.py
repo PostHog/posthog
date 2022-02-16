@@ -259,11 +259,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
         person_query, person_query_params = self._get_person_query()
 
-        if self._filter.properties:
-            prop_filters = self._filter.properties
-            prop_query, prop_params = self._get_props(prop_filters)
-        else:
-            prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()

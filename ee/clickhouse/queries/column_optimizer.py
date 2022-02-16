@@ -57,9 +57,7 @@ class ColumnOptimizer:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
 
-        if has_element_type_property(
-            self.filter.properties if self.filter.properties else self.filter.property_groups_flat
-        ):
+        if has_element_type_property(self.filter.property_groups_flat):
             return True
 
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
@@ -79,9 +77,7 @@ class ColumnOptimizer:
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(
-            self.filter.properties if self.filter.properties else self.filter.property_groups_flat
-        )
+        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups_flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties

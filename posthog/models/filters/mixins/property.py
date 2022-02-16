@@ -22,14 +22,17 @@ class PropertyMixin(BaseParamMixin):
         else:
             loaded_props = _props
 
-        return self._parse_properties(loaded_props)
+        # if grouped properties
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "groups" in loaded_props:
+            # property_groups is main function from now on
+            return []
+        else:
+            # old style dict properties or a list of properties
+            return self._parse_properties(loaded_props)
 
     @cached_property
     def property_groups(self) -> PropertyGroup:
-        _props = self._data.get(PROPERTY_GROUPS, None)
-
-        if not _props:
-            return PropertyGroup(type=PropertyOperatorType.AND, groups=self.properties)
+        _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
             try:
@@ -39,7 +42,16 @@ class PropertyMixin(BaseParamMixin):
         else:
             loaded_props = _props
 
-        return self._parse_property_group(loaded_props)
+        # if grouped properties
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "groups" in loaded_props:
+            try:
+                return self._parse_property_group(loaded_props)
+            except Exception as e:
+                # TODO: make exception class precise?
+                raise ValidationError(f"PropertyGroup is unparsable: {e}")
+
+        # old properties
+        return PropertyGroup(type=PropertyOperatorType.AND, groups=self.properties)
 
     @cached_property
     def property_groups_flat(self) -> List[Property]:
@@ -81,7 +93,9 @@ class PropertyMixin(BaseParamMixin):
 
     def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
         if group and "type" in group and "groups" in group:
-            return PropertyGroup(group["type"], self._parse_property_group_list(group["groups"]))
+            return PropertyGroup(
+                PropertyOperatorType(group["type"].upper()), self._parse_property_group_list(group["groups"])
+            )
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
