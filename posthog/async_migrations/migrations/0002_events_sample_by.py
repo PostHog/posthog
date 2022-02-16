@@ -60,7 +60,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0001_events_sample_by"
 
     posthog_min_version = "1.30.0"
-    posthog_max_version = "1.32.0"
+    posthog_max_version = "1.33.9"
 
     service_version_requirements = [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
