@@ -67,12 +67,7 @@ def get_dlq_metric(key: str, offset: Optional[int] = 0) -> DeadLetterQueueMetric
     metric_context = DEAD_LETTER_QUEUE_METRICS[key]
     fn_result = metric_context["fn"](offset)  # type: ignore
 
-    return DeadLetterQueueMetric(
-        key=key,
-        metric=metric_context.get("metric"),
-        value=metric_context.get("value"),
-        subrows=fn_result.get("subrows"),
-    )
+    return DeadLetterQueueMetric(key=key, metric=metric_context.get("metric"), **fn_result,)
 
 
 class DeadLetterQueueMetricsSerializer(serializers.Serializer):
@@ -93,7 +88,6 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
             fn_result = metric_context["fn"](0)  # type: ignore
             metric = {
                 "key": key,
-                "value": metric_context.get("value"),
                 "metric": metric_context.get("metric"),
                 **fn_result,
             }
