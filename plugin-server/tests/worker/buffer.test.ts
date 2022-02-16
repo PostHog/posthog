@@ -21,12 +21,12 @@ describe('PromiseManager', () => {
         }
 
         // we track the promise but don't await it
-        void promiseManager.trackPromise(promise())
+        promiseManager.trackPromise(promise())
         expect(promiseManager.pendingPromises.size).toEqual(1)
         expect(hello).not.toHaveBeenCalled()
 
         // we add another promise above the limit
-        void promiseManager.trackPromise(promise())
+        promiseManager.trackPromise(promise())
         expect(promiseManager.pendingPromises.size).toEqual(2)
         expect(hello).not.toHaveBeenCalled()
 
@@ -86,7 +86,7 @@ describe('ExportEventsBuffer', () => {
         })
 
         // add a promise
-        void promiseManager.trackPromise(delay(3000))
+        promiseManager.trackPromise(delay(3000))
         expect(promiseManager.pendingPromises.size).toEqual(1)
 
         await exportEventsBuffer.add({ event: 'event1' }, 1)

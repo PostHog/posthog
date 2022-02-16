@@ -9,14 +9,12 @@ export class PromiseManager {
         this.config = config
     }
 
-    public trackPromise(promise: Promise<any>): Promise<any> {
+    public trackPromise(promise: Promise<any>): void {
         this.pendingPromises.add(promise)
 
         promise.finally(() => {
             this.pendingPromises.delete(promise)
         })
-
-        return promise
     }
 
     public async awaitPromisesIfNeeded() {
