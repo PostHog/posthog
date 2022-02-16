@@ -6,12 +6,12 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
-from posthog.models.property import Property, PropertyIdentifier, PropertyName, PropertyType
+from posthog.models.property import Property, PropertyIdentifier
 
 
 def format_action_filter(
-    action: Action,
     team_id: int,
+    action: Action,
     prepend: str = "action",
     use_loop: bool = False,
     filter_by_team=True,
@@ -96,7 +96,7 @@ def filter_event(
 
 
 def format_entity_filter(
-    entity: Entity, team_id: int, prepend: str = "action", filter_by_team=True
+    team_id: int, entity: Entity, prepend: str = "action", filter_by_team=True
 ) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()

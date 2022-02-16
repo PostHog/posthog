@@ -65,8 +65,8 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_grouped_clauses(
-    property_group: PropertyGroup,
     team_id: int,
+    property_group: PropertyGroup,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -133,8 +133,8 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 
 def parse_prop_clauses(
-    filters: List[Property],
     team_id: int,
+    filters: List[Property],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,

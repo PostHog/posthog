@@ -23,12 +23,12 @@ def _create_event(**kwargs) -> Event:
 
 
 def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(team_id=action.team.id, action=action, prepend="")
+    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
 
     if query:
-        return sync_execute(query, {"team_id": action.team.id, **params})
+        return sync_execute(query, {"team_id": action.team_id, **params})
 
     return None
 

@@ -212,7 +212,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         return duration_clause, duration_params
 
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
-        filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False, team_id=team_id)
+        filter_sql, params = format_entity_filter(team_id=team_id, entity=entity, prepend=prepend, filter_by_team=False)
         if entity.properties:
             filters, filter_params = parse_prop_grouped_clauses(
                 team_id=team_id,
