@@ -174,7 +174,7 @@ def update_async_migration(
         else:
             instance.refresh_from_db()
         if error is not None:
-            AsyncMigrationError.objects.create(async_migration=instance, description=error[:398]).save()
+            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
         if current_query_id is not None:
             instance.current_query_id = current_query_id
         if celery_task_id is not None:
