@@ -141,19 +141,26 @@ class Cohort(models.Model):
 
     def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
+        from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
         start_time = time.monotonic()
 
         try:
             count = recalculate_cohortpeople(self)
-            self.calculate_people(new_version=pending_version)
 
-            # Update filter to match pending version if still valid
-            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                version=pending_version, count=count
-            )
-            self.refresh_from_db()
+            # only precalculate if used in feature flag
+            ids = get_cohort_ids_in_feature_flags()
+
+            if self.pk in ids:
+                self.calculate_people(new_version=pending_version)
+                # Update filter to match pending version if still valid
+                Cohort.objects.filter(pk=self.pk).filter(
+                    Q(version__lt=pending_version) | Q(version__isnull=True)
+                ).update(version=pending_version, count=count)
+                self.refresh_from_db()
+            else:
+                self.count = count
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0

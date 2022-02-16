@@ -2,6 +2,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
+from django.core.cache import cache
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -11,6 +12,7 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -97,6 +99,27 @@ class FeatureFlag(models.Model):
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ]
             }
+
+    @property
+    def cohort_ids(self) -> List[int]:
+        cohort_ids = []
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type", None) == "cohort":
+                    cohort_id = prop.get("value", None)
+                    if cohort_id:
+                        cohort_ids.append(cohort_id)
+        return cohort_ids
+
+    def update_cohorts(self) -> None:
+        from posthog.tasks.calculate_cohort import update_cohort
+        from posthog.tasks.cohorts_in_feature_flag import COHORT_ID_IN_FF_KEY
+
+        if self.cohort_ids:
+            cache.delete(COHORT_ID_IN_FF_KEY)
+            for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
+                update_cohort(cohort)
 
 
 @receiver(pre_delete, sender=Experiment)

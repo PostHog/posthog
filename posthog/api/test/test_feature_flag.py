@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.helpers.item_history import HistoryListItem
 from posthog.mixins import as_deletion_state
 from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
+from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
@@ -811,6 +812,19 @@ class TestFeatureFlag(APIBaseTest):
                 "attr": "filters",
             },
         )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cohort_is_calculated(self, calculate_cohort_ch):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag", [{"key": "id", "type": "cohort", "value": cohort.pk},]
+        )
+        self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(calculate_cohort_ch.call_count, 1)
 
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
