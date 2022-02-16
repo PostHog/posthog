@@ -45,6 +45,8 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
     return ignorableElements.includes(tagName.toLowerCase())
 }
 
+const exceptions = ['.hotkey-block', '.hotkey-block *']
+
 /**
  *
  * @param hotkeys Hotkeys to listen to and actions to execute
@@ -62,6 +64,11 @@ function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList
 
             // Ignore if the key is pressed with a meta or control key (these are general browser commands; e.g. Cmd + R)
             if (event.metaKey || event.ctrlKey || event.altKey) {
+                return
+            }
+
+            // Ignore explicit hotkey exceptions
+            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
                 return
             }
 

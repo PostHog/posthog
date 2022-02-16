@@ -14,6 +14,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
+    GET_COHORTS_BY_PERSON_UUID,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
@@ -178,7 +179,9 @@ def _get_entity_query(
         return "event = %(event)s", {"event": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
-        action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+        action_filter_query, action_params = format_action_filter(
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+        )
         return action_filter_query, action_params
     else:
         raise ValidationError("Cohort query requires action_id or event_id")
@@ -259,7 +262,9 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
     from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_grouped_clauses(filters.property_groups, table_name="pdi")
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+    )
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
@@ -369,3 +374,8 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
         return group_filters[0]
     else:
         return []
+
+
+def get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    return [row[0] for row in res]

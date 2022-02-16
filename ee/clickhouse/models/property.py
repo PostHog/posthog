@@ -25,6 +25,7 @@ from ee.clickhouse.models.cohort import (
     format_static_cohort_query,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import (
@@ -65,6 +66,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_grouped_clauses(
+    team_id: int,
     property_group: PropertyGroup,
     prepend: str = "global",
     table_name: str = "",
@@ -85,6 +87,7 @@ def parse_prop_grouped_clauses(
         for idx, group in enumerate(property_group.groups):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
+                    team_id=team_id,
                     property_group=group,
                     prepend=f"{prepend}_{idx}",
                     table_name=table_name,
@@ -112,6 +115,7 @@ def parse_prop_grouped_clauses(
             person_id_joined_alias=person_id_joined_alias,
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
+            team_id=team_id,
         )
 
     if not _final:
@@ -132,6 +136,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 
 def parse_prop_clauses(
+    team_id: int,
     filters: List[Property],
     prepend: str = "global",
     table_name: str = "",
@@ -189,7 +194,7 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
                         table_name=table_name,
                         property_operator=property_operator,
@@ -249,9 +254,8 @@ def parse_prop_clauses(
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)

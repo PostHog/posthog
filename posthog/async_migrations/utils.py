@@ -27,14 +27,20 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     from ee.clickhouse.client import sync_execute
 
-    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    try:
+        sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    except Exception as e:
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
-    with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */ " + sql)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"/* {query_id} */ " + sql)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def process_error(
@@ -176,7 +182,7 @@ def update_async_migration(
         else:
             instance.refresh_from_db()
         if error is not None:
-            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
+            AsyncMigrationError.objects.create(async_migration=instance, description=error[:398]).save()
         if current_query_id is not None:
             instance.current_query_id = current_query_id
         if celery_task_id is not None:
