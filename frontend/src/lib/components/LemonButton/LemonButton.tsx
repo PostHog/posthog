@@ -24,7 +24,17 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', htmlType = 'button', active, className, popup, to, ...buttonProps }: LemonButtonProps,
+    {
+        children,
+        type = 'default',
+        htmlType = 'button',
+        active,
+        className,
+        popup,
+        to,
+        href,
+        ...buttonProps
+    }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
@@ -47,7 +57,18 @@ function LemonButtonInternal(
         </LemonRow>
     )
     if (to) {
-        workingButton = <Link to={to}>{workingButton}</Link>
+        workingButton = (
+            <Link to={to} style={{ display: 'contents' }}>
+                {workingButton}
+            </Link>
+        )
+    }
+    if (href) {
+        workingButton = (
+            <a href={href} style={{ display: 'contents' }} target="_blank" rel="noopener noreferrer">
+                {workingButton}
+            </a>
+        )
     }
     if (popup) {
         workingButton = <Popup {...popup}>{workingButton}</Popup>
