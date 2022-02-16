@@ -44,10 +44,10 @@ export function VolumeTable({
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
 
-    const hasTaxonomyFeatures = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
+    const hasTaxonomyFeatures = user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {

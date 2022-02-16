@@ -11,7 +11,6 @@ import {
     ListFuse,
     ListStorage,
     LoaderOptions,
-    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -58,7 +57,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
-        updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
     },
 
     reducers: {
@@ -131,12 +129,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         searchQuery: values.searchQuery,
                         queryChanged,
                         count: response.count || response.length || 0,
-                    }
-                },
-                updateRemoteItem: ({ item }) => {
-                    return {
-                        ...values.remoteItems,
-                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
                     }
                 },
             },
@@ -247,10 +239,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
-        selectedItem: [
-            (s) => [s.index, s.items],
-            (index, items): TaxonomicDefinitionTypes | undefined => (index >= 0 ? items.results[index] : undefined),
-        ],
+        selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
             (selectedItem, group) => (selectedItem ? group?.getValue?.(selectedItem) || null : null),

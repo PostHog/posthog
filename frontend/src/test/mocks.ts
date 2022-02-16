@@ -14,70 +14,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     description: `${name || 'name generation'} is the best!`,
     query_usage_30_day: index * 3 + 1,
     volume_30_day: index * 13 + 2,
-    tags: [],
 }))
-
-export const mockEventPropertyDefinition = {
-    id: '017e8d9e-4241-0000-57ad-3a7237ffdb8e',
-    name: '$active_feature_flags',
-    description: '',
-    tags: [],
-    is_numerical: false,
-    updated_at: '2022-01-24T21:32:38.359756Z',
-    updated_by: null,
-    volume_30_day: 2,
-    query_usage_30_day: 1,
-    is_event_property: true,
-    property_type: undefined,
-}
-
-export const mockPersonProperty = {
-    name: '$browser_version',
-    count: 1,
-}
-
-export const mockGroup = {
-    name: 'name',
-    count: 3,
-}
-
-export const mockElement = {
-    name: 'selector',
-}
-
-export const mockActionDefinition = {
-    id: 3,
-    name: 'Action',
-    post_to_slack: false,
-    slack_message_format: '',
-    steps: [
-        {
-            id: 3,
-            event: '$rageclick',
-            tag_name: 'div',
-            text: null,
-            href: null,
-            selector: null,
-            url: 'test',
-            name: 'Rage',
-            url_matching: 'contains',
-            properties: [],
-        },
-    ],
-    created_at: '2022-01-24T21:32:38.360176Z',
-    deleted: false,
-    is_calculating: false,
-    last_calculated_at: '2022-01-24T21:32:38.359756Z',
-    team_id: 1,
-    created_by: null,
-}
-
-export const mockCohort = {
-    id: 1,
-    name: 'Cohort',
-    count: 1,
-    groups: [{ id: 'a', name: 'Properties Group', count: 1, matchType: 'properties' }],
-}
 
 export const mockInsight = {
     id: 110,

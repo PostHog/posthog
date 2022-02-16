@@ -14,14 +14,13 @@ export function findActionName(id: number): string | null {
 export const actionsModel = kea<actionsModelType<ActionsModelProps>>({
     path: ['models', 'actionsModel'],
     props: {} as ActionsModelProps,
-    loaders: ({ props, values }) => ({
+    loaders: ({ props }) => ({
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
                 const response = await api.actions.list(props.params)
                 return response.results ?? []
             },
-            updateAction: (action: ActionType) => (values.actions || []).map((a) => (action.id === a.id ? action : a)),
         },
     }),
     selectors: ({ selectors }) => ({
