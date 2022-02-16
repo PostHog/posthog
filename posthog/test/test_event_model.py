@@ -1,6 +1,4 @@
-from freezegun import freeze_time
-
-from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Organization, Person
+from posthog.models import Action, ActionStep, Element, Organization
 from posthog.models.event import Selector
 from posthog.test.base import BaseTest
 
@@ -397,64 +395,6 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(events_empty_selector, events_null_selector)
 
     return TestFilterByActions
-
-
-class TestElementGroup(BaseTest):
-    def test_create_elements(self):
-        elements = [
-            Element(tag_name="button", text="Sign up!",),
-            Element(tag_name="div",),
-        ]
-        group1 = ElementGroup.objects.create(team=self.team, elements=elements)
-        elements = list(Element.objects.all())
-        self.assertEqual(elements[0].tag_name, "button")
-        self.assertEqual(elements[1].tag_name, "div")
-
-        elements = [
-            Element(tag_name="button", text="Sign up!",),
-            # make sure we remove events if we can
-            Element(tag_name="div", event=Event.objects.create(team=self.team),),
-        ]
-        group2 = ElementGroup.objects.create(team=self.team, elements=elements)
-        self.assertEqual(Element.objects.count(), 2)
-        self.assertEqual(group1.hash, group2.hash)
-
-        # Test no team leakage
-        team2 = Organization.objects.bootstrap(None)[2]
-        group3 = ElementGroup.objects.create(team=team2, elements=elements)
-        group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
-        self.assertNotEqual(group2, group3)
-        self.assertEqual(group3, group3_duplicate)
-        self.assertEqual(ElementGroup.objects.count(), 2)
-
-
-class TestActions(BaseTest):
-    def _signup_event(self, distinct_id: str):
-        sign_up = Event.objects.create(
-            distinct_id=distinct_id,
-            team=self.team,
-            event="$autocapture",
-            elements=[Element(tag_name="button", text="Sign up!")],
-        )
-        return sign_up
-
-    def _movie_event(self, distinct_id: str):
-        event = Event.objects.create(
-            distinct_id=distinct_id,
-            team=self.team,
-            event="$autocapture",
-            elements=[
-                Element(
-                    tag_name="a",
-                    attr_class=["watch_movie", "play"],
-                    text="Watch now",
-                    attr_id="something",
-                    href="/movie",
-                ),
-                Element(tag_name="div", href="/movie"),
-            ],
-        )
-        return event
 
 
 class TestSelectors(BaseTest):
