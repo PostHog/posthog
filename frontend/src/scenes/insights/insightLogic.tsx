@@ -398,6 +398,9 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 setIsLoading: (_, { isLoading }) => isLoading,
+                loadInsight: () => true,
+                loadInsightSuccess: () => false,
+                loadInsightFailure: () => false,
             },
         ],
         /*
