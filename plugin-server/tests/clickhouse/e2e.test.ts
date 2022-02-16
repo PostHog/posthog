@@ -148,7 +148,7 @@ describe('e2e', () => {
             await delayUntilEventIngested(() => hub.db.fetchEvents())
             await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
 
-            await delay(2000)
+            await delay(5000)
 
             const pluginLogEntries = await getLogsSinceStart()
             expect(
