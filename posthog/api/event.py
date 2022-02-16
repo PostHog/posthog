@@ -3,6 +3,7 @@ import urllib
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
+from django.db.models.query import Prefetch
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -16,7 +17,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
-from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -25,7 +26,7 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Element, ElementGroup, Event, Filter, Person
+from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
@@ -50,50 +51,6 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
-
-
-class EventSerializer(serializers.HyperlinkedModelSerializer):
-    elements = serializers.SerializerMethodField()
-    person = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Event
-        fields = [
-            "id",
-            "distinct_id",
-            "properties",
-            "elements",
-            "event",
-            "timestamp",
-            "person",
-        ]
-
-    def get_person(self, event: Event) -> Any:
-        if hasattr(event, "serialized_person"):
-            return event.serialized_person  # type: ignore
-        return None
-
-    def get_elements(self, event: Event):
-        if not event.elements_hash:
-            return []
-        if hasattr(event, "elements_group_cache"):
-            if event.elements_group_cache:  # type: ignore
-                return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
-                    many=True,
-                ).data
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
-            .element_set.all()
-            .order_by("order")
-        )
-        return ElementSerializer(elements, many=True).data
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        if self.context.get("format") == "csv":
-            representation.pop("elements")
-        return representation
 
 
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -156,6 +113,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -178,7 +136,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             },
             long_date_from,
         )
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, has_person_id_joined=False)
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
+        )
 
         if request.GET.get("action_id"):
             try:
@@ -187,7 +147,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 return []
             if action.steps.count() == 0:
                 return []
-            action_query, params = format_action_filter(action)
+            action_query, params = format_action_filter(team_id=team.pk, action=action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
@@ -221,7 +181,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         team = self.team
-        result = []
         flattened = []
         if key == "custom_event":
             events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})

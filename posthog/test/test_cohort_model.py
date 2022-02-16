@@ -2,7 +2,9 @@ from unittest.mock import patch
 
 import pytest
 
-from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
+from ee.clickhouse.client import sync_execute
+from posthog.models import Cohort, FeatureFlag, Person, Team
+from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
 from posthog.test.base import BaseTest
 
 
@@ -22,7 +24,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
         self.assertEqual(cohort.people.count(), 2)
 
         # if we add people again, don't increase the number of people in cohort
@@ -32,8 +34,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
-    @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
-    def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
+    def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
@@ -45,16 +46,50 @@ class TestCohort(BaseTest):
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
         )
 
-        get_person_ids_by_cohort_id.return_value = [person1.uuid, person2.uuid]
+        cohort.calculate_people_ch(pending_version=0)
 
-        cohort.calculate_people()
-
-        self.assertCountEqual(list(cohort.people.all()), [person1, person2])
+        uuids = [
+            row[0]
+            for row in sync_execute(
+                "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort.pk}
+            )
+        ]
+        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
         )
 
-        cohort2.calculate_people()
+        cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
+
+    def test_batch_delete_cohort_people(self):
+        person1 = Person.objects.create(
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        person3 = Person.objects.create(
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": None}
+                ]
+            },
+            key="default-flag-1",
+            created_by=self.user,
+        )
+        flag.update_cohorts()
+
+        self.assertEqual(len(CohortPeople.objects.all()), 2)
+        batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
+        self.assertEqual(len(CohortPeople.objects.all()), 0)

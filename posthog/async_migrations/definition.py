@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from constance import config
 
@@ -17,7 +17,7 @@ class AsyncMigrationType:
     current_operation_index: int
     current_query_id: str
     celery_task_id: str
-    started_at: str
+    started_at: datetime
     finished_at: datetime
     posthog_min_version: str
     posthog_max_version: str
@@ -29,7 +29,7 @@ class AsyncMigrationOperation:
         fn: Callable[[str], None],
         rollback_fn: Callable[[str], None] = lambda _: None,
         resumable=False,
-        sql: Optional[str] = None,
+        debug_context: Optional[Any] = None,
     ):
         self.fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
@@ -42,8 +42,7 @@ class AsyncMigrationOperation:
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
 
-        # If the operation specifies raw SQL, add this as a property for easier debugging
-        self.sql = sql
+        self.debug_context = debug_context
 
     @classmethod
     def simple_op(
@@ -58,7 +57,7 @@ class AsyncMigrationOperation:
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             resumable=resumable,
-            sql=sql,
+            debug_context={"sql": sql, "rollback": rollback, "database": database},
         )
 
     @classmethod

@@ -6,13 +6,13 @@ from django.utils.timezone import now
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Element, ElementGroup, Event, Organization
+from posthog.models import Element, ElementGroup, Organization
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=create_event(**kwargs))
+    create_event(**kwargs)
 
 
 class TestElement(ClickhouseTestMixin, APIBaseTest):
@@ -50,7 +50,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
             Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
         ]
-        event1 = _create_event(
+        _create_event(
             team=self.team,
             elements=elements,
             event="$autocapture",
@@ -82,12 +82,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             elements=[Element(tag_name="img")],
         )
 
-        with self.assertNumQueries(7):
-            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog event aggregated,
-            # PostHog element group, PostHog element
+        with self.assertNumQueries(4):
+            # Django session, PostHog user, PostHog team, PostHog org membership
             response = self.client.get("/api/element/stats/").json()
         self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["hash"], event1.elements_hash)
         self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
         self.assertEqual(response[1]["count"], 1)
 

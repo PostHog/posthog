@@ -4,170 +4,9 @@
     width: 100%; // This provides the width for the dashboard items grid
 }
 
-.dashboard-item {
-    display: block;
-    background: white;
-    height: 100%;
-    padding: 0;
-    position: relative;
-    box-shadow: $shadow_elevation;
-    border-radius: var(--radius);
-    border: 1px solid $border;
-    overflow: hidden;
-    z-index: 3;
-
-    .dashboard-item-container {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
-    }
-
-    .dashboard-item-header {
-        padding: 15px 15px 7px 15px;
-        height: 52px;
-        width: 100%;
-        display: flex;
-        justify-content: space-between;
-
-        .dashboard-item-title {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            padding-right: 5px;
-            a {
-                font-size: 14px;
-                letter-spacing: 0.5px;
-                color: hsla(210, 26%, 16%, 1);
-                &:hover {
-                    text-decoration: underline;
-                }
-            }
-        }
-        .dashboard-item-settings {
-            white-space: nowrap;
-        }
-    }
-    .dashboard-item-content {
-        height: 100%;
-        margin: 8px 15px 15px 15px;
-        overflow: hidden;
-        flex-grow: 1;
-        position: relative;
-        .graph-container {
-            padding-bottom: 10px;
-            width: 100%;
-            height: 100%;
-        }
-
-        &.FunnelViz {
-            // Funnels can exceed container's dimensions and must support scrolling
-            overflow: auto;
-        }
-    }
-    .dashboard-item-container.table .dashboard-item-content {
-        overflow: auto;
-    }
-
-    // sync this with lib/colors.js
-
-    &.blue {
-        --item-background: hsl(212, 63%, 40%);
-        --item-darker: hsl(212, 63%, 35%);
-        --item-darkest: hsl(212, 63%, 30%);
-        --item-lighter: hsl(212, 63%, 60%);
-        --item-primary: hsl(202, 100%, 83%);
-    }
-
-    &.purple {
-        --item-background: hsl(249, 46%, 51%);
-        --item-darker: hsl(249, 46%, 46%);
-        --item-darkest: hsl(249, 46%, 41%);
-        --item-lighter: hsl(249, 46%, 65%);
-        --item-primary: hsl(284, 84%, 83%);
-    }
-
-    &.green {
-        --item-background: hsl(145, 60%, 34%);
-        --item-darker: hsl(145, 60%, 29%);
-        --item-darkest: hsl(145, 60%, 24%);
-        --item-lighter: hsl(145, 60%, 50%);
-        --item-primary: hsl(112, 87%, 81%);
-    }
-
-    &.black {
-        --item-background: hsl(0, 0%, 14%);
-        --item-darker: hsl(0, 0%, 9%);
-        --item-darkest: hsl(0, 0%, 4%);
-        --item-lighter: hsl(0, 0%, 40%);
-        --item-primary: hsl(228, 100%, 77%);
-    }
-
-    &.blue,
-    &.purple,
-    &.green,
-    &.black {
-        color: white;
-        background: var(--item-background);
-        .dashboard-item-header .dashboard-item-title a {
-            color: white;
-        }
-        .dashboard-item-header .dashboard-item-settings *:not(a) .anticon {
-            color: rgba(255, 255, 255, 0.8);
-            background: var(--item-darker);
-            &:hover {
-                background: var(--item-darkest);
-            }
-        }
-
-        h1 {
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        .ant-table {
-            background: none;
-            table {
-                color: white;
-                tr td,
-                tr th {
-                    color: white;
-                    background: rgba(255, 255, 255, 0.1);
-                    border-top-color: rgba(255, 255, 255, 0.2);
-                    border-bottom-color: rgba(255, 255, 255, 0.2);
-                }
-                tr th {
-                    background: rgba(255, 255, 255, 0.2);
-                }
-            }
-        }
-    }
-
-    .insight-empty-state {
-        display: flex;
-        height: 100%;
-        align-items: center;
-        border-radius: $radius;
-
-        .ant-btn {
-            display: none;
-        }
-
-        h2 {
-            font-size: 1.1rem !important;
-        }
-
-        span,
-        p,
-        a {
-            font-size: 0.9rem !important;
-            line-height: 1.2rem;
-        }
-    }
-}
-
 .react-grid-layout {
     position: relative;
-    transition: height 200ms ease;
+    transition: height 100ms ease;
     margin-bottom: 2rem;
 
     /* remove initial loading animation, animations are only needed in edit mode */
@@ -176,7 +15,7 @@
     }
 }
 .react-grid-item {
-    transition: all 200ms ease;
+    transition: all 100ms ease;
     transition-property: left, top;
 }
 .react-grid-item.cssTransforms {
@@ -185,9 +24,6 @@
 .react-grid-item.resizing {
     z-index: 1;
     will-change: width, height;
-    .dashboard-item {
-        border-color: var(--primary);
-    }
 }
 
 .react-grid-item.react-draggable {
@@ -205,7 +41,7 @@
 }
 
 .react-grid-item.react-grid-placeholder {
-    transition: 200ms ease;
+    transition: 100ms ease;
     max-width: 100%;
     position: relative;
     border: 1px solid var(--primary);
@@ -241,12 +77,6 @@
         right: 2rem;
         width: auto;
         cursor: ns-resize;
-    }
-}
-
-.react-grid-layout.layout.dashboard-edit-mode .dashboard-item {
-    table {
-        cursor: auto;
     }
 }
 

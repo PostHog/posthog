@@ -9,13 +9,12 @@ import {
     PluginLogEntryType,
     PluginTaskType,
 } from '../../../../types'
-import { addPublicJobIfNotExists } from '../../utils'
 import {
     ExportEventsJobPayload,
     ExportHistoricalEventsUpgrade,
     fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
-} from './utils'
+} from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
@@ -31,15 +30,18 @@ const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
-export async function addHistoricalEventsExportCapability(
+export function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
     response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
-): Promise<void> {
+): void {
     const { methods, tasks, meta } = response
 
+    const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
     // we can void this as the job appearing on the interface is not time-sensitive
-    await addPublicJobIfNotExists(hub.db, pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
+        void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    }
 
     const oldSetupPlugin = methods.setupPlugin
 

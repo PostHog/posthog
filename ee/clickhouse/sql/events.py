@@ -2,7 +2,6 @@ from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
-from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
@@ -31,6 +30,9 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
     , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
     , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
     , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
+
 """
 
 # :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
@@ -114,11 +116,29 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT 
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+FROM 
+    events 
+WHERE 
+    team_id = %(team_id)s AND
+    JSONHas(properties, %(key)s) 
+    {parsed_date_from} 
+    {parsed_date_to} 
+LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT 
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+FROM
+    events 
+WHERE 
+    team_id = %(team_id)s AND 
+    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    {parsed_date_from} 
+    {parsed_date_to} 
+LIMIT 10
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """

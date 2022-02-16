@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.action import Action, ActionStep
@@ -59,8 +60,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                 cohort = Cohort.objects.create(
                     team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
                 )
-                cohort.calculate_people()
-                cohort.calculate_people_ch()
+                cohort.calculate_people_ch(pending_version=0)
 
                 self.create_snapshot("user", "1", self.base_time)
                 self.create_event("user", self.base_time, team=self.team)
@@ -79,7 +79,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")
@@ -104,7 +104,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_matching_with_no_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")

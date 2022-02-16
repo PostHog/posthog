@@ -15,7 +15,9 @@
         border: none;
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
-        border-bottom: 1px solid var(--border);
+        &:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
 
         .insights-label {
             margin: 0;

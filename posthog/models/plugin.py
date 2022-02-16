@@ -152,7 +152,8 @@ class Plugin(models.Model):
     from_web: models.BooleanField = models.BooleanField(default=False)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     objects: PluginManager = PluginManager()
 
