@@ -112,7 +112,7 @@ export function NewDashboardModal(): JSX.Element {
                 {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
                     <Form.Item
                         name="restrictionLevel"
-                        label="Collaboration restrictions"
+                        label="Collaboration settings"
                         rules={[{ required: true, message: 'Restriction level needs to be specified.' }]}
                     >
                         <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>

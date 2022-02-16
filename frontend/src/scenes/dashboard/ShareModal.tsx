@@ -97,7 +97,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
     return (
         dashboard && (
             <>
-                <h5>Collaboration restrictions</h5>
+                <h5>Collaboration settings</h5>
                 {(!canEditDashboard || !canRestrictDashboard) && (
                     <InfoMessage>
                         {canEditDashboard
