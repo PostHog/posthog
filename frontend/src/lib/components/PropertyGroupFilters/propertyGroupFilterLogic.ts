@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
-import { AndOrPropertyFilter, PropertyFilter } from '~/types'
-import { isValidPropertyFilter, parsePropertyGroups } from 'lib/components/PropertyFilters/utils'
+import { AndOrPropertyFilter } from '~/types'
+import { parsePropertyGroups } from 'lib/components/PropertyFilters/utils'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
 
@@ -14,58 +14,19 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
 
     actions: () => ({
         update: (propertyGroupIndex?: number) => ({ propertyGroupIndex }),
-        setFilter: (
-            index: number,
-            key: PropertyFilter['key'],
-            value: PropertyFilter['value'],
-            operator: PropertyFilter['operator'],
-            type: PropertyFilter['type'],
-            group_type_index?: PropertyFilter['group_type_index'],
-            propertyGroupIndex?: number,
-            propertyIndex?: number
-        ) => ({ index, key, value, operator, type, group_type_index, propertyGroupIndex, propertyIndex }),
         setFilters: (filters: AndOrPropertyFilter) => ({ filters }),
-        remove: (propertyGroupIndex: number, propertyIndex?: number) => ({ propertyGroupIndex, propertyIndex }),
-        addFilterGroup: true,
-        addPropertyToGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
         removeFilterGroup: (filterGroup: number) => ({ filterGroup }),
-        setPropertyGroupType: (type: AndOr) => ({ type }),
+        setPropertyGroupsType: (type: AndOr) => ({ type }),
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
+        setPropertyGroupType: (type: AndOr, index: number) => ({ type, index }),
+        addFilterGroup: true,
     }),
 
     reducers: ({ props }) => ({
         filters: [
-            props.propertyFilters
-                ? // isAndOrPropertyFilter(props.propertyFilters)
-                  // ? parsePropertyGroups(props.propertyFilters)
-                  // : parseProperties(props.propertyFilters)
-                  parsePropertyGroups(props.propertyFilters)
-                : ({} as AndOrPropertyFilter),
+            props.propertyFilters ? parsePropertyGroups(props.propertyFilters) : ({} as AndOrPropertyFilter),
             {
-                // setFilter: (state, { propertyGroupIndex, propertyIndex, index, ...property }) => {
-                //     // if (isAndOrPropertyFilter(state)) {
-                //     const newFilters = { ...state }
-                //     if (propertyGroupIndex !== undefined && propertyIndex !== undefined) {
-                //         newFilters.groups[propertyGroupIndex].groups[propertyIndex] = property
-                //     }
-                //     return newFilters
-                // },
                 setFilters: (_, { filters }) => filters,
-                // remove: (state, { propertyGroupIndex, propertyIndex }) => {
-                //     if (propertyIndex !== undefined) {
-                //         const newGroupsState = { ...state }
-                //         newGroupsState.groups[propertyGroupIndex].groups = newGroupsState.groups[
-                //             propertyGroupIndex
-                //         ].groups.filter((_, idx) => idx !== propertyIndex)
-                //         if (newGroupsState.groups[propertyGroupIndex].groups.length === 0) {
-                //             // removes entire filter group if it contains no properties
-                //             newGroupsState.groups = newGroupsState.groups.filter(
-                //                 (_, i: number) => i !== propertyGroupIndex
-                //             )
-                //         }
-                //         return newGroupsState
-                //     }
-                // },
                 addFilterGroup: (state) => {
                     if (!state.groups) {
                         return {
@@ -79,63 +40,49 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                     }
                     const groupsCopy = { ...state }
                     groupsCopy.groups.push({ type: AndOr.AND, groups: [{}] })
-                    if (groupsCopy.groups.length > 1) {
+
+                    if (groupsCopy.groups.length > 1 && !groupsCopy.type) {
                         groupsCopy.type = AndOr.AND
                     }
                     return groupsCopy
                 },
-                addPropertyToGroup: (state, { propertyGroupIndex }) => {
-                    const newState = { ...state }
-                    newState.groups[propertyGroupIndex].groups.push({})
+                removeFilterGroup: (state, { filterGroup }) => {
+                    const newState = { ...state, groups: state.groups.filter((_, idx: number) => idx !== filterGroup) }
+                    if (newState.groups.length <= 1) {
+                        return { groups: newState.groups }
+                    }
                     return newState
                 },
-                removeFilterGroup: (state, { filterGroup }) => {
-                    return { ...state, groups: state.groups.filter((_, idx: number) => idx !== filterGroup) }
-                },
-                setPropertyGroupType: (state, { type }) => {
+                setPropertyGroupsType: (state, { type }) => {
                     return { ...state, type }
                 },
                 setPropertyFilters: (state, { properties, index }) => {
                     const newState = { ...state }
                     newState.groups[index].groups = properties
+                    // removes entire property group if no properties in groups
+                    if (newState.groups[index].groups.length === 0) {
+                        newState.groups = newState.groups.filter((_, i: number) => i !== index)
+                    }
+                    return newState
+                },
+                setPropertyGroupType: (state, { type, index }) => {
+                    const newState = { ...state }
+                    newState.groups[index].type = type
                     return newState
                 },
             },
         ],
     }),
     listeners: ({ actions, props, values }) => ({
-        // Only send update if value is set to something
-        setFilter: ({ value, propertyGroupIndex }) => {
-            value && actions.update(propertyGroupIndex)
-        },
-        remove: () => actions.update(),
+        setFilters: () => actions.update(),
         removeFilterGroup: () => actions.update(),
-        update: ({ propertyGroupIndex }) => {
-            if (propertyGroupIndex !== undefined) {
-                const filtersCopy = { ...values.filters }
-                filtersCopy.groups[propertyGroupIndex].groups =
-                    filtersCopy.groups[propertyGroupIndex].groups.filter(isValidPropertyFilter)
-                props.onChange(filtersCopy)
-                return
-            } else {
-                props.onChange(values.filters)
-                return
-            }
-        },
         addFilterGroup: () => actions.update(),
         addPropertyToGroup: () => actions.update(),
+        update: () => props.onChange(values.filters),
     }),
 
     selectors: {
         filledFilters: [(s) => [s.filters], (filters) => filters],
-        filtersWithNew: [
-            (s) => [s.filters],
-            (filters) => {
-                return filters
-                //     if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
-                //         return [...filters, {}]
-                //     }
-            },
-        ],
+        filtersWithNew: [(s) => [s.filters], (filters) => filters],
     },
 })

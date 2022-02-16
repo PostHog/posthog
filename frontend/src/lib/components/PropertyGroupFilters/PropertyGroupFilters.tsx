@@ -39,8 +39,8 @@ export function PropertyGroupFilters({
     const {
         setFilters,
         addFilterGroup,
-        addPropertyToGroup,
         removeFilterGroup,
+        setPropertyGroupsType,
         setPropertyGroupType,
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
@@ -60,7 +60,7 @@ export function PropertyGroupFilters({
                         {filtersWithNew.type && (
                             <AndOrFilterSelect
                                 value={filtersWithNew.type}
-                                onChange={(value) => setPropertyGroupType(value)}
+                                onChange={(value) => setPropertyGroupsType(value)}
                             />
                         )}
                         {filtersWithNew.groups.map((group: AndOrPropertyGroup, propertyGroupIndex: number) => {
@@ -68,7 +68,10 @@ export function PropertyGroupFilters({
                                 <>
                                     <div className="mt" style={style} key={propertyGroupIndex}>
                                         <Row justify="space-between" align="middle" className="mb-05">
-                                            <AndOrFilterSelect onChange={() => {}} value={group.type} />
+                                            <AndOrFilterSelect
+                                                onChange={(type) => setPropertyGroupType(type, propertyGroupIndex)}
+                                                value={group.type}
+                                            />
                                             <div
                                                 style={{
                                                     marginLeft: 8,
@@ -93,20 +96,6 @@ export function PropertyGroupFilters({
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             eventNames={eventNames}
                                         />
-                                        {Object.keys(group.groups[group.groups.length - 1]).length > 0 && (
-                                            <Button
-                                                style={{
-                                                    color: 'var(--primary)',
-                                                    border: 'none',
-                                                    boxShadow: 'none',
-                                                    background: '#FAFAF9',
-                                                }}
-                                                icon={<PlusOutlined />}
-                                                onClick={() => addPropertyToGroup(propertyGroupIndex)}
-                                            >
-                                                Add filter
-                                            </Button>
-                                        )}
                                     </div>
                                     {propertyGroupIndex !== filtersWithNew?.groups.length - 1 && (
                                         <Row>{filtersWithNew.type}</Row>
