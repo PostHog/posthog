@@ -2,7 +2,6 @@ from django.db.models import Prefetch, Q
 from rest_framework import serializers, viewsets
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Tag, TaggedItem
 
 
@@ -23,7 +22,8 @@ class TaggedItemSerializerMixin(serializers.Serializer):
     def _attempt_set_tags(self, tags, obj, force_create=False):
 
         if not force_create and not self._is_licensed() and tags is not None:
-            raise EnterpriseFeatureException()
+            # Silently fail on updating tags so that entire request isn't blocked
+            return
 
         if not obj or tags is None:
             # If the object hasn't been created yet, this method will be called again on the create method.

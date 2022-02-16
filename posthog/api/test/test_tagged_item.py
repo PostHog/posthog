@@ -19,7 +19,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(TaggedItem.objects.all().count(), 1)
+        self.assertEqual(Tag.objects.all().count(), 1)
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
@@ -27,7 +27,9 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             {"name": "Default", "pinned": "true", "tags": ["random", "hello"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_update_tags_on_non_ee_not_allowed(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -44,7 +46,9 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -72,5 +76,6 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             {"name": "dashboard new name", "description": "Internal system metrics.", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 1)
