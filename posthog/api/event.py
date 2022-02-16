@@ -137,7 +137,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             long_date_from,
         )
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            filter.property_groups, has_person_id_joined=False
+            team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
         )
 
         if request.GET.get("action_id"):
@@ -147,7 +147,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 return []
             if action.steps.count() == 0:
                 return []
-            action_query, params = format_action_filter(action)
+            action_query, params = format_action_filter(team_id=team.pk, action=action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 

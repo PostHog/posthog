@@ -50,7 +50,9 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         date_from, date_to, date_params = parse_timestamps(filter, team_id=self.team.pk)
 
-        prop_filters, prop_filter_params = parse_prop_grouped_clauses(filter.property_groups)
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups
+        )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
             {"team_id": self.team.pk, **prop_filter_params, **date_params},
