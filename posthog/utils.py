@@ -281,7 +281,7 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    if request and getattr(request, "user", None):
+    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
         team = request.user.team
     else:
         try:
