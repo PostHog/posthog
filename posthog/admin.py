@@ -7,7 +7,6 @@ from posthog.models import (
     Action,
     ActionStep,
     Element,
-    Event,
     FeatureFlag,
     Insight,
     Organization,
@@ -57,20 +56,6 @@ class PluginConfigAdmin(admin.ModelAdmin):
         "team_id",
     )
     ordering = ("-created_at",)
-
-
-@admin.register(Event)
-class EventAdmin(admin.ModelAdmin):
-    readonly_fields = ("timestamp",)
-    list_display = (
-        "timestamp",
-        "event",
-        "id",
-    )
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.order_by("-timestamp")
 
 
 @admin.register(User)
