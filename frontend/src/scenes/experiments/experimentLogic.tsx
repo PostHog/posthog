@@ -284,7 +284,7 @@ export const experimentLogic = kea<experimentLogicType>({
             const newInsight = {
                 name: generateRandomAnimal(),
                 description: '',
-                tags: [],
+                tags: undefined,
                 filters: newInsightFilters,
                 result: null,
             }

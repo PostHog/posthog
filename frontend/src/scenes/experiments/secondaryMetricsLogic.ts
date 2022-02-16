@@ -142,7 +142,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             const newInsight = {
                 name: generateRandomAnimal(),
                 description: '',
-                tags: [],
+                tags: undefined,
                 filters: newInsightFilters,
                 result: null,
             }
