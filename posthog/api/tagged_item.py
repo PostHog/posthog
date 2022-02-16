@@ -20,9 +20,9 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
         )
 
-    def _attempt_set_tags(self, tags, obj):
+    def _attempt_set_tags(self, tags, obj, force_create=False):
 
-        if not self._is_licensed() and tags is not None:
+        if not force_create and not self._is_licensed() and tags is not None:
             raise EnterpriseFeatureException()
 
         if not obj or tags is None:

@@ -77,6 +77,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
+        validated_data.pop("tags", None)  # Tags are created separately below
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -97,15 +98,17 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                         "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
-                    insight_serializer = InsightSerializer(
-                        data={
-                            **InsightSerializer(dashboard_item, context=self.context,).data,
-                            **override_dashboard_item_data,
-                        },
-                        context=self.context,
-                    )
+                    new_data = {
+                        **InsightSerializer(dashboard_item, context=self.context,).data,
+                        **override_dashboard_item_data,
+                    }
+                    new_tags = new_data.pop("tags", None)
+                    insight_serializer = InsightSerializer(data=new_data, context=self.context,)
                     insight_serializer.is_valid()
                     insight_serializer.save()
+
+                    # Create new insight's tags separately. Force create tags on dashboard duplication.
+                    self._attempt_set_tags(new_tags, insight_serializer.instance, True)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
