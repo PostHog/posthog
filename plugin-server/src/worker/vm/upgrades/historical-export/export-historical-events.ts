@@ -15,7 +15,7 @@ import {
     ExportHistoricalEventsUpgrade,
     fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
-} from './utils'
+} from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES

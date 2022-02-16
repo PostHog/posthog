@@ -32,17 +32,6 @@ class Action(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
-    def on_perform(self, event):
-        from posthog.api.event import EventSerializer
-        from posthog.api.person import PersonSerializer
-
-        event.action = self
-        event.serialized_person = PersonSerializer(event.person).data
-        payload = EventSerializer(event).data
-        raw_hook_event.send(
-            sender=None, event_name="action_performed", instance=self, payload=payload, user=event.team,
-        )
-
     def __str__(self):
         return self.name
 

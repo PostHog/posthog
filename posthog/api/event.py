@@ -26,7 +26,7 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Element, ElementGroup, Event, Filter, Person
+from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
@@ -51,50 +51,6 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
-
-
-class EventSerializer(serializers.HyperlinkedModelSerializer):
-    elements = serializers.SerializerMethodField()
-    person = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Event
-        fields = [
-            "id",
-            "distinct_id",
-            "properties",
-            "elements",
-            "event",
-            "timestamp",
-            "person",
-        ]
-
-    def get_person(self, event: Event) -> Any:
-        if hasattr(event, "serialized_person"):
-            return event.serialized_person  # type: ignore
-        return None
-
-    def get_elements(self, event: Event):
-        if not event.elements_hash:
-            return []
-        if hasattr(event, "elements_group_cache"):
-            if event.elements_group_cache:  # type: ignore
-                return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
-                    many=True,
-                ).data
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
-            .element_set.all()
-            .order_by("order")
-        )
-        return ElementSerializer(elements, many=True).data
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        if self.context.get("format") == "csv":
-            representation.pop("elements")
-        return representation
 
 
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
