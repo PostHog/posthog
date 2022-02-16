@@ -10,7 +10,7 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, ChartDisplayType, InsightType } from '~/types'
+import { ActionType, AvailableFeature, ChartDisplayType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from '../teamLogic'
@@ -26,6 +26,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { combineUrl } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -46,13 +47,13 @@ export function ActionsTable(): JSX.Element {
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<ActionType> = [
         {
             title: 'Name',
             dataIndex: 'name',
-            width: '30%',
+            width: '25%',
             sorter: (a: ActionType, b: ActionType) => (a.name || '').localeCompare(b.name || ''),
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
@@ -62,6 +63,19 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags',
+                      width: 250,
+                      key: 'tags',
+                      render: function renderTags(tags: string[]) {
+                          return <ObjectTags tags={tags} staticOnly />
+                      },
+                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+              ]
+            : []),
         {
             title: 'Type',
             key: 'type',

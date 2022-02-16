@@ -87,9 +87,11 @@ class TestFeatureFlagMatcher(BaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_1").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
@@ -136,9 +138,11 @@ class TestFeatureFlagMatcher(BaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_2").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())

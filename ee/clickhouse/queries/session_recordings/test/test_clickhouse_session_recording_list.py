@@ -79,7 +79,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")
@@ -104,7 +104,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_matching_with_no_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")

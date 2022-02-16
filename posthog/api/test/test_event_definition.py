@@ -12,7 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Event, EventDefinition, Organization, Team
+from posthog.models import EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -173,25 +173,17 @@ def capture_event(event: EventData):
     with real world, and could provide the abstraction over if we are using
     clickhouse or postgres as the primary backend
     """
-    # NOTE: I'm switching on PRIMARY_DB here although I would like to move this
-    # behind an app interface rather than have that detail in the tests. It
-    # shouldn't be required to understand the datastore used for us to test.
-    if settings.PRIMARY_DB == "clickhouse":
-        # NOTE: I'm moving this import here as currently in the CI we're
-        # removing the `ee/` directory from the FOSS build
-        from ee.clickhouse.models.event import create_event
+    from ee.clickhouse.models.event import create_event
 
-        team = Team.objects.get(id=event.team_id)
-        create_event(
-            event_uuid=uuid4(),
-            team=team,
-            distinct_id=event.distinct_id,
-            timestamp=event.timestamp,
-            event=event.event,
-            properties=event.properties,
-        )
-    else:
-        Event.objects.create(**dataclasses.asdict(event))
+    team = Team.objects.get(id=event.team_id)
+    create_event(
+        event_uuid=uuid4(),
+        team=team,
+        distinct_id=event.distinct_id,
+        timestamp=event.timestamp,
+        event=event.event,
+        properties=event.properties,
+    )
 
 
 def create_event_definitions(name: str, team_id: int) -> EventDefinition:

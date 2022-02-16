@@ -4,7 +4,8 @@ import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '..
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
+import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
 
@@ -272,6 +273,34 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
+        })
+    })
+
+    describe('addOrUpdatePublicJob', () => {
+        it('updates the column if the job name is new', async () => {
+            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
+
+            const jobName = 'newJob'
+            const jobPayload = { foo: 'string' }
+            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
+            const publicJobs = (
+                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+            ).rows[0].public_jobs
+
+            expect(publicJobs[jobName]).toEqual(jobPayload)
+        })
+
+        it('updates the column if the job payload is new', async () => {
+            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
+
+            const jobName = 'newJob'
+            const jobPayload = { foo: 'string' }
+            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
+            const publicJobs = (
+                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+            ).rows[0].public_jobs
+
+            expect(publicJobs[jobName]).toEqual(jobPayload)
         })
     })
 })

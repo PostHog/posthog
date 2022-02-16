@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { errorToast, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -105,8 +105,6 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: true,
-        saveNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -377,7 +375,13 @@ export const insightLogic = kea<insightLogicType>({
         maybeShowErrorMessage: [
             false,
             {
-                endQuery: (_, { exception }) => exception?.status >= 400,
+                endQuery: (_, { exception }) => {
+                    const isHTTPErrorStatus = exception?.status >= 400
+                    const isBrowserErrorStatus = exception?.status === 0
+                    return isHTTPErrorStatus || isBrowserErrorStatus
+                },
+                loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
+                loadResultsFailure: (_, { errorObject }) => errorObject?.status === 0,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
@@ -616,16 +620,6 @@ export const insightLogic = kea<insightLogicType>({
                 clearTimeout(values.timeout)
             }
         },
-        saveNewTag: async ({ tag }) => {
-            if (values.insight.tags?.includes(tag)) {
-                errorToast(undefined, 'Oops! Your insight already has that tag.')
-                return
-            }
-            actions.setInsightMetadata({ tags: [...(values.insight.tags || []), tag] })
-        },
-        deleteTag: async ({ tag }) => {
-            actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
-        },
         saveInsight: async ({ setViewMode }) => {
             const insightId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
@@ -759,7 +753,16 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     actionToUrl: ({ values }) => {
-        const actionToUrl = (): [string, undefined, undefined, { replace: boolean }] | void => {
+        const actionToUrl = ():
+            | [
+                  string,
+                  undefined,
+                  undefined,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
             if (values.syncWithUrl && values.insight.short_id) {
                 return [
                     values.insightMode === ItemMode.Edit

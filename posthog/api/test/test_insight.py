@@ -12,16 +12,7 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    Event,
-    Filter,
-    Insight,
-    Person,
-    Team,
-    User,
-)
+from posthog.models import Cohort, Dashboard, Filter, Insight, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries

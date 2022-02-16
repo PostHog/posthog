@@ -186,13 +186,17 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             router.actions.push(urls.cohort(cohort.id))
         },
     }),
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values, actions, props }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
-                        url = `api/person/?${toParams(values.listFilters)}`
+                        if (props.cohort) {
+                            url = `api/cohort/${props.cohort}/persons`
+                        } else {
+                            url = `api/person/?${toParams(values.listFilters)}`
+                        }
                     }
                     return await api.get(url)
                 },

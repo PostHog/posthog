@@ -1,8 +1,7 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Card, Button, Popconfirm } from 'antd'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Row, Col, Button, Popconfirm, Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
@@ -10,7 +9,6 @@ import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
@@ -19,7 +17,7 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
@@ -39,25 +37,15 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { insightProps, canEditInsight, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const {
-        setActiveView,
-        setInsightMode,
-        saveInsight,
-        setFilters,
-        setInsightMetadata,
-        saveNewTag,
-        deleteTag,
-        saveAs,
-    } = useActions(logic)
+    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const verticalLayout =
-        activeView === InsightType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] !== 'test' // Whether to display the control tab on the side instead of on top
+    // Whether to display the control tab on the side instead of on top
+    const verticalLayout = activeView === InsightType.FUNNELS
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -185,8 +173,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                             (canEditInsight ? (
                                 <ObjectTags
                                     tags={insight.tags ?? []}
-                                    onTagSave={saveNewTag}
-                                    onTagDelete={deleteTag}
+                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                     saving={tagLoading}
                                     tagsAvailable={[]}
                                     className="insight-metadata-tags"
