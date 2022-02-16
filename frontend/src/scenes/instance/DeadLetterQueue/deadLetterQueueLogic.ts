@@ -26,7 +26,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
         addRowsToMetric: (key: string, rows: SystemStatusSubrows['rows'][]) => ({ key, rows }),
     }),
 
-    reducers: () => ({
+    reducers: {
         activeTab: [
             DeadLetterQueueTab.Metrics,
             {
@@ -34,23 +34,23 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
             },
         ],
         rowsPerMetric: [
-            {} as Record<string, SystemStatusSubrows['rows'][]>,
+            {} as Record<string, string[][][]>,
             {
-                addRowsToMetric: (state, { key, rows }) => {
+                addRowsToMetric: (state: Record<string, string[][][]>, { key, rows }) => {
                     return { ...state, [key]: [...(state[key] || []), ...rows] }
                 },
                 loadDeadLetterQueueMetricsSuccess: (_, { deadLetterQueueMetrics }) => {
                     const rowsPerMetric = {}
                     for (const metric of deadLetterQueueMetrics) {
                         if (metric.subrows) {
-                            rowsPerMetric[metric.key] = metric.subrows.rows
+                            rowsPerMetric[metric.key] = [metric.subrows.rows]
                         }
                     }
                     return rowsPerMetric
                 },
             },
         ],
-    }),
+    },
 
     loaders: () => ({
         deadLetterQueueMetrics: [

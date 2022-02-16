@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, List, Optional, Union
 
@@ -46,15 +47,12 @@ DEAD_LETTER_QUEUE_METRICS = {
 }
 
 
+@dataclass
 class DeadLetterQueueMetric(object):
     key: str = ""
     metric: str = ""
     value: Union[str, bool, int, None] = None
     subrows: Optional[List[Any]] = None
-
-    def __init__(self, **kwargs):
-        for field in ("key", "value", "value", "subrows"):
-            setattr(self, field, kwargs.get(field, None))
 
 
 def get_dlq_metric(key: str, offset: Optional[int] = 0) -> DeadLetterQueueMetric:
