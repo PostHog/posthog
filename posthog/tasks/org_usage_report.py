@@ -14,7 +14,7 @@ from ee.clickhouse.models.event import (
     get_agg_events_with_groups_count_for_teams_and_period,
 )
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, GroupTypeMapping, OrganizationMembership, Team, User
+from posthog.models import GroupTypeMapping, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day
 from posthog.version import VERSION
