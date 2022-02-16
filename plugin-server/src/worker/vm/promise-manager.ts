@@ -10,6 +10,10 @@ export class PromiseManager {
     }
 
     public trackPromise(promise: Promise<any>): void {
+        if (typeof promise === 'undefined') {
+            return
+        }
+
         this.pendingPromises.add(promise)
 
         promise.finally(() => {
