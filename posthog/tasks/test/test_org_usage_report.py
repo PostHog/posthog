@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Union
+from typing import Dict, List, Union
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -13,7 +13,7 @@ from posthog.constants import AnalyticsDBMS
 from posthog.models import Organization, Person, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.org_usage_report import OrgReport, send_all_org_usage_reports
+from posthog.tasks.org_usage_report import OrgReport, send_all_reports
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -51,7 +51,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
 
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     def test_org_usage_report(self) -> None:
-        all_reports = send_all_org_usage_reports(dry_run=True)
+        all_reports = send_all_reports(dry_run=True)
         self.assertEqual(all_reports[0]["posthog_version"], VERSION)
         self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
         self.assertIsNotNone(all_reports[0]["realm"])
@@ -90,7 +90,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
                 _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=default_team)
 
-                all_reports = send_all_org_usage_reports(dry_run=True)
+                all_reports = send_all_reports(dry_run=True)
                 org_report = self.select_report_by_org_id(str(default_team.organization.id), all_reports)
                 _test_org_report(org_report)
 
@@ -114,7 +114,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
 
                 # Check event totals are updated
-                updated_org_reports = send_all_org_usage_reports(dry_run=True)
+                updated_org_reports = send_all_reports(dry_run=True)
                 updated_org_report = self.select_report_by_org_id(
                     str(default_team.organization.id), updated_org_reports
                 )
@@ -141,7 +141,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
 
                 # Verify that internal metrics events are not counted
-                org_reports_after_internal_org = send_all_org_usage_reports(dry_run=True)
+                org_reports_after_internal_org = send_all_reports(dry_run=True)
                 org_report_after_internal_org = self.select_report_by_org_id(
                     str(default_team.organization.id), org_reports_after_internal_org
                 )
@@ -177,7 +177,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 event="event", lib="web", distinct_id="user_7", team=self.team, timestamp="2021-11-10 10:00:00",
             )
 
-            all_reports = send_all_org_usage_reports(dry_run=True)
+            all_reports = send_all_reports(dry_run=True)
             org_report = self.select_report_by_org_id(str(self.organization.id), all_reports)
 
             self.assertEqual(org_report["group_types_total"], 2)
