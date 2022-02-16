@@ -167,6 +167,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
         return parse_prop_grouped_clauses(
+            team_id=self._team_id,
             property_group=prop_group,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
