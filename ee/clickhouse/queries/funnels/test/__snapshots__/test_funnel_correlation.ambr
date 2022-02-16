@@ -40,12 +40,12 @@
                    (SELECT aggregation_target,
                            timestamp,
                            if(((event = 'user signed up'
-                                AND has(['val'], trim(BOTH '"'
-                                                      FROM JSONExtractRaw(properties, 'key'))))) , 1, 0) as step_0,
+                                AND (has(['val'], trim(BOTH '"'
+                                                       FROM JSONExtractRaw(properties, 'key')))))) , 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(((event = 'paid'
-                                AND has(['val'], trim(BOTH '"'
-                                                      FROM JSONExtractRaw(properties, 'key'))))) , 1, 0) as step_1,
+                                AND (has(['val'], trim(BOTH '"'
+                                                       FROM JSONExtractRaw(properties, 'key')))))) , 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
@@ -274,7 +274,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -285,6 +285,7 @@
      AND has(['Positive'], trim(BOTH '"'
                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -362,7 +363,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -373,6 +374,7 @@
      AND has(['Positive'], trim(BOTH '"'
                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -450,7 +452,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -461,6 +463,7 @@
      AND has(['Negative'], trim(BOTH '"'
                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -538,7 +541,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -549,6 +552,7 @@
      AND has(['Negative'], trim(BOTH '"'
                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -723,7 +727,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -733,6 +737,7 @@
      HAVING max(is_deleted) = 0
      AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -810,7 +815,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -820,6 +825,7 @@
      HAVING max(is_deleted) = 0
      AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -897,7 +903,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -907,6 +913,7 @@
      HAVING max(is_deleted) = 0
      AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -984,7 +991,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   JOIN
     (SELECT id
@@ -994,6 +1001,7 @@
      HAVING max(is_deleted) = 0
      AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1379,7 +1387,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1390,6 +1398,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps = target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1470,7 +1479,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1481,6 +1490,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps <> target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1561,7 +1571,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1572,6 +1582,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1652,7 +1663,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1663,6 +1674,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1739,8 +1751,8 @@
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
                          AND timestamp <= '2020-01-14 23:59:59'
-                         AND has(['finance'], trim(BOTH '"'
-                                                   FROM JSONExtractRaw(group_properties_0, 'industry'))) ) events
+                         AND (has(['finance'], trim(BOTH '"'
+                                                    FROM JSONExtractRaw(group_properties_0, 'industry')))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1844,8 +1856,8 @@
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
                          AND timestamp <= '2020-01-14 23:59:59'
-                         AND has(['finance'], trim(BOTH '"'
-                                                   FROM JSONExtractRaw(group_properties_0, 'industry'))) ) events
+                         AND (has(['finance'], trim(BOTH '"'
+                                                    FROM JSONExtractRaw(group_properties_0, 'industry')))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1858,7 +1870,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1869,6 +1881,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1945,8 +1958,8 @@
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
                          AND timestamp <= '2020-01-14 23:59:59'
-                         AND has(['finance'], trim(BOTH '"'
-                                                   FROM JSONExtractRaw(group_properties_0, 'industry'))) ) events
+                         AND (has(['finance'], trim(BOTH '"'
+                                                    FROM JSONExtractRaw(group_properties_0, 'industry')))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1959,7 +1972,7 @@
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
-  SELECT DISTINCT actors.actor_id AS actor_id
+  SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE event.timestamp >= date_from
@@ -1970,6 +1983,7 @@
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
+  GROUP BY actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2144,7 +2158,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2156,6 +2170,7 @@
   WHERE funnel_actors.steps = target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2233,7 +2248,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2245,6 +2260,7 @@
   WHERE funnel_actors.steps <> target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2322,7 +2338,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2334,6 +2350,7 @@
   WHERE funnel_actors.steps = target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2411,7 +2428,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2423,6 +2440,7 @@
   WHERE funnel_actors.steps <> target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2696,7 +2714,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2708,6 +2726,7 @@
   WHERE funnel_actors.steps = target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2785,7 +2804,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2797,6 +2816,7 @@
   WHERE funnel_actors.steps <> target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2874,7 +2894,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2886,6 +2906,7 @@
   WHERE funnel_actors.steps = target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
@@ -2963,7 +2984,7 @@
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_actors.actor_id AS actor_id
+  SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
@@ -2975,6 +2996,7 @@
   WHERE funnel_actors.steps <> target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+  GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0

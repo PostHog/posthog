@@ -340,7 +340,7 @@ export function LEGACY_LineGraph({
 
                     const altTitle =
                         tooltipModel.title && (dataset.compare || tooltipPreferAltTitle) ? tooltipModel.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                    const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
+                    const referenceDate = !dataset.compare ? dataset.days?.[referenceDataPoint.index] : undefined
                     const seriesData = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({

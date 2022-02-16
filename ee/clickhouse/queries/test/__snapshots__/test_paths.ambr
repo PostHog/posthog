@@ -172,8 +172,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -362,8 +362,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -550,8 +550,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -738,8 +738,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -926,8 +926,8 @@
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1020,8 +1020,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['finance'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['finance'], trim(BOTH '"'
+                                              FROM JSONExtractRaw(group_properties_0, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1115,8 +1115,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_0, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_0, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1210,8 +1210,8 @@
                         OR NOT event LIKE '$%')
                    AND timestamp >= '2012-01-01 00:00:00'
                    AND timestamp <= '2012-02-01 23:59:59'
-                   AND has(['technology'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(group_properties_1, 'industry')))
+                   AND (has(['technology'], trim(BOTH '"'
+                                                 FROM JSONExtractRaw(group_properties_1, 'industry'))))
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1232,8 +1232,8 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
@@ -1307,10 +1307,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1359,8 +1357,8 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
@@ -1434,10 +1432,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1486,8 +1482,8 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
@@ -1561,10 +1557,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1612,8 +1606,8 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
@@ -1694,10 +1688,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'

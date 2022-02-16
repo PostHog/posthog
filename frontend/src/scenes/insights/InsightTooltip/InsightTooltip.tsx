@@ -50,6 +50,7 @@ export function InsightTooltip({
     ),
     renderCount = (value: React.ReactNode) => <>{value}</>,
     hideColorCol = false,
+    hideInspectActorsSection = false,
     forceEntitiesAsColumns = false,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
@@ -131,7 +132,9 @@ export function InsightTooltip({
                         uppercaseHeader={false}
                         showHeader={showHeader}
                     />
-                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                    {!hideInspectActorsSection && (
+                        <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                    )}
                 </>
             )
         }
@@ -197,7 +200,9 @@ export function InsightTooltip({
                     uppercaseHeader={false}
                     showHeader={showHeader}
                 />
-                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                {!hideInspectActorsSection && (
+                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                )}
             </>
         )
     }

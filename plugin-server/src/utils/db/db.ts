@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import {
     KAFKA_GROUPS,
@@ -36,6 +36,7 @@ import {
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
+    OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
     PluginConfig,
@@ -46,7 +47,6 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    PropertyUpdateOperation,
     RawAction,
     RawGroup,
     RawOrganization,
@@ -67,7 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
+import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -76,6 +76,7 @@ import {
     generatePostgresValuesString,
     getFinalPostgresQuery,
     hashElements,
+    shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
@@ -113,6 +114,7 @@ export interface CreateUserPayload {
     date_joined: Date
     events_column_config: Record<string, string> | null
     organization_id?: RawOrganization['id']
+    organizationMembershipLevel?: number
 }
 
 export interface CreatePersonalApiKeyPayload {
@@ -1085,6 +1087,12 @@ export class DB {
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
 
+        const logLevel = pluginConfig.plugin?.log_level
+
+        if (!shouldStoreLog(logLevel || 0, source, type)) {
+            return
+        }
+
         const parsedEntry = {
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
@@ -1327,10 +1335,11 @@ export class DB {
         date_joined,
         events_column_config,
         organization_id,
+        organizationMembershipLevel = OrganizationMembershipLevel.Member,
     }: CreateUserPayload): Promise<QueryResult> {
         const createUserResult = await this.postgresQuery(
-            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id`,
             [
                 uuid.toString(),
@@ -1343,6 +1352,7 @@ export class DB {
                 is_active,
                 date_joined.toISOString(),
                 events_column_config,
+                organization_id,
             ],
             'createUser'
         )
@@ -1352,7 +1362,14 @@ export class DB {
             await this.postgresQuery(
                 `INSERT INTO posthog_organizationmembership (id, organization_id, user_id, level, joined_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [new UUIDT().toString(), organization_id, createUserResult.rows[0].id, 1, now, now],
+                [
+                    new UUIDT().toString(),
+                    organization_id,
+                    createUserResult.rows[0].id,
+                    organizationMembershipLevel,
+                    now,
+                    now,
+                ],
                 'createOrganizationMembership'
             )
         }

@@ -49,7 +49,6 @@ class Insight(models.Model):
     short_id: models.CharField = models.CharField(
         max_length=12, blank=True, default=generate_short_id,
     )
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
@@ -58,13 +57,12 @@ class Insight(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
     )
 
-    # ----- DEPRECATED ATTRIBUTES BELOW
-
-    # Deprecated in favour of `display` within the Filter object
+    # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    # DEPRECATED: use `display` property of the Filter object instead
     type: models.CharField = deprecate_field(models.CharField(max_length=400, null=True, blank=True))
-
-    # Deprecated as we don't store funnels as a separate model any more
-    funnel: models.ForeignKey = deprecate_field(models.IntegerField(null=True, blank=True))
+    # DEPRECATED: we don't store funnels as a separate model any more
+    funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}

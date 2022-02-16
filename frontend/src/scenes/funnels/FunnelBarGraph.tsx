@@ -308,12 +308,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
     return (
         <div
             data-attr="funnel-bar-graph"
-            className={clsx(
-                'funnel-bar-graph',
-                FunnelLayout.horizontal,
-                color && color !== 'white' && 'colored',
-                color
-            )}
+            className={clsx('funnel-bar-graph', color && color !== 'white' && 'colored', color)}
             style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
         >
             {steps.map((step, stepIndex) => {
