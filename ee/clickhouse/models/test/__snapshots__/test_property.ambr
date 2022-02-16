@@ -3,10 +3,12 @@
   SELECT uuid
   FROM events
   WHERE team_id = 2
-    AND ((has(['val_1'], mat_attr)
+    AND ((has(['val_1'], trim(BOTH '"'
+                              FROM JSONExtractRaw(properties, 'attr_1')))
           AND has(['val_2'], trim(BOTH '"'
                                   FROM JSONExtractRaw(properties, 'attr_2'))))
-         OR (has(['val_2'], mat_attr)))
+         OR (has(['val_2'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(properties, 'attr_1')))))
   '
 ---
 # name: TestPropFormat.test_parse_groups_persons

@@ -36,7 +36,7 @@
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-08 00:00:00'))
        AND timestamp <= '2020-01-12 23:59:59'
        AND (has([''], trim(BOTH '"'
-                           FROM JSONExtractRaw(properties, 'key')))) )
+                           FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

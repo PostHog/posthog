@@ -162,6 +162,3 @@ class PropertyGroup:
     def __repr__(self):
         params_repr = ", ".join(f"{repr(prop)}" for prop in self.groups)
         return f"PropertyGroup(type={self.type}-{params_repr})"
-
-
-AnyProperty = Union[Property, PropertyGroup]

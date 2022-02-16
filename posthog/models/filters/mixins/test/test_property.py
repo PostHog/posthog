@@ -10,7 +10,7 @@ from posthog.models.property import Property, PropertyGroup
 def test_property_group_multi_level_parsing():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [
                     {
@@ -43,7 +43,7 @@ def test_property_group_multi_level_parsing():
 def test_property_group_simple_parsing():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
@@ -60,7 +60,7 @@ def test_property_group_simple_parsing():
 
 
 def test_property_group_empty_parsing():
-    filter = Filter(data={"property_groups": {}})
+    filter = Filter(data={"properties": {}})
 
     assert filter.property_groups.type == "AND"
     assert filter.property_groups.groups == []
@@ -70,7 +70,7 @@ def test_property_group_invalid_parsing():
 
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [
                     {"key": "attr", "value": "val_1"},
@@ -88,7 +88,7 @@ def test_property_group_invalid_parsing():
 def test_property_multi_level_to_dict():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [
                     {
@@ -119,7 +119,7 @@ def test_property_multi_level_to_dict():
 def test_property_group_simple_to_dict():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
@@ -138,7 +138,7 @@ def test_property_group_simple_to_dict():
 def test_property_group_simple_json_parsing():
     filter = Filter(
         data={
-            "property_groups": json.dumps(
+            "properties": json.dumps(
                 {"type": "AND", "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],}
             )
         }
@@ -157,7 +157,7 @@ def test_property_group_simple_json_parsing():
 def test_property_group_multi_level_json_parsing():
     filter = Filter(
         data={
-            "property_groups": json.dumps(
+            "properties": json.dumps(
                 {
                     "type": "AND",
                     "groups": [
