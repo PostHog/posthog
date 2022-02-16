@@ -58,7 +58,7 @@ def check_async_migration_health() -> None:
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
-        if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
+        if getattr(config, "ASYNC_MIGRATIONS_AUTO_CONTINUE"):
             trigger_migration(migration_instance, fresh_start=False)
         else:
             process_error(migration_instance, "Celery worker crashed while running migration.")

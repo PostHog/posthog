@@ -43,7 +43,7 @@ class TestAsyncMigrations(BaseTest):
         return super().setUp()
 
     @pytest.mark.ee
-    @override_config(AUTO_START_ASYNC_MIGRATIONS=True)
+    @override_config(ASYNC_MIGRATIONS_AUTO_CONTINUE=True)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
@@ -74,7 +74,7 @@ class TestAsyncMigrations(BaseTest):
         self.assertEqual(sm.progress, 100)
 
     @pytest.mark.ee
-    @override_config(AUTO_START_ASYNC_MIGRATIONS=False)
+    @override_config(ASYNC_MIGRATIONS_AUTO_CONTINUE=False)
     @override_config(ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK=False)
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)

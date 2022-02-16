@@ -36,6 +36,11 @@ CONSTANCE_CONFIG = {
         "Used to disable automatic rollback of failed async migrations.",
         bool,
     ),
+    "ASYNC_MIGRATIONS_AUTO_CONTINUE": (
+        get_from_env("ASYNC_MIGRATIONS_AUTO_CONTINUE", True, type_cast=str_to_bool),
+        "Whether to resume the migration, when celery worker crashed.",
+        bool,
+    ),
     "EMAIL_ENABLED": (
         get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
         "Whether email service is enabled or not.",
@@ -93,6 +98,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "AUTO_START_ASYNC_MIGRATIONS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+    "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
