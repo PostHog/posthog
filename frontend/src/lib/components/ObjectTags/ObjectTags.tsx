@@ -89,6 +89,7 @@ export function ObjectTags({
                                           <SyncOutlined spin />
                                       ) : (
                                           <CloseOutlined
+                                              className="click-outside-block"
                                               style={{ cursor: 'pointer' }}
                                               onClick={() => handleDelete(tag)}
                                           />

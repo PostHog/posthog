@@ -7,7 +7,7 @@ from django.db.models import Q
 
 
 def tagify(tag: str):
-    return re.sub(r"[\s|-]+", "-", tag).strip("-")
+    return tag.strip().lower()
 
 
 def forwards(apps, schema_editor):
@@ -56,7 +56,7 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("ee", "0008_deprecated_old_tags"), ("posthog", "0209_deprecated_old_tags")]
+    dependencies = [("ee", "0009_null_definition_descriptions"), ("posthog", "0209_deprecated_old_tags")]
 
     operations = [
         migrations.RunPython(forwards, reverse),

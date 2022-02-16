@@ -6,7 +6,7 @@ from django.db.models import Q
 
 
 def tagify(tag: str):
-    return re.sub(r"[\s|-]+", "-", tag).strip("-")
+    return tag.strip().lower()
 
 
 def forwards(apps, schema_editor):

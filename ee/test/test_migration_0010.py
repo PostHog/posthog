@@ -6,8 +6,8 @@ from posthog.test.base import TestMigrations
 @pytest.mark.ee
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0008_deprecated_old_tags"  # type: ignore
-    migrate_to = "0009_migrate_definitions_tags"  # type: ignore
+    migrate_from = "0009_null_definition_descriptions"  # type: ignore
+    migrate_to = "0010_migrate_definitions_tags"  # type: ignore
 
     @property
     def app(self):
