@@ -1,9 +1,9 @@
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
-import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
+import { TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
+import { createReadyPluginConfigVm } from './vm.test'
 
 const defaultEvent = {
     distinct_id: 'my_id',
@@ -38,7 +38,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         try {
@@ -60,7 +60,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -79,7 +79,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -98,7 +98,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -118,7 +118,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -137,7 +137,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -156,7 +156,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -176,7 +176,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -195,7 +195,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
@@ -222,7 +222,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         let caller = undefined
@@ -258,7 +258,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         try {
@@ -280,7 +280,7 @@ describe('vm timeout tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })

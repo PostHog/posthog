@@ -28,7 +28,7 @@ const defaultEvent = {
 
 // since we introduced super lazy vms, setupPlugin does not run immediately with
 // createPluginConfigVM - this function sets up the VM and runs setupPlugin immediately after
-const createReadyPluginConfigVm = async (
+export const createReadyPluginConfigVm = async (
     hub: Hub,
     pluginConfig: PluginConfig,
     indexJs: string
