@@ -11,7 +11,9 @@ export const urls = {
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',
     eventStats: () => '/events/stats',
+    eventStat: (id: string | number) => `/events/stats/${id}`,
     eventPropertyStats: () => '/events/properties',
+    eventPropertyStat: (id: string | number) => `/events/properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,

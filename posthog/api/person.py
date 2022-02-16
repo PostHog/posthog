@@ -25,6 +25,7 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.cohort import get_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -492,9 +493,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def cohorts(self, request: request.Request) -> response.Response:
         from posthog.api.cohort import CohortSerializer
 
-        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
 
-        cohorts = Cohort.objects.filter(people__id=person.id, deleted=False)
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohort_ids = get_cohort_ids_by_person_uuid(person.uuid, team.pk)
+
+        cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 

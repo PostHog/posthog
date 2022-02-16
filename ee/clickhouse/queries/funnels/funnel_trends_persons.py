@@ -40,6 +40,7 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
             FUNNEL_PERSONS_BY_STEP_SQL.format(
                 steps_per_person_query=step_counts_query,
                 persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
+                matching_events_select_statement=self._get_funnel_person_step_events(),
                 extra_fields="",
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",

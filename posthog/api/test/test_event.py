@@ -310,7 +310,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="sign up")
-        action.calculate_events()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
@@ -464,7 +463,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
-        action.calculate_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.pk)
         self.assertEqual(response.status_code, 200)

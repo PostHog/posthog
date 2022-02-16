@@ -238,6 +238,7 @@ export interface Plugin {
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
     public_jobs?: Record<string, PluginPublicJobPayload>
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -301,6 +302,13 @@ export enum PluginLogEntryType {
     Info = 'INFO',
     Warn = 'WARN',
     Error = 'ERROR',
+}
+
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
 }
 
 export interface PluginLogEntry {
