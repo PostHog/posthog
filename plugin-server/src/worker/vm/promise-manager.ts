@@ -19,7 +19,7 @@ export class PromiseManager {
 
     public async awaitPromisesIfNeeded() {
         while (this.pendingPromises.size > this.config.MAX_PENDING_PROMISES_PER_WORKER) {
-            await Promise.any(this.pendingPromises)
+            await Promise.race(this.pendingPromises)
         }
     }
 }
