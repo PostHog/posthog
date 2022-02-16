@@ -335,4 +335,4 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(Action.objects.all().count(), 1)
+        self.assertEqual(Tag.objects.all().count(), 1)

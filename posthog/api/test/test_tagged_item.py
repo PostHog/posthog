@@ -72,5 +72,5 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
             {"name": "dashboard new name", "description": "Internal system metrics.", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(TaggedItem.objects.all().count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(Tag.objects.all().count(), 1)
