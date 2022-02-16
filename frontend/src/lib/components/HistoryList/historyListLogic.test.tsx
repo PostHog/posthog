@@ -30,7 +30,7 @@ const aHumanizedPageOfHistory: HumanizedHistoryListItem[] = [
         name: 'guido',
         description: (
             <>
-                changed the filters to <pre>{JSON.stringify({ filter: 'info' })}</pre>
+                changed the filters to <code>{JSON.stringify({ filter: 'info' })}</code>
             </>
         ),
         created_at: dayjs('2022-02-08T16:28:39.594Z'),
