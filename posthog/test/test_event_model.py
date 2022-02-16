@@ -456,67 +456,6 @@ class TestActions(BaseTest):
         )
         return event
 
-    def test_simple_element_filters(self):
-        action_sign_up = Action.objects.create(team=self.team, name="signed up")
-        ActionStep.objects.create(
-            action=action_sign_up, tag_name="button", text="Sign up!", event="$autocapture",
-        )
-        # 2 steps that match same element might trip stuff up
-        ActionStep.objects.create(
-            action=action_sign_up, tag_name="button", text="Sign up!", event="$autocapture",
-        )
-        action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(
-            action=action_credit_card, tag_name="button", text="Pay $10", event="$autocapture",
-        )
-
-        # events
-        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
-        event_sign_up_1 = self._signup_event("stopped_after_signup")
-        self.assertEqual(event_sign_up_1.actions, [action_sign_up])
-
-    def test_selector(self):
-        action_watch_movie = Action.objects.create(team=self.team, name="watch movie")
-        ActionStep.objects.create(
-            action=action_watch_movie, text="Watch now", selector="div > a.watch_movie", event="$autocapture",
-        )
-        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
-        event = self._movie_event("watched_movie")
-        self.assertEqual(event.actions, [action_watch_movie])
-
-    def test_attributes(self):
-        action = Action.objects.create(team=self.team, name="watch movie")
-        ActionStep.objects.create(action=action, selector="a[data-id='whatever']")
-        action2 = Action.objects.create(team=self.team, name="watch movie2")
-        ActionStep.objects.create(action=action2, selector="a[somethingelse='whatever']")
-        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
-        event = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[Element(tag_name="a", attributes={"attr__data-id": "whatever"})],
-        )
-        self.assertEqual(event.actions, [action])
-
-    def test_event_filter(self):
-        action_user_paid = Action.objects.create(team=self.team, name="user paid")
-        ActionStep.objects.create(action=action_user_paid, event="user paid")
-        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
-        event = Event.objects.create(event="user paid", distinct_id="user_paid", team=self.team)
-        self.assertEqual(event.actions, [action_user_paid])
-
-    def test_element_class_set_to_none(self):
-        action_user_paid = Action.objects.create(team=self.team, name="user paid")
-        ActionStep.objects.create(action=action_user_paid, selector="a.something")
-        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
-        event = Event.objects.create(
-            event="$autocapture",
-            distinct_id="user_paid",
-            team=self.team,
-            elements=[Element(tag_name="a", attr_class=None)],
-        )
-        # This would error when attr_class wasn't set.
-        self.assertEqual(event.actions, [])
-
 
 class TestSelectors(BaseTest):
     def test_selector_splitting(self):
