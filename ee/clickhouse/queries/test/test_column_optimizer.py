@@ -17,7 +17,7 @@ PROPERTIES_OF_ALL_TYPES = [
 
 BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
 FILTER_WITH_PROPERTIES = BASE_FILTER.with_data({"properties": PROPERTIES_OF_ALL_TYPES})
-FILTER_WITH_GROUPS = BASE_FILTER.with_data({"property_groups": {"type": "AND", "groups": PROPERTIES_OF_ALL_TYPES}})
+FILTER_WITH_GROUPS = BASE_FILTER.with_data({"properties": {"type": "AND", "groups": PROPERTIES_OF_ALL_TYPES}})
 
 
 class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):

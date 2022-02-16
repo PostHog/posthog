@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from freezegun.api import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -373,7 +374,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(
             data={
-                "property_groups": {
+                "properties": {
                     "type": "OR",
                     "groups": [
                         {
@@ -387,6 +388,25 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual(len(self._run_query(filter)), 2)
+
+    def test_parse_groups_invalid_type(self):
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "groups": [
+                        {
+                            "type": "AND",
+                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                        },
+                        {"type": "XOR", "groups": [{"key": "attr", "value": "val_2"}],},
+                    ],
+                }
+            }
+        )
+        with self.assertRaises(ValidationError):
+            self._run_query(filter)
 
     @snapshot_clickhouse_queries
     def test_parse_groups_persons(self):
@@ -411,7 +431,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(
             data={
-                "property_groups": {
+                "properties": {
                     "type": "OR",
                     "groups": [
                         {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
@@ -560,11 +580,10 @@ def test_parse_prop_clauses_defaults(snapshot):
     )
 
 
+@pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
-        data={
-            "property_groups": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}
-        }
+        data={"properties": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}}
     )
     assert (
         parse_prop_grouped_clauses(

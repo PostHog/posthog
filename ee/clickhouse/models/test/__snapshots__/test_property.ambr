@@ -3,12 +3,10 @@
   SELECT uuid
   FROM events
   WHERE team_id = 2
-    AND ((has(['val_1'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'attr')))
+    AND ((has(['val_1'], mat_attr)
           AND has(['val_2'], trim(BOTH '"'
                                   FROM JSONExtractRaw(properties, 'attr_2'))))
-         OR (has(['val_2'], trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'attr')))))
+         OR (has(['val_2'], mat_attr)))
   '
 ---
 # name: TestPropFormat.test_parse_groups_persons
@@ -76,7 +74,7 @@
 ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   <class 'tuple'> (
-    'AND (  has(%(vglobalperson_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_0)s))))',
+    'AND (  has(%(vglobalperson_0)s, pmat_email))',
     <class 'dict'> {
       'kglobalperson_0': 'email',
       'vglobalperson_0': <class 'list'> [

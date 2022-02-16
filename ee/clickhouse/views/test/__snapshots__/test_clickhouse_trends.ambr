@@ -404,7 +404,7 @@
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
        AND (has(['val'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'key')))) )
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -522,7 +522,7 @@
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
        AND (has(['val'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'key')))) )
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
