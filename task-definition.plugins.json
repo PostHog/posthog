@@ -161,6 +161,13 @@
             ],
             "linuxParameters": {
                 "initProcessEnabled": true
+            },
+            "healthCheck": {
+                "retries": 15,
+                "command": ["CMD-SHELL", "curl -f http://localhost:8000/_health || exit 1"],
+                "timeout": 10,
+                "interval": 45,
+                "startPeriod": null
             }
         }
     ],

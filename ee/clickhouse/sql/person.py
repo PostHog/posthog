@@ -319,16 +319,6 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 )
 """
 
-PEOPLE_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
-    {latest_person_sql}
-) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100 OFFSET %(offset)s
-"""
-
 INSERT_COHORT_ALL_PEOPLE_SQL = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (

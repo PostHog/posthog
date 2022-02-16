@@ -44,7 +44,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, **kwargs) -> List:
-        query, params = parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=True, **kwargs)
+        query, params = parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -429,7 +431,10 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
         query, params = parse_prop_grouped_clauses(
-            filter.property_groups, allow_denormalized_props=True, person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            allow_denormalized_props=True,
+            person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         joins = ""
         if join_person_tables:
@@ -543,18 +548,25 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=False) == snapshot
+    assert (
+        parse_prop_grouped_clauses(property_group=filter.property_groups, allow_denormalized_props=False, team_id=1)
+        == snapshot
+    )
     assert (
         parse_prop_grouped_clauses(
-            filter.property_groups,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
+            team_id=1,
         )
         == snapshot
     )
     assert (
         parse_prop_grouped_clauses(
-            filter.property_groups, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
+            team_id=1,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            allow_denormalized_props=False,
         )
         == snapshot
     )
@@ -568,7 +580,8 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     )
     assert (
         parse_prop_grouped_clauses(
-            filter.property_groups,
+            team_id=1,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=True,
         )

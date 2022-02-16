@@ -98,7 +98,7 @@ class LifecycleEventQuery(ClickhouseEventQuery):
         self.params.update(groups_params)
 
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._filter.entities[0], self._team_id, table_name=self.EVENT_TABLE_ALIAS
+            entity=self._filter.entities[0], team_id=self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
         self.params.update(entity_params)
 
