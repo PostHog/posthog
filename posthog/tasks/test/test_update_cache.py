@@ -254,7 +254,6 @@ class TestUpdateCache(APIBaseTest):
 
         Insight.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
         Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 

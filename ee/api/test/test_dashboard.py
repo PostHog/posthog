@@ -56,7 +56,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
@@ -77,7 +76,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
@@ -99,7 +97,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=creator)
 
         response = self.client.patch(
@@ -112,18 +109,17 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertDictContainsSubset(
-            {
-                "detail": "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
-            },
+        self.assertEquals(
             response_data,
+            self.permission_denied_response(
+                "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
+            ),
         )
 
     def test_can_set_dashboard_to_restrict_editing_as_other_user_who_is_project_admin(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=creator)
 
         response = self.client.patch(
@@ -144,7 +140,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_can_edit_restricted_dashboard_as_creator_who_is_project_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Edit-restricted dashboard",
@@ -164,7 +159,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Edit-restricted dashboard",
@@ -178,18 +172,33 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertDictContainsSubset(
-            {
-                "detail": "This dashboard can only be edited by its owner, team members invited to editing this dashboard, and project admins."
-            },
-            response_data,
+        self.assertEquals(
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
+        )
+
+    def test_cannot_delete_restricted_dashboard_as_other_user_who_is_project_member(self):
+        creator = User.objects.create_and_join(self.organization, "y@x.com", None)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Edit-restricted dashboard",
+            created_by=creator,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEquals(
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
 
     def test_can_edit_restricted_dashboard_as_other_user_who_is_project_admin(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Edit-restricted dashboard",

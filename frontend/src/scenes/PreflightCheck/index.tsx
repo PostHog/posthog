@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './logic'
 import { Row, Col, Card, Button, Steps } from 'antd'
-import suprisedHog from 'public/surprised-hog.png'
+import surprisedHog from 'public/surprised-hog.png'
 import posthogLogo from 'public/posthog-logo.png'
 import {
     CheckSquareFilled,
@@ -186,7 +186,7 @@ export function PreflightCheck(): JSX.Element {
             </Row>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={suprisedHog} style={{ maxHeight: '100%', width: 320 }} />
+                    <img src={surprisedHog} style={{ maxHeight: '100%', width: 320, padding: '20px 30px' }} />
                     <p>Any questions?</p>
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">

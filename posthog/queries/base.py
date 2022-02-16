@@ -9,6 +9,7 @@ from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
@@ -177,9 +178,12 @@ def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: b
         for item in cohort_properties:
             if item.key == "id":
                 cohort_id = int(cast(Union[str, int], item.value))
+                cohort = Cohort.objects.get(pk=cohort_id)
                 filters &= Q(
                     Exists(
-                        CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
+                        CohortPeople.objects.filter(
+                            cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
+                        ).only("id")
                     )
                 )
 

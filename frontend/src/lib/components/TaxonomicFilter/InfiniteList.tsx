@@ -177,8 +177,11 @@ const renderItemPopupWithoutTaxonomy = (
                 <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
-                    <PropertyKeyDescription data={data} value={value.toString()} />
-
+                    <PropertyKeyDescription
+                        data={data}
+                        value={value.toString()}
+                        propertyType={(item as PropertyDefinition)?.property_type}
+                    />
                     {'volume_30_day' in item && (item.volume_30_day || 0) > 0 ? (
                         <p>
                             Seen <strong>{item.volume_30_day}</strong> times.{' '}

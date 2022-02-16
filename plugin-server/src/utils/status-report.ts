@@ -71,10 +71,6 @@ class StatusReport {
         if (this.statusReportJobConfigured) {
             return
         }
-        this.statusReportJob = schedule.scheduleJob('0 * * * *', () => {
-            this.captureStatusReport()
-        })
-        this.statusReportJobConfigured = true
     }
 
     public stopStatusReportSchedule(): void {

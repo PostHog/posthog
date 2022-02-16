@@ -5,10 +5,11 @@ import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.db.models import F
+from django.db.models import Case, F, When
 from django.utils import timezone
 
 from posthog.models import Cohort
+from posthog.models.cohort import get_and_update_pending_version
 
 logger = structlog.get_logger(__name__)
 
@@ -28,22 +29,20 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        calculate_cohort_ch.delay(cohort.id)
+
+        cohort = Cohort.objects.filter(pk=cohort.pk).get()
+        update_cohort(cohort)
 
 
-@shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort(cohort_id: int) -> None:
-    start_time = time.time()
-    cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people()
-
-    logger.info("Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+def update_cohort(cohort: Cohort) -> None:
+    pending_version = get_and_update_pending_version(cohort)
+    calculate_cohort_ch.delay(cohort.id, pending_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)
-def calculate_cohort_ch(cohort_id: int) -> None:
+def calculate_cohort_ch(cohort_id: int, pending_version: int) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people_ch()
+    cohort.calculate_people_ch(pending_version)
 
 
 @shared_task(ignore_result=True, max_retries=1)
