@@ -1,10 +1,13 @@
 import base64
 import json
+from datetime import datetime
 from typing import Dict, cast
 from unittest import mock
 from unittest.mock import patch
 
+import pytz
 from django.core.files.uploadedfile import SimpleUploadedFile
+from freezegun import freeze_time
 from semantic_version import Version
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig
@@ -204,9 +207,17 @@ class TestPluginAPI(APIBaseTest):
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 201)
 
-        api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
-        response = self.client.post(api_url, {"url": repo_url})
-        self.assertEqual(response.status_code, 200)
+        plugin = Plugin.objects.get(id=response.json()["id"])
+
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        self.assertNotEqual(plugin.updated_at, fake_date)
+
+        with freeze_time(fake_date.isoformat()):
+            api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
+            response = self.client.post(api_url, {"url": repo_url})
+            self.assertEqual(response.status_code, 200)
+            plugin.refresh_from_db()
+            self.assertEqual(plugin.updated_at, fake_date)
 
         for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
             self.organization.plugins_access_level = level
@@ -514,11 +525,18 @@ class TestPluginAPI(APIBaseTest):
         other_org = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
-        response = self.client.post(
-            f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Plugin.objects.count(), 1)
+
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        with freeze_time(fake_date.isoformat()):
+            response = self.client.post(
+                f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Plugin.objects.count(), 1)
+
+            plugin = Plugin.objects.all()[0]
+            self.assertEqual(plugin.updated_at, fake_date)
+
         response = self.client.post(
             f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
@@ -894,6 +912,27 @@ class TestPluginAPI(APIBaseTest):
                 )
             ]
         )
+
+    def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        self.assertEqual(mock_reload.call_count, 1)
+
+        plugin_id = response.json()["id"]
+        plugin = Plugin.objects.get(id=plugin_id)
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        self.assertNotEqual(plugin.latest_tag_checked_at, fake_date)
+
+        with freeze_time(fake_date.isoformat()):
+            response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/check_for_updates")
+            plugin.refresh_from_db()
+
+            # make sure the update did happen
+            self.assertEqual(plugin.latest_tag_checked_at, fake_date)
+
+            # make sure we didn't emit a signal to reload plugins again
+            self.assertEqual(mock_reload.call_count, 1)
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

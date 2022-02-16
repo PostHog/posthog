@@ -92,6 +92,7 @@ class ClickhouseFunnelExperimentResult:
             "filters": self.funnel._filter.to_dict(),
             "significance_code": significance_code,
             "expected_loss": loss,
+            "variants": [dataclasses.asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, funnel_results):

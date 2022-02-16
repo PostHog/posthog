@@ -22,7 +22,6 @@ class TestPerson(BaseTest):
         Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="user signed up")
-        action.calculate_events()
 
         person2 = Person.objects.create(
             distinct_ids=["person_2"], team=self.team, properties={"$os": "Apple", "$browser": "MS Edge"},

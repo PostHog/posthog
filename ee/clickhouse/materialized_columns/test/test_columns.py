@@ -18,7 +18,10 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
-GROUPS_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
+EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
+    "$session_id",
+    "$window_id",
+]
 
 
 def _create_event(**kwargs):
@@ -30,7 +33,7 @@ def _create_event(**kwargs):
 
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     def test_get_columns_default(self):
-        self.assertCountEqual(get_materialized_columns("events"), GROUPS_COLUMNS)
+        self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
         self.assertCountEqual(get_materialized_columns("person"), [])
         self.assertEqual(
             get_materialized_columns("session_recording_events"), {"has_full_snapshot": "has_full_snapshot"}
@@ -43,19 +46,22 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
             materialize("person", "$zeta")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", *GROUPS_COLUMNS]
+                get_materialized_columns("events", use_cache=True).keys(),
+                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
             self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), ["$zeta"])
 
             materialize("events", "abc")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", *GROUPS_COLUMNS]
+                get_materialized_columns("events", use_cache=True).keys(),
+                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(), ["$foo", "$bar", "abc", *GROUPS_COLUMNS]
+                get_materialized_columns("events", use_cache=True).keys(),
+                ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
     def test_materialized_column_naming(self):

@@ -1,5 +1,7 @@
 import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { genericOperatorMap } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function eventToHumanName(event?: string): string {
     return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event ?? 'Event'
@@ -33,4 +35,35 @@ export function propertyValueToHumanName(value?: PropertyFilterValue): string {
         return String(value)
     }
     return ''
+}
+
+export function formatTimeFromNow(day?: string): string {
+    return day ? dayjs.utc(day).fromNow() : '-'
+}
+
+export function getSingularType(type: TaxonomicFilterGroupType): string {
+    switch (type) {
+        case TaxonomicFilterGroupType.Actions:
+            return 'action'
+        case TaxonomicFilterGroupType.Cohorts:
+        case TaxonomicFilterGroupType.CohortsWithAllUsers:
+            return 'cohort'
+        case TaxonomicFilterGroupType.Elements:
+            return 'element'
+        case TaxonomicFilterGroupType.Events:
+        case TaxonomicFilterGroupType.CustomEvents:
+            return 'event'
+        case TaxonomicFilterGroupType.EventProperties:
+        case TaxonomicFilterGroupType.PersonProperties:
+        case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
+            return 'property'
+        case TaxonomicFilterGroupType.PageviewUrls:
+            return 'pageview url'
+        case TaxonomicFilterGroupType.Screens:
+            return 'screen'
+        case TaxonomicFilterGroupType.Wildcards:
+            return 'wildcard'
+        default:
+            return 'definition'
+    }
 }

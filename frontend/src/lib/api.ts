@@ -24,6 +24,8 @@ export interface PaginatedResponse<T> {
     previous?: string
 }
 
+const CSRF_COOKIE_NAME = 'posthog_csrftoken'
+
 export function getCookie(name: string): string | null {
     let cookieValue: string | null = null
     if (document.cookie && document.cookie !== '') {
@@ -355,7 +357,7 @@ const api = {
             method: 'PATCH',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
         })
@@ -380,7 +382,7 @@ const api = {
             method: 'POST',
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
@@ -404,7 +406,7 @@ const api = {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie('csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
         })
 

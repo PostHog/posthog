@@ -38,6 +38,7 @@ export function TaxonomicFilter({
         optionsFromProp,
         eventNames,
     }
+
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)

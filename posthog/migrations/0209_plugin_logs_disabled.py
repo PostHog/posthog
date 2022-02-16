@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0204_remove_duplicate_plugin_configs"),
+        ("posthog", "0208_alter_plugin_updated_at"),
     ]
 
     operations = [
