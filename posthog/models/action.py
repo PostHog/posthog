@@ -32,56 +32,6 @@ class Action(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
-    def calculate_events(self, start=None, end=None):
-        recalculate_all = False
-        if start is None and end is None:
-            recalculate_all = True
-        if start is None:
-            start = datetime.date(1990, 1, 1)
-        if end is None:
-            end = timezone.now() + datetime.timedelta(days=1)
-
-        last_calculated_at = self.last_calculated_at
-        now_calculated_at = timezone.now()
-        self.is_calculating = True
-        self.save()
-        from .event import Event
-
-        try:
-            if recalculate_all:
-                event_queryset = Event.objects.query_db_by_action(self).only("pk")
-            else:
-                event_queryset = Event.objects.query_db_by_action(self, start=start, end=end).only("pk")
-            event_query, params = event_queryset.query.sql_with_params()
-        except EmptyResultSet:
-            self.events.all().delete()
-        else:
-            delete_query = f"""DELETE FROM "posthog_action_events" WHERE "action_id" = {self.pk}"""
-
-            if not recalculate_all:
-                delete_query += f""" AND "event_id" IN (
-                    SELECT id FROM posthog_event
-                    WHERE "created_at" >= '{start.isoformat()}' AND "created_at" < '{end.isoformat()}'
-                )"""
-
-            insert_query = """INSERT INTO "posthog_action_events" ("action_id", "event_id")
-                            {}
-                        ON CONFLICT DO NOTHING
-                    """.format(
-                event_query.replace("SELECT ", f"SELECT {self.pk}, ", 1)
-            )
-
-            cursor = connection.cursor()
-            with transaction.atomic():
-                try:
-                    cursor.execute(delete_query + ";" + insert_query, params)
-                except Exception as err:
-                    capture_exception(err)
-        finally:
-            self.is_calculating = False
-            self.last_calculated_at = now_calculated_at
-            self.save()
-
     def on_perform(self, event):
         from posthog.api.event import EventSerializer
         from posthog.api.person import PersonSerializer
