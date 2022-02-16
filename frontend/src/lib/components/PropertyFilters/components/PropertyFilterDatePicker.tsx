@@ -41,7 +41,7 @@ export function PropertyFilterDatePicker({
     const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
 
     const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
-    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
+    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : undefined)
     const [includeTimeInFilter, setIncludeTimeInFilter] = useState(!!value && !valueIsYYYYMMDD)
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
@@ -61,7 +61,7 @@ export function PropertyFilterDatePicker({
             showTime={includeTimeInFilter}
             showNow={false}
             showToday={false}
-            value={datePickerStartingValue}
+            defaultValue={datePickerStartingValue}
             onFocus={() => setDatePickerOpen(true)}
             onBlur={() => setDatePickerOpen(false)}
             onOk={(selectedDate) => {
