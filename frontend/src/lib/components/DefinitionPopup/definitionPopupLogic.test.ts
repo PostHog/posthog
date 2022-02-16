@@ -206,46 +206,16 @@ describe('definitionPopupLogic', () => {
             })
         })
 
-        describe('tags', () => {
-            beforeEach(async () => {
-                await expectLogic(logic, async () => {
-                    await logic.actions.setDefinition(mockEventDefinitions[0])
-                    await logic.actions.setPopupState(DefinitionPopupState.Edit)
-                }).toDispatchActions(['setDefinitionSuccess'])
+        it('add tags', async () => {
+            await expectLogic(logic, async () => {
+                await logic.actions.setDefinition(mockEventDefinitions[0])
+                await logic.actions.setPopupState(DefinitionPopupState.Edit)
+                await logic.actions.setLocalDefinition({ tags: ['ohhello', 'ohwow'] })
             })
-
-            it('add then delete', async () => {
-                await expectLogic(logic, async () => {
-                    await logic.actions.setNewTag('ohhello')
-
-                    await logic.actions.setNewTag('ohwow')
-                    await logic.actions.deleteTag('ohwow')
+                .toDispatchActions(['setDefinitionSuccess', 'setLocalDefinition'])
+                .toMatchValues({
+                    localDefinition: { ...mockEventDefinitions[0], tags: ['ohhello', 'ohwow'] },
                 })
-                    .toDispatchActions(['setNewTag', 'setLocalDefinition'])
-                    .toMatchValues({
-                        localDefinition: { ...mockEventDefinitions[0], tags: ['ohhello'] },
-                    })
-                    .toDispatchActions(['setNewTag', 'setLocalDefinition'])
-                    .toMatchValues({
-                        localDefinition: { ...mockEventDefinitions[0], tags: ['ohhello', 'ohwow'] },
-                    })
-                    .toDispatchActions(['deleteTag', 'setLocalDefinition'])
-                    .toMatchValues({
-                        localDefinition: { ...mockEventDefinitions[0], tags: ['ohhello'] },
-                    })
-            })
-            it("doesn't add duplicate", async () => {
-                await expectLogic(logic, async () => {
-                    await logic.actions.setNewTag('ohhello')
-                    await logic.actions.setNewTag('ohhello')
-                })
-                    .toDispatchActions(['setNewTag', 'setLocalDefinition'])
-                    .toMatchValues({
-                        localDefinition: { ...mockEventDefinitions[0], tags: ['ohhello'] },
-                    })
-                    .toDispatchActions(['setNewTag'])
-                    .toNotHaveDispatchedActions(['setLocalDefinition'])
-            })
         })
     })
 
