@@ -30,7 +30,7 @@ def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 
     try:
-        sync_execute(f"/* {query_id} */ " + sql, settings=settings)  
+        sync_execute(f"/* {query_id} */ " + sql, settings=settings)
     except Exception as e:
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
