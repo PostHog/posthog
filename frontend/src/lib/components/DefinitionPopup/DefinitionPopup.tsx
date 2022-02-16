@@ -17,7 +17,7 @@ import {
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Divider, DividerProps, Typography } from 'antd'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
