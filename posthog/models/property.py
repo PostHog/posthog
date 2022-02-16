@@ -152,6 +152,26 @@ class PropertyGroup:
         self.type = type
         self.groups = groups
 
+    def combine_property_groups(
+        self, operator: PropertyOperatorType, property_groups: List["PropertyGroup"]
+    ) -> "PropertyGroup":
+        if not property_groups:
+            return self
+
+        if len(self.groups) == 0:
+            return PropertyGroup(operator, property_groups)
+
+        return PropertyGroup(operator, [self, *property_groups])
+
+    def combine_properties(self, operator: PropertyOperatorType, properties: List[Property]) -> "PropertyGroup":
+        if not properties:
+            return self
+
+        if len(self.groups) == 0:
+            return PropertyGroup(PropertyOperatorType.AND, properties)
+
+        return PropertyGroup(operator, [self, PropertyGroup(PropertyOperatorType.AND, properties)])
+
     def to_dict(self):
         result: Dict = {}
         if not self.groups:

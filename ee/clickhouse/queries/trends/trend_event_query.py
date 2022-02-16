@@ -55,13 +55,9 @@ class TrendsEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        entity_prop_group = PropertyGroup(type=PropertyOperatorType.AND, groups=self._entity.properties)
-        combined_prop_group = (
-            PropertyGroup(type=PropertyOperatorType.AND, groups=[self._filter.property_groups, entity_prop_group])
-            if self._entity.properties
-            else self._filter.property_groups
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups.combine_properties(PropertyOperatorType.AND, self._entity.properties)
         )
-        prop_query, prop_params = self._get_prop_groups(combined_prop_group)
 
         self.params.update(prop_params)
 
