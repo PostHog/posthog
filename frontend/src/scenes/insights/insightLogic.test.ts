@@ -191,7 +191,7 @@ describe('insightLogic', () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
                 eventUsageLogic.actionCreators.reportInsightViewed(
-                    { tags: undefined, filters: {}, result: null },
+                    { tags: [], filters: {}, result: null },
                     { insight: InsightType.FUNNELS },
                     ItemMode.View,
                     true,

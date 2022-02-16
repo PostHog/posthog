@@ -134,7 +134,7 @@ export const insightLogic = kea<insightLogicType>({
         insight: [
             {
                 short_id: props.dashboardItemId,
-                tags: undefined,
+                tags: [],
                 filters: props.cachedResults ? props.filters || {} : {},
                 result: props.cachedResults || null,
             } as Partial<InsightModel>,
@@ -327,7 +327,7 @@ export const insightLogic = kea<insightLogicType>({
                     : {
                           // blank slate if switched to a new insight
                           short_id: shortId,
-                          tags: undefined,
+                          tags: [],
                           result: null,
                           filters: {},
                       },
@@ -713,7 +713,7 @@ export const insightLogic = kea<insightLogicType>({
             const newInsight = {
                 name: generateRandomAnimal(),
                 description: '',
-                tags: undefined,
+                tags: [],
                 filters: cleanFilters(filters || {}),
                 result: null,
             }

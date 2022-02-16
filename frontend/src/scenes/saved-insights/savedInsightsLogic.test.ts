@@ -24,7 +24,7 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         is_sample: false,
         updated_at: 'now',
         result: {},
-        tags: undefined,
+        tags: [],
         color: null,
         created_at: 'now',
         dashboard: null,
