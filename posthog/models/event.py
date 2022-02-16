@@ -214,38 +214,6 @@ class EventManager(models.QuerySet):
             )
         )
 
-    def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
-        from posthog.queries.base import properties_to_Q
-
-        events = self
-        any_step = Q()
-        steps = action.steps.all()
-        if len(steps) == 0:
-            return self.none()
-
-        for step in steps:
-            step_filter = Filter(data={"properties": step.properties})
-
-            subquery = (
-                Event.objects.add_person_id(team_id=action.team_id)
-                .filter(
-                    properties_to_Q(step_filter.properties, team_id=action.team_id),
-                    pk=OuterRef("id"),
-                    **self.filter_by_event(step),
-                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
-                    **self.filter_by_period(start, end),
-                )
-                .only("id")
-            )
-            subquery = self.filter_by_url(step, subquery)
-            any_step |= Q(Exists(subquery))
-        events = self.filter(team_id=action.team_id).filter(any_step)
-
-        if order_by:
-            events = events.order_by(order_by)
-
-        return events
-
     def filter_by_action(self, action: Action, order_by: str = "-id") -> models.QuerySet:
         events = self.filter(action=action).add_person_id(team_id=action.team_id)
         if order_by:
