@@ -137,10 +137,13 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["description"], "updated description")
 
         action.refresh_from_db()
+        action.calculate_events()
         steps = action.steps.all().order_by("id")
         self.assertEqual(action.name, "user signed up 2")
         self.assertEqual(steps[0].text, "sign up NOW")
         self.assertEqual(steps[1].href, "/a-new-link")
+        self.assertEqual(action.events.get(), event2)
+        self.assertEqual(action.events.count(), 1)
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -274,6 +277,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         # test team leakage
         _create_event(event="custom event", team=team2, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
 
+        action.calculate_events()
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
 

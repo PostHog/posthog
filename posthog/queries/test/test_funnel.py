@@ -289,8 +289,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             action1 = Action.objects.create(team_id=self.team.pk, name="event2")
             ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_prop", "value": "a"}])
+            action1.calculate_events()
             action2 = Action.objects.create(team_id=self.team.pk, name="event2")
             ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_prop", "value": "c"}])
+            action2.calculate_events()
 
             result = Funnel(
                 filter=Filter(
@@ -371,6 +373,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 event="event1",
                 properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
             )
+            action.calculate_events()
 
             result = Funnel(
                 filter=Filter(

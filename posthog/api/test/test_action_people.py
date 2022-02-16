@@ -652,6 +652,27 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 1)
         self.assertEqual(people["results"][0]["people"][0]["id"], person2.pk)
 
+    @patch("posthog.models.action.Action.calculate_events")
+    def test_is_calculating_always_false(self, calculate_events):
+        create_response_wrapper = self.client.post(f"/api/projects/{self.team.id}/actions/", {"name": "ooh"})
+        create_response = create_response_wrapper.json()
+        self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response["is_calculating"], False)
+        self.assertFalse(calculate_events.called)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/").json()
+        self.assertEqual(response["results"][0]["is_calculating"], False)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{create_response['id']}/").json()
+        self.assertEqual(response["is_calculating"], False)
+
+        # Make sure we're not re-calculating actions
+        response = self.client.patch(f"/api/projects/{self.team.id}/actions/{create_response['id']}/", {"name": "ooh"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "ooh")
+        self.assertEqual(response.json()["is_calculating"], False)
+        self.assertFalse(calculate_events.called)
+
     def test_active_user_weekly_people(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(

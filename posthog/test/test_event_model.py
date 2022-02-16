@@ -10,10 +10,11 @@ def _create_action(team, steps):
     for step in steps:
         ActionStep.objects.create(action=action, **step)
 
+    action.calculate_events()
+
     return action
 
 
-# :TODO: Move ee/clickhouse/models/test/test_action.py here
 def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
     class TestFilterByActions(BaseTest):
         def test_filter_with_selector_direct_decendant_ordering(self):
@@ -258,6 +259,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(event="$autocapture", action=action1, selector='[data-id="123"]')
+            action1.calculate_events()
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 1)
@@ -360,6 +362,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(
                 action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
             )
+            action.calculate_events()
             events = _get_events_for_action(action)
             self.assertEqual(len(events), 1)
 
@@ -372,6 +375,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
             )
             action1 = Action.objects.create(team=self.team)
+            action1.calculate_events()
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 0)
@@ -397,6 +401,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(events_empty_selector, events_null_selector)
 
     return TestFilterByActions
+
+
+filter_by_actions_factory(Event.objects.create, Person.objects.create, Event.objects.filter_by_action)
 
 
 class TestElementGroup(BaseTest):
@@ -516,6 +523,48 @@ class TestActions(BaseTest):
         )
         # This would error when attr_class wasn't set.
         self.assertEqual(event.actions, [])
+
+
+class TestPreCalculation(BaseTest):
+    def test_update_or_delete_action_steps(self):
+        user_signed_up = Event.objects.create(event="user signed up", team=self.team)
+        user_logged_in = Event.objects.create(event="user logged in", team=self.team)
+        user_logged_out = Event.objects.create(event="user logged out", team=self.team)
+        action = Action.objects.create(team=self.team, name="combined action")
+        step1 = ActionStep.objects.create(action=action, event="user signed up")
+        step2 = ActionStep.objects.create(action=action, event="user logged in")
+        with self.assertNumQueries(6):
+            action.calculate_events()
+        self.assertEqual(
+            [e for e in action.events.all().order_by("id")], [user_signed_up, user_logged_in],
+        )
+
+        # update actionstep
+        step2.event = "user logged out"
+        step2.save()
+        with self.assertNumQueries(6):
+            action.calculate_events()
+        self.assertEqual(
+            [e for e in action.events.all().order_by("id")], [user_signed_up, user_logged_out],
+        )
+
+        # delete actionstep
+        ActionStep.objects.filter(pk=step2.pk).delete()
+        action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by("id")], [user_signed_up])
+
+        ActionStep.objects.all().delete()
+        action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by("id")], [])
+
+    def test_empty(self):
+        Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"$browser": "Chrome"})
+        action = Action.objects.create(name="pageview", team=self.team)
+        ActionStep.objects.create(
+            action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+        )
+        action.calculate_events()
+        self.assertEqual(action.events.count(), 0)
 
 
 class TestSelectors(BaseTest):
