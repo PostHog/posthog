@@ -6,13 +6,13 @@ from django.utils.timezone import now
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Element, ElementGroup, Event, Organization
+from posthog.models import Element, ElementGroup, Organization
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=create_event(**kwargs))
+    create_event(**kwargs)
 
 
 class TestElement(ClickhouseTestMixin, APIBaseTest):
