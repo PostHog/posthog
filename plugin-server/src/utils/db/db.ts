@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import {
     KAFKA_GROUPS,
@@ -67,7 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
+import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -76,6 +76,7 @@ import {
     generatePostgresValuesString,
     getFinalPostgresQuery,
     hashElements,
+    shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
@@ -1086,6 +1087,12 @@ export class DB {
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
 
+        const logLevel = pluginConfig.plugin?.log_level
+
+        if (!shouldStoreLog(logLevel || 0, source, type)) {
+            return
+        }
+
         const parsedEntry = {
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
@@ -1584,5 +1591,37 @@ export class DB {
                 'getTeamsInOrganizationsWithRootPluginAccess'
             )
         ).rows as Team[]
+    }
+
+    public async addOrUpdatePublicJob(
+        pluginId: number,
+        jobName: string,
+        jobPayloadJson: Record<string, any>
+    ): Promise<void> {
+        await this.postgresTransaction(async (client) => {
+            let publicJobs: Record<string, any> = (
+                await this.postgresQuery(
+                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
+                    [pluginId],
+                    'selectPluginPublicJobsForUpdate',
+                    client
+                )
+            ).rows[0]?.public_jobs
+
+            if (
+                !publicJobs ||
+                !(jobName in publicJobs) ||
+                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
+            ) {
+                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
+
+                await this.postgresQuery(
+                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
+                    [JSON.stringify(publicJobs), pluginId],
+                    'updatePublicJob',
+                    client
+                )
+            }
+        })
     }
 }

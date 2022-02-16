@@ -23,7 +23,7 @@ def _create_event(**kwargs) -> Event:
 
 
 def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(action, "")
+    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
 

@@ -4,7 +4,7 @@ import { FullScreen } from 'lib/components/FullScreen'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -25,7 +25,7 @@ import { PlusOutlined } from '@ant-design/icons'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
-    const { setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(dashboardLogic)
+    const { setDashboardMode, addGraph, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
@@ -227,8 +227,7 @@ export function DashboardHeader(): JSX.Element | null {
                             {canEditDashboard ? (
                                 <ObjectTags
                                     tags={dashboard.tags}
-                                    onTagSave={saveNewTag}
-                                    onTagDelete={deleteTag}
+                                    onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                     saving={dashboardLoading}
                                     tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                                     className="insight-metadata-tags"

@@ -4,9 +4,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
+from posthog.models import Person, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.test.base import BaseTest, test_with_materialized_columns
 
 
