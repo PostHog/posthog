@@ -23,7 +23,7 @@ def _create_person(distinct_id: str, team: Team) -> Person:
 
 
 def _create_event(
-    distinct_id: str, event: str, lib: str, timestamp: Union[datetime, str], team: Team, properties={}
+    distinct_id: str, event: str, lib: str, timestamp: Union[datetime, str], team: Team, properties: Dict = {}
 ) -> None:
     create_event(
         event_uuid=uuid4(),
@@ -149,7 +149,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                     org_report_after_internal_org["event_count_lifetime"], updated_org_report["event_count_lifetime"],
                 )
 
-    def test_groups_usage(self):
+    def test_groups_usage(self) -> None:
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
