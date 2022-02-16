@@ -43,7 +43,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                     const rowsPerMetric = {}
                     for (const metric of deadLetterQueueMetrics) {
                         if (metric.subrows) {
-                            rowsPerMetric[metric.key] = [metric.subrows.rows]
+                            rowsPerMetric[metric.key] = metric.subrows.rows
                         }
                     }
                     return rowsPerMetric
