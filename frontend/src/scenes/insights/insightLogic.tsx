@@ -375,7 +375,13 @@ export const insightLogic = kea<insightLogicType>({
         maybeShowErrorMessage: [
             false,
             {
-                endQuery: (_, { exception }) => exception?.status >= 400,
+                endQuery: (_, { exception }) => {
+                    const isHTTPErrorStatus = exception?.status >= 400
+                    const isBrowserErrorStatus = exception?.status === 0
+                    return isHTTPErrorStatus || isBrowserErrorStatus
+                },
+                loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
+                loadResultsFailure: (_, { errorObject }) => errorObject?.status === 0,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
@@ -750,7 +756,16 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     actionToUrl: ({ values }) => {
-        const actionToUrl = (): [string, undefined, undefined, { replace: boolean }] | void => {
+        const actionToUrl = ():
+            | [
+                  string,
+                  undefined,
+                  undefined,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
             if (values.syncWithUrl && values.insight.short_id) {
                 return [
                     values.insightMode === ItemMode.Edit
