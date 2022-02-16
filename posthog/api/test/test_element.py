@@ -50,7 +50,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
             Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
         ]
-        event1 = _create_event(
+        _create_event(
             team=self.team,
             elements=elements,
             event="$autocapture",
@@ -86,7 +86,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             # Django session, PostHog user, PostHog team, PostHog org membership
             response = self.client.get("/api/element/stats/").json()
         self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["hash"], event1.elements_hash)
         self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
         self.assertEqual(response[1]["count"], 1)
 
