@@ -40,6 +40,9 @@ class HistoricalVersion(models.Model):
                 name="must_have_team_or_organization_id",
             ),
         ]
+        indexes = [
+            models.Index(fields=["item_id", "team_id", "name"]),
+        ]
 
     # JSON of the historical item
     state = models.JSONField(null=False)
@@ -59,7 +62,8 @@ class HistoricalVersion(models.Model):
 
     # user that caused the change
     created_by_email = models.EmailField(null=False)
-    created_by_name = models.TextField(null=False)
+    # max length from User model
+    created_by_name = models.CharField(max_length=150, null=False)
     created_by_id = models.PositiveIntegerField(null=False)
 
     # team or organization that contains the change
