@@ -69,6 +69,7 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
+        AvailableFeature.DASHBOARD_PERMISSIONING,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
     ]
