@@ -1,4 +1,5 @@
 import { Tag, Select } from 'antd'
+import equal from 'fast-deep-equal'
 import { colorForString } from 'lib/utils'
 import React, { CSSProperties, useEffect, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
@@ -57,7 +58,7 @@ export function ObjectTags({
 
     // Necessary to keep logic updated with component props
     useEffect(() => {
-        if ([...tags].sort() !== [..._tags].sort()) {
+        if (!equal(tags, _tags)) {
             setTags(tags)
         }
     }, [tags])
