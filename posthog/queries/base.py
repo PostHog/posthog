@@ -195,15 +195,3 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
 
     queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return queryset
-
-
-class BaseQuery:
-    """
-        Run needs to be implemented in the individual Query class. It takes in a Filter, Team
-        and optionally other arguments within kwargs (though use sparingly!)
-
-        The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
-    """
-
-    def run(self, filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        raise NotImplementedError("You need to implement run")
