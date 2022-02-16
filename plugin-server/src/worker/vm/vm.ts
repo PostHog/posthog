@@ -250,6 +250,6 @@ export function createPluginConfigVM(
         vm,
         methods,
         tasks,
-        responseVar,
+        vmResponseVariable: responseVar,
     }
 }
