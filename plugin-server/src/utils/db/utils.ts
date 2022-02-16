@@ -8,7 +8,7 @@ import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { BasePerson, Element, Person, RawPerson, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
-import { PluginLogEntrySource, PluginLogEntryType,PluginLogLevel } from './../../types'
+import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
