@@ -1,6 +1,6 @@
 import { Input, Row, Table } from 'antd'
 import { useValues, useActions } from 'kea'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import React, { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { AvailableFeature, PropertyDefinition } from '~/types'
@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 export function EventPropertiesStats(): JSX.Element {
     const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } =
         useValues(definitionDrawerLogic)
-    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription, saveAll } =
+    const { setEventPropertyDescription, saveAll, setEventPropertyDefinitionUpdateList, setEventPropertyDefinition } =
         useActions(definitionDrawerLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const propertyExamples = eventsSnippet[0]?.properties
@@ -58,12 +58,10 @@ export function EventPropertiesStats(): JSX.Element {
                               <ObjectTags
                                   id={id}
                                   tags={tags || []}
-                                  onTagSave={(tag, currentTags, propertyId) =>
-                                      setNewEventPropertyTag(tag, currentTags, propertyId)
-                                  }
-                                  onTagDelete={(tag, currentTags, propertyId) =>
-                                      deleteEventPropertyTag(tag, currentTags, propertyId)
-                                  }
+                                  onChange={(_, newTags) => {
+                                      setEventPropertyDefinitionUpdateList(id)
+                                      setEventPropertyDefinition({ tags: newTags }, id)
+                                  }}
                                   saving={tagLoading}
                                   tagsAvailable={eventPropertiesDefinitionTags?.filter((tag) => !tags?.includes(tag))}
                               />

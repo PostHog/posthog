@@ -5,7 +5,7 @@ import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/lib/typography/Title'
 import '../VolumeTable.scss'
 import { Alert, Button, Col, Collapse, Row } from 'antd'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } =
         useValues(definitionDrawerLogic)
-    const { closeDrawer, setNewTag, deleteTag, saveAll } = useActions(definitionDrawerLogic)
+    const { closeDrawer, setDefinition, saveAll } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { Panel } = Collapse
@@ -79,8 +79,7 @@ export function DefinitionDrawer(): JSX.Element {
                                                     <h4 className="l4">Tags</h4>
                                                     <ObjectTags
                                                         tags={definition.tags || []}
-                                                        onTagSave={setNewTag}
-                                                        onTagDelete={deleteTag}
+                                                        onChange={(_, tags) => setDefinition({ tags })}
                                                         saving={tagLoading}
                                                         tagsAvailable={definitionTags?.filter(
                                                             (tag) => !definition.tags?.includes(tag)

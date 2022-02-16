@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { errorToast, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -105,8 +105,6 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: true,
-        saveNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -618,16 +616,6 @@ export const insightLogic = kea<insightLogicType>({
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-        },
-        saveNewTag: async ({ tag }) => {
-            if (values.insight.tags?.includes(tag)) {
-                errorToast(undefined, 'Oops! Your insight already has that tag.')
-                return
-            }
-            actions.setInsightMetadata({ tags: [...(values.insight.tags || []), tag] })
-        },
-        deleteTag: async ({ tag }) => {
-            actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async ({ setViewMode }) => {
             const insightId =

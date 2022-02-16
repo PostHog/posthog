@@ -83,6 +83,10 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
         event_join_query = self._funnel_correlation._get_events_join_query()
 
+        recording_event_select_statement = (
+            ", any(actors.matching_events) AS matching_events" if self._filter.include_recordings else ""
+        )
+
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
@@ -91,12 +95,14 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
             SELECT
-                DISTINCT actors.actor_id AS actor_id
+                actors.actor_id AS actor_id
+                {recording_event_select_statement}
             FROM events AS event
                 {event_join_query}
                 AND event.event = %(target_event)s
                 {conversion_filter}
                 {prop_query}
+            GROUP BY actor_id
             ORDER BY actor_id
             {"LIMIT %(limit)s" if limit_actors else ""}
             {"OFFSET %(offset)s" if limit_actors else ""}
@@ -141,16 +147,22 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         actor_join_subquery, actor_join_subquery_params = self._get_actor_subquery()
         group_filters, group_filters_params = self._get_group_filters()
 
+        recording_event_select_statement = (
+            ", any(funnel_actors.matching_events) AS matching_events" if self._filter.include_recordings else ""
+        )
+
         query = f"""
             WITH
                 funnel_actors AS ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
-                DISTINCT funnel_actors.actor_id AS actor_id
+                funnel_actors.actor_id AS actor_id
+                {recording_event_select_statement}
             FROM funnel_actors
             {actor_join_subquery}
             WHERE {conversion_filter}
             {group_filters}
+            GROUP BY funnel_actors.actor_id
             ORDER BY actor_id
             {"LIMIT %(limit)s" if limit_actors else ""}
             {"OFFSET %(offset)s" if limit_actors else ""}
