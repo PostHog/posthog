@@ -1307,10 +1307,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1434,10 +1432,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1561,10 +1557,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1694,10 +1688,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
-                        trim(BOTH '"'
-                             FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
+                        e.$session_id as $session_id,
+                        e.$window_id as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'

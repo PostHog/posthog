@@ -2,88 +2,91 @@ import './DefinitionPopup.scss'
 import React from 'react'
 import clsx from 'clsx'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import { BindLogic, useActions, useValues } from 'kea'
-import { SimpleOption, TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import {
-    ActionType,
-    CohortType,
-    EventDefinition,
-    KeyMapping,
-    PersonProperty,
-    PropertyDefinition,
-    UserBasicType,
-} from '~/types'
+import { useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { KeyMapping, UserBasicType, PropertyDefinition } from '~/types'
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
-import { ObjectTags } from 'lib/components/ObjectTags'
-import { Divider, DividerProps, Typography } from 'antd'
-import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
-import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
-import { LockOutlined } from '@ant-design/icons'
+import { Divider, DividerProps, Select } from 'antd'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/components/Link'
-import { IconOpenInNew } from 'lib/components/icons'
-
-interface HeaderProps {
-    title: React.ReactNode
-    headerTitle: React.ReactNode
-    icon: React.ReactNode
-    editText?: string
-    viewText?: string
-}
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
 }
 
 // Wrapper
-function DefinitionPopup({
-    title,
-    icon,
-    headerTitle,
-    children,
-    editText,
-    viewText,
-}: DefinitionPopupProps & HeaderProps): JSX.Element {
+function Wrapper({ children }: DefinitionPopupProps): JSX.Element {
     const { state } = useValues(definitionPopupLogic)
-    return (
-        <div className={clsx('definition-popup', state)}>
-            <Header title={title} headerTitle={headerTitle} icon={icon} editText={editText} viewText={viewText} />
-            {children}
-        </div>
-    )
+    return <div className={clsx('definition-popup', state)}>{children}</div>
 }
 
-function Header({ title, headerTitle, icon, editText = 'Edit', viewText = 'View' }: HeaderProps): JSX.Element {
-    const { state } = useValues(definitionPopupLogic)
+interface HeaderProps {
+    title: React.ReactNode
+    headerTitle: React.ReactNode
+    editHeaderTitle: React.ReactNode
+    icon: React.ReactNode
+    hideEdit?: boolean
+    hideView?: boolean
+    onEdit?: () => void
+    onView?: () => void
+}
+
+function Header({
+    title,
+    headerTitle,
+    editHeaderTitle,
+    icon,
+    hideEdit = false,
+    hideView = false,
+    onEdit: _onEdit,
+    onView: _onView,
+}: HeaderProps): JSX.Element {
+    const { state, viewFullDetailUrl, hasTaxonomyFeatures } = useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
-    const isEdit = state === DefinitionPopupState.Edit
+    const onEdit = (): void => {
+        if (hasTaxonomyFeatures) {
+            setPopupState(DefinitionPopupState.Edit)
+            _onEdit?.()
+        }
+    }
+    const onView = (): void => {
+        setPopupState(DefinitionPopupState.View)
+        _onView?.()
+    }
 
     return (
         <div className="definition-popup-header">
-            {isEdit ? (
-                <div className="definition-popup-header-row">
-                    <div className="definition-popup-title">
-                        {icon} {title}
-                    </div>
-                    <div className="definition-popup-header-row-buttons">
-                        <a onClick={() => setPopupState(DefinitionPopupState.View)}>{editText}</a>
-                    </div>
+            <div className="definition-popup-header-row">
+                <div className="definition-popup-header-row-title">
+                    {state === DefinitionPopupState.Edit ? editHeaderTitle : headerTitle}
                 </div>
-            ) : (
-                <>
-                    <div className="definition-popup-header-row">
-                        <div className="definition-popup-header-row-title">{headerTitle}</div>
-                        <div className="definition-popup-header-row-buttons" style={{ display: 'blank' /* TODO */ }}>
-                            <a onClick={() => setPopupState(DefinitionPopupState.Edit)}>{viewText}</a>
-                        </div>
+                {state === DefinitionPopupState.View && (
+                    <div className="definition-popup-header-row-buttons click-outside-block">
+                        {!hideEdit &&
+                            (hasTaxonomyFeatures ? (
+                                <a onClick={onEdit}>Edit</a>
+                            ) : (
+                                <Tooltip title="Creating and editing definitions require a premium license">
+                                    <a onClick={onEdit} className="definition-popup-disabled-button">
+                                        Edit
+                                    </a>
+                                </Tooltip>
+                            ))}
+                        {!hideView && (
+                            <Link target="_blank" to={viewFullDetailUrl} onClick={onView}>
+                                View
+                            </Link>
+                        )}
                     </div>
-                    <div className="definition-popup-title">
-                        {icon} {title}
-                    </div>
-                </>
-            )}
+                )}
+            </div>
+            <div className="definition-popup-title">
+                {icon} {title}
+            </div>
         </div>
     )
 }
@@ -93,39 +96,8 @@ function Description({ description }: { description: React.ReactNode }): JSX.Ele
 }
 
 function DescriptionEmpty(): JSX.Element {
-    const { type } = useValues(definitionPopupLogic)
-    return (
-        <div className="definition-popup-description empty">
-            There is no description for this {getSingularType(type)}
-        </div>
-    )
-}
-
-export function getSingularType(type: TaxonomicFilterGroupType): string {
-    switch (type) {
-        case TaxonomicFilterGroupType.Actions:
-            return 'action'
-        case TaxonomicFilterGroupType.Cohorts:
-        case TaxonomicFilterGroupType.CohortsWithAllUsers:
-            return 'cohort'
-        case TaxonomicFilterGroupType.Elements:
-            return 'element'
-        case TaxonomicFilterGroupType.Events:
-        case TaxonomicFilterGroupType.CustomEvents:
-            return 'event'
-        case TaxonomicFilterGroupType.EventProperties:
-        case TaxonomicFilterGroupType.PersonProperties:
-        case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
-            return 'property'
-        case TaxonomicFilterGroupType.PageviewUrls:
-            return 'pageview url'
-        case TaxonomicFilterGroupType.Screens:
-            return 'screen'
-        case TaxonomicFilterGroupType.Wildcards:
-            return 'wildcard'
-        default:
-            return 'definition'
-    }
+    const { singularType } = useValues(definitionPopupLogic)
+    return <div className="definition-popup-description empty">There is no description for this {singularType}</div>
 }
 
 function Example({ value }: { value: string }): JSX.Element {
@@ -246,244 +218,49 @@ function Type({ propertyType }: { propertyType: PropertyDefinition['property_typ
     )
 }
 
-function Footer({
-    name,
-    propertyType,
-}: {
-    name: string | null | undefined
-    propertyType: PropertyDefinition['property_type'] | null
-}): JSX.Element {
+function OwnerDropdown(): JSX.Element {
+    const { members } = useValues(membersLogic)
+    const { localDefinition } = useValues(definitionPopupLogic)
+    const { setLocalDefinition } = useActions(definitionPopupLogic)
+
     return (
-        <Grid cols={2}>
-            <Card
-                title="Sent as"
-                value={
-                    <>
-                        <Typography.Text
-                            ellipsis={true}
-                            title={name ?? undefined} // because Text can cope with undefined but not null ¯\_(ツ)_/¯
-                            style={{ fontFamily: 'monaco', fontSize: 12, maxWidth: '20em' }}
-                        >
-                            {name !== '' ? name : <i>(empty string)</i>}
-                        </Typography.Text>
-                    </>
+        <Select
+            className={'definition-popup-owner-select definition-popup-edit-form-value'}
+            placeholder={<Owner user={'owner' in localDefinition ? localDefinition?.owner : null} />}
+            style={{ minWidth: 200 }}
+            dropdownClassName="owner-option"
+            onChange={(val) => {
+                const newOwner = members.find((mem) => mem.user.id === val)?.user
+                if (newOwner) {
+                    setLocalDefinition({ owner: newOwner })
+                } else {
+                    setLocalDefinition({ owner: null })
                 }
-            />
-            <Card title={<>&nbsp;</>} value={<DefinitionPopup.Type propertyType={propertyType} />} alignItems={'end'} />
-        </Grid>
-    )
-}
-
-DefinitionPopup.Description = Description
-DefinitionPopup.DescriptionEmpty = DescriptionEmpty
-DefinitionPopup.Example = Example
-DefinitionPopup.Type = Type
-DefinitionPopup.TimeMeta = TimeMeta
-DefinitionPopup.HorizontalLine = HorizontalLine
-DefinitionPopup.Grid = Grid
-DefinitionPopup.Section = Section
-DefinitionPopup.Card = Card
-DefinitionPopup.Footer = Footer
-
-const formatTimeFromNow = (day?: string): string => (day ? dayjs.utc(day).fromNow() : '-')
-
-function TaxonomyIntroductionSection(): JSX.Element {
-    const Lock = (): JSX.Element => (
-        <div
-            style={{
-                height: '100%',
-                width: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                color: 'var(--text-muted)',
             }}
         >
-            <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
-        </div>
-    )
-
-    return (
-        <>
-            <Grid cols={2}>
-                <Card title="First seen" value={<Lock />} />
-                <Card title="Last seen" value={<Lock />} />
-                <Card title="30 day volume" value={<Lock />} />
-                <Card title="30 day queries" value={<Lock />} />
-            </Grid>
-            <Section>
-                <Link
-                    to="https://posthog.com/docs/user-guides"
-                    target="_blank"
-                    data-attr="taxonomy-learn-more"
-                    style={{ fontWeight: 600, marginTop: 8 }}
-                >
-                    Learn more about Taxonomy
-                    <IconOpenInNew style={{ marginLeft: 8 }} />
-                </Link>
-            </Section>
-        </>
+            <Select.Option key="no-owner" value={-1}>
+                <Owner user={null} />
+            </Select.Option>
+            {members.map((member) => (
+                <Select.Option key={member.user.id} value={member.user.id}>
+                    <Owner user={member.user} />
+                </Select.Option>
+            ))}
+        </Select>
     )
 }
 
-const renderRestOfDefinition = (
-    item: EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty,
-    listGroupType: TaxonomicFilterGroupType,
-    hasTaxonomyFeatures: boolean = false
-): JSX.Element => {
-    if ([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents].includes(listGroupType)) {
-        const _item = item as EventDefinition
-        return (
-            <>
-                {hasTaxonomyFeatures ? (
-                    <Grid cols={2}>
-                        <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
-                        <Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)} />
-                        <Card title="30 day volume" value={_item.volume_30_day ?? '-'} />
-                        <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
-                    </Grid>
-                ) : (
-                    <TaxonomyIntroductionSection />
-                )}
-                <HorizontalLine />
-                <DefinitionPopup.Footer name={item.name} propertyType={(item as PropertyDefinition)?.property_type} />
-            </>
-        )
-    }
-    if ([TaxonomicFilterGroupType.Actions].includes(listGroupType)) {
-        const _item = item as ActionType
-        return (
-            <>
-                <ActionPopupInfo entity={_item} />
-                {(_item?.steps?.length || 0) > 0 && <HorizontalLine />}
-                <Grid cols={2}>
-                    <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
-                </Grid>
-            </>
-        )
-    }
-    if (
-        [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties].includes(listGroupType) ||
-        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
-    ) {
-        const _item = item as PropertyDefinition
-        return (
-            <>
-                <Grid cols={2}>
-                    <Card title="First seen" value={formatTimeFromNow(_item.created_at)} />
-                    <Card title="Last seen" value={formatTimeFromNow(_item.last_seen_at)} />
-                    <Card title="30 day volume" value={_item.volume_30_day ?? '-'} />
-                    <Card title="30 day queries" value={_item.query_usage_30_day ?? '-'} />
-                </Grid>
-                <HorizontalLine />
-                <DefinitionPopup.Footer name={_item.name} propertyType={_item.property_type} />
-            </>
-        )
-    }
-    if ([TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers].includes(listGroupType)) {
-        const _item = item as CohortType
-        if (listGroupType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
-            return (
-                <Grid cols={2}>
-                    <Card title="Persons" value={_item.count ?? 0} />
-                    <Card title="Last calculated" value={formatTimeFromNow(_item.last_calculation)} />
-                </Grid>
-            )
-        }
-        if (!_item.is_static) {
-            return (
-                <>
-                    <Grid cols={2}>
-                        <Card title="Persons" value={_item.count ?? 0} />
-                        <Card title="Last calculated" value={formatTimeFromNow(_item.last_calculation)} />
-                    </Grid>
-                    {(_item.groups?.length || 0 > 0) && <HorizontalLine />}
-                    <CohortPopupInfo entity={_item} />
-                </>
-            )
-        }
-        return (
-            <Grid cols={2}>
-                <Card title="Persons" value={_item.count ?? 0} />
-                <Card title="Last calculated" value={formatTimeFromNow(_item.last_calculation)} />
-            </Grid>
-        )
-    }
-    if ([TaxonomicFilterGroupType.Elements].includes(listGroupType)) {
-        const _item = item as SimpleOption
-        return (
-            <Section>
-                <Card
-                    title="Sent as"
-                    value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_item.name}</span>}
-                />
-            </Section>
-        )
-    }
-    return <></>
+export const DefinitionPopup = {
+    Wrapper,
+    Header,
+    Description,
+    DescriptionEmpty,
+    Example,
+    TimeMeta,
+    HorizontalLine,
+    Grid,
+    Section,
+    Card,
+    OwnerDropdown,
+    Type,
 }
-
-export const renderItemPopup = (
-    item: EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty,
-    listGroupType: TaxonomicFilterGroupType,
-    group: TaxonomicFilterGroup,
-    hasTaxonomyFeatures: boolean
-): React.ReactNode => {
-    // Supports all types specified in selectedItemHasPopup
-    const value = group.getValue(item)
-
-    if (!value) {
-        return
-    }
-
-    const icon = group.getIcon?.(item)
-    return (
-        <BindLogic
-            logic={definitionPopupLogic}
-            props={{
-                type: listGroupType,
-            }}
-        >
-            <DefinitionPopup
-                title={
-                    <PropertyKeyInfo
-                        value={item.name ?? ''}
-                        type={listGroupType === TaxonomicFilterGroupType.Elements ? 'element' : undefined}
-                        disablePopover
-                        disableIcon={!!icon}
-                    />
-                }
-                headerTitle={group.getPopupHeader(item)}
-                icon={icon}
-                editText={listGroupType === TaxonomicFilterGroupType.Actions ? 'Quick edit' : undefined}
-            >
-                {hasTaxonomyFeatures &&
-                    'description' in item &&
-                    (hasTaxonomyFeatures && item.description ? (
-                        <DefinitionPopup.Description description={item.description} />
-                    ) : (
-                        <DefinitionPopup.DescriptionEmpty />
-                    ))}
-                {listGroupType === TaxonomicFilterGroupType.Elements && item.name && (
-                    <DefinitionPopup.Description description={keyMapping.element[item.name].description} />
-                )}
-                <DefinitionPopup.Example value={value.toString()} />
-                {hasTaxonomyFeatures && 'tags' in item && !!item.tags?.length && (
-                    <ObjectTags tags={item.tags} style={{ marginBottom: 4 }} />
-                )}
-                <DefinitionPopup.TimeMeta
-                    createdAt={('created_at' in item && item.created_at) || undefined}
-                    createdBy={('created_by' in item && item.created_by) || undefined}
-                    updatedAt={('updated_at' in item && item.updated_at) || undefined}
-                    updatedBy={('updated_by' in item && item.updated_by) || undefined}
-                />
-                <DefinitionPopup.HorizontalLine />
-                {/* Things start to get different here */}
-                {renderRestOfDefinition(item, listGroupType, hasTaxonomyFeatures)}
-            </DefinitionPopup>
-        </BindLogic>
-    )
-
-    return item.name ?? ''
-}
-
-export { DefinitionPopup }
