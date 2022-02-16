@@ -1,27 +1,12 @@
 from datetime import datetime
-from unittest import mock
-
-from freezegun import freeze_time
 
 from posthog.helpers.item_history import HistoryListItem, compute_history
 from posthog.mixins import pairwise
 from posthog.models import HistoricalVersion
 
 
-@mock.patch.object(HistoricalVersion, "save")
-@freeze_time("2021-01-02 00:06:34")
-def test_viewing_an_item_with_no_history(mock_historical_version_save):
-    assert compute_history(history_type="FeatureFlag", version_pairs=[], team_id=1, item_id=4) == [
-        HistoryListItem(
-            email="history.hog@posthog.com",
-            name="history hog",
-            user_id=-1,
-            action="FeatureFlag_imported",
-            detail={"id": 4, "key": "unknown"},
-            created_at="2021-01-02T00:06:34+00:00",
-        )
-    ]
-    mock_historical_version_save.assert_called_once()
+def test_no_history_returns_an_empty_list():
+    assert compute_history("anything", []) == []
 
 
 def test_a_single_update_shows_updated_by_history_hog():
@@ -33,7 +18,7 @@ def test_a_single_update_shows_updated_by_history_hog():
         versioned_at=datetime.fromisoformat("2020-04-01T12:34:56"),
         team_id=1,
     )
-    assert compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)], team_id=1, item_id=4) == [
+    assert compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)]) == [
         HistoryListItem(
             email="history.hog@posthog.com",
             name="history hog",
@@ -289,5 +274,5 @@ def test_possible_feature_flag_changes():
             created_at="2020-04-01T12:34:56",
         ),
     ]
-    history = compute_history(history_type="FeatureFlag", version_pairs=pairwise(versions), item_id=4, team_id=1)
+    history = compute_history(history_type="FeatureFlag", version_pairs=pairwise(versions))
     assert history == expected

@@ -2,7 +2,6 @@ import dataclasses
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from posthog.models import HistoricalVersion
-from posthog.models.utils import UUIDT
 
 
 @dataclasses.dataclass(frozen=True)
@@ -16,11 +15,7 @@ class HistoryListItem:
 
 
 def compute_history(
-    history_type: str,
-    item_id: int,
-    version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
-    team_id: Optional[int] = None,
-    organization_id: Optional[UUIDT] = None,
+    history_type: str, version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
 ):
     """
     TODO Purposefully leaving this as unstructured "Arrow code" to get to "shameless green"
@@ -38,30 +33,6 @@ def compute_history(
     """
     history: List[HistoryListItem] = []
 
-    _process_pairs(history, history_type, version_pairs)
-
-    if len(history) == 0:
-        imported_version = HistoricalVersion(
-            state={"key": "unknown"},
-            name="FeatureFlag",
-            action="update",
-            item_id=item_id,
-            created_by_name="history hog",
-            created_by_email="history.hog@posthog.com",
-            created_by_id=0,
-        )
-        if team_id:
-            imported_version.team_id = team_id
-        elif organization_id:
-            imported_version.organization_id = organization_id
-        imported_version.save()
-
-        return _process_pairs(history, history_type, [(imported_version, None)])
-
-    return history
-
-
-def _process_pairs(history, history_type, version_pairs):
     for (current, previous) in version_pairs:
         if current.action == "create":
             history.append(

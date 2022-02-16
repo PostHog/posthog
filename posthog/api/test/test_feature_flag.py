@@ -1,8 +1,12 @@
 import json
+from dataclasses import asdict
 from unittest.mock import patch
 
+from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.helpers.item_history import HistoryListItem
+from posthog.mixins import as_deletion_state
 from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
@@ -332,6 +336,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(len(historical_flags), 1)
         self.assertEqual(historical_flags[0].state, response.json())
         self.assertEqual(historical_flags[0].action, "update")
+        self.assertEqual(historical_flags[0].created_by_email, self.user.email)
 
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
@@ -361,14 +366,118 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        from django.core import serializers
-
-        state = serializers.serialize("json", [instance])[1:-1]
-
         historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
         self.assertEqual(len(historical_flags), 1)
-        self.assertEqual(historical_flags[0].state, state)
+        self.assertEqual(
+            historical_flags[0].state,
+            as_deletion_state(
+                instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
+            ),
+        )
         self.assertEqual(historical_flags[0].action, "delete")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_get_feature_flag_that_needs_importing(self):
+        """
+        The first time we load history for a feature flag that existed before starting history logging
+        Import its current state
+        """
+        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
+
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        self.client.force_login(new_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/history")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        history = response.json()["results"]
+
+        expected = [
+            asdict(
+                HistoryListItem(
+                    email="history.hog@posthog.com",
+                    name="history hog",
+                    user_id=-1,
+                    action="FeatureFlag_imported",
+                    detail={"id": str(instance.pk), "key": ""},
+                    created_at="2021-08-25T22:09:14.252000+00:00",
+                )
+            )
+        ]
+
+        self.assertEqual(
+            history, expected,
+        )
+
+    def test_get_feature_flag_history(self):
+        """
+        The first time we load history for a feature flag that existed before starting history logging
+        Import its current state
+        """
+        new_user = User.objects.create_and_join(
+            self.organization, "person_acting_and_then_viewing_history@posthog.com", None
+        )
+        self.client.force_login(new_user)
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": "Alpha feature", "key": "alpha-feature"}
+            )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        with freeze_time("2021-08-26T22:12:14.252Z"):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Alpha feature", "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},},
+                format="json",
+            )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        history_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/history")
+
+        self.assertEqual(history_response.status_code, status.HTTP_200_OK)
+
+        history = history_response.json()["results"]
+
+        self.maxDiff = None
+        expected = [
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "user_id": new_user.id,
+                "action": "FeatureFlag_filters_changed",
+                "detail": {
+                    "id": flag_id,
+                    "key": "alpha-feature",
+                    "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                    "to": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                },
+                "created_at": "2021-08-26T22:12:14.252000+00:00",
+            },
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "user_id": new_user.id,
+                "action": "FeatureFlag_rollout_percentage_changed",
+                "detail": {"id": flag_id, "key": "alpha-feature", "from": None, "to": 74},
+                "created_at": "2021-08-26T22:12:14.252000+00:00",
+            },
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "user_id": new_user.id,
+                "action": "FeatureFlag_created",
+                "detail": {"id": flag_id, "key": "alpha-feature"},
+                "created_at": "2021-08-25T22:09:14.252000+00:00",
+            },
+        ]
+        self.assertEqual(
+            history, expected,
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):

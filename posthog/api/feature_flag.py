@@ -11,7 +11,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin, HistoryLoggingMixin
+from posthog.mixins import AnalyticsDestroyModelMixin, HistoryListItemSerializer, HistoryLoggingMixin, load_history
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
@@ -194,6 +194,20 @@ class FeatureFlagViewSet(
                 }
             )
         return Response(flags)
+
+    @action(methods=["GET"], detail=True)
+    def history(self, request: request.Request, **kwargs):
+        history = load_history(
+            history_type="FeatureFlag",
+            team_id=self.team_id,
+            item_id=kwargs["pk"],
+            instance=self.get_object(),
+            serializer=FeatureFlagSerializer,
+        )
+        return Response(
+            {"results": HistoryListItemSerializer(history, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):

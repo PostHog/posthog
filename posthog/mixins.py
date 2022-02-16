@@ -1,12 +1,10 @@
-import json
+import copy
+from datetime import datetime
 from itertools import zip_longest
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Tuple, Union
 
 import structlog
-from django.core import serializers as django_serilizers
-from rest_framework import request, response, serializers, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
+from rest_framework import response, serializers, status
 
 from posthog.event_usage import report_user_action
 from posthog.helpers.item_history import compute_history
@@ -22,24 +20,35 @@ def pairwise(t: List[HistoricalVersion]) -> Iterable[Tuple[HistoricalVersion, Un
     return zip_longest(left, right)
 
 
-def _version_from_request(instance, state: str, request, action: str) -> None:
-    instance_state = json.loads(state)
-    id = instance_state["pk"]  # because deleted instances have no primary key
+def _version_for_deletion(instance, item_id: int, team_id: int, metadata: Dict, user: Dict) -> None:
+    """
+    In order to maintain the behaviour of AnalyticsDestroyModelMixin we can't reverse the direction of dependency
+    Which means we can't inject a serializer instance
+
+    This means we don't always capture all object state on deletion.
+    In most cases this will be fine and the previous HistoricalVersion will contain any state needed
+    """
+    state = as_deletion_state(metadata)
 
     version = HistoricalVersion(
         state=state,
         name=instance.__class__.__name__,
-        action=action,
-        item_id=id,
-        created_by_name=request.user.first_name,
-        created_by_email=request.user.email,
-        created_by_id=request.user.id,
+        action="delete",
+        item_id=item_id,
+        created_by_name=user["first_name"],
+        created_by_email=user["email"],
+        created_by_id=user["id"],
+        team_id=team_id,
     )
 
-    if hasattr(instance, "team_id"):
-        version.team_id = instance.team_id
-
     version.save()
+
+
+def as_deletion_state(metadata: Dict) -> Dict:
+    state = copy.deepcopy(metadata)
+    if state["created_at"] and isinstance(state["created_at"], datetime):
+        state["created_at"] = state["created_at"].isoformat()
+    return state
 
 
 def _version_from_serializer(serializer, action: str) -> None:
@@ -68,6 +77,42 @@ def _should_log_history(instance: Any) -> bool:
     return instance.__class__.__name__ in ["FeatureFlag"]
 
 
+def load_history(history_type: str, team_id: int, item_id: int, instance, serializer):
+    """
+     * loads a page of history for that type and id (newest first)
+     * and returns a computed history for that page of history
+    """
+
+    # In order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
+    versions = list(
+        HistoricalVersion.objects.filter(  # TODO handle items with org id not team id
+            team_id=team_id, name=history_type, item_id=item_id
+        ).order_by("-versioned_at")[:11]
+    )
+
+    if len(versions) == 0:
+        """
+        This item existed before history logging and this is the first time it's been viewed.
+        Create an import and capture the state as it is now
+        Otherwise the first change made by a user shows as a change to every field
+        """
+        imported_version = HistoricalVersion(
+            state=serializer(instance).data,
+            name="FeatureFlag",
+            action="update",
+            item_id=item_id,
+            created_by_name="history hog",
+            created_by_email="history.hog@posthog.com",
+            created_by_id=0,
+            team_id=team_id,
+        )
+        imported_version.save()
+
+        versions.append(imported_version)
+
+    return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
+
+
 class HistoryLoggingMixin:
     def perform_create(self, serializer):
         serializer.save()
@@ -76,42 +121,6 @@ class HistoryLoggingMixin:
     def perform_update(self, serializer):
         serializer.save()
         _version_from_serializer(serializer, "update")
-
-    @action(methods=["GET"], detail=True)
-    def history(self, request: request.Request, **kwargs):
-        """
-        Because we're inside a mixin being applied to a viewset
-        we can add a history endpoint here to avoid cluttering up the viewset with history code
-
-        so `self` here is the viewset
-
-        this
-         * uses the viewset's object to determine what type it is operating on,
-         * loads a page of history for that type and id (newest first)
-         * and returns a computed history for that page of history
-        """
-        history_type = self.get_object().__class__.__name__  # type: ignore
-        # in order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
-        versions = HistoricalVersion.objects.filter(
-            team_id=self.team.id, name=history_type, item_id=kwargs["pk"]  # type: ignore
-        ).order_by("-versioned_at")[:11]
-
-        return Response(
-            {
-                "results": HistoryListItemSerializer(
-                    compute_history(  # TODO handle items with org id not team id
-                        history_type=history_type,
-                        version_pairs=pairwise(list(versions)),
-                        item_id=kwargs["pk"],
-                        team_id=self.team.id,  # type: ignore
-                    ),
-                    many=True,
-                ).data,
-                "next": None,
-                "previous": None,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 class AnalyticsDestroyModelMixin:
@@ -122,24 +131,28 @@ class AnalyticsDestroyModelMixin:
     but deletion (i.e. `destroy`) is performed directly in the viewset, which is why this mixin is a thing.
     """
 
-    def destroy(self, request, *args, **kwgars):
+    def destroy(self, request, *args, **kwargs):
 
         instance = self.get_object()  # type: ignore
 
         metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
 
-        state: Optional[str] = None
-        if _should_log_history(instance):
-            # ¯\_(ツ)_/¯ serialize the instance as a list and then chop off the square braces
-            # TRICKY serializing the instance here isn't straightforward
-            # approach taken from https://stackoverflow.com/a/2391243
-            state = django_serilizers.serialize("json", [instance])[1:-1]
-
         instance.delete()
 
         report_user_action(request.user, f"{instance._meta.verbose_name} deleted", metadata)
 
-        if _should_log_history(instance) and state:
-            _version_from_request(instance, state, request, "delete")
+        if _should_log_history(instance) and metadata:
+            """
+            This is mixed in to API view sets so has team_id available
+            TODO handle models with organization id not team id
+            """
+            team_id = self.team_id  # type:ignore
+            _version_for_deletion(
+                instance=instance,
+                item_id=kwargs["pk"],
+                team_id=team_id,
+                metadata=metadata,
+                user={"first_name": request.user.first_name, "email": request.user.email, "id": request.user.id},
+            )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
