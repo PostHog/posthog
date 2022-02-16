@@ -1,12 +1,10 @@
 import dataclasses
 import urllib.parse
-from os import stat
 from typing import (
     Any,
     Dict,
     List,
     Literal,
-    NoReturn,
     Optional,
     Tuple,
     TypedDict,
@@ -14,25 +12,18 @@ from typing import (
 )
 
 from rest_framework.exceptions import ValidationError
-from rest_framework.utils.serializer_helpers import ReturnList
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
+from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from posthog.constants import (
-    AUTOCAPTURE_EVENT,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    FunnelCorrelationType,
-)
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Filter, Team
-from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
 
@@ -122,17 +113,26 @@ class FunnelCorrelation:
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
-        self._funnel_actors_generator = ClickhouseFunnelActors(
-            Filter(
-                data={
-                    key: value
-                    for key, value in self._filter.to_dict().items()
-                    # NOTE: we want to filter anything about correlation, as the
-                    # funnel persons endpoint does not understand or need these
-                    # params.
-                    if not key.startswith("funnel_correlation_")
-                }
-            ),
+
+        filter_data = {
+            key: value
+            for key, value in self._filter.to_dict().items()
+            # NOTE: we want to filter anything about correlation, as the
+            # funnel persons endpoint does not understand or need these
+            # params.
+            if not key.startswith("funnel_correlation_")
+        }
+        # NOTE: we always use the final matching event for the recording because this
+        # is the the right event for both drop off and successful funnels
+        filter_data.update(
+            {"include_final_matching_events": self._filter.include_recordings,}
+        )
+        filter = Filter(data=filter_data)
+
+        funnel_order_actor_class = get_funnel_order_actor_class(filter)
+
+        self._funnel_actors_generator = funnel_order_actor_class(
+            filter,
             self._team,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,

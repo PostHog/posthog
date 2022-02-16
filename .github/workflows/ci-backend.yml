@@ -157,7 +157,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka &
+                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -275,7 +275,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka &
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:

@@ -61,11 +61,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            # PostHog event, PostHog event, PostHog person, PostHog person distinct ID,
-            # PostHog element group, PostHog element, PostHog element
-            expected_queries += 7
+        expected_queries = (
+            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
@@ -88,9 +86,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
         )
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
+        expected_queries = (
+            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
@@ -105,9 +103,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         event2 = _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},)
 
-        expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
-        if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
-            expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
+        expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -147,8 +143,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
 
-        cohort1.calculate_people()
-        cohort1.calculate_people_ch()
+        cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -315,7 +310,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="sign up")
-        action.calculate_events()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
@@ -469,7 +463,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
-        action.calculate_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.pk)
         self.assertEqual(response.status_code, 200)

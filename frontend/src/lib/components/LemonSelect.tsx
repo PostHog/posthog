@@ -10,7 +10,7 @@ export interface LemonSelectOption {
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'onChange'> {
+    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
     options: O
     value: keyof O
     onChange: (newValue: keyof O) => void

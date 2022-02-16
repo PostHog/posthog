@@ -237,6 +237,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -257,7 +258,7 @@ export interface PluginConfig {
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
-    updated_at: string
+    updated_at?: string
 }
 
 export interface PluginJsonConfig {
@@ -300,6 +301,13 @@ export enum PluginLogEntryType {
     Info = 'INFO',
     Warn = 'WARN',
     Error = 'ERROR',
+}
+
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
 }
 
 export interface PluginLogEntry {
@@ -615,6 +623,8 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
+    version: number
+    pending_version: number
 }
 
 /** Usable CohortPeople model. */
@@ -847,4 +857,10 @@ export enum OrganizationPluginsAccessLevel {
     CONFIG = 3,
     INSTALL = 6,
     ROOT = 9,
+}
+
+export enum OrganizationMembershipLevel {
+    Member = 1,
+    Admin = 8,
+    Owner = 15,
 }

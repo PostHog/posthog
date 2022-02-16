@@ -160,7 +160,9 @@ def add_cohort_annotations(team_id: int, breakdown: List[Union[int, str]]) -> Di
     annotations: Dict[str, Union[Value, Exists]] = {}
     for cohort in cohorts:
         annotations[f"cohort_{cohort.pk}"] = Exists(
-            CohortPeople.objects.filter(cohort=cohort.pk, person_id=OuterRef("person_id")).only("id")
+            CohortPeople.objects.filter(cohort=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version).only(
+                "id"
+            )
         )
     if "all" in breakdown:
         annotations["cohort_all"] = Value(True, output_field=BooleanField())

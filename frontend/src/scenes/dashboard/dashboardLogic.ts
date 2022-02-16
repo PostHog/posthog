@@ -3,12 +3,10 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
-import { toast } from 'react-toastify'
-import { clearDOMTextSelection, editingToast, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
-    FEATURE_FLAGS,
     PATHS_VIZ,
     DashboardPrivilegeLevel,
     OrganizationMembershipLevel,
@@ -25,7 +23,6 @@ import {
     InsightType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
-import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
@@ -88,7 +85,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: true,
         updateItemColor: (insightId: number, color: string | null) => ({ insightId, color }),
         removeItem: (insightId: number) => ({ insightId }),
-        setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -100,8 +96,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         }),
         /** Take the user to insights to add a graph. */
         addGraph: true,
-        deleteTag: (tag: string) => ({ tag }),
-        saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -233,12 +227,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     return {
                         ...state,
                         items: state?.items.filter((i) => i.id !== insightId),
-                    } as DashboardType
-                },
-                setDiveDashboard: (state, { insightId, dive_dashboard }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.id === insightId ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -394,11 +382,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         layouts: [
-            (s) => [s.items, s.featureFlags],
-            (items, featureFlags) => {
+            (s) => [s.items],
+            (items) => {
                 // The dashboard redesign includes constraints on the size of dashboard items
-                const minW = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_WIDTH_UNITS : undefined
-                const minH = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_HEIGHT_UNITS : undefined
+                const minW = MIN_ITEM_WIDTH_UNITS
+                const minH = MIN_ITEM_HEIGHT_UNITS
 
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
@@ -534,11 +522,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
         beforeUnmount: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -595,9 +578,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, {
                 dashboard: null,
             } as Partial<InsightModel>)
-        },
-        setDiveDashboard: async ({ insightId, dive_dashboard }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
@@ -688,16 +668,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
-
-                if (!cache.draggingToastId && !values.featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN]) {
-                    cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
-                }
-            } else {
-                // Clean edit mode toast if applicable
-                if (cache.draggingToastId) {
-                    toast.dismiss(cache.draggingToastId)
-                    cache.draggingToastId = null
-                }
             }
 
             if (mode) {
@@ -708,23 +678,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (values.dashboard) {
                 router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }
-        },
-        saveNewTag: ({ tag }) => {
-            if (values.dashboard?.tags.includes(tag)) {
-                toast.error(
-                    // TODO: move to errorToast once #3561 is merged
-                    <div>
-                        <h1>Oops! Can't add that tag</h1>
-                        <p>Your dashboard already has that tag.</p>
-                    </div>
-                )
-                return
-            }
-            actions.triggerDashboardUpdate({ tags: [...(values.dashboard?.tags || []), tag] })
-        },
-        deleteTag: async ({ tag }, breakpoint) => {
-            await breakpoint(100)
-            actions.triggerDashboardUpdate({ tags: values.dashboard?.tags.filter((_tag) => _tag !== tag) || [] })
         },
         setAutoRefresh: () => {
             actions.resetInterval()
