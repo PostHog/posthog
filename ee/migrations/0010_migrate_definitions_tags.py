@@ -56,7 +56,7 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("ee", "0009_null_definition_descriptions"), ("posthog", "0211_deprecated_old_tags")]
+    dependencies = [("ee", "0009_null_definition_descriptions"), ("posthog", "0212_deprecated_old_tags")]
 
     operations = [
         migrations.RunPython(forwards, reverse),

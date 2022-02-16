@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0210_drop_update_person_functions"),
+        ("posthog", "0211_async_migrations_errors_length"),
     ]
 
     operations = [

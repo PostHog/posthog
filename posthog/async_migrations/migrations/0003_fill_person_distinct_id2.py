@@ -35,7 +35,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0002_events_sample_by"
 
     # After releasing this version we can remove code related to `person_distinct_id` table
-    posthog_max_version = "1.34.0"
+    posthog_max_version = "1.33.9"
 
     def is_required(self):
         rows = sync_execute(
@@ -82,7 +82,6 @@ class Migration(AsyncMigrationDefinition):
                 )
                 GROUP BY team_id, distinct_id
             """,
-            resumable=True,
         )
 
     @cached_property

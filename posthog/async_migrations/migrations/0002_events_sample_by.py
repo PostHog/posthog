@@ -45,7 +45,6 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
             toYYYYMM(timestamp) >= {partition_gte} {lt_expression}
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-        resumable=True,
         timeout_seconds=2 * 24 * 60 * 60,  # two days
     )
     return op
@@ -60,7 +59,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0001_events_sample_by"
 
     posthog_min_version = "1.30.0"
-    posthog_max_version = "1.32.0"
+    posthog_max_version = "1.33.9"
 
     service_version_requirements = [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
@@ -80,7 +79,6 @@ class Migration(AsyncMigrationDefinition):
                 SAMPLE BY cityHash64(distinct_id) 
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-                resumable=True,
             )
         ]
 
@@ -94,7 +92,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                resumable=True,
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -122,10 +119,7 @@ class Migration(AsyncMigrationDefinition):
                 """,
             ),
             AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE,
-                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                rollback="",
-                resumable=True,
+                database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", rollback="",
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -135,7 +129,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                resumable=True,
             ),
         ]
 

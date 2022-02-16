@@ -59,7 +59,7 @@ class DeadLetterQueueMetric(object):
     subrows: Optional[List[Any]] = None
 
     def __init__(self, **kwargs):
-        for field in ("key", "value", "value", "subrows"):
+        for field in ("key", "metric", "value", "subrows"):
             setattr(self, field, kwargs.get(field, None))
 
 

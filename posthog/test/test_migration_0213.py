@@ -3,8 +3,8 @@ from posthog.test.base import TestMigrations
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0211_deprecated_old_tags"  # type: ignore
-    migrate_to = "0212_migrate_dashboard_insight_tags"  # type: ignore
+    migrate_from = "0212_deprecated_old_tags"  # type: ignore
+    migrate_to = "0213_migrate_dashboard_insight_tags"  # type: ignore
 
     def setUpBeforeMigration(self, apps):
         Dashboard = apps.get_model("posthog", "Dashboard")
