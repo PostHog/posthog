@@ -82,7 +82,6 @@ class Migration(AsyncMigrationDefinition):
                 )
                 GROUP BY team_id, distinct_id
             """,
-            resumable=True,
         )
 
     @cached_property
