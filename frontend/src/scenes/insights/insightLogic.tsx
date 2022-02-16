@@ -344,7 +344,7 @@ export const insightLogic = kea<insightLogicType>({
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
                     overrideFilter ? cleanFilters(filters || {}) : state,
-                loadInsightSuccess: ({ insight }) => insight.filters,
+                loadInsightSuccess: (state, { insight }) => (insight.filters ? insight.filters : state),
                 loadResultsSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
