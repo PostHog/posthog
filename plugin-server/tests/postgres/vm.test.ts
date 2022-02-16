@@ -9,7 +9,7 @@ import { delay, pluginDigest } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { PluginConfig, PluginConfigVMResponse } from './../../src/types';
+import { PluginConfig, PluginConfigVMResponse } from './../../src/types'
 import { LazyPluginVM } from './../../src/worker/vm/lazy'
 import { plugin60 } from './../helpers/plugins'
 
@@ -28,11 +28,14 @@ const defaultEvent = {
 
 // since we introduced super lazy vms, setupPlugin does not run immediately with
 // createPluginConfigVM - this function sets up the VM and runs setupPlugin immediately after
-const createReadyPluginConfigVm = async (hub: Hub, pluginConfig: PluginConfig, indexJs: string): Promise<PluginConfigVMResponse> => {
-    const vmResponse = createPluginConfigVM(hub, pluginConfig39, indexJs)
+const createReadyPluginConfigVm = async (
+    hub: Hub,
+    pluginConfig: PluginConfig,
+    indexJs: string
+): Promise<PluginConfigVMResponse> => {
+    const vmResponse = createPluginConfigVM(hub, pluginConfig, indexJs)
     await vmResponse.vm.run(`${vmResponse.vmResponseVariable}.methods.setupPlugin?.()`)
     return vmResponse
-
 }
 
 let hub: Hub
