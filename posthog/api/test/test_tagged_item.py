@@ -48,7 +48,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        self.assertEqual(Tag.objects.all().count(), 1)
 
     def test_undefined_tags_allows_other_props_to_update(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
