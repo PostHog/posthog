@@ -246,7 +246,7 @@ function Pages(): JSX.Element {
                         title="Instance settings"
                         icon={<DatabaseOutlined />}
                         identifier={Scene.SystemStatus}
-                        to={urls.systemStatus('configuration')}
+                        to={urls.systemSettings()}
                     />
                 </>
             )}

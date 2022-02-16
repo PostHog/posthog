@@ -78,14 +78,15 @@ export function SystemStatus(): JSX.Element {
                 <Tabs.TabPane tab="System overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
+                {systemStatus?.internal_metrics.clickhouse ||
+                    (true && (
+                        <Tabs.TabPane tab="Internal metrics" key="metrics">
+                            <InternalMetricsTab />
+                        </Tabs.TabPane>
+                    ))}
                 {user?.is_staff && (
-                    <Tabs.TabPane tab="Configuration" key="configuration">
+                    <Tabs.TabPane tab="Settings" key="settings">
                         <InstanceConfigTab />
-                    </Tabs.TabPane>
-                )}
-                {systemStatus?.internal_metrics.clickhouse && (
-                    <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
-                        <InternalMetricsTab />
                     </Tabs.TabPane>
                 )}
             </Tabs>

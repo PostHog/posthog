@@ -28,7 +28,7 @@ export interface MetricRow {
     value: any
 }
 
-export type InstanceStatusTabName = 'overview' | 'internal_metrics' | 'configuration'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings'
 
 /**
  * We whitelist the specific instance settings that can be edited via the /instance/status page.
@@ -190,7 +190,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
 
     listeners: ({ actions, values }) => ({
         setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
-            if (tab === 'internal_metrics') {
+            if (tab === 'metrics') {
                 actions.loadQueries()
             }
             actions.setInstanceConfigMode(ConfigMode.View)
@@ -235,12 +235,13 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
     }),
 
     actionToUrl: ({ values }) => ({
-        setTab: () => '/instance/status' + (values.tab === 'overview' ? '' : '/' + values.tab),
+        setTab: () => '/instance/' + (values.tab === 'overview' ? 'status' : values.tab),
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '/instance/status(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab = tab || 'overview'
+        '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
+            const currentTab = tab && ['metrics', 'settings'].includes(tab) ? tab : 'overview'
+            console.log(currentTab)
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }
