@@ -7,15 +7,18 @@
     height: 100%;
     border: 1px solid $border;
     border-radius: $radius;
-    padding: $recording_spacing;
 
     @media (max-width: $md) {
         height: 100vh;
     }
 
+    .event-search-input {
+        margin: $recording_spacing $recording_spacing 0 $recording_spacing;
+        width: auto;
+    }
+
     .event-list {
         flex: 1;
-        margin-top: $recording_spacing;
 
         .event-list-empty-container {
             display: flex;
@@ -27,19 +30,6 @@
             .ant-empty {
                 margin-bottom: 5rem;
             }
-        }
-
-        .current-events-highlight-box {
-            position: absolute;
-            width: 100%;
-            transition: height 200ms ease-in-out, transform 300ms ease-in-out;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 0;
-            background-color: $recording_hover_event;
-            border-radius: $radius;
-            z-index: 0;
         }
 
         .current-events-position-finder {
@@ -94,13 +84,26 @@
             scroll-behavior: smooth;
         }
 
+        .event-list-item-container {
+            flex: 1;
+            padding: 5px $recording_spacing 0px $recording_spacing;
+        }
+
         .event-list-item {
+            height: 100%;
+            width: 100%;
             padding: $recording_spacing;
             cursor: pointer;
             border-radius: $radius;
+            border: 1px solid $border;
+            flex: 1;
+
+            transition: background-color 200ms ease-in-out;
 
             &:hover,
             &.current-event {
+                background-color: $recording_hover_event;
+
                 .event-item-icon {
                     .event-item-icon-wrapper {
                         background-color: $recording_hover_event_dark;
@@ -120,6 +123,19 @@
 
             &.current-event:hover {
                 background-color: $recording_hover_event_mid;
+            }
+
+            &.highlighted-event {
+                border-color: $warning;
+            }
+
+            .event-list-item-highlight-dot {
+                position: absolute;
+                left: $recording_spacing - 5px;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background-color: $warning;
             }
 
             .event-item-icon {
@@ -155,21 +171,12 @@
                 min-width: 0;
 
                 .event-item-content-top-row {
+                    justify-content: space-between;
                     flex-wrap: nowrap;
 
                     .event-item-content-title {
                         font-weight: 600;
                         padding-right: $recording_spacing / 2;
-                        flex: 1;
-                    }
-
-                    .event-highlighted-dot {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 50%;
-                        background-color: $recording_highlight_event_dark;
-                        margin-right: $recording_spacing / 2;
-                        align-self: center;
                     }
                 }
 

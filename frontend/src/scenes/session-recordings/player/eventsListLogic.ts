@@ -7,7 +7,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const DEFAULT_ROW_HEIGHT = 65 // Two lines
+export const DEFAULT_ROW_HEIGHT = 70 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -134,36 +134,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     events.length - 1
                 ),
             }),
-        ],
-        currentEventsBoxSizeAndPosition: [
-            (selectors) => [selectors.currentEventsIndices, selectors.list],
-            (indices, list) => {
-                if (
-                    !list ||
-                    !list.Grid ||
-                    indices.startIndex >= list.Grid.props.rowCount ||
-                    indices.stopIndex > list.Grid.props.rowCount ||
-                    (indices.startIndex < 1 && indices.stopIndex < 1) ||
-                    indices.stopIndex < indices.startIndex
-                ) {
-                    return {
-                        top: 0,
-                        height: 0,
-                    }
-                }
-
-                const gridState = list.Grid.state as any
-                const top = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
-                    indices.startIndex
-                ).offset
-                const lastEventSize = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
-                    indices.stopIndex
-                )
-                return {
-                    top,
-                    height: lastEventSize.offset + lastEventSize.size - top,
-                }
-            },
         ],
         isRowIndexRendered: [
             (selectors) => [selectors.renderedRows],

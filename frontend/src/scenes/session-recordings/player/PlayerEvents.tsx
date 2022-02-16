@@ -5,12 +5,7 @@ import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } fro
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import List, { ListRowProps } from 'react-virtualized/dist/es/List'
-import {
-    defaultCellRangeRenderer,
-    GridCellRangeProps,
-    OverscanIndices,
-    OverscanIndicesGetterParams,
-} from 'react-virtualized/dist/es/Grid'
+import { OverscanIndices, OverscanIndicesGetterParams } from 'react-virtualized/dist/es/Grid'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import {
     eventsListLogic,
@@ -79,7 +74,7 @@ export function PlayerEvents(): JSX.Element {
     const {
         localFilters,
         listEvents,
-        currentEventsBoxSizeAndPosition,
+        currentEventsIndices,
         showPositionFinder,
         isRowIndexRendered,
         isEventCurrent,
@@ -105,83 +100,56 @@ export function PlayerEvents(): JSX.Element {
             return (
                 <Row
                     key={key}
-                    className={clsx('event-list-item', { 'current-event': isCurrent })}
-                    align="top"
+                    className="event-list-item-container"
                     style={{ ...style, zIndex: listEvents.length - index }}
-                    onClick={() => {
-                        handleEventClick(event.playerPosition)
-                    }}
                 >
-                    <Col className="event-item-icon">
-                        <div
-                            className={clsx('event-item-icon-wrapper', {
-                                'highlighted-event': event.isHighlighted,
+                    <Row
+                        className={clsx('event-list-item', {
+                            'current-event': isCurrent,
+                            'highlighted-event': event.isHighlighted,
+                        })}
+                        align="top"
+                        onClick={() => {
+                            handleEventClick(event.playerPosition)
+                        }}
+                    >
+                        {event.isHighlighted && <div className="event-list-item-highlight-dot" />}
+                        <Col className="event-item-icon">
+                            <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
+                        </Col>
+                        <Col
+                            className={clsx('event-item-content', {
+                                rendering: !isRowIndexRendered(index),
                             })}
                         >
-                            {renderIcon(event)}
-                        </div>
-                    </Col>
-                    <Col
-                        className={clsx('event-item-content', {
-                            rendering: !isRowIndexRendered(index),
-                        })}
-                    >
-                        <Row className="event-item-content-top-row">
-                            {event.isHighlighted && <div className="event-highlighted-dot" />}
-                            <PropertyKeyInfo
-                                className="event-item-content-title"
-                                value={event.event}
-                                disableIcon
-                                disablePopover
-                                ellipsis={true}
-                            />
-                            <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
-                        </Row>
-                        {hasDescription && (
-                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event, true))} />
-                        )}
-                        <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
-                    </Col>
+                            <Row className="event-item-content-top-row">
+                                <PropertyKeyInfo
+                                    className="event-item-content-title"
+                                    value={event.event}
+                                    disableIcon
+                                    disablePopover
+                                    ellipsis={true}
+                                />
+                                <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
+                            </Row>
+                            {hasDescription && (
+                                <EventDescription
+                                    description={capitalizeFirstLetter(eventToDescription(event, true))}
+                                />
+                            )}
+                            <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
+                        </Col>
+                    </Row>
                 </Row>
             )
         },
-        [
-            listEvents.length,
-            renderedRows.startIndex,
-            renderedRows.stopIndex,
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
-        ]
-    )
-
-    const cellRangeRenderer = useCallback(
-        function _cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
-            const children = defaultCellRangeRenderer(props)
-            if (listEvents.length > 0) {
-                children.push(
-                    <div
-                        key="highlight-box"
-                        className="current-events-highlight-box"
-                        style={{
-                            height: currentEventsBoxSizeAndPosition.height,
-                            transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
-                        }}
-                    />
-                )
-            }
-            return children
-        },
-        [
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
-            sessionEventsDataLoading,
-            listEvents.length,
-        ]
+        [listEvents.length, renderedRows.startIndex, renderedRows.stopIndex, currentEventsIndices.startIndex]
     )
 
     return (
         <Col className="player-events-container">
             <Input
+                className="event-search-input"
                 prefix={<SearchOutlined />}
                 placeholder="Search for events"
                 value={localFilters.query}
@@ -226,7 +194,6 @@ export function PlayerEvents(): JSX.Element {
                                         width={width}
                                         onRowsRendered={setRenderedRows}
                                         noRowsRenderer={noRowsRenderer}
-                                        cellRangeRenderer={cellRangeRenderer}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
                                         rowCount={listEvents.length}
