@@ -1606,7 +1606,7 @@ export class DB {
                     'selectPluginPublicJobsForUpdate',
                     client
                 )
-            ).rows[0].public_jobs
+            ).rows[0]?.public_jobs
 
             if (
                 !publicJobs ||
