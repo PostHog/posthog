@@ -6,7 +6,7 @@ import { determineNodeEnv, stringClamp } from '../../../utils/utils'
 import { createBuffer } from '../utils'
 import { NodeEnv } from './../../../utils/utils'
 
-const MAXIMUM_RETRIES = 5
+const MAXIMUM_RETRIES = 10
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
 const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
