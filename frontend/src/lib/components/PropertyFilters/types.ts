@@ -25,7 +25,6 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
-    propertyIndex?: number
     eventNames?: string[]
 }
 
@@ -38,5 +37,4 @@ export interface PropertyFilterInternalProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
     orFiltering?: boolean
-    propertyIndex?: number
 }

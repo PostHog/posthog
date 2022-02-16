@@ -50,12 +50,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
     selectors: {
         filter: [
-            (s) => [s.filters, (_, props) => props.filterIndex, (_, props) => props.propertyIndex],
-            (filters, filterIndex) => {
-                return filters[filterIndex] || null
-            },
+            (s) => [s.filters, (_, props) => props.filterIndex],
+            (filters, filterIndex) => filters[filterIndex] || null,
         ],
-        andOrCondition: [(s) => [s.filter], () => 'AND'],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
             (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),

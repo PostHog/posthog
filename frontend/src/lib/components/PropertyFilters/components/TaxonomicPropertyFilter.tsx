@@ -33,7 +33,6 @@ export function TaxonomicPropertyFilter({
     taxonomicGroupTypes,
     eventNames,
     orFiltering,
-    propertyIndex,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -59,12 +58,11 @@ export function TaxonomicPropertyFilter({
         pageKey,
         propertyFilterLogic: builtPropertyFilterLogic,
         filterIndex: index,
-        propertyIndex: propertyIndex,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
         eventNames,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup, andOrCondition } = useValues(logic)
+    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
@@ -100,14 +98,14 @@ export function TaxonomicPropertyFilter({
             ) : (
                 <div className={`taxonomic-filter-row ${orFiltering ? 'and-or' : ''}`}>
                     <Col className="taxonomic-where">
-                        {(index === 0 && !propertyIndex) || propertyIndex === 0 ? (
+                        {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
                                 <span className="primary-alt">where</span>
                             </>
                         ) : orFiltering ? (
                             <div className="primary-alt">
-                                <b>{andOrCondition === AndOr.AND ? '&' : AndOr.OR}</b>
+                                <b>{AndOr.OR}</b>
                             </div>
                         ) : (
                             <span className="stateful-badge and" style={{ fontSize: '90%' }}>

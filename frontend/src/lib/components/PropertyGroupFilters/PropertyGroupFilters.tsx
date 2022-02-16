@@ -1,10 +1,8 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AndOrPropertyFilter, AndOrPropertyGroup } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Placement } from '@popperjs/core'
 import { Button, Col, Row, Select } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import './PropertyGroupFilters.scss'
@@ -12,17 +10,11 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 
 interface PropertyGroupFilters {
-    endpoint?: string | null
     propertyFilters?: AndOrPropertyFilter | null
     onChange: (filters: AndOrPropertyFilter) => void
     pageKey: string
-    showConditionBadge?: boolean
-    disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    showNestedArrow?: boolean
     eventNames?: string[]
 }
 
