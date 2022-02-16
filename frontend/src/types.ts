@@ -674,7 +674,7 @@ export interface InsightModel {
     created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
-    last_refresh: string
+    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null

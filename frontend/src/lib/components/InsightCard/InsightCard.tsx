@@ -117,6 +117,8 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
+    /** Whether loading timed out. */
+    timedOut?: boolean
     showResizeHandles?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
@@ -169,16 +171,17 @@ function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
-    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
-        insight.filters.insight || InsightType.TRENDS
-    )
-
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
 
     useEffect(() => {
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
+
+    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
+        insight.filters.insight || InsightType.TRENDS
+    )
+    const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
     const transitionStyles = primaryHeight
@@ -226,11 +229,9 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            compact
+                                            compact={showDetailsButtonLabel}
                                         >
-                                            {primaryWidth &&
-                                                primaryWidth > 480 &&
-                                                `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                            {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
                                     <More
@@ -382,9 +383,7 @@ function InsightMeta({
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'style'> {
-    /** Whether loading timed out. */
-    timedOut?: boolean
+interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
     empty?: boolean
@@ -428,15 +427,17 @@ function InsightViz({
                 <InsightEmptyState />
             ) : timedOut ? (
                 <InsightTimeoutState isLoading={!!loading} />
-            ) : apiErrored ? (
+            ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                <VizComponent
-                    dashboardItemId={short_id}
-                    cachedResults={cachedResults}
-                    filters={filters}
-                    showPersonsModal={false}
-                />
+                !apiErrored && (
+                    <VizComponent
+                        dashboardItemId={short_id}
+                        cachedResults={cachedResults}
+                        filters={filters}
+                        showPersonsModal={false}
+                    />
+                )
             )}
         </div>
     )
@@ -447,6 +448,7 @@ function InsightCardInternal(
         insight,
         loading,
         apiErrored,
+        timedOut,
         highlighted,
         showResizeHandles,
         updateColor,
@@ -487,13 +489,15 @@ function InsightCardInternal(
             empty = true
         }
     }
-    if (!loading) {
-        loading = insightLoading
+    if (insightLoading) {
+        loading = true
     }
-    if (!apiErrored) {
-        loading = showErrorMessage
+    if (showErrorMessage) {
+        apiErrored = true
     }
-    const timedOut = showTimeoutMessage
+    if (showTimeoutMessage) {
+        timedOut = true
+    }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)

@@ -349,7 +349,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 let lastRefreshed = items[0].last_refresh
 
                 for (const item of items) {
-                    if (item.last_refresh < lastRefreshed) {
+                    if (item.last_refresh && (!lastRefreshed || item.last_refresh < lastRefreshed)) {
                         lastRefreshed = item.last_refresh
                     }
                 }
