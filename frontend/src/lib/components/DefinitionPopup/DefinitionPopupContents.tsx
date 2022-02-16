@@ -12,7 +12,7 @@ import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { IconOpenInNew } from 'lib/components/icons'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
@@ -273,7 +273,7 @@ function DefinitionEdit(): JSX.Element {
         dirty,
         viewFullDetailUrl,
     } = useValues(definitionPopupLogic)
-    const { setLocalDefinition, setNewTag, deleteTag, handleCancel, handleSave } = useActions(definitionPopupLogic)
+    const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopupLogic)
 
     if (!definition || !hasTaxonomyFeatures) {
         return <></>
@@ -313,8 +313,7 @@ function DefinitionEdit(): JSX.Element {
                             <ObjectTags
                                 className="definition-popup-edit-form-value"
                                 tags={localDefinition.tags || []}
-                                onTagSave={setNewTag}
-                                onTagDelete={deleteTag}
+                                onChange={(_, tags) => setLocalDefinition({ tags })}
                                 saving={false}
                             />
                         </div>

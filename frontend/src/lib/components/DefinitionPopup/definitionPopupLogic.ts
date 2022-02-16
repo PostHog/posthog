@@ -35,8 +35,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopupState: (state: DefinitionPopupState) => ({ state }),
-        setNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
         handleCancel: true,
     },
     reducers: {
@@ -186,24 +184,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             ) {
                 actions.setPopupState(DefinitionPopupState.View)
             }
-        },
-        setNewTag: async ({ tag }) => {
-            if (!values.definition || !('tags' in values.definition)) {
-                return
-            }
-            const _definition = values.localDefinition as EventDefinition | PropertyDefinition | ActionType
-            if (_definition.tags?.includes(tag)) {
-                errorToast('Oops! This tag is already set', `This ${values.singularType} already includes this tag.`)
-                return
-            }
-            actions.setLocalDefinition({ tags: _definition?.tags ? [..._definition.tags, tag] : [tag] })
-        },
-        deleteTag: async ({ tag }) => {
-            if (!values.definition || !('tags' in values.definition)) {
-                return
-            }
-            const _definition = values.localDefinition as EventDefinition | PropertyDefinition | ActionType
-            actions.setLocalDefinition({ tags: _definition.tags?.filter((_tag: string) => _tag !== tag) || [] })
         },
         handleSave: () => {
             actions.setPopupState(DefinitionPopupState.View)
