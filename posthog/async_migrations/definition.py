@@ -52,7 +52,7 @@ class AsyncMigrationOperation:
         rollback=None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         resumable=False,
-        timeout_seconds: int = 60,
+        timeout_seconds: int = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS"),
     ):
         return cls(
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
@@ -66,7 +66,7 @@ class AsyncMigrationOperation:
         cls,
         sql: str,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
-        timeout_seconds: int = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT"),
+        timeout_seconds: int = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS"),
     ):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 

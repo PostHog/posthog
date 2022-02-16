@@ -22,10 +22,11 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
-def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
+def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
     from ee.clickhouse.client import sync_execute
 
-    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    settings = settings if settings else {"max_execution_time": timeout_seconds}
+    sync_execute(f"/* {query_id} */ " + sql, settings=settings)
 
 
 def execute_op_postgres(sql: str, query_id: str):
