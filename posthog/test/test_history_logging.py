@@ -1,8 +1,7 @@
 from datetime import datetime
 
-from posthog.helpers.item_history import HistoryListItem, compute_history
-from posthog.mixins import pairwise
 from posthog.models import HistoricalVersion
+from posthog.models.history_logging import HistoryListItem, compute_history, pairwise
 
 
 def test_no_history_returns_an_empty_list():

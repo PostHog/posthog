@@ -1,7 +1,19 @@
 import dataclasses
+from itertools import zip_longest
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
+from rest_framework import serializers
+
 from posthog.models import HistoricalVersion
+
+
+class HistoryListItemSerializer(serializers.Serializer):
+    email = serializers.EmailField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    user_id = serializers.IntegerField(read_only=True)
+    action = serializers.CharField(read_only=True)
+    detail = serializers.DictField(read_only=True)
+    created_at = serializers.CharField(read_only=True)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -12,6 +24,49 @@ class HistoryListItem:
     action: str
     detail: Dict[str, Union[int, str, Dict]]
     created_at: str
+
+
+# from https://stackoverflow.com/a/4628446/222163
+def pairwise(t: List[HistoricalVersion]) -> Iterable[Tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
+    left = iter(t)
+    right = iter(t[1:])
+    return zip_longest(left, right)
+
+
+def load_history(history_type: str, team_id: int, item_id: int, instance, serializer):
+    """
+     * loads a page of history for that type and id (newest first)
+     * and returns a computed history for that page of history
+    """
+
+    # In order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
+    versions = list(
+        HistoricalVersion.objects.filter(team_id=team_id, name=history_type, item_id=item_id).order_by("-versioned_at")[
+            :11
+        ]
+    )
+
+    if len(versions) == 0:
+        """
+        This item existed before history logging and this is the first time it's been viewed.
+        Create an import and capture the state as it is now
+        Otherwise the first change made by a user shows as a change to every field
+        """
+        imported_version = HistoricalVersion(
+            state=serializer(instance).data,
+            name="FeatureFlag",
+            action="update",
+            item_id=item_id,
+            created_by_name="history hog",
+            created_by_email="history.hog@posthog.com",
+            created_by_id=0,
+            team_id=team_id,
+        )
+        imported_version.save()
+
+        versions.append(imported_version)
+
+    return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
 
 
 def compute_history(

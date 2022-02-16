@@ -11,9 +11,11 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin, HistoryListItemSerializer, HistoryLoggingMixin, load_history
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.historical_version import HistoryLoggingMixin
+from posthog.models.history_logging import HistoryListItemSerializer, load_history
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 

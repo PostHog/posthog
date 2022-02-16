@@ -5,11 +5,11 @@ from unittest.mock import patch
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.helpers.item_history import HistoryListItem
-from posthog.mixins import as_deletion_state
 from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.historical_version import as_deletion_state
+from posthog.models.history_logging import HistoryListItem
 from posthog.test.base import APIBaseTest
 
 
