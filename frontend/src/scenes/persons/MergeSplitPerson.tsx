@@ -66,7 +66,7 @@ function MergePerson(): JSX.Element {
                 <code title={person.distinct_ids[0]}>{midEllipsis(person.distinct_ids[0], 20)}</code>
                 <span style={{ fontSize: '1.2em' }}>)</span>. Properties get merged based on timestamps, see more
                 details on{' '}
-                <a href="https://https://posthog.com/docs/integrate/user-properties#how-do-values-get-overridden">
+                <a href="https://posthog.com/docs/integrate/user-properties#how-do-values-get-overridden">
                     PostHog Docs
                 </a>
                 .

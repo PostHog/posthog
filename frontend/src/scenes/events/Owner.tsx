@@ -12,7 +12,7 @@ export function Owner({ user, style = {} }: { user?: UserBasicType | null; style
                 </div>
             ) : (
                 <span className="text-muted" style={{ fontStyle: 'italic', ...style }}>
-                    No Owner
+                    No owner
                 </span>
             )}
         </>

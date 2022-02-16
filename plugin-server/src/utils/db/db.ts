@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import {
     KAFKA_GROUPS,
@@ -67,7 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
+import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -76,6 +76,7 @@ import {
     generatePostgresValuesString,
     getFinalPostgresQuery,
     hashElements,
+    shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
@@ -1085,6 +1086,12 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
+
+        const logLevel = pluginConfig.plugin?.log_level
+
+        if (!shouldStoreLog(logLevel || 0, source, type)) {
+            return
+        }
 
         const parsedEntry = {
             id: new UUIDT().toString(),

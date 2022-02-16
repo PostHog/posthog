@@ -65,7 +65,7 @@ export function PathItemFilters({
                                         </Button>
                                     ) : (
                                         <Row align="middle">
-                                            <FilterButton>{filter.value as string}</FilterButton>
+                                            <FilterButton item={filter}>{filter.value as string}</FilterButton>
                                             {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {

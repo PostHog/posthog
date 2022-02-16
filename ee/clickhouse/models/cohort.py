@@ -14,6 +14,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
+    GET_COHORTS_BY_PERSON_UUID,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
@@ -364,3 +365,8 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
         return group_filters[0]
     else:
         return []
+
+
+def get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    return [row[0] for row in res]
