@@ -85,7 +85,10 @@ export function DefinitionDrawer(): JSX.Element {
                                         </Row>
                                         {type === 'event' && (
                                             <Row>
-                                                <DefinitionOwnerDropdown owner={definition.owner || null} />
+                                                <div style={{ paddingTop: 16 }}>
+                                                    <h4 className="l4">Owner</h4>
+                                                    <DefinitionOwnerDropdown owner={definition.owner || null} />
+                                                </div>
                                             </Row>
                                         )}
                                     </Col>

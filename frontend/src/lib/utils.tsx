@@ -174,7 +174,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     setTimeout(
         () =>
             toast.error(
-                <div>
+                <div className="click-outside-block">
                     <h1>
                         <ExclamationCircleOutlined /> {title || 'Something went wrong'}
                     </h1>
