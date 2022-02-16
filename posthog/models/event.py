@@ -5,19 +5,14 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db import connection, models, transaction
-from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
-from django.forms.models import model_to_dict
+from django.db import models, transaction
+from django.db.models import F, OuterRef, Q, Subquery
 from django.utils import timezone
 
-from .action import Action
-from .action_step import ActionStep
 from .element import Element
 from .element_group import ElementGroup
-from .filters import Filter
-from .person import Person, PersonDistinctId
+from .person import PersonDistinctId
 from .team import Team
-from .utils import namedtuplefetchall
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -180,31 +175,6 @@ class EventManager(models.QuerySet):
 
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
-    def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
-        if not action_step.url:
-            return subquery
-        if action_step.url_matching == ActionStep.EXACT:
-            where, param = "properties->>'$current_url' = %s", action_step.url
-        elif action_step.url_matching == ActionStep.REGEX:
-            where, param = "properties->>'$current_url' ~ %s", action_step.url
-        else:
-            where, param = "properties->>'$current_url' LIKE %s", f"%{action_step.url}%"
-        return subquery.extra(where=[where], params=[param])
-
-    def filter_by_event(self, action_step):
-        if not action_step.event:
-            return {}
-        return {"event": action_step.event}
-
-    def filter_by_period(self, start, end):
-        if not start and not end:
-            return {}
-        if not start:
-            return {"created_at__lte": end}
-        if not end:
-            return {"created_at__gte": start}
-        return {"created_at__gte": start, "created_at__lte": end}
-
     def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
@@ -213,18 +183,6 @@ class EventManager(models.QuerySet):
                 .values("person_id")[:1]
             )
         )
-
-    def filter_by_action(self, action: Action, order_by: str = "-id") -> models.QuerySet:
-        events = self.filter(action=action).add_person_id(team_id=action.team_id)
-        if order_by:
-            events = events.order_by(order_by)
-        return events
-
-    def filter_by_event_with_people(self, event, team_id: int, order_by: str = "-id") -> models.QuerySet:
-        events = self.filter(team_id=team_id).filter(event=event).add_person_id(team_id=team_id)
-        if order_by:
-            events = events.order_by(order_by)
-        return events
 
     def create(self, *args: Any, **kwargs: Any):
         site_url = kwargs.get("site_url")
