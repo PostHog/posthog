@@ -48,6 +48,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.settings import DEBUG
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import get_safe_cache, relative_date_parse, str_to_bool
 
@@ -199,7 +200,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend] if DEBUG else []
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
 

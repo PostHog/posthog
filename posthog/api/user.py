@@ -23,6 +23,7 @@ from posthog.auth import authenticate_secondarily
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
+from posthog.settings import DEBUG
 from posthog.tasks import user_identify
 
 
@@ -167,7 +168,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     permission_classes = [
         permissions.IsAuthenticated,
     ]
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend] if DEBUG else []
     filterset_fields = [
         "is_staff",
     ]
