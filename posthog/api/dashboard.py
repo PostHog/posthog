@@ -77,7 +77,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
-        validated_data.pop("tags", None)  # Tags are created separately below
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -122,7 +122,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 )
 
         # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(self.initial_data.get("tags"), dashboard)
+        self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
