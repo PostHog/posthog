@@ -22,6 +22,7 @@ interface PropertyFiltersProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     eventNames?: string[]
+    orFiltering?: boolean
 }
 
 export function PropertyFilters({
@@ -36,6 +37,7 @@ export function PropertyFilters({
     style = {},
     showNestedArrow = false,
     eventNames = [],
+    orFiltering = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -65,6 +67,7 @@ export function PropertyFilters({
                             showNestedArrow={showNestedArrow}
                             label={'Add filter'}
                             onRemove={remove}
+                            orFiltering={orFiltering}
                             filterComponent={(onComplete) => (
                                 <TaxonomicPropertyFilter
                                     key={index}

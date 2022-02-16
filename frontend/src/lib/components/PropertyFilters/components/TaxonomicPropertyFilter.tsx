@@ -21,7 +21,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AndOr } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
+import { AndOr } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 
 let uniqueMemoizedIndex = 0
 
@@ -157,9 +157,7 @@ export function TaxonomicPropertyFilter({
                                         newValue || null,
                                         newOperator,
                                         filter?.type,
-                                        filter?.group_type_index,
-                                        index,
-                                        propertyIndex
+                                        filter?.group_type_index
                                     )
                                 }
                                 if (

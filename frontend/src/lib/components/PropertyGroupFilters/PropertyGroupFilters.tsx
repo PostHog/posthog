@@ -1,20 +1,19 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
-import { propertyFilterLogic } from '../PropertyFilters/propertyFilterLogic'
 import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AndOrPropertyFilter, AndOrPropertyGroup, AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AndOrPropertyFilter, AndOrPropertyGroup } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
-import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { Button, Col, Row, Select } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
-import './MatchPropertyFilters.scss'
+import './PropertyGroupFilters.scss'
+import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
+import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 
-interface MatchPropertyFiltersProps {
+interface PropertyGroupFilters {
     endpoint?: string | null
-    propertyFilters?: AndOrPropertyFilter | null | PropertyFilter[]
+    propertyFilters?: AndOrPropertyFilter | null
     onChange: (filters: AndOrPropertyFilter) => void
     pageKey: string
     showConditionBadge?: boolean
@@ -27,35 +26,43 @@ interface MatchPropertyFiltersProps {
     eventNames?: string[]
 }
 
-export function MatchPropertyFilters({
+export function PropertyGroupFilters({
     propertyFilters = null,
     onChange,
     pageKey,
-    showConditionBadge = false,
-    popoverPlacement = null,
-    taxonomicPopoverPlacement = undefined,
     taxonomicGroupTypes,
     style = {},
-    showNestedArrow = false,
     eventNames = [],
-}: MatchPropertyFiltersProps): JSX.Element {
+}: PropertyGroupFilters): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
-    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters, addFilterGroup, addPropertyToGroup, removeFilterGroup } = useActions(
-        propertyFilterLogic(logicProps)
-    )
+    const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
+    const {
+        setFilters,
+        addFilterGroup,
+        addPropertyToGroup,
+        removeFilterGroup,
+        setPropertyGroupType,
+        setPropertyFilters,
+    } = useActions(propertyGroupFilterLogic(logicProps))
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        setFilters(propertyFilters ?? { groups: [] })
     }, [propertyFilters])
+
+    console.log('filters with new', filtersWithNew)
 
     return (
         <>
             {filtersWithNew.groups && (
-                <div className="property-filters">
-                    <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                        {filtersWithNew.type && <AndOrFilterSelect value={filtersWithNew.type} onChange={() => {}} />}
+                <div className="property-group-filters">
+                    <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
+                        {filtersWithNew.type && (
+                            <AndOrFilterSelect
+                                value={filtersWithNew.type}
+                                onChange={(value) => setPropertyGroupType(value)}
+                            />
+                        )}
                         {filtersWithNew.groups.map((group: AndOrPropertyGroup, propertyGroupIndex: number) => {
                             return (
                                 <>
@@ -76,44 +83,16 @@ export function MatchPropertyFilters({
                                                 style={{ fontSize: 16, color: 'var(--primary-alt)' }}
                                             />
                                         </Row>
-                                        {group.groups.map((item: AnyPropertyFilter, propertyIndex: number) => (
-                                            <FilterRow
-                                                key={propertyIndex}
-                                                item={item}
-                                                index={propertyIndex}
-                                                totalCount={group.groups.length - 1} // empty state
-                                                filters={group.groups}
-                                                orFiltering={true}
-                                                pageKey={`${pageKey}-${propertyGroupIndex}-${propertyIndex}`}
-                                                showConditionBadge={showConditionBadge}
-                                                disablePopover={true}
-                                                popoverPlacement={popoverPlacement}
-                                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                                                showNestedArrow={showNestedArrow}
-                                                label={'Add filter group'}
-                                                onRemove={() => remove(propertyGroupIndex, propertyIndex)}
-                                                filterComponent={(onComplete) => (
-                                                    <TaxonomicPropertyFilter
-                                                        key={propertyIndex}
-                                                        pageKey={`${pageKey}-${propertyGroupIndex}-${propertyIndex}`}
-                                                        index={propertyGroupIndex}
-                                                        propertyIndex={propertyIndex}
-                                                        onComplete={() => {
-                                                            onComplete
-                                                        }}
-                                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                                        eventNames={eventNames}
-                                                        disablePopover={true}
-                                                        orFiltering={true}
-                                                        selectProps={{
-                                                            delayBeforeAutoOpen: 150,
-                                                            // placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                                            placement: undefined,
-                                                        }}
-                                                    />
-                                                )}
-                                            />
-                                        ))}
+                                        <PropertyFilters
+                                            orFiltering={true}
+                                            propertyFilters={group.groups}
+                                            onChange={(properties) => {
+                                                setPropertyFilters(properties, propertyGroupIndex)
+                                            }}
+                                            pageKey={`trends-filters-${propertyGroupIndex}`}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            eventNames={eventNames}
+                                        />
                                         {Object.keys(group.groups[group.groups.length - 1]).length > 0 && (
                                             <Button
                                                 style={{
@@ -130,7 +109,7 @@ export function MatchPropertyFilters({
                                         )}
                                     </div>
                                     {propertyGroupIndex !== filtersWithNew?.groups.length - 1 && (
-                                        <Row>{group.type}</Row>
+                                        <Row>{filtersWithNew.type}</Row>
                                     )}
                                 </>
                             )
@@ -162,7 +141,7 @@ export enum AndOr {
 }
 
 interface AndOrFilterSelectProps {
-    onChange: () => void
+    onChange: (type: AndOr) => void
     value: string
 }
 
@@ -174,8 +153,8 @@ export function AndOrFilterSelect({ onChange, value }: AndOrFilterSelectProps): 
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue="all"
-                onChange={onChange}
+                defaultValue={AndOr.AND}
+                onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
             >
                 <Select.Option value={AndOr.AND} label="all" className="condition-option">

@@ -9,7 +9,6 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { isAndOrPropertyFilter } from '../propertyFilterLogic'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
@@ -52,14 +51,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors: {
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex, (_, props) => props.propertyIndex],
-            (filters, filterIndex, propertyIndex) => {
-                if (isAndOrPropertyFilter(filters)) {
-                    if (propertyIndex !== undefined) {
-                        return filters.groups[filterIndex].groups[propertyIndex] || null
-                    }
-                } else {
-                    return filters[filterIndex] || null
-                }
+            (filters, filterIndex) => {
+                return filters[filterIndex] || null
             },
         ],
         andOrCondition: [(s) => [s.filter], () => 'AND'],
@@ -105,9 +98,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         null, // Reset value field
                         operator,
                         propertyType,
-                        taxonomicGroup.groupTypeIndex,
-                        props.filterIndex,
-                        props.propertyIndex
+                        taxonomicGroup.groupTypeIndex
                     )
                 }
                 actions.closeDropdown()

@@ -18,9 +18,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { alphabet } from 'lib/utils'
-import { MatchPropertyFilters } from 'lib/components/MatchPropertyFilters/MatchPropertyFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 
 export interface TrendTabProps {
     view: string
@@ -112,7 +112,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             <GlobalFiltersTitle />
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
-                                <MatchPropertyFilters
+                                <PropertyGroupFilters
                                     propertyFilters={filters.property_groups}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                                     onChange={(property_groups) => {
