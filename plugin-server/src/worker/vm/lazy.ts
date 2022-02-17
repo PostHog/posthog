@@ -62,7 +62,11 @@ export class LazyPluginVM {
     }
 
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
-        return await this.getVmMethod('teardownPlugin')
+        // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
+        if (!this.ready) {
+            return null
+        }
+        return (await this.resolveInternalVm)?.methods['teardownPlugin'] || null
     }
 
     public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
@@ -83,7 +87,7 @@ export class LazyPluginVM {
 
     private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
         const vmMethod = (await this.resolveInternalVm)?.methods[method] || null
-        if (!this.ready && method) {
+        if (!this.ready && vmMethod) {
             await this.setupPluginIfNeeded()
         }
 
@@ -116,6 +120,13 @@ export class LazyPluginVM {
                         (vm.tasks?.schedule && Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
                     if (shouldSetupNow) {
+                        console.log('I SHOULD SET UP NOWWWWW')
+                        console.log('I SHOULD SET UP NOWWWWW')
+                        console.log('I SHOULD SET UP NOWWWWW')
+                        console.log('I SHOULD SET UP NOWWWWW')
+                        console.log('I SHOULD SET UP NOWWWWW')
+                        console.log('I SHOULD SET UP NOWWWWW')
+
                         await vm.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
                         this.ready = true
                     }
