@@ -254,7 +254,7 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.assertNotEqual(recording.segments[0].start_time, now())
 
         def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, source=0, team_id=None):
-            if team_id == None:
+            if team_id is None:
                 team_id = self.team.pk
             session_recording_event_factory(
                 team_id=team_id,
