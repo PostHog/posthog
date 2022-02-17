@@ -14,7 +14,7 @@ from posthog.helpers.session_recording import (
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
 )
-from posthog.models import Team
+from posthog.models import SessionRecordingEvent, Team
 
 
 @dataclasses.dataclass
@@ -33,6 +33,9 @@ class SessionRecording:
         self._request = request
         self._session_recording_id = session_recording_id
         self._team = team
+
+    def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+        raise NotImplementedError()
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [

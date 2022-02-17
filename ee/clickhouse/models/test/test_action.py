@@ -28,7 +28,7 @@ class MockEvent:
 
 
 def _get_events_for_action(action: Action) -> List[MockEvent]:
-    formatted_query, params = format_action_filter(action, "")
+    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
     events = sync_execute(query, {"team_id": action.team_id, **params})
