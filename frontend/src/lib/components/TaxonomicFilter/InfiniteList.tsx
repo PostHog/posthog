@@ -258,7 +258,6 @@ export function InfiniteList(): JSX.Element {
     const {
         isLoading,
         results,
-        totalCount,
         index,
         listGroupType,
         group,
