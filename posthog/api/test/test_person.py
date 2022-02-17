@@ -211,7 +211,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -272,7 +272,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = Person.objects.all().order_by("id")
-        self.assertEqual(len(people), 3)
+        self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertEqual(people[1].distinct_ids, ["2"])
@@ -286,7 +286,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post("/api/person/%s/split/" % person1.pk,)
         people = Person.objects.all().order_by("id")
-        self.assertEqual(len(people), 3)
+        self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {})
         self.assertEqual(people[1].distinct_ids, ["2"])
