@@ -74,7 +74,7 @@ class TestFilters(PGTestFilters):
         )
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -85,7 +85,7 @@ class TestFilters(PGTestFilters):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             self.assertEqual(
-                filter.simplify(self.team).property_groups_to_dict(),
+                filter.simplify(self.team).properties_to_dict(),
                 {
                     "property_groups": {
                         "type": "AND",
@@ -99,7 +99,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -113,7 +113,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -130,7 +130,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -151,7 +151,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": recursive_cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -164,7 +164,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": 555_555}]})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -227,7 +227,7 @@ class TestFilters(PGTestFilters):
         filter = RetentionFilter(data={"aggregation_group_type_index": 0})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -240,7 +240,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",

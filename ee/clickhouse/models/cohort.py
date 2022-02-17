@@ -365,7 +365,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
             # :TRICKY: cohort groups will only contain 1 level deep properties which means we can use _property_groups_flat to return
             # TODO: Update this when cohort groups use property_groups
             filter = Filter(data=group, team=team)
-            group_filters.append(filter._property_groups_flat(filter.property_groups))
+            group_filters.append(filter.property_groups_flat)
 
     if len(group_filters) > 1:
         # :TODO: Support or properties

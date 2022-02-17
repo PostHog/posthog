@@ -48,7 +48,7 @@ class TestFilter(BaseTest):
 
         filter = Filter(data=data, team=self.team)
         self.assertEqual(
-            filter.property_groups_to_dict(),
+            filter.properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -61,7 +61,7 @@ class TestFilter(BaseTest):
         filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
 
         self.assertEqual(
-            filter.property_groups_to_dict(),
+            filter.properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
@@ -83,7 +83,7 @@ class TestFilter(BaseTest):
         self.assertTrue(filter.is_simplified)
 
         self.assertEqual(
-            filter.simplify(self.team).property_groups_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {
                 "property_groups": {
                     "type": "AND",
