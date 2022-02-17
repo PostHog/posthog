@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Optional
+from typing import Callable
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -7,7 +7,7 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Cohort, Element, Event, Filter, Organization, Person, Team
+from posthog.models import Cohort, Filter, Person, Team
 from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
 
