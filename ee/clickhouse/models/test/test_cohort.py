@@ -14,8 +14,7 @@ from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort, CohortPeople
-from posthog.models.event import Event
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -24,11 +23,10 @@ from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
 
-def _create_event(**kwargs) -> Event:
+def _create_event(**kwargs) -> None:
     pk = uuid4()
     kwargs.update({"event_uuid": pk})
     create_event(**kwargs)
-    return Event(pk=str(pk))
 
 
 def _create_action(**kwargs):

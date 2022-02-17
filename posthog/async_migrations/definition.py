@@ -26,15 +26,9 @@ class AsyncMigrationOperation:
         self,
         fn: Callable[[str], None],
         rollback_fn: Callable[[str], None] = lambda _: None,
-        resumable=False,
         debug_context: Optional[Any] = None,
     ):
         self.fn = fn
-        # if the operation is dynamic and knows how to restart correctly after a crash
-        # Example:
-        #   - Not resumable: `INSERT INTO table1 (col1) SELECT col1 FROM table2`
-        #   - Resumable: `INSERT INTO table2 (foo, timestamp) SELECT foo, timestamp FROM table1 WHERE timestamp > (SELECT max(timestamp) FROM table2)`
-        self.resumable = resumable
 
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
@@ -44,17 +38,11 @@ class AsyncMigrationOperation:
 
     @classmethod
     def simple_op(
-        cls,
-        sql,
-        rollback=None,
-        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
-        resumable=False,
-        timeout_seconds: int = 60,
+        cls, sql, rollback=None, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60,
     ):
         return cls(
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
             rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
-            resumable=resumable,
             debug_context={"sql": sql, "rollback": rollback, "database": database},
         )
 
@@ -93,7 +81,7 @@ class AsyncMigrationDefinition:
     depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
-    # e.g. instances with CLICKHOUSE_REPLICATION == True might need different migrations
+    # e.g. instances with CLICKHOUSE_REPLICATION is True might need different migrations
     def is_required(self) -> bool:
         return True
 

@@ -114,7 +114,7 @@ def test_includes_only_intervals_within_range(client: Client):
         ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class TrendsRequest:
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -126,7 +126,7 @@ class TrendsRequest:
     properties: List[Dict[str, Any]] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class TrendsRequestBreakdown(TrendsRequest):
     breakdown: Optional[Union[List[int], str]] = None
     breakdown_type: Optional[str] = None
@@ -159,7 +159,7 @@ def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
     return response.json()
 
 
-@dataclass
+@dataclass(frozen=True)
 class NormalizedTrendResult:
     value: float
     label: str

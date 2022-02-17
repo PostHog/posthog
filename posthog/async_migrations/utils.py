@@ -87,14 +87,6 @@ def process_error(
     attempt_migration_rollback(migration_instance)
 
 
-def can_resume_migration(migration_instance: AsyncMigration):
-    from posthog.async_migrations.runner import is_current_operation_resumable
-
-    if not is_current_operation_resumable(migration_instance):
-        return False, "Can't resume a migration because the current operation isn't resumable"
-    return True, ""
-
-
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
     from posthog.tasks.async_migrations import run_async_migration
 
@@ -182,7 +174,7 @@ def update_async_migration(
         else:
             instance.refresh_from_db()
         if error is not None:
-            AsyncMigrationError.objects.create(async_migration=instance, description=error[:398]).save()
+            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
         if current_query_id is not None:
             instance.current_query_id = current_query_id
         if celery_task_id is not None:

@@ -8,30 +8,14 @@ from django.db.models.query import Prefetch
 from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates
-
-"""
-process_entity_for_events takes in an Entity and team_id, and returns an Event QuerySet that's correctly filtered
-"""
-
-
-def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> QuerySet:
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        events = Event.objects.filter(action__pk=entity.id).add_person_id(team_id)
-        if order_by:
-            events = events.order_by(order_by)
-        return events
-    elif entity.type == TREND_FILTER_TYPE_EVENTS:
-        return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team_id, order_by=order_by)
-    return QuerySet()
 
 
 def determine_compared_filter(filter) -> Filter:
@@ -211,15 +195,3 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
 
     queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return queryset
-
-
-class BaseQuery:
-    """
-        Run needs to be implemented in the individual Query class. It takes in a Filter, Team
-        and optionally other arguments within kwargs (though use sparingly!)
-
-        The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
-    """
-
-    def run(self, filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        raise NotImplementedError("You need to implement run")

@@ -1,4 +1,5 @@
-from typing import Dict, Optional, Tuple, Union
+import dataclasses
+from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
@@ -12,7 +13,18 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow
+
+
+@dataclasses.dataclass
+class AppearanceRow:
+    """
+    Container for the rows of the "Appearance count" query.
+    """
+
+    actor_id: str
+    appearance_count: int
+    # This is actually the number of days from first event to the current event.
+    appearances: List[float]
 
 
 class ClickhouseRetentionActors(ActorBaseQuery):

@@ -1,4 +1,4 @@
-import dataclasses
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
@@ -23,7 +23,7 @@ Probability = float
 P_VALUE_SIGNIFICANCE_LEVEL = 0.05
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     count: int
@@ -120,7 +120,7 @@ class ClickhouseTrendExperimentResult:
             "filters": self.query_filter.to_dict(),
             "significance_code": significance_code,
             "p_value": p_value,
-            "variants": [dataclasses.asdict(variant) for variant in [control_variant, *test_variants]],
+            "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, insight_results, exposure_results):
@@ -168,10 +168,10 @@ class ClickhouseTrendExperimentResult:
     def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
-        
+
         Supports maximum 4 variants today
 
-        For each variant, we create a Gamma distribution of arrival rates, 
+        For each variant, we create a Gamma distribution of arrival rates,
         where alpha (shape parameter) = count of variant + 1
         beta (exposure parameter) = 1
         """

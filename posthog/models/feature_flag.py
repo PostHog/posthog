@@ -27,7 +27,7 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
-@dataclass
+@dataclass(frozen=True)
 class FeatureFlagMatch:
     variant: Optional[str] = None
 

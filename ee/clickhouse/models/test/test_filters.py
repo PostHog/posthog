@@ -9,7 +9,6 @@ from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
-from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
@@ -48,7 +47,7 @@ def _create_event(**kwargs):
     uuid = uuid4()
     kwargs.update({"event_uuid": uuid})
     create_event(**kwargs)
-    return Event(id=str(uuid))
+    return str(uuid)
 
 
 class TestFilters(PGTestFilters):
