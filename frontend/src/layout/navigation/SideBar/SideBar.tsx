@@ -243,10 +243,10 @@ function Pages(): JSX.Element {
                 <>
                     <LemonSpacer />
                     <PageButton
-                        title="Instance settings"
+                        title="Instance status"
                         icon={<DatabaseOutlined />}
                         identifier={Scene.SystemStatus}
-                        to={urls.systemSettings()}
+                        to={urls.instanceSettings()}
                     />
                 </>
             )}

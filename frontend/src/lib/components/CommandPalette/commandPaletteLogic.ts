@@ -533,10 +533,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System status page',
+                        display: 'Go to Instance status',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push(urls.systemStatus())
+                            push(urls.instanceStatus())
                         },
                     },
                     {

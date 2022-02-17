@@ -27,7 +27,7 @@ export function SystemStatus(): JSX.Element {
     return (
         <div className="system-status-scene">
             <PageHeader
-                title="Instance settings"
+                title="Instance status"
                 caption="Here you can find all the critical runtime details and settings of your PostHog instance."
             />
             {error && (
