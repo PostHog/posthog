@@ -1,14 +1,20 @@
 import { kea } from 'kea'
+import React from 'react'
 import api from 'lib/api'
 import { PreflightStatus, Realm } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { toast } from 'react-toastify'
+import { teamLogic } from 'scenes/teamLogic'
 
 type PreflightMode = 'experimentation' | 'live'
 
 export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     loaders: {
         preflight: [
             null as PreflightStatus | null,
@@ -99,11 +105,21 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
     }),
     events: ({ actions, values }) => ({
         afterMount: () => {
-            const preflight = getAppContext()?.preflight
+            const appContext = getAppContext()
+            const preflight = appContext?.preflight
+            const switchedTeam = appContext?.switched_team
             if (preflight) {
                 actions.loadPreflightSuccess(preflight)
             } else if (!values.preflight) {
                 actions.loadPreflight()
+            }
+            if (switchedTeam) {
+                toast(
+                    <>
+                        You've switched globally to&nbsp;project{' '}
+                        <b style={{ whiteSpace: 'pre' }}>{values.currentTeam?.name}</b>
+                    </>
+                )
             }
         },
     }),

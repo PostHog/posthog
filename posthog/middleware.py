@@ -9,8 +9,8 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.utils.cache import add_never_cache_headers
 
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, User
-from posthog.models.team import Team
+from posthog.api.shared import TeamBasicSerializer
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -138,20 +138,19 @@ class AutoProjectMiddleware:
 
     def __call__(self, request: HttpRequest):
         target_queryset = self.get_target_queryset(request)
-        if target_queryset is not None:
+        if target_queryset is not None and request.user.is_authenticated:
             user = cast(User, request.user)
             current_team = user.team
             if current_team is not None and not target_queryset.filter(team=current_team).exists():
-                item_of_alternative_team = target_queryset.only("team").first()
-                actual_item_team: Optional[Team] = item_of_alternative_team.team
-                if (
-                    actual_item_team is not None
-                    and actual_item_team.get_effective_membership_level(user.id) is not None
-                ):
-                    user.current_team = actual_item_team
-                    user.current_organization_id = actual_item_team.organization_id
-                    user.save()
-                    setattr(request, "preswitch_team_name", current_team.name)  # Context for POSTHOG_APP_CONTEXT
+                actual_item = target_queryset.only("team").first()
+                if actual_item is not None:
+                    actual_item_team: Team = actual_item.team
+                    if actual_item_team.get_effective_membership_level(user.id) is not None:
+                        user.current_team = actual_item_team
+                        user.current_organization_id = actual_item_team.organization_id
+                        user.save()
+                        # Information for POSTHOG_APP_CONTEXT
+                        setattr(request, "switched_team", True)
         response = self.get_response(request)
         return response
 
