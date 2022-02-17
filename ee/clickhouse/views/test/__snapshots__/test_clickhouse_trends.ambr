@@ -1,6 +1,6 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT count(*) as data
   FROM
     (SELECT e.timestamp as timestamp
@@ -45,7 +45,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -113,7 +113,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -135,8 +135,8 @@
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
              AND timestamp <= '2012-01-15 23:59:59'
-             AND has(['val'], trim(BOTH '"'
-                                   FROM JSONExtractRaw(properties, 'key'))) )
+             AND (has(['val'], trim(BOTH '"'
+                                    FROM JSONExtractRaw(e.properties, 'key')))) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -170,8 +170,8 @@
        AND event = '$pageview'
        AND timestamp >= '2012-01-14 00:00:00'
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], trim(BOTH '"'
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -179,7 +179,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -239,7 +239,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -311,7 +311,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
@@ -330,7 +330,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -403,8 +403,8 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], trim(BOTH '"'
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -412,7 +412,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
@@ -431,7 +431,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -521,8 +521,8 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
-       AND has(['val'], trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has(['val'], trim(BOTH '"'
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -530,7 +530,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (InsightViewSet) */
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -552,7 +552,7 @@
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-12 23:59:59'
-             AND NOT has([''], $group_0) )
+             AND (NOT has([''], $group_0)) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -570,8 +570,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
-       AND NOT has([''], $group_0)
-       AND NOT has([''], $group_0) )
+       AND (NOT has([''], $group_0)
+            AND NOT has([''], $group_0)) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

@@ -8,6 +8,7 @@ import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { BasePerson, Element, Person, RawPerson, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
+import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -283,4 +284,24 @@ export function transformPostgresElementsToEventPayloadFormat(
     }
 
     return elements
+}
+
+export function shouldStoreLog(
+    pluginLogLevel: PluginLogLevel,
+    source: PluginLogEntrySource,
+    type: PluginLogEntryType
+): boolean {
+    if (source === PluginLogEntrySource.System || !pluginLogLevel) {
+        return true
+    }
+
+    if (pluginLogLevel === PluginLogLevel.Critical) {
+        return type === PluginLogEntryType.Error
+    } else if (pluginLogLevel === PluginLogLevel.Warn) {
+        return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Info
+    } else if (pluginLogLevel === PluginLogLevel.Debug) {
+        return type !== PluginLogEntryType.Log
+    }
+
+    return true
 }

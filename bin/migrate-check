@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+python manage.py migrate --check
+python manage.py migrate_clickhouse --check
+python manage.py run_async_migrations --check

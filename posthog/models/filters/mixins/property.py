@@ -1,12 +1,12 @@
 import json
-from typing import Any, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PROPERTIES
+from posthog.constants import PROPERTIES, PROPERTY_GROUPS, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyGroup
 
 
 class PropertyMixin(BaseParamMixin):
@@ -22,7 +22,49 @@ class PropertyMixin(BaseParamMixin):
         else:
             loaded_props = _props
 
-        return self._parse_properties(loaded_props)
+        # if grouped properties
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
+            # property_groups is main function from now on
+            # TODO: this function will go away at end of migration
+            return []
+        else:
+            # old style dict properties or a list of properties
+            return self._parse_properties(loaded_props)
+
+    @cached_property
+    def property_groups(self) -> PropertyGroup:
+        _props = self._data.get(PROPERTIES)
+
+        if isinstance(_props, str):
+            try:
+                loaded_props = json.loads(_props)
+            except json.decoder.JSONDecodeError:
+                raise ValidationError("Properties are unparsable!")
+        else:
+            loaded_props = _props
+
+        # if grouped properties
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
+            try:
+                return self._parse_property_group(loaded_props)
+            except ValidationError as e:
+                raise e
+            except ValueError as e:
+                raise ValidationError(f"PropertyGroup is unparsable: {e}")
+
+        # old properties
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
+
+    @cached_property
+    def property_groups_flat(self) -> List[Property]:
+        return list(self._property_groups_flat(self.property_groups))
+
+    def _property_groups_flat(self, prop_group: PropertyGroup):
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                yield from self._property_groups_flat(value)
+            else:
+                yield value
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
@@ -51,6 +93,39 @@ class PropertyMixin(BaseParamMixin):
             )
         return ret
 
+    def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
+        if group and "type" in group and "values" in group:
+            return PropertyGroup(
+                PropertyOperatorType(group["type"].upper()), self._parse_property_group_list(group["values"])
+            )
+
+        return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
+
+    def _parse_property_group_list(self, prop_list: Optional[List]) -> Union[List[Property], List[PropertyGroup]]:
+        if not prop_list:
+            # empty prop list
+            return cast(List[Property], [])
+        has_property_groups = False
+        has_simple_properties = False
+        for prop in prop_list:
+            if "type" in prop and "values" in prop:
+                has_property_groups = True
+            else:
+                has_simple_properties = True
+
+        if has_simple_properties and has_property_groups:
+            raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")
+
+        if has_property_groups:
+            return [self._parse_property_group(group) for group in prop_list]
+        else:
+            return self._parse_properties(prop_list)
+
     @include_dict
     def properties_to_dict(self):
-        return {"properties": [prop.to_dict() for prop in self.properties]} if self.properties else {}
+        if self.properties:
+            return {PROPERTIES: [prop.to_dict() for prop in self.properties]}
+
+        return (
+            {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.values else {}
+        )

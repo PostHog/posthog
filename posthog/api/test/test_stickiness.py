@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
@@ -7,11 +6,9 @@ from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.api.test.test_trends import NormalizedTrendResult, get_time_series_ok
+from posthog.api.test.test_trends import get_time_series_ok
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
-from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.team import Team
-from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
 from posthog.utils import encode_get_request_params
 

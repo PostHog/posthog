@@ -32,12 +32,19 @@ export enum AvailableFeature {
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
+}
+
+export enum LicensePlan {
+    Scale = 'scale',
+    Enterprise = 'enterprise',
 }
 
 export enum Realm {
@@ -227,6 +234,7 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
+    tags?: string[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -673,7 +681,7 @@ export interface InsightModel {
     created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
-    last_refresh: string
+    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
@@ -723,10 +731,7 @@ export interface DashboardCollaboratorType {
 }
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
-    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
-}
-
+export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1333,11 +1338,12 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number
     key: string
-    plan: string
+    plan: LicensePlan
     valid_until: string
     max_users: string | null
     created_at: string

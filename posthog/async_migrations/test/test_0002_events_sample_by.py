@@ -19,7 +19,6 @@ def execute_query(query: str) -> Any:
 
 
 class Test0002EventsSampleBy(BaseTest):
-
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
         from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
@@ -28,10 +27,7 @@ class Test0002EventsSampleBy(BaseTest):
         self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]
 
         # execute_query(f"ATTACH TABLE {CLICKHOUSE_DATABASE}.events_mv")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
-        execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
+        Test0002EventsSampleBy.dropTables()
 
         execute_query(
             f"""
@@ -51,7 +47,7 @@ class Test0002EventsSampleBy(BaseTest):
         ENGINE = ReplacingMergeTree(_timestamp)
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-        SETTINGS index_granularity = 8192               
+        SETTINGS index_granularity = 8192
         """
         )
         execute_query(KAFKA_EVENTS_TABLE_SQL())
@@ -59,12 +55,12 @@ class Test0002EventsSampleBy(BaseTest):
 
         execute_query(
             f"""
-            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp) 
-            VALUES 
-                ('event1', '{str(uuid4())}', now()) 
-                ('event2', '{str(uuid4())}', now()) 
-                ('event3', '{str(uuid4())}', now()) 
-                ('event4', '{str(uuid4())}', now()) 
+            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp)
+            VALUES
+                ('event1', '{str(uuid4())}', now())
+                ('event2', '{str(uuid4())}', now())
+                ('event3', '{str(uuid4())}', now())
+                ('event4', '{str(uuid4())}', now())
                 ('event5', '{str(uuid4())}', '2019-01-01')
             """
         )
@@ -79,10 +75,16 @@ class Test0002EventsSampleBy(BaseTest):
         )
 
     def tearDown(self):
+        self.dropTables()
+        execute_query(self.create_events_table_query)
+
+    @classmethod
+    def dropTables(cls):
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_failed")
         execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
-        execute_query(self.create_events_table_query)
 
     # Run the full migration through
     @pytest.mark.ee
@@ -97,7 +99,7 @@ class Test0002EventsSampleBy(BaseTest):
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.current_operation_index, 9)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)
+        self.assertEqual(errors.count(), 0)
 
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")

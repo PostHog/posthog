@@ -127,9 +127,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
         query_list_response = self.client.get(f"/api/projects/@current/event_definitions")
@@ -145,16 +145,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         # Verify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
 
@@ -163,9 +163,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -175,16 +175,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         with freeze_time("2021-08-25T22:09:14.252Z"):
             self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
@@ -194,7 +194,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"  # Note `verified_at` did not change
         # updated_at automatically updates on every patch request
@@ -209,9 +209,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         with freeze_time("2021-08-25T22:09:14.252Z"):
             self.client.patch(
@@ -224,6 +224,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None

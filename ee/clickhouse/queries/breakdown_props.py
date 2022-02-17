@@ -15,7 +15,7 @@ from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import (
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
-    parse_prop_clauses,
+    parse_prop_grouped_clauses,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
@@ -24,11 +24,12 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
-from posthog.constants import BREAKDOWN_TYPES
+from posthog.constants import BREAKDOWN_TYPES, BREAKDOWN_VALUES_LIMIT, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property import PropertyGroup
 
 ALL_USERS_COHORT_ID = 0
 
@@ -38,7 +39,7 @@ def get_breakdown_prop_values(
     entity: Entity,
     aggregate_operation: str,
     team_id: int,
-    limit: int = 25,
+    limit: int = BREAKDOWN_VALUES_LIMIT,
     extra_params={},
     column_optimizer: Optional[ColumnOptimizer] = None,
 ):
@@ -49,15 +50,16 @@ def get_breakdown_prop_values(
     """
 
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
-    prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties + entity.properties,
+    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+        team_id=team_id,
+        property_group=PropertyGroup(type=PropertyOperatorType.AND, values=filter.properties + entity.properties),
         table_name="e",
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.EXCLUDE,
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team_id, table_name="e")
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
@@ -131,8 +133,11 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     if entity and isinstance(entity, Entity):
         props_to_filter = [*props_to_filter, *entity.properties]
 
-    prop_filters, prop_filter_params = parse_prop_clauses(
-        props_to_filter, prepend="all_cohort_", table_name="all_events"
+    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+        team_id=team_id,
+        property_group=PropertyGroup(type=PropertyOperatorType.AND, values=props_to_filter),
+        prepend="all_cohort_",
+        table_name="all_events",
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value

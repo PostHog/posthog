@@ -104,6 +104,6 @@ export function RetentionLineGraph({
             )}
         </>
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} />
     )
 }

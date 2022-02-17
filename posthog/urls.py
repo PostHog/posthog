@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
 from django.urls.base import reverse
+from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
@@ -36,6 +37,7 @@ else:
     extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
 
 
+@csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
@@ -113,11 +115,13 @@ urlpatterns = [
 
 if settings.TEST:
 
+    # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.models import Event
+        from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
 
-        Event.objects.all().delete()
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL)
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

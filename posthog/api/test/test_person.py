@@ -3,20 +3,19 @@ import unittest
 from unittest import mock
 from uuid import uuid4
 
-from django.utils import timezone
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Cohort, Event, Organization, Person, Team
+from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=create_event(**kwargs))
+    create_event(**kwargs)
 
 
 def _create_person(**kwargs):
@@ -101,15 +100,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["count"], 1)
 
     def test_filter_by_cohort(self):
+
         _create_person(
-            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+            team=self.team, distinct_ids=[f"fake"], properties={},
         )
-        _create_person(team=self.team, distinct_ids=["person_2"])
+        for i in range(150):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
         cohort.calculate_people_ch(pending_version=0)
-        response = self.client.get(f"/api/person/?cohort={cohort.pk}")
-        self.assertEqual(len(response.json()["results"]), 1, response)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 100, response)
+
+        response = self.client.get(response.json()["next"])
+        self.assertEqual(len(response.json()["results"]), 50, response)
 
     def test_filter_person_list(self):
 
@@ -204,7 +211,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -265,7 +272,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = Person.objects.all().order_by("id")
-        self.assertEqual(len(people), 3)
+        self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertEqual(people[1].distinct_ids, ["2"])
@@ -279,7 +286,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post("/api/person/%s/split/" % person1.pk,)
         people = Person.objects.all().order_by("id")
-        self.assertEqual(len(people), 3)
+        self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {})
         self.assertEqual(people[1].distinct_ids, ["2"])

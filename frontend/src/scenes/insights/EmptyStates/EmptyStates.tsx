@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IllustrationDanger, IconTrendUp, IconOpenInNew } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -14,12 +14,13 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export const UNNAMED_INSIGHT_NAME = 'Name this insight'
 
-export function InsightEmptyState({ color, isDashboard }: { color?: string; isDashboard?: boolean }): JSX.Element {
+export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
     return (
-        <div className={clsx('insight-empty-state', { 'is-dashboard': isDashboard }, color)}>
+        <div className={clsx('insight-empty-state', color)}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
@@ -79,7 +80,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
+                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IllustrationDanger />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
                     <>
@@ -88,26 +89,13 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
                     </>
                 ) : (
                     <>
-                        Here are some things you can try to speed up your query and <b>try again</b>:
+                        Here are some things you can try to speed up your query and&nbsp;<b>try&nbsp;again</b>:
                     </>
                 )}
                 <ol>
                     <li>Reduce the date range of your query.</li>
                     <li>Remove some filters.</li>
                     {!preflight?.cloud && <li>Increase the size of your database server.</li>}
-                    {!preflight?.cloud && (
-                        <li>
-                            <a
-                                data-attr="insight-timeout-upgrade-to-clickhouse"
-                                href="https://posthog.com/docs/self-host#deployment-options?utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
-                                rel="noopener"
-                                target="_blank"
-                            >
-                                Switch to Clickhouse backend
-                            </a>{' '}
-                            (engineered for scale, and you'll get more features)
-                        </li>
-                    )}
                     <li>
                         <a
                             data-attr="insight-timeout-raise-issue"
@@ -206,7 +194,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
     )
 }
 
-export function FunnelSingleStepState({ disableAddStep }: { disableAddStep?: boolean }): JSX.Element {
+export function FunnelSingleStepState({ actionable = true }: { actionable?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
@@ -221,9 +209,10 @@ export function FunnelSingleStepState({ disableAddStep }: { disableAddStep?: boo
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
                     You’re almost there! Funnels require at least two steps before calculating.
-                    {' Once you have two steps defined, additional changes will recalculate automatically.'}
+                    {actionable &&
+                        ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
-                {!disableAddStep && (
+                {actionable && (
                     <div className="mt text-center">
                         <Button
                             size="large"
@@ -236,7 +225,7 @@ export function FunnelSingleStepState({ disableAddStep }: { disableAddStep?: boo
                         </Button>
                     </div>
                 )}
-                <div className="mt text-center">
+                <div className="mt">
                     <a
                         data-attr="funnels-single-step-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
@@ -245,7 +234,7 @@ export function FunnelSingleStepState({ disableAddStep }: { disableAddStep?: boo
                         className="flex-center"
                         style={{ justifyContent: 'center' }}
                     >
-                        Learn more about funnels in our support documentation
+                        Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
@@ -266,14 +255,14 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
                     filters, or removing the overlapping exclusion event.
                 </p>
-                <div className="mt text-center">
+                <div className="mt">
                     <a
                         data-attr="insight-funnels-emptystate-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
                         rel="noopener"
                     >
-                        Learn more about funnels in our support documentation
+                        Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>

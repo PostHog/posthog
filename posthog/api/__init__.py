@@ -1,6 +1,5 @@
 from rest_framework import decorators, exceptions
 
-from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
@@ -99,13 +98,12 @@ router.register(r"instance_settings", instance_settings.InstanceSettingsViewset,
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
 from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
 from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
 from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
-from posthog.api.insight import InsightViewSet
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet
+from posthog.api.session_recording import SessionRecordingViewSet
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -119,20 +117,11 @@ projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
 projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
-projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
 projects_router.register(
-    r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
+    r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
-
-if settings.EE_AVAILABLE:
-    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-
-    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
-else:
-    from posthog.api.insight import InsightViewSet
-
-    projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])

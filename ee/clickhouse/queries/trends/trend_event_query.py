@@ -6,10 +6,11 @@ from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
-from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import PropertyGroup
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
@@ -54,8 +55,10 @@ class TrendsEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_filters = [*self._filter.properties, *self._entity.properties]
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups.combine_properties(PropertyOperatorType.AND, self._entity.properties)
+        )
+
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()
@@ -112,7 +115,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._entity, self._team_id, table_name=self.EVENT_TABLE_ALIAS
+            entity=self._entity, team_id=self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
 
         return entity_format_params["entity_query"], entity_params

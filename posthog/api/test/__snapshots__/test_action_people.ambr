@@ -2,17 +2,15 @@
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((uuid,
-                             timestamp,
+         groupUniqArray(10)((timestamp,
+                             uuid,
                              $session_id,
                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
+            e.$window_id as $window_id,
+            e.$session_id as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
@@ -35,8 +33,8 @@
        AND event = '$pageview'
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-08 00:00:00'))
        AND timestamp <= '2020-01-12 23:59:59'
-       AND has([''], trim(BOTH '"'
-                          FROM JSONExtractRaw(properties, 'key'))) )
+       AND (has([''], trim(BOTH '"'
+                           FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
