@@ -154,7 +154,7 @@ def get_data(request):
     return data, None
 
 
-@dataclass
+@dataclass(frozen=True)
 class EventIngestionContext:
     """
     Specifies the data needed to process inbound `Event`s. Specifically we need

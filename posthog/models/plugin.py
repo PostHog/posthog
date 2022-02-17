@@ -244,7 +244,7 @@ class PluginLogEntry(UUIDModel):
     __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
 
 
-@dataclass
+@dataclass(frozen=True)
 class PluginLogEntryRaw:
     id: UUID
     team_id: int
