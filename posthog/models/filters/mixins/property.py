@@ -123,9 +123,6 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def properties_to_dict(self):
-        if self.properties:
-            return {PROPERTIES: [prop.to_dict() for prop in self.properties]}
-
         return (
             {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.groups else {}
         )
