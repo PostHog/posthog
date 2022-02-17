@@ -75,7 +75,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
-        collapse: true,
     },
 
     reducers: {
@@ -94,7 +93,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
-        isExpanded: [false, { expand: () => true, collapse: () => false }],
+        isExpanded: [false, { expand: () => true }],
     },
 
     loaders: ({ values }) => ({
@@ -224,7 +223,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (s) => [s.remoteEndpoint, s.remoteExpandedEndpoint, s.remoteItems],
             (remoteEndpoint, remoteExpandedEndpoint, remoteItems) =>
                 !!(remoteEndpoint && remoteExpandedEndpoint) &&
-                remoteItems.expandedCount &&
+                !!remoteItems.expandedCount &&
                 remoteItems.expandedCount > remoteItems.count,
         ],
         isExpandableButtonSelected: [
@@ -287,11 +286,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
-        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
         totalListCount: [
             (s) => [s.totalCount, s.isExpandable],
             (totalCount, isExpandable) => totalCount + (isExpandable ? 1 : 0),
         ],
+        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
         results: [(s) => [s.items], (items) => items.results],
         selectedItem: [
             (s) => [s.index, s.items],

@@ -3,9 +3,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions } from '~/test/mocks'
+import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
-import { AppContext } from '~/types'
+import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
 
 jest.mock('lib/api')
 
@@ -15,10 +15,27 @@ describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
-            const results = searchParams.search
-                ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
-                : mockEventDefinitions
+        const isEventDefinitions = pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`
+        const isPropertyDefinitions = pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`
+
+        if (isEventDefinitions || isPropertyDefinitions) {
+            // Type defaults to `EventDefinition[] | PropertyDefinition[]`,
+            // which does not type well with `.filter(e => ...)` below
+            let results: (EventDefinition | PropertyDefinition)[] = isEventDefinitions
+                ? mockEventDefinitions
+                : mockEventPropertyDefinitions
+
+            if (searchParams.search) {
+                results = results.filter((e) => e.name.includes(searchParams.search))
+            }
+            if (isPropertyDefinitions && searchParams.is_event_property !== undefined) {
+                results = results.filter(
+                    (e: PropertyDefinition) => e.is_event_property === searchParams.is_event_property
+                )
+            }
+            //debugger
+            // if(searchParams.)
+
             return {
                 results,
                 count: results.length,
@@ -146,6 +163,132 @@ describe('infiniteListLogic', () => {
                 .toDispatchActions([])
                 .toMatchValues({
                     results: partial([partial({ name: 'first' }), partial({ name: 'second' })]),
+                })
+        })
+    })
+
+    describe('expandable list of event properties', () => {
+        beforeEach(() => {
+            logic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testList',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventNames: ['$pageview'],
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+            logic.mount()
+        })
+
+        it('setting search query filters events', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('browser')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    searchQuery: 'browser',
+                    isExpandable: true,
+                    isExpanded: false,
+                    isExpandableButtonSelected: false,
+                    totalCount: 1,
+                    totalListCount: 2, // 1 + 1 for "expand list" button
+                    expandedCount: 2,
+                    remoteItems: partial({
+                        count: 1,
+                        expandedCount: 2,
+                        results: partial([partial({ name: '$browser', is_event_property: true })]),
+                    }),
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.expand()
+            })
+                .toDispatchActions(['expand', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    searchQuery: 'browser',
+                    isExpandable: false,
+                    isExpanded: true,
+                    isExpandableButtonSelected: false,
+                    totalCount: 2,
+                    totalListCount: 2,
+                    expandedCount: 0,
+                    remoteItems: partial({
+                        count: 2,
+                        expandedCount: undefined,
+                        results: partial([
+                            partial({ name: '$browser', is_event_property: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                        ]),
+                    }),
+                })
+
+            // remains extended after extending once
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('bro')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    searchQuery: 'bro',
+                    isExpandable: false,
+                    isExpanded: true,
+                    isExpandableButtonSelected: false,
+                    totalCount: 2,
+                    totalListCount: 2,
+                    expandedCount: 0,
+                    remoteItems: partial({
+                        count: 2,
+                        expandedCount: undefined,
+                        results: partial([
+                            partial({ name: '$browser', is_event_property: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                        ]),
+                    }),
+                })
+        })
+
+        it('moving up selects expansion button', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('browser')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    searchQuery: 'browser',
+                    isExpandable: true,
+                    isExpanded: false,
+                    isExpandableButtonSelected: false,
+                    totalCount: 1,
+                    totalListCount: 2, // 1 + 1 for "expand list" button
+                    expandedCount: 2,
+                    index: 0,
+                    remoteItems: partial({
+                        count: 1,
+                        expandedCount: 2,
+                        results: partial([partial({ name: '$browser', is_event_property: true })]),
+                    }),
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveUp()
+            }).toMatchValues({ index: 1, isExpandableButtonSelected: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.selectSelected()
+            })
+                .toDispatchActions(['selectSelected', 'expand', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    searchQuery: 'browser',
+                    isExpandable: false,
+                    isExpanded: true,
+                    isExpandableButtonSelected: false,
+                    totalCount: 2,
+                    totalListCount: 2,
+                    expandedCount: 0,
+                    remoteItems: partial({
+                        count: 2,
+                        expandedCount: undefined,
+                        results: partial([
+                            partial({ name: '$browser', is_event_property: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                        ]),
+                    }),
                 })
         })
     })
