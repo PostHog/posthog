@@ -313,7 +313,6 @@ export function InfiniteList(): JSX.Element {
             <div
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
                 onClick={() => selectItem(group, itemValue ?? null, item)}
             >
                 {renderItemContents({
@@ -326,10 +325,8 @@ export function InfiniteList(): JSX.Element {
         ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
             <div
                 {...commonDivProps}
+                className={`${commonDivProps.className} expand-row`}
                 data-attr={`expand-list-${listGroupType}`}
-                className={`taxonomic-list-row expand-row${rowIndex === index ? ' hover' : ''}${
-                    isSelected ? ' selected' : ''
-                }`}
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalCount, expandedCount }) ??
@@ -338,8 +335,8 @@ export function InfiniteList(): JSX.Element {
         ) : (
             <div
                 {...commonDivProps}
+                className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
-                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
             >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </div>
