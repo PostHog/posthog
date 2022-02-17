@@ -34,7 +34,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
-        EventProperty.objects.create(team=cls.demo_team, event="first_visit", property="$browser")
+        EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="first_visit")
 
     def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
