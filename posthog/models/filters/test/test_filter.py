@@ -128,26 +128,30 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.assertListEqual(filter.properties, [])
 
         def test_numerical(self):
-            event1 = event_factory(team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5})
-            event2 = event_factory(team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},)
+            event1_uuid = event_factory(
+                team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5}
+            )
+            event2_uuid = event_factory(
+                team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},
+            )
             event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": "rubbish"},
             )
             filter = Filter(data={"properties": {"$a_number__gt": 5}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
             filter = Filter(data={"properties": {"$a_number": 5}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(events[0]["id"], event1_uuid)
 
             filter = Filter(data={"properties": {"$a_number__lt": 6}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(events[0]["id"], event1_uuid)
 
         def test_contains(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
-            event2 = event_factory(
+            event2_uuid = event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -155,11 +159,11 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             filter = Filter(data={"properties": {"$current_url__icontains": "whatever"}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
         def test_regex(self):
-            event1 = event_factory(team=self.team, distinct_id="test", event="$pageview")
-            event2 = event_factory(
+            event1_uuid = event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2_uuid = event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -167,12 +171,12 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             filter = Filter(data={"properties": {"$current_url__regex": r"\.com$"}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
             filter = Filter(data={"properties": {"$current_url__not_regex": r"\.eee$"}})
             events = filter_events(filter, self.team, order_by="timestamp")
-            self.assertEqual(events[0]["id"], event1.pk)
-            self.assertEqual(events[1]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event1_uuid)
+            self.assertEqual(events[1]["id"], event2_uuid)
 
         def test_invalid_regex(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
@@ -190,8 +194,8 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.assertEqual(len(filter_events(filter, self.team)), 0)
 
         def test_is_not(self):
-            event1 = event_factory(team=self.team, distinct_id="test", event="$pageview")
-            event2 = event_factory(
+            event1_uuid = event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2_uuid = event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -205,12 +209,12 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             filter = Filter(data={"properties": {"$current_url__is_not": "https://whatever.com"}})
             events = filter_events(filter, self.team)
-            self.assertEqual(sorted([events[0]["id"], events[1]["id"]]), sorted([event1.pk, event2.pk]))
+            self.assertEqual(sorted([events[0]["id"], events[1]["id"]]), sorted([event1_uuid, event2_uuid]))
             self.assertEqual(len(events), 2)
 
         def test_does_not_contain(self):
-            event1 = event_factory(team=self.team, event="$pageview", distinct_id="test",)
-            event2 = event_factory(
+            event1_uuid = event_factory(team=self.team, event="$pageview", distinct_id="test",)
+            event2_uuid = event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -222,16 +226,16 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 distinct_id="test",
                 properties={"$current_url": "https://whatever.com"},
             )
-            event3 = event_factory(
+            event3_uuid = event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": None},
             )
             filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
             events = filter_events(filter, self.team, order_by="id")
-            self.assertEqual(sorted(event["id"] for event in events), sorted([event1.pk, event2.pk, event3.pk]))
+            self.assertEqual(sorted(event["id"] for event in events), sorted([event1_uuid, event2_uuid, event3_uuid]))
             self.assertEqual(len(events), 3)
 
         def test_multiple(self):
-            event2 = event_factory(
+            event2_uuid = event_factory(
                 team=self.team,
                 event="$pageview",
                 distinct_id="test",
@@ -245,7 +249,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             )
             filter = Filter(data={"properties": {"$current_url__icontains": "something.com", "another_key": "value",}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_user_properties(self):
@@ -253,13 +257,13 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             person2 = person_factory(
                 team_id=self.team.pk, distinct_ids=["person2"], properties={"group": "another group"}
             )
-            event2 = event_factory(
+            event2_uuid = event_factory(
                 team=self.team,
                 distinct_id="person1",
                 event="$pageview",
                 properties={"$current_url": "https://something.com", "another_key": "value",},
             )
-            event_p2 = event_factory(
+            event_p2_uuid = event_factory(
                 team=self.team,
                 distinct_id="person2",
                 event="$pageview",
@@ -281,19 +285,19 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             filter = Filter(data={"properties": [{"key": "group", "value": "some group", "type": "person"}]})
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
             filter = Filter(
                 data={"properties": [{"key": "group", "operator": "is_not", "value": "some group", "type": "person"}]}
             )
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
-            self.assertEqual(events[0]["id"], event_p2.pk)
+            self.assertEqual(events[0]["id"], event_p2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_user_properties_numerical(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": 1})
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": 2})
-            event2 = event_factory(
+            event2_uuid = event_factory(
                 team=self.team,
                 distinct_id="person1",
                 event="$pageview",
@@ -314,58 +318,58 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 }
             )
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_boolean_filters(self):
-            event1 = event_factory(team=self.team, event="$pageview", distinct_id="test",)
-            event2 = event_factory(
+            event1_uuid = event_factory(team=self.team, event="$pageview", distinct_id="test",)
+            event2_uuid = event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
             )
             filter = Filter(data={"properties": [{"key": "is_first_user", "value": "true"}]})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_is_not_set_and_is_set(self):
-            event1 = event_factory(team=self.team, event="$pageview", distinct_id="test",)
-            event2 = event_factory(
+            event1_uuid = event_factory(team=self.team, event="$pageview", distinct_id="test",)
+            event2_uuid = event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
             )
             filter = Filter(
                 data={"properties": [{"key": "is_first_user", "operator": "is_not_set", "value": "is_not_set",}]}
             )
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(events[0]["id"], event1_uuid)
             self.assertEqual(len(events), 1)
 
             filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_set", "value": "is_set"}]})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_true_false(self):
             event_factory(team=self.team, distinct_id="test", event="$pageview")
-            event2 = event_factory(
+            event2_uuid = event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
             )
             filter = Filter(data={"properties": {"is_first": "true"}})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
             filter = Filter(data={"properties": {"is_first": ["true"]}})
             events = filter_events(filter, self.team)
 
-            self.assertEqual(events[0]["id"], event2.pk)
+            self.assertEqual(events[0]["id"], event2_uuid)
 
         def test_is_not_true_false(self):
-            event = event_factory(team=self.team, distinct_id="test", event="$pageview")
-            event2 = event_factory(
+            event_uuid = event_factory(team=self.team, distinct_id="test", event="$pageview")
+            event2_uuid = event_factory(
                 team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
             )
             filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
             events = filter_events(filter, self.team)
-            self.assertEqual(events[0]["id"], event.pk)
+            self.assertEqual(events[0]["id"], event_uuid)
 
         def test_json_object(self):
             person1 = person_factory(
@@ -373,7 +377,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 distinct_ids=["person1"],
                 properties={"name": {"first_name": "Mary", "last_name": "Smith"}},
             )
-            event1 = event_factory(
+            event1_uuid = event_factory(
                 team=self.team,
                 distinct_id="person1",
                 event="$pageview",
@@ -391,23 +395,23 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 }
             )
             events = filter_events(filter=filter, team=self.team, person_query=True, order_by=None)
-            self.assertEqual(events[0]["id"], event1.pk)
+            self.assertEqual(events[0]["id"], event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_element_selectors(self):
-            event1 = event_factory(
+            event_factory(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="distinct_id",
                 elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
             )
-            event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
+            event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
             filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
             events = filter_events(filter=filter, team=self.team)
             self.assertEqual(len(events), 1)
 
         def test_element_filter(self):
-            event1 = event_factory(
+            event_factory(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="distinct_id",
@@ -417,7 +421,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 ],
             )
 
-            event3 = event_factory(
+            event_factory(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="distinct_id",
@@ -427,7 +431,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 ],
             )
 
-            event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
+            event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
             filter = Filter(
                 data={"properties": [{"key": "text", "value": ["some text", "some other text"], "type": "element"}]}
             )
@@ -471,7 +475,12 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     return events.values()
 
 
-class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, Event.objects.create, Person.objects.create)):  # type: ignore
+def _create_event(**kwargs):
+    event = Event.objects.create(**kwargs)
+    return event.pk
+
+
+class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_events, _create_event, Person.objects.create)):  # type: ignore
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
