@@ -44,8 +44,8 @@ class SimplifyFilterMixin:
 
         if new_group_props:
             new_group_props = [prop for prop in new_group_props]
-            new_group = {"type": "AND", "groups": new_group_props}
-            prop_group = {"type": "AND", "groups": [new_group, prop_group]} if prop_group else new_group
+            new_group = {"type": "AND", "values": new_group_props}
+            prop_group = {"type": "AND", "values": [new_group, prop_group]} if prop_group else new_group
 
         return result.with_data({**updated_entities, "properties": prop_group})
 
