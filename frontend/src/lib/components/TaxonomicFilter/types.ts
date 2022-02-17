@@ -28,6 +28,7 @@ export interface TaxonomicFilterGroup {
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
+    /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
     expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
