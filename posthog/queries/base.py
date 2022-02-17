@@ -1,16 +1,9 @@
-import json
-from datetime import datetime, time
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Union, cast
 
-from dateutil.relativedelta import relativedelta
-from django.db.models import Exists, OuterRef, Q, QuerySet
-from django.db.models.query import Prefetch
-from rest_framework import request
+from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.cohort import Cohort
-from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
@@ -73,43 +66,6 @@ TIME_IN_SECONDS: Dict[str, Any] = {
     "week": 3600 * 24 * 7,
     "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
 }
-
-"""
-filter_events takes team_id, filter, entity and generates a Q objects that you can use to filter a QuerySet
-"""
-
-
-def filter_events(
-    team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True, interval_annotation=None
-) -> Q:
-    filters = Q()
-    relativity = relativedelta(days=1)
-    date_from = filter.date_from
-    date_to = filter.date_to
-
-    if filter.interval == "hour":
-        relativity = relativedelta(hours=1)
-    elif filter.interval == "week":
-        relativity = relativedelta(weeks=1)
-        date_from = filter.date_from - relativedelta(days=filter.date_from.weekday() + 1)
-    elif filter.interval == "month":
-        relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
-        date_from = filter.date_from.replace(day=1)
-    else:
-        date_to = datetime.combine(
-            filter.date_to, time()
-        )  # round time to start of day. Relativity addition will make sure the current day is included
-
-    if filter.date_from and include_dates:
-        filters &= Q(timestamp__gte=date_from)
-    if include_dates:
-        filters &= Q(timestamp__lte=date_to + relativity)
-    if filter.properties:
-        filters &= properties_to_Q(filter.properties, team_id=team_id)
-    if entity and entity.properties:
-        filters &= properties_to_Q(entity.properties, team_id=team_id)
-
-    return filters
 
 
 def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: bool = False) -> Q:
