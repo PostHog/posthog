@@ -418,7 +418,7 @@ def setup_user_activity_by_day(daily_activity, team):
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Breakdown:
     type: str
     property: str
@@ -431,7 +431,7 @@ class PropertyFilter(TypedDict):
     type: Literal["person"]  # NOTE: not exhaustive
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetentionRequest:
     date_from: str  # From what I can tell, this doesn't do anything, rather `total_intervals` is used
     total_intervals: int

@@ -19,7 +19,6 @@ def execute_query(query: str) -> Any:
 
 
 class Test0002EventsSampleBy(BaseTest):
-
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
         from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
@@ -28,10 +27,7 @@ class Test0002EventsSampleBy(BaseTest):
         self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]
 
         # execute_query(f"ATTACH TABLE {CLICKHOUSE_DATABASE}.events_mv")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
-        execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
+        Test0002EventsSampleBy.dropTables()
 
         execute_query(
             f"""
@@ -79,10 +75,16 @@ class Test0002EventsSampleBy(BaseTest):
         )
 
     def tearDown(self):
+        self.dropTables()
+        execute_query(self.create_events_table_query)
+
+    @classmethod
+    def dropTables(cls):
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_failed")
         execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
-        execute_query(self.create_events_table_query)
 
     # Run the full migration through
     @pytest.mark.ee
@@ -92,13 +94,19 @@ class Test0002EventsSampleBy(BaseTest):
         migration_successful = start_async_migration(MIGRATION_NAME)
         sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
+        self.assertTrue(migration_successful)
+        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
+        self.assertEqual(sm.progress, 100)
+        self.assertEqual(sm.current_operation_index, 9)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(len(errors), 0)
+
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
         backup_events_count_res = sync_execute(
             f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
         )
 
-        self.assertTrue(migration_successful)
         self.assertTrue(
             "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
             in create_table_res[0][0]
@@ -106,8 +114,3 @@ class Test0002EventsSampleBy(BaseTest):
 
         self.assertEqual(events_count_res[0][0], 5)
         self.assertEqual(backup_events_count_res[0][0], 5)
-        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertEqual(sm.progress, 100)
-        self.assertEqual(sm.current_operation_index, 9)
-        errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)

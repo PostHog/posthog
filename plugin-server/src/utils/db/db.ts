@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import {
     KAFKA_GROUPS,
@@ -36,6 +36,7 @@ import {
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
+    OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
     PluginConfig,
@@ -46,7 +47,6 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    PropertyUpdateOperation,
     RawAction,
     RawGroup,
     RawOrganization,
@@ -67,7 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
+import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -76,6 +76,7 @@ import {
     generatePostgresValuesString,
     getFinalPostgresQuery,
     hashElements,
+    shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
@@ -113,6 +114,7 @@ export interface CreateUserPayload {
     date_joined: Date
     events_column_config: Record<string, string> | null
     organization_id?: RawOrganization['id']
+    organizationMembershipLevel?: number
 }
 
 export interface CreatePersonalApiKeyPayload {
@@ -842,7 +844,7 @@ export class DB {
     // testutil
     public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
         const insertResult = await this.postgresQuery(
-            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
+            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static, version, pending_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *;`,
             [
                 cohort.name,
                 cohort.description,
@@ -855,6 +857,8 @@ export class DB {
                 cohort.last_calculation ?? new Date().toISOString(),
                 cohort.errors_calculating ?? 0,
                 cohort.is_static ?? false,
+                cohort.version ?? 0,
+                cohort.pending_version ?? cohort.version ?? 0,
             ],
             'createCohort'
         )
@@ -886,10 +890,10 @@ export class DB {
         return psqlResult.rows[0].exists
     }
 
-    public async addPersonToCohort(cohortId: number, personId: Person['id']): Promise<CohortPeople> {
+    public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
         const insertResult = await this.postgresQuery(
-            `INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES ($1, $2) RETURNING *;`,
-            [cohortId, personId],
+            `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
+            [cohortId, personId, version],
             'addPersonToCohort'
         )
         return insertResult.rows[0]
@@ -1082,6 +1086,12 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
+
+        const logLevel = pluginConfig.plugin?.log_level
+
+        if (!shouldStoreLog(logLevel || 0, source, type)) {
+            return
+        }
 
         const parsedEntry = {
             id: new UUIDT().toString(),
@@ -1325,10 +1335,11 @@ export class DB {
         date_joined,
         events_column_config,
         organization_id,
+        organizationMembershipLevel = OrganizationMembershipLevel.Member,
     }: CreateUserPayload): Promise<QueryResult> {
         const createUserResult = await this.postgresQuery(
-            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id`,
             [
                 uuid.toString(),
@@ -1341,6 +1352,7 @@ export class DB {
                 is_active,
                 date_joined.toISOString(),
                 events_column_config,
+                organization_id,
             ],
             'createUser'
         )
@@ -1350,7 +1362,14 @@ export class DB {
             await this.postgresQuery(
                 `INSERT INTO posthog_organizationmembership (id, organization_id, user_id, level, joined_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [new UUIDT().toString(), organization_id, createUserResult.rows[0].id, 1, now, now],
+                [
+                    new UUIDT().toString(),
+                    organization_id,
+                    createUserResult.rows[0].id,
+                    organizationMembershipLevel,
+                    now,
+                    now,
+                ],
                 'createOrganizationMembership'
             )
         }
@@ -1572,5 +1591,37 @@ export class DB {
                 'getTeamsInOrganizationsWithRootPluginAccess'
             )
         ).rows as Team[]
+    }
+
+    public async addOrUpdatePublicJob(
+        pluginId: number,
+        jobName: string,
+        jobPayloadJson: Record<string, any>
+    ): Promise<void> {
+        await this.postgresTransaction(async (client) => {
+            let publicJobs: Record<string, any> = (
+                await this.postgresQuery(
+                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
+                    [pluginId],
+                    'selectPluginPublicJobsForUpdate',
+                    client
+                )
+            ).rows[0]?.public_jobs
+
+            if (
+                !publicJobs ||
+                !(jobName in publicJobs) ||
+                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
+            ) {
+                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
+
+                await this.postgresQuery(
+                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
+                    [JSON.stringify(publicJobs), pluginId],
+                    'updatePublicJob',
+                    client
+                )
+            }
+        })
     }
 }

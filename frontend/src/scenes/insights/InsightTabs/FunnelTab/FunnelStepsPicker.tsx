@@ -42,15 +42,14 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
     return (
         <Row className="funnel-options-inputs">
-            <span className="text-muted-alt">between</span>
+            <span className="text-muted-alt">from</span>
             <Select
-                defaultValue={0}
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                 data-attr="funnel-header-steps-funnel_from_step-selector"
                 optionLabelProp="label"
-                value={filters.funnel_from_step}
+                value={filters.funnel_from_step || 0}
                 onChange={(fromStep: number) => onChange(fromStep, filters.funnel_to_step)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
@@ -58,13 +57,12 @@ export function FunnelStepsPicker(): JSX.Element | null {
             </Select>
             <span className="text-muted-alt">to</span>
             <Select
-                defaultValue={Math.max(numberOfSeries - 1, 1)}
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                 data-attr="funnel-header-steps-funnel_to_step-selector"
                 optionLabelProp="label"
-                value={filters.funnel_to_step}
+                value={filters.funnel_to_step || Math.max(numberOfSeries - 1, 1)}
                 onChange={(toStep: number) => onChange(filters.funnel_from_step, toStep)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >

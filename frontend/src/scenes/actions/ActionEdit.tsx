@@ -16,16 +16,17 @@ import api from '../../lib/api'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
-    const relevantActionEditLogic = actionEditLogic({
+    const logic = actionEditLogic({
         id: id,
         action: loadedAction,
         onSave: (action) => onSave(action),
         temporaryToken,
     })
-    const { action, errorActionId, actionCount, actionCountLoading } = useValues(relevantActionEditLogic)
-    const { setAction, saveAction } = useActions(relevantActionEditLogic)
+    const { action, actionLoading, errorActionId, actionCount, actionCountLoading } = useValues(logic)
+    const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -75,7 +76,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             setAction({ ...action, name })
                             setEdited(!!name)
                         }}
-                        persistEditMode={!id}
+                        mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                         minLength={1}
                         maxLength={400} // Sync with action model
                         data-attr={`action-name-${id ? 'edit' : 'create'}`}
@@ -83,23 +84,33 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     />
                 }
                 caption={
-                    <EditableField
-                        multiline
-                        name="description"
-                        value={action.description || ''}
-                        placeholder="Description (optional)"
-                        onSave={(description) => {
-                            setAction({ ...action, description })
-                            setEdited(!!description)
-                        }}
-                        persistEditMode={!id}
-                        autoFocus={!!id}
-                        data-attr="action-description"
-                        compactButtons
-                        maxLength={600} // No limit on backend model, but enforce shortish description
-                        isGated={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
-                        saveButtonText="Set"
-                    />
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            value={action.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(description) => {
+                                setAction({ ...action, description })
+                                setEdited(!!description)
+                            }}
+                            mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
+                            autoFocus={!!id}
+                            data-attr="action-description"
+                            compactButtons
+                            maxLength={600} // No limit on backend model, but enforce shortish description
+                            paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                            saveButtonText="Set"
+                        />
+                        {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                            <ObjectTags
+                                tags={action.tags ?? []}
+                                onChange={(_, tags) => setAction({ tags })}
+                                className="action-tags"
+                                saving={actionLoading}
+                            />
+                        )}
+                    </>
                 }
                 buttons={deleteAction}
             />

@@ -41,7 +41,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user)
+        return team.get_effective_membership_level(self.context["request"].user.id)
 
 
 class OrganizationBasicSerializer(serializers.ModelSerializer):

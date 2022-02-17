@@ -348,15 +348,23 @@ export const getClampedStepRangeFilter = ({
     filters: FilterType
 }): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    const funnel_from_step = clamp(stepRange?.funnel_from_step ?? filters.funnel_from_step ?? 0, 0, maxStepIndex)
+    const incomingFunnelFromStep = stepRange?.funnel_from_step || filters.funnel_from_step
+    const incomingFunnelToStep = stepRange?.funnel_to_step || filters.funnel_to_step
+
+    const funnelFromStepIsSet = typeof incomingFunnelFromStep === 'number' && incomingFunnelFromStep !== 0
+    const funnelToStepIsSet = typeof incomingFunnelToStep === 'number' && incomingFunnelToStep !== maxStepIndex
+
+    if (funnelFromStepIsSet || funnelToStepIsSet) {
+        const funnel_from_step = clamp(incomingFunnelFromStep ?? 0, 0, maxStepIndex)
+        return {
+            ...(stepRange as FunnelStepRangeEntityFilter),
+            funnel_from_step,
+            funnel_to_step: clamp(incomingFunnelToStep ?? maxStepIndex, funnel_from_step + 1, maxStepIndex),
+        }
+    }
     return {
-        ...(stepRange as FunnelStepRangeEntityFilter),
-        funnel_from_step,
-        funnel_to_step: clamp(
-            stepRange?.funnel_to_step ?? filters.funnel_to_step ?? maxStepIndex,
-            funnel_from_step + 1,
-            maxStepIndex
-        ),
+        funnel_from_step: undefined,
+        funnel_to_step: undefined,
     }
 }
 

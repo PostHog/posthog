@@ -7,8 +7,6 @@ import {
     FilterType,
     ActionFilter,
     IntervalType,
-    ItemMode,
-    DashboardMode,
     dateMappingOption,
     GroupActorType,
     ActorType,
@@ -21,7 +19,6 @@ import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
@@ -80,6 +77,18 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )
+}
+
+// taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
+export const humanizeBytes = (fileSizeInBytes: number): string => {
+    let i = -1
+    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    do {
+        fileSizeInBytes = fileSizeInBytes / 1024
+        i++
+    } while (fileSizeInBytes > 1024)
+
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -143,30 +152,6 @@ export function percentage(division: number): string {
         : ''
 }
 
-export function editingToast(
-    item: string,
-    setItemMode:
-        | ((mode: DashboardMode | null, source: DashboardEventSource) => void)
-        | ((mode: ItemMode | null, source: DashboardEventSource) => void)
-): any {
-    return toast(
-        <>
-            <h1>{item} edit mode</h1>
-            <p>Tap below when finished.</p>
-            <div className="text-right">
-                <Button>Finish editing</Button>
-            </div>
-        </>,
-        {
-            type: 'info',
-            autoClose: false,
-            onClick: () => setItemMode(null, DashboardEventSource.Toast),
-            closeButton: false,
-            className: 'drag-items-toast accent-border',
-        }
-    )
-}
-
 export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
     /**
      * Shows a standardized error toast when something goes wrong. Automated for any loader usage.
@@ -189,7 +174,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     setTimeout(
         () =>
             toast.error(
-                <div>
+                <div className="click-outside-block">
                     <h1>
                         <ExclamationCircleOutlined /> {title || 'Something went wrong'}
                     </h1>

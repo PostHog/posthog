@@ -33,13 +33,24 @@ import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '~/models/groupsModel'
 
 const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['hasAvailableFeature'],
+            groupsModel,
+            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+        ],
         actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
     },
     actions: {
@@ -146,10 +157,10 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 },
                 setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    const metrics = secondaryMetrics.map((metric) => metric)
                     return {
                         ...state,
-                        parameters: { ...state?.parameters, secondary_metrics: metrics },
+                        secondary_metrics: metrics,
                     }
                 },
                 resetNewExperiment: () => ({
@@ -413,12 +424,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 )
             },
         ],
+        taxonomicGroupTypesForSelection: [
+            (s) => [s.newExperimentData, s.groupsTaxonomicTypes],
+            (newExperimentData, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (
+                    newExperimentData?.filters?.aggregation_group_type_index != null &&
+                    groupsTaxonomicTypes.length > 0
+                ) {
+                    return [groupsTaxonomicTypes[newExperimentData.filters.aggregation_group_type_index]]
+                }
+
+                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+            },
+        ],
         parsedSecondaryMetrics: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics: Partial<FilterType>[] =
-                    newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
-                return secondaryMetrics.map((metric) => ({ filters: metric }))
+                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+                return secondaryMetrics
             },
         ],
         minimumDetectableChange: [
@@ -443,30 +466,38 @@ export const experimentLogic = kea<experimentLogicType>({
                 return experimentResults?.significant || false
             },
         ],
-        significanceTooltip: [
+        significanceBannerDetails: [
             (s) => [s.experimentResults],
             (experimentResults): string | ReactElement => {
                 if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
                     return (
-                        <div>
-                            This is because the expected loss in conversion is greater than 1%.{' '}
-                            <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
-                                {' '}
-                                See our Experimentation docs for more information.{' '}
-                            </a>
-                        </div>
+                        <>
+                            This is because the expected loss in conversion is greater than 1%
+                            <Tooltip
+                                placement="right"
+                                title={
+                                    <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
+                                }
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
                     )
                 }
 
                 if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
                     return (
-                        <div>
-                            This is because the p value is greater than 0.05.{' '}
-                            <a href="https://posthog.com/docs/user-guides/experimentation#trend-experiment-calculations">
-                                {' '}
-                                See our Experimentation docs for more information.{' '}
-                            </a>
-                        </div>
+                        <>
+                            This is because the p value is greater than 0.05
+                            <Tooltip
+                                placement="right"
+                                title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
+                            >
+                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                            </Tooltip>
+                            .
+                        </>
                     )
                 }
 
@@ -622,6 +653,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
+                    actions.setSecondaryMetrics([])
                 }
 
                 actions.setEditExperiment(false)

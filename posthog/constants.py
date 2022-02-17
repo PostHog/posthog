@@ -12,12 +12,14 @@ class AvailableFeature(str, Enum):
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
+    TAGGING = "tagging"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -57,13 +59,7 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraphLinear",
-    "ActionsLineGraphCumulative",
-    "ActionsTable",
-    "ActionsPieChart",
-    "ActionsBarChart",
-    "ActionsBarValue",
-    "ActionsBarChartValue",
+    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -87,6 +83,7 @@ ACTIONS = "actions"
 EVENTS = "events"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
+PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
 DISPLAY = "display"
@@ -216,5 +213,11 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class PropertyOperatorType(str, Enum):
+    AND = "AND"
+    OR = "OR"
+
+
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+BREAKDOWN_VALUES_LIMIT = 25

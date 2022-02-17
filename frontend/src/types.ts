@@ -13,7 +13,7 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -32,12 +32,19 @@ export enum AvailableFeature {
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
+}
+
+export enum LicensePlan {
+    Scale = 'scale',
+    Enterprise = 'enterprise',
 }
 
 export enum Realm {
@@ -227,6 +234,7 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
+    tags?: string[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -460,12 +468,12 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter extends EntityFilter {
-    funnel_from_step: number
-    funnel_to_step: number
+export interface FunnelStepRangeEntityFilter {
+    funnel_from_step?: number
+    funnel_to_step?: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
     id?: number
@@ -673,7 +681,7 @@ export interface InsightModel {
     created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
-    last_refresh: string
+    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
@@ -683,20 +691,10 @@ export interface InsightModel {
     tags: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    effective_restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
-}
-
-/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
-export enum DashboardRestrictionLevel {
-    EveryoneInProjectCanEdit = 21,
-    OnlyCollaboratorsCanEdit = 37,
-}
-
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -713,6 +711,7 @@ export interface DashboardType {
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
+    effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
     tags: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
@@ -720,6 +719,21 @@ export interface DashboardType {
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
+
+/** Explicit dashboard collaborator, based on DashboardPrivilege. */
+export interface DashboardCollaboratorType {
+    id: string
+    dashboard_id: DashboardType['id']
+    user: UserBasicType
+    level: DashboardPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
+
+/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
+export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
+    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
+}
 
 export interface OrganizationInviteType {
     id: string
@@ -817,12 +831,12 @@ export interface AnnotationType {
 }
 
 export enum ChartDisplayType {
-    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     ActionsTable = 'ActionsTable',
-    ActionsPieChart = 'ActionsPie',
-    ActionsBarChart = 'ActionsBar',
-    ActionsBarChartValue = 'ActionsBarValue',
+    ActionsPie = 'ActionsPie',
+    ActionsBar = 'ActionsBar',
+    ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
 }
@@ -1331,7 +1345,7 @@ export type HotKeys =
 export interface LicenseType {
     id: number
     key: string
-    plan: string
+    plan: LicensePlan
     valid_until: string
     max_users: string | null
     created_at: string
@@ -1416,7 +1430,7 @@ export interface Experiment {
     start_date?: string
     end_date?: string
     archived?: boolean
-    secondary_metrics: FilterType[]
+    secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1428,9 +1442,12 @@ export interface ExperimentResults {
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
 }
 
 export interface SecondaryExperimentMetric {
+    name?: string
     filters: Partial<FilterType>
 }
 

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any
+from typing import Any, Tuple, Union
 from unittest.mock import patch
 
 import sqlparse
@@ -25,16 +25,11 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
-    @contextmanager
-    def _assertNumQueries(self, func):
-        yield
-
-    # Ignore assertNumQueries in clickhouse tests
-    def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
-        return self._assertNumQueries(func)
-
-    @contextmanager
     def capture_select_queries(self):
+        return self.capture_queries(("SELECT", "WITH",))
+
+    @contextmanager
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -47,7 +42,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith(("SELECT", "WITH")):
+                    if sqlparse.format(query, strip_comments=True).strip().startswith(query_prefixes):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
@@ -89,7 +84,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
 def snapshot_clickhouse_queries(fn):
     """
-    Captures and snapshots select queries from test using `syrupy` library.
+    Captures and snapshots SELECT queries from test using `syrupy` library.
 
     Requires queries to be stable to avoid flakiness.
 
@@ -100,6 +95,23 @@ def snapshot_clickhouse_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
+
+
+def snapshot_clickhouse_alter_queries(fn):
+    """
+    Captures and snapshots ALTER queries from test using `syrupy` library.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_queries("ALTER") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:

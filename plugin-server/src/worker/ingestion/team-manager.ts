@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, Team, TeamId } from '../../types'
+import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -162,8 +162,8 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
-                const isNumerical = typeof value === 'number'
                 const propertyType = detectPropertyDefinitionTypes(value, key)
+                const isNumerical = propertyType == PropertyType.Numeric
 
                 await this.db.postgresQuery(
                     `

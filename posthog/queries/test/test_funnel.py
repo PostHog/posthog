@@ -85,8 +85,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 )
                 self._signup_event(distinct_id="stopped_after_signup2")
 
-            with self.assertNumQueries(1):
-                result = funnel.run()
+            result = funnel.run()
             self.assertEqual(result[0]["count"], 0)
 
         def test_funnel_with_single_step(self):
@@ -99,8 +98,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             person2_stopped_after_signup = person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
             self._signup_event(distinct_id="stopped_after_signup2")
 
-            with self.assertNumQueries(1):
-                result = funnel.run()
+            result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 2)
 
@@ -140,16 +138,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 1)
-
-            # make sure it's O(n)
-            person_wrong_order = person_factory(distinct_ids=["badalgo"], team_id=self.team.pk)
-            self._signup_event(distinct_id="badalgo")
-            with self.assertNumQueries(3):
-                funnel.run()
-
-            self._pay_event(distinct_id="badalgo")
-            with self.assertNumQueries(3):
-                funnel.run()
 
         def test_funnel_no_events(self):
             funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
@@ -301,10 +289,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             action1 = Action.objects.create(team_id=self.team.pk, name="event2")
             ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_prop", "value": "a"}])
-            action1.calculate_events()
             action2 = Action.objects.create(team_id=self.team.pk, name="event2")
             ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_prop", "value": "c"}])
-            action2.calculate_events()
 
             result = Funnel(
                 filter=Filter(
@@ -385,7 +371,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 event="event1",
                 properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
             )
-            action.calculate_events()
 
             result = Funnel(
                 filter=Filter(

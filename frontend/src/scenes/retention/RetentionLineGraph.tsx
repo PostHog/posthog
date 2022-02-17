@@ -54,6 +54,7 @@ export function RetentionLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 insightId={insight.id}
                 inSharedMode={!!inSharedMode}
+                showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
                 percentage={true}
                 tooltip={{
@@ -72,7 +73,7 @@ export function RetentionLineGraph({
                     },
                 }}
                 onClick={
-                    dashboardItemId
+                    !!dashboardItemId
                         ? undefined
                         : (payload) => {
                               const { points } = payload
@@ -103,6 +104,6 @@ export function RetentionLineGraph({
             )}
         </>
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} />
     )
 }

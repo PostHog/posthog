@@ -8,14 +8,14 @@ from rest_framework import status
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Cohort, Event, Organization, Person, Team
+from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
-    return Event(pk=create_event(**kwargs))
+    create_event(**kwargs)
 
 
 def _create_person(**kwargs):
@@ -100,15 +100,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["count"], 1)
 
     def test_filter_by_cohort(self):
+
         _create_person(
-            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+            team=self.team, distinct_ids=[f"fake"], properties={},
         )
-        _create_person(team=self.team, distinct_ids=["person_2"])
+        for i in range(150):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
-        cohort.calculate_people()
-        response = self.client.get(f"/api/person/?cohort={cohort.pk}")
-        self.assertEqual(len(response.json()["results"]), 1, response)
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 100, response)
+
+        response = self.client.get(response.json()["next"])
+        self.assertEqual(len(response.json()["results"]), 50, response)
 
     def test_filter_person_list(self):
 
@@ -123,7 +131,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Filter by distinct ID
-        response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
+        with self.assertNumQueries(6):
+            response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], person1.pk)
@@ -207,15 +216,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/person/{person.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_filter_id_or_uuid(self) -> None:
+    def test_filter_uuid(self) -> None:
         person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
         person2 = _create_person(team=self.team, properties={"random_prop": "asdf"})
         _create_person(team=self.team, properties={"random_prop": "asdf"})
 
-        response = self.client.get(f"/api/person/?id={person1.id},{person2.id}")
-        response_uuid = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
+        response = self.client.get(f"/api/person/?uuid={person1.uuid},{person2.uuid}")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), response_uuid.json())
         self.assertEqual(len(response.json()["results"]), 2)
 
     @mock.patch("posthog.api.capture.capture_internal")
@@ -319,9 +326,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 1}}], name="cohort2")
         cohort3 = Cohort.objects.create(team=self.team, groups=[{"properties": {"number": 2}}], name="cohort3")
-        cohort1.calculate_people()
-        cohort2.calculate_people()
-        cohort3.calculate_people()
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+        cohort3.calculate_people_ch(pending_version=0)
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])

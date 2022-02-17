@@ -11,7 +11,8 @@ from typing import (
     cast,
 )
 
-from django.db.models import Count, Func, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.query import Prefetch
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -21,9 +22,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.cohort import get_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
+from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
@@ -47,16 +51,19 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Event, Filter, Person, User
+from posthog.models.cohort import CohortPeople
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.base import filter_persons
-from posthog.queries.lifecycle import LifecycleTrend
-from posthog.queries.retention import Retention
-from posthog.queries.stickiness import Stickiness
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    flatten,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+)
 
 
 class PersonCursorPagination(CursorPagination):
@@ -98,14 +105,52 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
 class PersonFilter(filters.FilterSet):
     email = filters.CharFilter(field_name="properties__email")
-    distinct_id = filters.CharFilter(field_name="persondistinctid__distinct_id")
-    key_identifier = filters.CharFilter(method="key_identifier_filter")
+    distinct_id = filters.CharFilter(method="distinct_id_filter")
+    key_identifier = filters.CharFilter(method="key_identifier_filter", help_text="Filter on email or distinct ID")
+    uuid = filters.CharFilter(method="uuid_filter")
+    search = filters.CharFilter(method="search_filter")
+    cohort = filters.CharFilter(method="cohort_filter", help_text="ID of a cohort the user belongs to")
+    properties = filters.CharFilter(method="properties_filter")
 
-    def key_identifier_filter(self, queryset, attr, *args, **kwargs):
+    def __init__(self, data=None, queryset=None, *, request=None, prefix=None, team_id=None):
+        self.team_id = team_id
+        return super().__init__(data=data, queryset=queryset, request=request, prefix=prefix)
+
+    def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
+        queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
+        return queryset
+
+    def cohort_filter(self, queryset, attr, value, *args, **kwargs):
+        cohort = Cohort.objects.get(pk=value)
+        queryset = queryset.filter(cohort__id=cohort.pk, cohortpeople__version=cohort.version)
+        return queryset
+
+    def key_identifier_filter(self, queryset, attr, value, *args, **kwargs):
         """
         Filters persons by email or distinct ID
         """
-        return queryset.filter(Q(persondistinctid__distinct_id=args[0]) | Q(properties__email=args[0]))
+        return queryset.filter(Q(persondistinctid__distinct_id=value) | Q(properties__email=value))
+
+    def uuid_filter(self, queryset, attr, value, *args, **kwargs):
+        uuids = value.split(",")
+        return queryset.filter(uuid__in=uuids)
+
+    def search_filter(self, queryset, attr, value, *args, **kwargs):
+        return queryset.filter(
+            Q(properties__icontains=value) | Q(persondistinctid__distinct_id__icontains=value)
+        ).distinct("id")
+
+    def properties_filter(self, queryset, attr, value, *args, **kwargs):
+        filter = Filter(data={"properties": json.loads(value)})
+        from posthog.queries.base import properties_to_Q
+
+        return queryset.filter(
+            properties_to_Q(
+                [prop for prop in filter.properties if prop.type == "person"],
+                team_id=self.team_id,
+                is_direct_query=True,
+            )
+        )
 
     class Meta:
         model = Person
@@ -136,7 +181,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonCursorPagination
-    filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     lifecycle_class = ClickhouseLifecycle
@@ -244,9 +288,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
-        return filter_persons(self.team_id, request, queryset)
-
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
@@ -259,7 +300,11 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotFound(detail="Person not found.")
 
     def get_queryset(self):
-        return self._filter_request(self.request, super().get_queryset())
+        queryset = super().get_queryset()
+        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
@@ -320,18 +365,33 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        people = self.get_queryset()
-        key = "properties__{}".format(request.GET.get("key"))
-        people = people.values(key).annotate(count=Count("id")).filter(**{f"{key}__isnull": False}).order_by("-count")
+        key = request.GET.get("key")
+        value = request.GET.get("value")
+        flattened = []
+        if key:
+            timer = statsd.timer("get_person_property_values_for_key_timer").start()
+            try:
+                result = get_person_property_values_for_key(key, self.team, value)
+                statsd.incr(
+                    "get_person_property_values_for_key_success",
+                    tags={"key": key, "value": value, "team_id": self.team.id},
+                )
+            except Exception as e:
+                statsd.incr(
+                    "get_person_property_values_for_key_error",
+                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+                )
+                raise e
+            finally:
+                timer.stop()
 
-        if request.GET.get("value"):
-            people = people.extra(
-                where=["properties ->> %s LIKE %s"], params=[request.GET["key"], "%{}%".format(request.GET["value"])],
-            )
-
-        return response.Response(
-            [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
-        )
+            for (value, count) in result:
+                try:
+                    # Try loading as json for dicts or arrays
+                    flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
+                except json.decoder.JSONDecodeError:
+                    flattened.append({"name": convert_property_value(value), "count": count})
+        return response.Response(flattened)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
@@ -433,9 +493,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def cohorts(self, request: request.Request) -> response.Response:
         from posthog.api.cohort import CohortSerializer
 
-        person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id, deleted=False)
+        team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
 
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohort_ids = get_cohort_ids_by_person_uuid(person.uuid, team.pk)
+
+        cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 

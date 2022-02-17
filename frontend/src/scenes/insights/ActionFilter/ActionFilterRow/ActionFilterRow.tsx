@@ -85,6 +85,7 @@ export interface ActionFilterRowProps {
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
+    readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
         prefix,
@@ -124,6 +125,7 @@ export function ActionFilterRow({
     actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     propertiesTaxonomicGroupTypes,
     disabled = false,
+    readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -224,7 +226,7 @@ export function ActionFilterRow({
                     onClick={onClick}
                     block={fullWidth}
                     ref={setRef}
-                    disabled={disabled}
+                    disabled={disabled || readOnly}
                     style={{
                         maxWidth: '100%',
                         display: 'flex',
@@ -406,10 +408,12 @@ export function ActionFilterRow({
                                 )}
                             </>
                         )}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && <Col>{duplicateRowButton}</Col>}
-                        {!hideDeleteBtn && !horizontalUI && !singleFilter && (
+                        {(horizontalUI || fullWidth) && !hideFilter && !readOnly && <Col>{propertyFiltersButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideRename && !readOnly && <Col>{renameRowButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && !readOnly && (
+                            <Col>{duplicateRowButton}</Col>
+                        )}
+                        {!hideDeleteBtn && !horizontalUI && !singleFilter && !readOnly && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
                         {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}

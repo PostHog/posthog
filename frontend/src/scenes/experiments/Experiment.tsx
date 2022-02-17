@@ -1,4 +1,3 @@
-import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
 import {
     Button,
     Card,
@@ -39,7 +38,14 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { CaretDownOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import {
+    CaretDownOutlined,
+    PlusOutlined,
+    DeleteOutlined,
+    InfoCircleOutlined,
+    SaveOutlined,
+    CloseOutlined,
+} from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -52,9 +58,12 @@ import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExperimentWorkflow } from './ExperimentWorkflow'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -79,8 +88,11 @@ export function Experiment_(): JSX.Element {
         experimentId,
         conversionRateForVariant,
         getIndexForVariant,
-        significanceTooltip,
+        significanceBannerDetails,
         areTrendResultsConfusing,
+        taxonomicGroupTypesForSelection,
+        groupTypes,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -327,7 +339,61 @@ export function Experiment_(): JSX.Element {
                                                 </Col>
                                             </Col>
                                         )}
-                                        <Form.Item label="Select participants" name="person-selection">
+                                        <Row className="person-selection">
+                                            <span>
+                                                <b>Select Participants</b>
+                                            </span>
+                                            <span>
+                                                <b>Participant Type</b>
+                                                <Select
+                                                    value={
+                                                        newExperimentData?.filters?.aggregation_group_type_index !=
+                                                        undefined
+                                                            ? newExperimentData.filters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    onChange={(value) => {
+                                                        const groupTypeIndex = value !== -1 ? value : undefined
+                                                        if (
+                                                            groupTypeIndex !=
+                                                            newExperimentData?.filters?.aggregation_group_type_index
+                                                        ) {
+                                                            setFilters({
+                                                                properties: [],
+                                                                aggregation_group_type_index: groupTypeIndex,
+                                                            })
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    aggregation_group_type_index: groupTypeIndex,
+                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                                                                    properties: [],
+                                                                },
+                                                            })
+                                                        }
+                                                    }}
+                                                    style={{ marginLeft: 8 }}
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    dropdownAlign={{
+                                                        // Align this dropdown by the right-hand-side of button
+                                                        points: ['tr', 'br'],
+                                                    }}
+                                                >
+                                                    <Select.Option key={-1} value={-1}>
+                                                        Users
+                                                    </Select.Option>
+                                                    {groupTypes.map((groupType) => (
+                                                        <Select.Option
+                                                            key={groupType.group_type_index}
+                                                            value={groupType.group_type_index}
+                                                        >
+                                                            {capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            )}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </span>
                                             <Col>
                                                 <div className="text-muted">
                                                     Select the entities who will participate in this experiment. If no
@@ -335,7 +401,6 @@ export function Experiment_(): JSX.Element {
                                                 </div>
                                                 <div style={{ flex: 3, marginRight: 5 }}>
                                                     <PropertyFilters
-                                                        endpoint="person"
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
@@ -353,16 +418,13 @@ export function Experiment_(): JSX.Element {
                                                             })
                                                         }}
                                                         style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={[
-                                                            TaxonomicFilterGroupType.PersonProperties,
-                                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                        ]}
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                         popoverPlacement="top"
                                                         taxonomicPopoverPlacement="auto"
                                                     />
                                                 </div>
                                             </Col>
-                                        </Form.Item>
+                                        </Row>
                                         <Row className="metrics-selection">
                                             <Col style={{ paddingRight: 8 }}>
                                                 <div className="mb-05">
@@ -422,6 +484,7 @@ export function Experiment_(): JSX.Element {
                                                                 hideMathSelector={true}
                                                                 hideDeleteBtn={filterSteps.length === 1}
                                                                 buttonCopy="Add funnel step"
+                                                                buttonType="link"
                                                                 showSeriesIndicator={!isStepsEmpty}
                                                                 seriesIndicatorType="numeric"
                                                                 fullWidth
@@ -468,6 +531,24 @@ export function Experiment_(): JSX.Element {
                                                 </Row>
                                             </Col>
                                         </Row>
+                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                            <Row className="mt">
+                                                <Col>
+                                                    <div>
+                                                        <b>Secondary metrics</b>
+                                                        <span className="text-muted ml-05">(optional)</span>
+                                                    </div>
+                                                    <div className="text-muted" style={{ marginTop: 4 }}>
+                                                        Use secondary metrics to monitor metrics related to your
+                                                        experiment goal. You can add up to three secondary metrics.{' '}
+                                                    </div>
+                                                </Col>
+                                                <SecondaryMetrics
+                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                    initialMetrics={parsedSecondaryMetrics}
+                                                />
+                                            </Row>
+                                        )}
                                     </Col>
                                     <Col span={12}>
                                         <Card className="experiment-preview">
@@ -486,24 +567,6 @@ export function Experiment_(): JSX.Element {
                                         </Card>
                                     </Col>
                                 </Row>
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                    <Row>
-                                        <Col>
-                                            <div>
-                                                <b>Secondary metrics</b>
-                                                <span className="text-muted ml-05">(optional)</span>
-                                            </div>
-                                            <div className="text-muted">
-                                                Use secondary metrics to monitor metrics related to your experiment
-                                                goal. You can add up to three secondary metrics.{' '}
-                                            </div>
-                                        </Col>
-                                        <SecondaryMetrics
-                                            onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                            initialMetrics={parsedSecondaryMetrics}
-                                        />
-                                    </Row>
-                                )}
                             </BindLogic>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
@@ -533,6 +596,18 @@ export function Experiment_(): JSX.Element {
                                     >
                                         <b className="uppercase">{status()}</b>
                                     </Tag>
+                                    {experimentResults && experimentData.end_date && (
+                                        <Tag
+                                            style={{ alignSelf: 'center' }}
+                                            color={areResultsSignificant ? 'green' : 'geekblue'}
+                                        >
+                                            <b className="uppercase">
+                                                {areResultsSignificant
+                                                    ? 'Significant Results'
+                                                    : 'Results not significant'}
+                                            </b>
+                                        </Tag>
+                                    )}
                                 </Row>
                                 <span className="exp-description">
                                     {experimentData.start_date ? (
@@ -579,7 +654,7 @@ export function Experiment_(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {showWarning && experimentResults && areResultsSignificant && (
+                        {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="significant-results">
                                 <Col span={19} style={{ color: '#497342' }}>
                                     Your results are <b>statistically significant</b>.{' '}
@@ -594,21 +669,40 @@ export function Experiment_(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experimentResults && !areResultsSignificant && (
+                        {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
                             <Row align="middle" className="not-significant-results">
-                                <Col span={19} style={{ color: '#f96132' }}>
-                                    Your results are <b>not statistically significant</b>.{' '}
-                                    {experimentData.end_date ? '' : "We don't recommend ending this experiment yet."}
-                                    {significanceTooltip && (
-                                        <Tooltip placement="right" title={significanceTooltip}>
-                                            <InfoCircleOutlined style={{ color: '#f96132', padding: '4px 2px' }} />
-                                        </Tooltip>
-                                    )}
+                                <Col span={23} style={{ color: '#2D2D2D' }}>
+                                    <b>Your results are not statistically significant</b>. {significanceBannerDetails}{' '}
+                                    {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
+                                    See our{' '}
+                                    <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                        {' '}
+                                        experimentation guide{' '}
+                                    </a>
+                                    for more information.{' '}
                                 </Col>
-                                <Col span={5}>
-                                    <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
-                                        Dismiss
-                                    </Button>
+                                <Col span={1}>
+                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
+                                </Col>
+                            </Row>
+                        )}
+                        {showWarning && experimentData.end_date && (
+                            <Row align="middle" className="feature-flag-mods">
+                                <Col span={23}>
+                                    <b>Your experiment is complete.</b> We recommend removing the feature flag from your
+                                    code completely, instead of relying on this distribution:{' '}
+                                    <Link
+                                        to={
+                                            experimentData.feature_flag
+                                                ? urls.featureFlag(experimentData.feature_flag)
+                                                : undefined
+                                        }
+                                    >
+                                        <b>Adjust feature flag distribution.</b>
+                                    </Link>
+                                </Col>
+                                <Col span={1}>
+                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                 </Col>
                             </Row>
                         )}
@@ -622,7 +716,7 @@ export function Experiment_(): JSX.Element {
                                     trendExposure={experimentData?.parameters.recommended_running_time}
                                     funnelSampleSize={experimentData?.parameters.recommended_sample_size}
                                     funnelConversionRate={conversionRate}
-                                    funnelEntrants={funnelResultsPersonsTotal}
+                                    funnelEntrants={experimentData?.start_date ? funnelResultsPersonsTotal : entrants}
                                 />
                                 {experimentResults && (
                                     <Col span={8} className="mt ml">
@@ -840,6 +934,7 @@ export function ExperimentPreview({
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
+        aggregationLabel,
     } = useValues(experimentLogic)
     const { setNewExperimentData } = useActions(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
@@ -1007,7 +1102,15 @@ export function ExperimentPreview({
                                         })}
                                     </div>
                                 ) : (
-                                    '100% of users'
+                                    <>
+                                        100% of{' '}
+                                        {experiment?.filters?.aggregation_group_type_index != undefined
+                                            ? capitalizeFirstLetter(
+                                                  aggregationLabel(experiment.filters.aggregation_group_type_index)
+                                                      .plural
+                                              )
+                                            : 'users'}
+                                    </>
                                 )}
                             </div>
                         </Col>
@@ -1084,6 +1187,8 @@ export function ExperimentPreview({
             </Col>
             {experimentId !== 'new' && !editingExistingExperiment && (
                 <Col span={12} className="pl">
+                    {!experiment?.start_date && <ExperimentWorkflow />}
+
                     <div className="card-secondary mb">Feature flag usage and implementation</div>
                     <Row justify="space-between" className="mb-05">
                         <div>

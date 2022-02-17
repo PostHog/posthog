@@ -9,7 +9,6 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Event, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
@@ -254,7 +253,6 @@ class TestUpdateCache(APIBaseTest):
 
         Insight.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
         Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
-
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 

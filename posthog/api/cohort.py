@@ -1,31 +1,35 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from django.conf import settings
-from django.db.models import Count, QuerySet
+from django.db.models import QuerySet
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
+from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from posthog.api.person import get_funnel_actor_class
+from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS, LIMIT
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
+from posthog.models.cohort import CohortPeople, get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -35,11 +39,11 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_insight_filter,
 )
+from posthog.utils import format_query_params_absolute_url
 
 
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    count = serializers.SerializerMethodField()
     earliest_timestamp_func = get_earliest_timestamp
 
     class Meta:
@@ -85,6 +89,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -92,7 +97,9 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort_ch.delay(cohort.id)
+            pending_version = get_and_update_pending_version(cohort)
+
+            calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -125,7 +132,10 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                calculate_cohort_ch.delay(cohort.id)
+                # Increment based on pending versions
+                pending_version = get_and_update_pending_version(cohort)
+
+                calculate_cohort_ch.delay(cohort.id, pending_version)
 
         report_user_action(
             request.user,
@@ -134,11 +144,6 @@ class CohortSerializer(serializers.ModelSerializer):
         )
 
         return cohort
-
-    def get_count(self, action: Cohort) -> Optional[int]:
-        if hasattr(action, "count"):
-            return action.count  # type: ignore
-        return None
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -151,8 +156,33 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.annotate(count=Count("people"))
         return queryset.prefetch_related("created_by").order_by("-created_at")
+
+    @action(methods=["GET"], detail=True)
+    def persons(self, request: Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
+
+        raw_result = sync_execute(
+            GET_COHORTPEOPLE_BY_COHORT_ID,
+            {"team_id": team.pk, "cohort_id": cohort.pk, "limit": filter.limit, "offset": filter.offset},
+        )
+        actor_ids = [row[0] for row in raw_result]
+        actors, serialized_actors = get_people(team.pk, actor_ids)
+
+        _should_paginate = should_paginate(actors, filter.limit)
+        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
+        previous_url = (
+            format_query_params_absolute_url(request, filter.offset - filter.limit)
+            if filter.offset - filter.limit >= 0
+            else None
+        )
+
+        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
 
 class LegacyCohortViewSet(CohortViewSet):

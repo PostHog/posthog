@@ -279,9 +279,13 @@ FROM ({latest_person_sql}) AS p
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
+{limit}
+{offset}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
+    limit="{limit}",
+    offset="{offset}",
     GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
 
@@ -315,16 +319,6 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 )
 """
 
-PEOPLE_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
-    {latest_person_sql}
-) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100 OFFSET %(offset)s
-"""
-
 INSERT_COHORT_ALL_PEOPLE_SQL = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT id FROM (
@@ -352,7 +346,7 @@ WHERE person_id IN
         GROUP BY id
         HAVING is_deleted = 0
     )
-    WHERE 1 = 1 {filters}
+    WHERE {filters}
 )
 """
 
@@ -384,3 +378,44 @@ GROUP BY actor_id
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
     lambda: f"ALTER TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
+
+
+SELECT_PERSON_PROP_VALUES_SQL = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND
+        JSONHas(properties, %(key)s) 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""
+
+SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT 
+    value, 
+    count(value) 
+FROM (
+    SELECT 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+    FROM 
+        person 
+    WHERE 
+        team_id = %(team_id)s AND 
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    ORDER BY id DESC
+    LIMIT 100000
+)
+GROUP BY value
+ORDER BY count(value) DESC
+LIMIT 20
+"""

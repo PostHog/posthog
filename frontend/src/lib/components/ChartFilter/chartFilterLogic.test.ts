@@ -23,7 +23,7 @@ describe('the chart filter', () => {
 
     it('reads display type from URL when editing', () => {
         const url = urls.insightEdit('12345' as InsightShortId, {
-            display: ChartDisplayType.ActionsPieChart,
+            display: ChartDisplayType.ActionsPie,
         })
         expectLogic(logic, () => {
             router.actions.push(url)
@@ -32,7 +32,7 @@ describe('the chart filter', () => {
 
     it('reads display type from URL when viewing', () => {
         const url = urls.insightView('12345' as InsightShortId, {
-            display: ChartDisplayType.ActionsPieChart,
+            display: ChartDisplayType.ActionsPie,
         })
         expectLogic(logic, () => {
             router.actions.push(url)

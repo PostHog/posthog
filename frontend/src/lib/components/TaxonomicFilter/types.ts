@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { CohortType, EventDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -63,7 +63,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 }
 
 export interface ListStorage {
-    results: (EventDefinition | CohortType)[]
+    results: TaxonomicDefinitionTypes[]
     searchQuery?: string // Query used for the results currently in state
     count: number
     expandedCount?: number
@@ -80,3 +80,5 @@ export type ListFuse = Fuse<{
     name: string
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty

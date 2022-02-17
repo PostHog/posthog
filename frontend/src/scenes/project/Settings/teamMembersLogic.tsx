@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import {
+    AvailableFeature,
     BaseMemberType,
     ExplicitTeamMemberType,
     FusedTeamMemberType,
@@ -72,13 +73,28 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
     }),
     selectors: ({ selectors }) => ({
         allMembers: [
-            () => [selectors.explicitMembers, membersLogic.selectors.members],
+            () => [
+                teamLogic.selectors.currentTeam,
+                userLogic.selectors.hasAvailableFeature,
+                selectors.explicitMembers,
+                membersLogic.selectors.members,
+            ],
             // Explicit project members joined with organization admins and owner (who get project access by default)
-            (
-                explicitMembers: ExplicitTeamMemberType[],
-                organizationMembers: OrganizationMemberType[]
-            ): FusedTeamMemberType[] =>
-                organizationMembers
+            (currentTeam, hasAvailableFeature, explicitMembers, organizationMembers): FusedTeamMemberType[] => {
+                if (
+                    !currentTeam?.access_control ||
+                    !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+                ) {
+                    return organizationMembers.map(
+                        (member) =>
+                            ({
+                                ...member,
+                                explicit_team_level: null,
+                                organization_level: member.level,
+                            } as FusedTeamMemberType)
+                    )
+                }
+                return organizationMembers
                     .filter(({ level }) => level >= MINIMUM_IMPLICIT_ACCESS_LEVEL)
                     .map(
                         (member) =>
@@ -100,12 +116,21 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                                         organization_level: member.parent_level,
                                     } as FusedTeamMemberType)
                             )
-                    ),
+                    )
+            },
         ],
         allMembersLoading: [
             () => [selectors.explicitMembersLoading, membersLogic.selectors.membersLoading],
             (explicitMembersLoading, organizationMembersLoading) =>
                 explicitMembersLoading || organizationMembersLoading,
+        ],
+        admins: [
+            () => [selectors.allMembers],
+            (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level >= TeamMembershipLevel.Admin),
+        ],
+        plainMembers: [
+            () => [selectors.allMembers],
+            (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level < TeamMembershipLevel.Admin),
         ],
         addableMembers: [
             () => [selectors.explicitMembers, membersLogic.selectors.members, userLogic.selectors.user],

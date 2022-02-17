@@ -1,12 +1,19 @@
 @import '~/vars';
 
 .EditableField {
+    display: flex;
+    align-items: center;
     max-width: 100%;
     &:not(.EditableField--multiline) {
         line-height: 2rem;
     }
     i {
         color: var(--text-muted);
+    }
+    .EditableField__notice {
+        font-size: 1.5rem;
+        color: var(--text-muted);
+        margin-left: 0.5rem;
     }
     .EditableField--highlight {
         display: flex;
@@ -20,6 +27,7 @@
         overflow: auto;
     }
     &--editing .EditableField--highlight {
+        flex-grow: 1;
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
