@@ -1,5 +1,5 @@
-import json
-from typing import Dict, List, Optional
+import dataclasses
+from typing import List
 from uuid import uuid4
 
 from ee.clickhouse.client import sync_execute
@@ -9,7 +9,6 @@ from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.event import Event
 from posthog.models.person import Person
 from posthog.test.base import BaseTest
 from posthog.test.test_event_model import filter_by_actions_factory
@@ -22,27 +21,18 @@ def _create_event(**kwargs) -> str:
     return str(pk)
 
 
-def query_action(action: Action) -> Optional[List]:
-    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
+@dataclasses.dataclass
+class MockEvent:
+    uuid: str
+    distinct_id: str
+
+
+def _get_events_for_action(action: Action) -> List[MockEvent]:
+    formatted_query, params = format_action_filter(action, "")
 
     query = ACTION_QUERY.format(action_filter=formatted_query)
-
-    if query:
-        return sync_execute(query, {"team_id": action.team_id, **params})
-
-    return None
-
-
-def _get_events_for_action(action: Action) -> List[Event]:
-    events = query_action(action)
-    ret = []
-    if not events:
-        return []
-    for event in events:
-        ev = Event(pk=str(event[0]))
-        ev.distinct_id = event[5]
-        ret.append(ev)
-    return ret
+    events = sync_execute(query, {"team_id": action.team_id, **params})
+    return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
 def _create_person(**kwargs) -> Person:
@@ -174,5 +164,5 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
         )
 
-        events = query_action(action1)
-        self.assertEqual(len(events), 1)  # type: ignore
+        events = _get_events_for_action(action1)
+        self.assertEqual(len(events), 1)

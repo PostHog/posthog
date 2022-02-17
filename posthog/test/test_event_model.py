@@ -109,7 +109,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
 
-            self.assertCountEqual([e.pk for e in events], [event_uuid for event_uuid in expected_events])
+            self.assertCountEqual([e.uuid for e in events], [event_uuid for event_uuid in expected_events])
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
@@ -174,10 +174,10 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 4)
-            self.assertEqual(events[0].pk, event4_uuid)
-            self.assertEqual(events[1].pk, event3_uuid)
-            self.assertEqual(events[2].pk, event2_uuid)
-            self.assertEqual(events[3].pk, event1_uuid)
+            self.assertEqual(events[0].uuid, event4_uuid)
+            self.assertEqual(events[1].uuid, event3_uuid)
+            self.assertEqual(events[2].uuid, event2_uuid)
+            self.assertEqual(events[3].uuid, event1_uuid)
 
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -202,7 +202,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1_uuid)
+            self.assertEqual(events[0].uuid, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_with_class_with_escaped_symbols(self):
@@ -222,7 +222,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1_uuid)
+            self.assertEqual(events[0].uuid, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_with_class_with_escaped_slashes(self):
@@ -242,7 +242,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1_uuid)
+            self.assertEqual(events[0].uuid, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_attributes(self):
@@ -259,7 +259,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event1_uuid)
+            self.assertEqual(events[0].uuid, event1_uuid)
 
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -295,19 +295,19 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event2_uuid)
+            self.assertEqual(events[0].uuid, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action2)
-            self.assertEqual(events[0].pk, event2_uuid)
+            self.assertEqual(events[0].uuid, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action3)
-            self.assertEqual(events[0].pk, event2_uuid)
+            self.assertEqual(events[0].uuid, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action4)
-            self.assertEqual(events[0].pk, event2_uuid)
+            self.assertEqual(events[0].uuid, event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_person_with_different_distinct_id(self):
@@ -330,7 +330,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(events[0].pk, event_watched_movie_uuid)
+            self.assertEqual(events[0].uuid, event_watched_movie_uuid)
             self.assertEqual(events[0].distinct_id, "is_now_signed_up")
 
         def test_no_person_leakage_from_other_teams(self):
@@ -388,7 +388,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events_null_selector = _get_events_for_action(action_null_selector)
-            self.assertEqual(events_null_selector[0].pk, event1_uuid)
+            self.assertEqual(events_null_selector[0].uuid, event1_uuid)
             self.assertEqual(len(events_null_selector), 1)
 
             events_empty_selector = _get_events_for_action(action_empty_selector)
