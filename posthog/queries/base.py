@@ -175,23 +175,3 @@ def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: b
         raise ValueError("Group properties are not supported for indirect filtering via postgres")
 
     return filters
-
-
-def entity_to_Q(entity: Entity, team_id: int) -> Q:
-    result = Q(action__pk=entity.id) if entity.type == TREND_FILTER_TYPE_ACTIONS else Q(event=entity.id)
-    if entity.properties:
-        result &= properties_to_Q(entity.properties, team_id)
-    return result
-
-
-def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
-    if request.GET.get("id"):
-        ids = request.GET["id"].split(",")
-        queryset = queryset.filter(id__in=ids)
-
-    from posthog.api.person import PersonFilter
-
-    queryset = PersonFilter(data=request.GET, request=request, queryset=queryset).qs
-
-    queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-    return queryset
