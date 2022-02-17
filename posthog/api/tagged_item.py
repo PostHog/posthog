@@ -3,6 +3,7 @@ from rest_framework import serializers, viewsets
 
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
+from posthog.models.tag import tagify
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -30,7 +31,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             return
 
         # Normalize and dedupe tags
-        deduped_tags = list(set([Tag.tagify(t) for t in tags]))
+        deduped_tags = list(set([tagify(t) for t in tags]))
         tagged_item_objects = []
 
         # Create tags
