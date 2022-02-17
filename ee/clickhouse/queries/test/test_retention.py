@@ -86,15 +86,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [
-                [1, 1, 0, 1, 1, 0, 1],
-                [1, 0, 1, 1, 0, 1],
-                [0, 0, 0, 0, 0],
-                [1, 1, 0, 1],
-                [1, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1],],
         )
 
         result = ClickhouseRetention().run(
@@ -114,15 +106,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
     @snapshot_clickhouse_queries
@@ -142,15 +126,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         result = ClickhouseRetention().run(filter, self.team)
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
         actor_result = ClickhouseRetention().actors(filter.with_data({"selected_interval": 0}), self.team)
@@ -170,15 +146,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         result = ClickhouseRetention().run(filter, self.team)
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 1, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1],],
         )
 
     @snapshot_clickhouse_queries
