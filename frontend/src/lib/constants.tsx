@@ -46,19 +46,17 @@ export enum DashboardRestrictionLevel {
 export enum DashboardPrivilegeLevel {
     CanView = 21,
     CanEdit = 37,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _ProjectAdmin = 888,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _Owner = 999,
 }
 
-export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel.CanView]: 'can view',
     [DashboardPrivilegeLevel.CanEdit]: 'can edit',
-}
-
-export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
-    return privilegeLevel === 'owner'
-        ? 'owner'
-        : privilegeLevel === 'project-admin'
-        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
-        : rawPrivilegeLevelToName[privilegeLevel]
+    [DashboardPrivilegeLevel._Owner]: 'owner',
+    [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
