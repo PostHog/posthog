@@ -2,16 +2,12 @@ import copy
 import datetime
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db import models, transaction
-from django.db.models import F, OuterRef, Q, Subquery
+from django.db import models
 from django.utils import timezone
 
-from .element import Element
-from .element_group import ElementGroup
-from .person import PersonDistinctId
 from .team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
@@ -118,88 +114,6 @@ class Selector:
         yield "".join(part)
 
 
-class EventManager(models.QuerySet):
-    def _element_subquery(self, selector: Selector) -> Tuple[Dict[str, Subquery], Dict[str, Union[F, bool]]]:
-        filter: Dict[str, Union[F, bool]] = {}
-        subqueries = {}
-        for index, tag in enumerate(selector.parts):
-            subqueries[f"match_{index}"] = Subquery(
-                Element.objects.filter(group_id=OuterRef("pk"))
-                .values("order")
-                .order_by("order")
-                .extra(**tag.extra_query)  # type: ignore
-                # If there's two of the same element, for the second one we need to shift one
-                [tag.unique_order : tag.unique_order + 1]
-            )
-            filter[f"match_{index}__isnull"] = False
-            if index > 0:
-                # If direct descendant, the next element has to have order +1
-                if tag.direct_descendant:
-                    filter[f"match_{index}"] = F(f"match_{index - 1}") + 1
-                else:
-                    # If not, it can have any order as long as it's bigger than current element
-                    filter[f"match_{index}__gt"] = F(f"match_{index - 1}")
-        return (subqueries, filter)
-
-    def filter_by_element(self, filters: Dict, team_id: int):
-        groups = ElementGroup.objects.filter(team_id=team_id)
-
-        filter = Q()
-        if filters.get("selector"):
-            selector = Selector(filters["selector"])
-            subqueries, subq_filter = self._element_subquery(selector)
-            filter = Q(**subq_filter)
-            groups = groups.annotate(**subqueries)  # type: ignore
-        else:
-            filter = Q()
-
-        for key in ["tag_name", "text", "href"]:
-            values = filters.get(key, [])
-
-            if not values:
-                continue
-
-            values = values if isinstance(values, list) else [values]
-            if len(values) == 0:
-                continue
-
-            condition = Q()
-            for searched_value in values:
-                condition |= Q(**{f"element__{key}": searched_value})
-            filter &= condition
-
-        if not filter:
-            return {}
-
-        groups = groups.filter(filter)
-
-        return {"elements_hash__in": groups.values_list("hash", flat=True)}
-
-    def add_person_id(self, team_id: int):
-        return self.annotate(
-            person_id=Subquery(
-                PersonDistinctId.objects.filter(team_id=team_id, distinct_id=OuterRef("distinct_id"))
-                .order_by()
-                .values("person_id")[:1]
-            )
-        )
-
-    def create(self, *args: Any, **kwargs: Any):
-        site_url = kwargs.get("site_url")
-
-        with transaction.atomic():
-            if kwargs.get("elements"):
-                if kwargs.get("team"):
-                    kwargs["elements_hash"] = ElementGroup.objects.create(
-                        team=kwargs["team"], elements=kwargs.pop("elements")
-                    ).hash
-                else:
-                    kwargs["elements_hash"] = ElementGroup.objects.create(
-                        team_id=kwargs["team_id"], elements=kwargs.pop("elements")
-                    ).hash
-            return super().create(*args, **kwargs)
-
-
 class Event(models.Model):
     class Meta:
         indexes = [
@@ -224,5 +138,3 @@ class Event(models.Model):
 
     # DEPRECATED: elements are stored against element groups now
     elements: models.JSONField = models.JSONField(default=list, null=True, blank=True)
-
-    objects: EventManager = EventManager.as_manager()  # type: ignore

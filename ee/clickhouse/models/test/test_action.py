@@ -5,7 +5,6 @@ from uuid import uuid4
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import filter_event, format_action_filter
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.sql.actions import ACTION_QUERY
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -29,8 +28,15 @@ class MockEvent:
 
 def _get_events_for_action(action: Action) -> List[MockEvent]:
     formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
-
-    query = ACTION_QUERY.format(action_filter=formatted_query)
+    query = f"""
+        SELECT
+            events.uuid,
+            events.distinct_id
+        FROM events
+        WHERE {formatted_query}
+        AND events.team_id = %(team_id)s
+        ORDER BY events.timestamp DESC
+    """
     events = sync_execute(query, {"team_id": action.team_id, **params})
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
