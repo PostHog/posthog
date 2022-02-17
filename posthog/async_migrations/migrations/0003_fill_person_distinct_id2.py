@@ -40,7 +40,7 @@ class Migration(AsyncMigrationDefinition):
     def is_required(self):
         rows = sync_execute(
             """
-            SELECT comment, table
+            SELECT comment
             FROM system.columns
             WHERE database = %(database)s
         """,
