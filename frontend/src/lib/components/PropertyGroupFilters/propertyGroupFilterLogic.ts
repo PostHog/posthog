@@ -6,6 +6,7 @@ import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/ty
 import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
+import clone from 'clone'
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyGroupFilters', 'propertyGroupFilterLogic', key],
@@ -38,7 +39,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                             ],
                         }
                     }
-                    const groupsCopy = { ...state }
+                    const groupsCopy = clone(state)
                     groupsCopy.groups.push({ type: AndOr.AND, groups: [{}] })
 
                     if (groupsCopy.groups.length > 1 && !groupsCopy.type) {
@@ -47,17 +48,21 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                     return groupsCopy
                 },
                 removeFilterGroup: (state, { filterGroup }) => {
-                    const newState = { ...state, groups: state.groups.filter((_, idx: number) => idx !== filterGroup) }
-                    if (newState.groups.length <= 1) {
-                        return { groups: newState.groups }
+                    const newState = clone(state)
+                    const removedFilterGroupState = {
+                        ...newState,
+                        groups: newState.groups.filter((_, idx: number) => idx !== filterGroup),
                     }
-                    return newState
+                    if (removedFilterGroupState.groups.length <= 1) {
+                        return { groups: removedFilterGroupState.groups }
+                    }
+                    return removedFilterGroupState
                 },
                 setPropertyGroupsType: (state, { type }) => {
                     return { ...state, type }
                 },
                 setPropertyFilters: (state, { properties, index }) => {
-                    const newState = { ...state }
+                    const newState = clone(state)
                     newState.groups[index].groups = properties
                     // removes entire property group if no properties in groups
                     if (newState.groups[index].groups.length === 0) {
