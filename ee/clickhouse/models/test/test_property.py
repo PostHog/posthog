@@ -378,12 +378,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={
                 "properties": {
                     "type": "OR",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr_1", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                            "values": [{"key": "attr_1", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "OR", "groups": [{"key": "attr_1", "value": "val_2"}],},
+                        {"type": "OR", "values": [{"key": "attr_1", "value": "val_2"}],},
                     ],
                 }
             }
@@ -397,12 +397,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={
                 "properties": {
                     "type": "OR",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                            "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "XOR", "groups": [{"key": "attr", "value": "val_2"}],},
+                        {"type": "XOR", "values": [{"key": "attr", "value": "val_2"}],},
                     ],
                 }
             }
@@ -435,9 +435,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={
                 "properties": {
                     "type": "OR",
-                    "groups": [
-                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
-                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
+                    "values": [
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
                     ],
                 }
             }
@@ -595,7 +595,7 @@ def test_parse_prop_clauses_defaults(snapshot):
 @pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
-        data={"properties": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}}
+        data={"properties": {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}}
     )
     assert (
         parse_prop_grouped_clauses(

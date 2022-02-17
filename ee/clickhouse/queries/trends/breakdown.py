@@ -97,7 +97,7 @@ class ClickhouseTrendsBreakdown:
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
-            "filters": prop_filters if props_to_filter.groups else "",
+            "filters": prop_filters if props_to_filter.values else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
