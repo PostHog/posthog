@@ -52,7 +52,7 @@ def get_breakdown_prop_values(
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id,
-        property_group=PropertyGroup(type=PropertyOperatorType.AND, groups=filter.properties + entity.properties),
+        property_group=PropertyGroup(type=PropertyOperatorType.AND, values=filter.properties + entity.properties),
         table_name="e",
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.EXCLUDE,
@@ -135,7 +135,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id,
-        property_group=PropertyGroup(type=PropertyOperatorType.AND, groups=props_to_filter),
+        property_group=PropertyGroup(type=PropertyOperatorType.AND, values=props_to_filter),
         prepend="all_cohort_",
         table_name="all_events",
     )
