@@ -6,6 +6,8 @@ import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
 import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 
@@ -167,6 +169,9 @@ describe('infiniteListLogic', () => {
 
     describe('expandable list of event properties', () => {
         beforeEach(() => {
+            const flag = FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
             logic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.EventProperties,
