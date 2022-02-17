@@ -5,7 +5,7 @@ import-order-style = pycharm
 max-line-length = 127
 max-complexity = 10
 
-select=A500,A501,E9,E712,F63,F7,F82,W605,T001,T002,T003,T004
+select=A500,A501,A503,E9,E712,F63,F7,F82,W605,T001,T002,T003,T004
 
 exclude =
     .git,

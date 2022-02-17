@@ -555,6 +555,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             ]
             sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
 
-            self.assertEquals(sorted_results, sorted_expected)
+            self.assertEqual(sorted_results, sorted_expected)
 
     return TestLifecycle

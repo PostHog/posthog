@@ -339,9 +339,9 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(insights[1].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
         self.assertEqual(insights[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
 
-        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
-        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEqual(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEqual(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEqual(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
 
         # TODO: assert each items cache has the right number of days and the right filters hash
 
@@ -354,15 +354,15 @@ class TestUpdateCache(APIBaseTest):
             dashboard=dashboard, filters=filter, filters_hash="cache_thisiswrong", team=self.team
         )
         Insight.objects.all().update(filters_hash="cache_thisiswrong")
-        self.assertEquals(Insight.objects.get().filters_hash, "cache_thisiswrong")
+        self.assertEqual(Insight.objects.get().filters_hash, "cache_thisiswrong")
 
         update_cached_items()
 
-        self.assertEquals(
+        self.assertEqual(
             Insight.objects.get().filters_hash,
             generate_cache_key("{}_{}".format(Filter(data=filter).toJSON(), self.team.pk)),
         )
-        self.assertEquals(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        self.assertEqual(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
@@ -384,4 +384,4 @@ class TestUpdateCache(APIBaseTest):
 
         update_cached_items()
 
-        self.assertEquals(Insight.objects.get().refresh_attempt, 1)
+        self.assertEqual(Insight.objects.get().refresh_attempt, 1)

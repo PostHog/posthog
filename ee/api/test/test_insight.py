@@ -23,7 +23,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         dashboard.refresh_from_db()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
@@ -47,7 +47,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."

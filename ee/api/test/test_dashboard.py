@@ -109,7 +109,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data,
             self.permission_denied_response(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -172,7 +172,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
 
@@ -191,7 +191,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
+        self.assertEqual(
             response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
 
