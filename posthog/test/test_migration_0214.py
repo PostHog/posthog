@@ -9,9 +9,12 @@ class TagsTestCase(TestMigrations):
     def setUpBeforeMigration(self, apps):
         Dashboard = apps.get_model("posthog", "Dashboard")
         Insight = apps.get_model("posthog", "Insight")
+        Tag = apps.get_model("posthog", "Tag")
+
+        Tag.objects.create(name="existing tag", team_id=self.team.id)
 
         self.dashboard = Dashboard.objects.create(
-            team_id=self.team.id, name="private dashboard", deprecated_tags=["a", "b", "c", "a", "b"]
+            team_id=self.team.id, name="private dashboard", deprecated_tags=["a", "b", "c", "a", "b", "existing tag"]
         )
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -31,9 +34,10 @@ class TagsTestCase(TestMigrations):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore
 
         dashboard = Dashboard.objects.get(id=self.dashboard.id)
-        self.assertEqual(dashboard.tagged_items.count(), 3)
+        self.assertEqual(dashboard.tagged_items.count(), 4)
         self.assertEqual(
-            list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)), ["a", "b", "c"]
+            list(dashboard.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
+            ["a", "b", "c", "existing tag"],
         )
 
         insight_with_tags = Insight.objects.get(id=self.insight_with_tags.id)
@@ -45,8 +49,8 @@ class TagsTestCase(TestMigrations):
         insight_without_tags = Insight.objects.get(id=self.insight_without_tags.id)
         self.assertEqual(insight_without_tags.tagged_items.count(), 0)
 
-        self.assertEqual(TaggedItem.objects.all().count(), 5)
-        self.assertEqual(Tag.objects.all().count(), 4)
+        self.assertEqual(TaggedItem.objects.all().count(), 6)
+        self.assertEqual(Tag.objects.all().count(), 5)
 
     def tearDown(self):
         Insight = self.apps.get_model("posthog", "Insight")  # type: ignore

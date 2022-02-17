@@ -108,7 +108,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     insight_serializer.save()
 
                     # Create new insight's tags separately. Force create tags on dashboard duplication.
-                    self._attempt_set_tags(new_tags, insight_serializer.instance, True)
+                    self._attempt_set_tags(new_tags, insight_serializer.instance, force_create=True)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})

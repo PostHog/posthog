@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ee", "0008_deprecated_old_tags"),
+        ("ee", "0007_dashboard_permissions"),
     ]
 
     operations = [

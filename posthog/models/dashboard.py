@@ -46,7 +46,7 @@ class Dashboard(models.Model):
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list, db_column="tags"), return_instead=[]
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
     )
 
     @property

@@ -1,12 +1,13 @@
 import pytest
 
+from posthog.models import Tag as TagModel
 from posthog.test.base import TestMigrations
 
 
 @pytest.mark.ee
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0009_null_definition_descriptions"  # type: ignore
+    migrate_from = "0009_deprecated_old_tags"  # type: ignore
     migrate_to = "0010_migrate_definitions_tags"  # type: ignore
 
     @property
@@ -17,8 +18,11 @@ class TagsTestCase(TestMigrations):
         EnterpriseEventDefinition = apps.get_model("ee", "EnterpriseEventDefinition")
         EnterprisePropertyDefinition = apps.get_model("ee", "EnterprisePropertyDefinition")
 
+        # apps.get_model("posthog", "Tag") doesn't work in setup because of a dependency issue
+        TagModel.objects.create(name="existing tag", team_id=self.team.id)
+
         self.event_definition = EnterpriseEventDefinition.objects.create(
-            team_id=self.team.id, name="enterprise event", deprecated_tags=["a", "b", "c", "a", "b"]
+            team_id=self.team.id, name="enterprise event", deprecated_tags=["a", "b", "c", "a", "b", "existing tag"]
         )
         self.property_definition_with_tags = EnterprisePropertyDefinition.objects.create(
             team_id=self.team.id, name="property def with tags", deprecated_tags=["b", "c", "d", "e", "e"]
@@ -34,10 +38,10 @@ class TagsTestCase(TestMigrations):
         EnterprisePropertyDefinition = self.apps.get_model("ee", "EnterprisePropertyDefinition")  # type: ignore
 
         event_definition = EnterpriseEventDefinition.objects.get(id=self.event_definition.id)
-        self.assertEqual(event_definition.tagged_items.count(), 3)
+        self.assertEqual(event_definition.tagged_items.count(), 4)
         self.assertEqual(
             list(event_definition.tagged_items.order_by("tag__name").values_list("tag__name", flat=True)),
-            ["a", "b", "c"],
+            ["a", "b", "c", "existing tag"],
         )
 
         property_definition_with_tags = EnterprisePropertyDefinition.objects.get(
@@ -54,8 +58,8 @@ class TagsTestCase(TestMigrations):
         )
         self.assertEqual(property_definition_without_tags.tagged_items.count(), 0)
 
-        self.assertEqual(TaggedItem.objects.all().count(), 7)
-        self.assertEqual(Tag.objects.all().count(), 5)
+        self.assertEqual(TaggedItem.objects.all().count(), 8)
+        self.assertEqual(Tag.objects.all().count(), 6)
 
     def tearDown(self):
         EnterpriseEventDefinition = self.apps.get_model("ee", "EnterpriseEventDefinition")  # type: ignore
