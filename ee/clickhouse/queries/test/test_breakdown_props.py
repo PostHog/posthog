@@ -159,3 +159,22 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk, 5)
         self.assertEqual(result, ["finance", "technology"])
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+                "events": [{"id": "$pageview", "type": "events", "order": 0,}],
+                "properties": {
+                    "type": "AND",
+                    "groups": [
+                        {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
+                    ],
+                },
+            },
+        )
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team.pk, 5)
+        self.assertEqual(result, ["finance", "technology"])
