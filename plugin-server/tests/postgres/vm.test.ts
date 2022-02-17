@@ -10,6 +10,7 @@ import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { PluginConfig, PluginConfigVMResponse } from './../../src/types'
+import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/celery/client')
@@ -1223,11 +1224,11 @@ describe('vm tests', () => {
             const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
 
-            // won't retry after the 15th time
+            // won't retry after the nth time where n = MAXIMUM_RETRIES
             for (let i = 2; i < 20; i++) {
                 const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][0].payload
                 await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
-                expect(mockEnqueue).toHaveBeenCalledTimes(i > 15 ? 15 : i)
+                expect(mockEnqueue).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
             }
         })
 

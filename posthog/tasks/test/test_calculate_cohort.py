@@ -32,7 +32,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"])
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
-            self.assertEqual(len(people), 1)
+            self.assertEqual(people.count(), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
@@ -64,7 +64,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"])
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
-            self.assertEqual(len(people), 1)
+            self.assertEqual(people.count(), 1)
 
         def test_calculate_cohorts(self) -> None:
             FeatureFlag.objects.create(

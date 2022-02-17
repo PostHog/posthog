@@ -176,44 +176,44 @@ def test_paginate_decompression(chunked_and_compressed_snapshot_events):
 
     # Get the first chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 0)
-    assert paginated_events.has_next == True
+    assert paginated_events.has_next is True
     assert paginated_events.snapshot_data_by_window_id[None][0]["type"] == 4
     assert len(paginated_events.snapshot_data_by_window_id[None]) == 2  # 2 events in a chunk
 
     # Get the second chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 1)
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert paginated_events.snapshot_data_by_window_id["1"][0]["type"] == 3
     assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2  # 2 events in a chunk
 
     # Limit exceeds the length
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
     assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
 
     # Offset exceeds the length
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 2)
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert paginated_events.snapshot_data_by_window_id == {}
 
     # Non sequential snapshots
     snapshot_data = snapshot_data[-3:] + snapshot_data[0:-3]
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
     assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
 
     # No limit or offset provided
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data)
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
     assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
 
 
 def test_decompress_empty_list(chunked_and_compressed_snapshot_events):
     paginated_events = decompress_chunked_snapshot_data(1, "someid", [])
-    assert paginated_events.has_next == False
+    assert paginated_events.has_next is False
     assert paginated_events.snapshot_data_by_window_id == {}
 
 
@@ -238,10 +238,10 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
 
 
 def test_is_active_event():
-    assert is_active_event({}) == False
-    assert is_active_event({"type": 3}) == False
-    assert is_active_event({"type": 2, "data": {"source": 3}}) == False
-    assert is_active_event({"type": 3, "data": {"source": 3}}) == True
+    assert is_active_event({}) is False
+    assert is_active_event({"type": 3}) is False
+    assert is_active_event({"type": 2, "data": {"source": 3}}) is False
+    assert is_active_event({"type": 3, "data": {"source": 3}}) is True
 
 
 def test_get_active_segments_from_event_list():
