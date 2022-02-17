@@ -39,7 +39,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
     AND timestamp <= '2021-01-21 23:59:59'
     AND (has(['Jane'], trim(BOTH '"'
-                            FROM JSONExtractRaw(properties, 'name'))))
+                            FROM JSONExtractRaw(e.properties, 'name'))))
   '
 ---
 # name: TestEventQuery.test_account_filters.3
