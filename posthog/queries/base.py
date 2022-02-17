@@ -90,26 +90,15 @@ def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: b
             person_Q &= property.property_to_Q()
         filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
 
-    for property in [prop for prop in properties if prop.type == "event"]:
-        filters &= property.property_to_Q()
+    event_properties = [prop for prop in properties if prop.type == "event"]
+    if len(event_properties) > 0:
+        raise ValueError("Event properties are no longer supported in properties_to_Q")
 
     # importing from .event and .cohort below to avoid importing from partially initialized modules
 
     element_properties = [prop for prop in properties if prop.type == "element"]
     if len(element_properties) > 0:
-        from posthog.models.event import Event
-
-        filters &= Q(
-            Exists(
-                Event.objects.filter(pk=OuterRef("id"))
-                .filter(
-                    **Event.objects.filter_by_element(
-                        {item.key: item.value for item in element_properties}, team_id=team_id,
-                    )
-                )
-                .only("id")
-            )
-        )
+        raise ValueError("Element properties are no longer supported in properties_to_Q")
 
     cohort_properties = [prop for prop in properties if prop.type == "cohort"]
     if len(cohort_properties) > 0:
