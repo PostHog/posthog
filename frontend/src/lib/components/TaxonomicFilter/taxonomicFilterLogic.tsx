@@ -174,14 +174,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Event properties',
                     searchPlaceholder: 'event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
-                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
-                        is_event_property: true,
-                        ...(featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}),
-                    }).url,
-                    expandedEndpoint: combineUrl(
+                    endpoint: combineUrl(
                         `api/projects/${teamId}/property_definitions`,
-                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
+                            ? { event_names: eventNames }
+                            : {}
                     ).url,
+                    scopedEndpoint:
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
+                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                  event_names: eventNames,
+                                  is_event_property: true,
+                              }).url
+                            : undefined,
                     expandLabel: ({ count, expandedCount }) =>
                         `Show ${expandedCount - count} ${
                             expandedCount - count === 1 ? 'property' : 'properties'

@@ -28,7 +28,7 @@ export interface TaxonomicFilterGroup {
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
-    expandedEndpoint?: string
+    scopedEndpoint?: string
     expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper

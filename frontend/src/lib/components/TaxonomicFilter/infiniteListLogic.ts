@@ -110,7 +110,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, remoteExpandedEndpoint, searchQuery } = values
+                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -126,12 +126,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     const [response, expandedCountResponse] = await Promise.all([
                         // get the list of results
                         fetchCachedListResponse(
-                            remoteExpandedEndpoint && isExpanded ? remoteExpandedEndpoint : remoteEndpoint,
+                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
                             searchParams
                         ),
-                        // if this is an expandable list and we haven't expanded, get the count
-                        remoteExpandedEndpoint && !isExpanded
-                            ? fetchCachedListResponse(remoteExpandedEndpoint, {
+                        // if this is an unexpanded scoped list, get the count for the normafull list
+                        scopedRemoteEndpoint && !isExpanded
+                            ? fetchCachedListResponse(remoteEndpoint, {
                                   ...searchParams,
                                   limit: 1,
                                   offset: 0,
@@ -218,13 +218,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        remoteExpandedEndpoint: [(s) => [s.group], (group) => group?.expandedEndpoint || null],
+        scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
         isExpandable: [
-            (s) => [s.remoteEndpoint, s.remoteExpandedEndpoint, s.remoteItems],
-            (remoteEndpoint, remoteExpandedEndpoint, remoteItems) =>
-                !!(remoteEndpoint && remoteExpandedEndpoint) &&
-                !!remoteItems.expandedCount &&
-                remoteItems.expandedCount > remoteItems.count,
+            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
+            (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
+                !!(
+                    remoteEndpoint &&
+                    scopedRemoteEndpoint &&
+                    remoteItems.expandedCount &&
+                    remoteItems.expandedCount > remoteItems.count
+                ),
         ],
         isExpandableButtonSelected: [
             (s) => [s.isExpandable, s.index, s.totalListCount],
