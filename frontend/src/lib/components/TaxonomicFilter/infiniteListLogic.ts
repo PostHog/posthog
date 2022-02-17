@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
@@ -36,8 +35,24 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-const apiCache: Record<string, EventDefinitionStorage> = {}
+const apiCache: Record<string, ListStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
+
+async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
+    const url = combineUrl(path, searchParams).url
+    let response
+    if (apiCache[url]) {
+        response = apiCache[url]
+    } else {
+        response = await api.get(url)
+        apiCache[url] = response
+        apiCacheTimers[url] = window.setTimeout(() => {
+            delete apiCache[url]
+            delete apiCacheTimers[url]
+        }, API_CACHE_TIMEOUT)
+    }
+    return response
+}
 
 export const infiniteListLogic = kea<infiniteListLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
@@ -103,43 +118,26 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    async function getCachedUrl(url: string): Promise<EventDefinitionStorage> {
-                        let response
-                        if (apiCache[url]) {
-                            response = apiCache[url]
-                        } else {
-                            response = await api.get(url)
-                            apiCache[url] = response
-                            apiCacheTimers[url] = window.setTimeout(() => {
-                                delete apiCache[url]
-                                delete apiCacheTimers[url]
-                            }, API_CACHE_TIMEOUT)
-                        }
-                        return response
+                    const searchParams = {
+                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
+                        limit,
+                        offset,
                     }
 
-                    const url = combineUrl(
-                        isExpanded && remoteExpandedEndpoint ? remoteExpandedEndpoint : remoteEndpoint,
-                        {
-                            [`${values.group?.searchAlias || 'search'}`]: searchQuery,
-                            limit,
-                            offset,
-                        }
-                    ).url
-
-                    // only fetch the total count if this is an expandable list and we haven't expanded
-                    const expandedUrl =
-                        !isExpanded && remoteExpandedEndpoint
-                            ? combineUrl(remoteExpandedEndpoint, {
-                                  [`${values.group?.searchAlias || 'search'}`]: searchQuery,
+                    const [response, expandedCountResponse] = await Promise.all([
+                        // get the list of results
+                        fetchCachedListResponse(
+                            remoteExpandedEndpoint && isExpanded ? remoteExpandedEndpoint : remoteEndpoint,
+                            searchParams
+                        ),
+                        // if this is an expandable list and we haven't expanded, get the count
+                        remoteExpandedEndpoint && !isExpanded
+                            ? fetchCachedListResponse(remoteExpandedEndpoint, {
+                                  ...searchParams,
                                   limit: 1,
                                   offset: 0,
-                              }).url
-                            : null
-
-                    const [response, expandedResponse] = await Promise.all([
-                        getCachedUrl(url),
-                        expandedUrl ? getCachedUrl(expandedUrl) : null,
+                              })
+                            : null,
                     ])
                     breakpoint()
 
@@ -154,7 +152,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         searchQuery: values.searchQuery,
                         queryChanged,
                         count: response.count || 0,
-                        expandedCount: expandedResponse?.count,
+                        expandedCount: expandedCountResponse?.count,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -198,7 +196,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             actions.setIndex((index + 1) % totalListCount)
         },
         selectSelected: () => {
-            if (values.isExpandable && values.index === values.totalListCount - 1) {
+            if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
                 actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
@@ -228,6 +226,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 !!(remoteEndpoint && remoteExpandedEndpoint) &&
                 remoteItems.expandedCount &&
                 remoteItems.expandedCount > remoteItems.count,
+        ],
+        isExpandableButtonSelected: [
+            (s) => [s.isExpandable, s.index, s.totalListCount],
+            (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
