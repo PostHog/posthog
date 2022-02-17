@@ -1,13 +1,28 @@
 import json
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
-from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
-from posthog.models import Action, ActionStep, Entity, Filter, Organization, Person
-from posthog.queries.trends import breakdown_label
+from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
+
+
+def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
+    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+    if not value or not isinstance(value, str) or "cohort_" not in value:
+        label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
+        ret_dict["label"] = f"{entity.name} - {label}"
+        ret_dict["breakdown_value"] = label
+    else:
+        if value == "cohort_all":
+            ret_dict["label"] = f"{entity.name} - all users"
+            ret_dict["breakdown_value"] = "all"
+        else:
+            cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
+            ret_dict["label"] = f"{entity.name} - {cohort.name}"
+            ret_dict["breakdown_value"] = cohort.pk
+    return ret_dict
 
 
 # parameterize tests to reuse in EE

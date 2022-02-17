@@ -43,7 +43,7 @@ class TestRunner(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)
+        self.assertEqual(errors.count(), 0)
         self.assertTrue(UUIDT.is_valid_uuid(sm.current_query_id))
         self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.posthog_min_version, "1.0.0")

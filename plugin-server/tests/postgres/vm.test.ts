@@ -6,10 +6,10 @@ import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
-import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
+import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql'
+import { resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/celery/client')
@@ -1204,11 +1204,11 @@ describe('exportEvents', () => {
         const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
         const mockEnqueue = mockJobQueueInstance.enqueue
 
-        // won't retry after the 15th time
+        // won't retry after the nth time where n = MAXIMUM_RETRIES
         for (let i = 2; i < 20; i++) {
             const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][0].payload
             await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
-            expect(mockEnqueue).toHaveBeenCalledTimes(i > 15 ? 15 : i)
+            expect(mockEnqueue).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
         }
     })
 

@@ -14,4 +14,4 @@ class TestEventDefinition(BaseTest):
 
     def test_default_verified_false(self):
         eventDef = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
-        assert eventDef.verified == False
+        assert eventDef.verified is False

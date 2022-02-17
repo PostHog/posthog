@@ -10,8 +10,9 @@ asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
-attrs==19.3.0
+attrs==21.4.0
     # via
+    #   -c requirements.txt
     #   black
     #   flake8-bugbear
     #   pytest
@@ -213,8 +214,10 @@ typing-extensions==4.0.1
     #   django-stubs
     #   djangorestframework-stubs
     #   mypy
-uritemplate==3.0.1
-    # via coreapi
+uritemplate==4.1.1
+    # via
+    #   -c requirements.txt
+    #   coreapi
 urllib3==1.26.5
     # via
     #   -c requirements.txt
