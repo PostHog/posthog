@@ -27,7 +27,9 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
         new_group_props = []
         if getattr(result, "filter_test_accounts", False):
-            result = result.with_data({"filter_test_accounts": False,})
+            result = result.with_data(
+                {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
+            )
             new_group_props += team.test_account_filters
 
         updated_entities = {}
@@ -36,8 +38,10 @@ class SimplifyFilterMixin:
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
         prop_group = self._simplify_property_group(team, result.property_groups, **kwargs).to_dict()  # type: ignore
+        properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
 
         if getattr(result, "aggregation_group_type_index", None) is not None:
+            properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
             new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())  # type: ignore
 
         if new_group_props:
@@ -45,7 +49,7 @@ class SimplifyFilterMixin:
             new_group = {"type": "AND", "groups": new_group_props}
             prop_group = {"type": "AND", "groups": [new_group, prop_group]} if prop_group else new_group
 
-        return result.with_data({**updated_entities, "properties": [], "property_groups": prop_group})
+        return result.with_data({**updated_entities, "properties": properties, "property_groups": prop_group})
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
