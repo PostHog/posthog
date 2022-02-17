@@ -47,6 +47,7 @@ def _create_event(**kwargs):
     uuid = uuid4()
     kwargs.update({"event_uuid": uuid})
     create_event(**kwargs)
+    return str(uuid)
 
 
 class TestFilters(PGTestFilters):
