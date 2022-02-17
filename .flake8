@@ -5,30 +5,35 @@ import-order-style = pycharm
 max-line-length = 127
 max-complexity = 10
 
+# Error / Violation code details are available at:
+#
+# - https://pep8.readthedocs.io/en/latest/intro.html#error-codes
+# - https://flake8.pycqa.org/en/latest/user/error-codes.html
+#
 ignore=
-    C901,
-    E203,
-    E231,
-    E266,
-    E302,
-    E402,
-    E501,
-    E713,
-    E722,
-    E731,
-    E741,
-    F401,
-    F403,
-    F405,
-    F541,
-    F601,
-    F811,
-    F841,
-    W291,
-    W293,
-    W391,
-    W503,
-    W601,
+    C901, # function complexity
+    E203, # whitespace before ‘:’
+    E231, # missing whitespace after ‘,’, ‘;’, or ‘:’
+    E266, # too many leading ‘#’ for block comment
+    E302, # expected 2 blank lines, found 0
+    E402, # module level import not at top of file
+    E501, # line too long
+    E713, # test for membership should be ‘not in’
+    E722, # do not use bare except, specify exception instead
+    E731, # do not assign a lambda expression, use a def
+    E741, # do not use variables named ‘l’, ‘O’, or ‘I’
+    F401, # module imported but unused
+    F403, # ‘from module import *’ used; unable to detect undefined names
+    F405, # name may be undefined, or defined from star imports: module
+    F541, # f-string without any placeholders
+    F601, # dictionary key name repeated with different values
+    F811, # redefinition of unused name from line N
+    F841, # local variable name is assigned to but never used
+    W291, # trailing whitespace
+    W293, # blank line contains whitespace
+    W391, # blank line at end of file
+    W503, # line break before binary operator
+    W601, # .has_key() is deprecated, use ‘in’
 
 exclude =
     .git,
