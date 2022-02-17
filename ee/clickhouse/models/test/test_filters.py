@@ -1,31 +1,35 @@
-import json
 from typing import Optional
 from uuid import uuid4
+
+from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import ClickhouseEventSerializer, create_event
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
+from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
+from posthog.models.person import Person
+from posthog.models.team import Team
 
 
-def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
-    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        property_group=filter.property_groups, team_id=team.pk
-    )
+def _filter_events(
+    filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None,
+):
+    prop_filters, prop_filter_params = parse_prop_grouped_clauses(filter.property_groups)
     params = {"team_id": team.pk, **prop_filter_params}
+
+    if order_by == "id":
+        order_by = "uuid"
 
     events = sync_execute(
         GET_EVENTS_WITH_PROPERTIES.format(
-            filters=prop_filters, order_by="ORDER BY {}".format(order_by) if order_by else ""
+            filters=prop_filters, order_by="ORDER BY {}".format(order_by) if order_by else "",
         ),
         params,
     )
@@ -33,30 +37,16 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
     return parsed_events
 
 
-def _filter_persons(filter: Filter, team: Team):
-    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        property_group=filter.property_groups,
-        team_id=team.pk,
-        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-    )
-    # Note this query does not handle person rows changing over time
-    rows = sync_execute(
-        f"SELECT id, properties AS person_props FROM person WHERE team_id = %(team_id)s {prop_filters}",
-        {"team_id": team.pk, **prop_filter_params},
-    )
-    return [str(uuid) for uuid, _ in rows]
-
-
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
-    return str(person.uuid)
+    return Person(id=person.uuid)
 
 
 def _create_event(**kwargs):
     uuid = uuid4()
     kwargs.update({"event_uuid": uuid})
     create_event(**kwargs)
-    return str(uuid)
+    return Event(id=str(uuid))
 
 
 class TestFilters(PGTestFilters):
@@ -70,28 +60,14 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(), {},
-        )
-
-        self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
-                }
-            },
+            {"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},]},
         )
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             self.assertEqual(
                 filter.simplify(self.team).properties_to_dict(),
-                {
-                    "property_groups": {
-                        "type": "AND",
-                        "groups": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
-                    }
-                },
+                {"properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk, "operator": None},]},
             )
 
     def test_simplify_static_cohort(self):
@@ -100,12 +76,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None},]},
         )
 
     def test_simplify_hasdone_cohort(self):
@@ -114,12 +85,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
         )
 
     def test_simplify_multi_group_cohort(self):
@@ -131,12 +97,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
-                }
-            },
+            {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
         )
 
     def test_recursive_cohort(self):
@@ -152,12 +113,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
-                }
-            },
+            {"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},]},
         )
 
     def test_simplify_no_such_cohort(self):
@@ -165,12 +121,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}],
-                }
-            },
+            {"properties": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}]},
         )
 
     def test_simplify_entities(self):
@@ -228,12 +179,7 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}],
-                }
-            },
+            {"properties": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}]},
         )
 
     def test_simplify_funnel_entities_when_aggregating_by_group(self):
@@ -241,350 +187,13 @@ class TestFilters(PGTestFilters):
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
-            {
-                "property_groups": {
-                    "type": "AND",
-                    "groups": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}],
-                }
-            },
+            {"properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}]},
         )
 
 
 class TestFiltering(
-    ClickhouseTestMixin, property_to_Q_test_factory(_filter_persons, _create_person),  # type: ignore
+    ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),  # type: ignore
 ):
-    def test_simple(self):
-        _create_event(team=self.team, distinct_id="test", event="$pageview")
-        _create_event(
-            team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": 1}
-        )  # test for type incompatibility
-        _create_event(
-            team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": {"bla": "bla"}}
-        )  # test for type incompatibility
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url": "https://whatever.com"}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(len(events), 1)
-
-    def test_multiple_equality(self):
-        _create_event(team=self.team, distinct_id="test", event="$pageview")
-        _create_event(
-            team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": 1}
-        )  # test for type incompatibility
-        _create_event(
-            team=self.team, distinct_id="test", event="$pageview", properties={"$current_url": {"bla": "bla"}}
-        )  # test for type incompatibility
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://example.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url": ["https://whatever.com", "https://example.com"]}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(len(events), 2)
-
-    def test_numerical(self):
-        event1_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview", properties={"$a_number": 5})
-        event2_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": 6},)
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$a_number": "rubbish"},
-        )
-        filter = Filter(data={"properties": {"$a_number__gt": 5}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-        filter = Filter(data={"properties": {"$a_number": 5}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
-
-        filter = Filter(data={"properties": {"$a_number__lt": 6}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
-
-    def test_contains(self):
-        _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url__icontains": "whatever"}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-    def test_regex(self):
-        event1_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url__regex": r"\.com$"}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-        filter = Filter(data={"properties": {"$current_url__not_regex": r"\.eee$"}})
-        events = _filter_events(filter, self.team, order_by="timestamp")
-        self.assertEqual(events[0]["id"], event1_uuid)
-        self.assertEqual(events[1]["id"], event2_uuid)
-
-    def test_invalid_regex(self):
-        _create_event(team=self.team, distinct_id="test", event="$pageview")
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-
-        filter = Filter(data={"properties": {"$current_url__regex": "?*"}})
-        self.assertEqual(len(_filter_events(filter, self.team)), 0)
-
-        filter = Filter(data={"properties": {"$current_url__not_regex": "?*"}})
-        self.assertEqual(len(_filter_events(filter, self.team)), 0)
-
-    def test_is_not(self):
-        event1_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://something.com"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url__is_not": "https://whatever.com"}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(sorted([events[0]["id"], events[1]["id"]]), sorted([event1_uuid, event2_uuid]))
-        self.assertEqual(len(events), 2)
-
-    def test_does_not_contain(self):
-        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://something.com"},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://whatever.com"},
-        )
-        event3_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": None},
-        )
-        filter = Filter(data={"properties": {"$current_url__not_icontains": "whatever.com"}})
-        events = _filter_events(filter, self.team)
-        self.assertCountEqual([event["id"] for event in events], [event1_uuid, event2_uuid, event3_uuid])
-        self.assertEqual(len(events), 3)
-
-    def test_multiple(self):
-        event2_uuid = _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="test",
-            properties={"$current_url": "https://something.com", "another_key": "value",},
-        )
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"$current_url": "https://something.com"},
-        )
-        filter = Filter(data={"properties": {"$current_url__icontains": "something.com", "another_key": "value",}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_user_properties(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": "some group"})
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": "another group"})
-        event2_uuid = _create_event(
-            team=self.team,
-            distinct_id="person1",
-            event="$pageview",
-            properties={"$current_url": "https://something.com", "another_key": "value",},
-        )
-        event_p2_uuid = _create_event(
-            team=self.team,
-            distinct_id="person2",
-            event="$pageview",
-            properties={"$current_url": "https://something.com"},
-        )
-
-        # test for leakage
-        _, _, team2 = Organization.objects.bootstrap(None)
-        person_team2 = _create_person(
-            team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
-        )
-        event_team2 = _create_event(
-            team=team2,
-            distinct_id="person_team_2",
-            event="$pageview",
-            properties={"$current_url": "https://something.com", "another_key": "value",},
-        )
-
-        filter = Filter(data={"properties": [{"key": "group", "value": "some group", "type": "person"}]})
-        events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-        filter = Filter(
-            data={"properties": [{"key": "group", "operator": "is_not", "value": "some group", "type": "person"}]}
-        )
-        events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event_p2_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_user_properties_numerical(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": 1})
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": 2})
-        event2_uuid = _create_event(
-            team=self.team,
-            distinct_id="person1",
-            event="$pageview",
-            properties={"$current_url": "https://something.com", "another_key": "value",},
-        )
-        _create_event(
-            team=self.team,
-            distinct_id="person2",
-            event="$pageview",
-            properties={"$current_url": "https://something.com"},
-        )
-        filter = Filter(
-            data={
-                "properties": [
-                    {"key": "group", "operator": "lt", "value": 2, "type": "person"},
-                    {"key": "group", "operator": "gt", "value": 0, "type": "person"},
-                ]
-            }
-        )
-        events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event2_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_boolean_filters(self):
-        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
-        )
-        filter = Filter(data={"properties": [{"key": "is_first_user", "value": "true"}]})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_is_not_set_and_is_set(self):
-        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
-        )
-        filter = Filter(
-            data={"properties": [{"key": "is_first_user", "operator": "is_not_set", "value": "is_not_set",}]}
-        )
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event1_uuid)
-        self.assertEqual(len(events), 1)
-
-        filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_set", "value": "is_set"}]})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_true_false(self):
-        _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
-        )
-        filter = Filter(data={"properties": {"is_first": "true"}})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-        filter = Filter(data={"properties": {"is_first": ["true"]}})
-        events = _filter_events(filter, self.team)
-
-        self.assertEqual(events[0]["id"], event2_uuid)
-
-    def test_is_not_true_false(self):
-        event_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
-            team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
-        )
-        filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
-        events = _filter_events(filter, self.team)
-        self.assertEqual(events[0]["id"], event_uuid)
-
-    def test_json_object(self):
-        person1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["person1"],
-            properties={"name": {"first_name": "Mary", "last_name": "Smith"}},
-        )
-        event1_uuid = _create_event(
-            team=self.team,
-            distinct_id="person1",
-            event="$pageview",
-            properties={"$current_url": "https://something.com"},
-        )
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "name",
-                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
-                        "type": "person",
-                    }
-                ]
-            }
-        )
-        events = _filter_events(filter=filter, team=self.team, order_by=None)
-        self.assertEqual(events[0]["id"], event1_uuid)
-        self.assertEqual(len(events), 1)
-
-    def test_element_selectors(self):
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id="distinct_id",
-            elements=[Element.objects.create(tag_name="a"), Element.objects.create(tag_name="div"),],
-        )
-        _create_event(team=self.team, event="$autocapture", distinct_id="distinct_id")
-        filter = Filter(data={"properties": [{"key": "selector", "value": "div > a", "type": "element"}]})
-        events = _filter_events(filter=filter, team=self.team)
-        self.assertEqual(len(events), 1)
-
-    def test_element_filter(self):
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id="distinct_id",
-            elements=[Element.objects.create(tag_name="a", text="some text"), Element.objects.create(tag_name="div"),],
-        )
-
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id="distinct_id",
-            elements=[
-                Element.objects.create(tag_name="a", text="some other text"),
-                Element.objects.create(tag_name="div"),
-            ],
-        )
-
-        _create_event(team=self.team, event="$autocapture", distinct_id="distinct_id")
-        filter = Filter(
-            data={"properties": [{"key": "text", "value": ["some text", "some other text"], "type": "element"}]}
-        )
-        events = _filter_events(filter=filter, team=self.team)
-        self.assertEqual(len(events), 2)
-
-        filter2 = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
-        events_response_2 = _filter_events(filter=filter2, team=self.team)
-        self.assertEqual(len(events_response_2), 1)
-
-    def test_filter_out_team_members(self):
-        person1 = _create_person(
-            team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"}
-        )
-        person1 = _create_person(
-            team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
-        )
-        self.team.test_account_filters = [
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-        ]
-        self.team.save()
-        _create_event(team=self.team, distinct_id="team_member", event="$pageview")
-        _create_event(team=self.team, distinct_id="random_user", event="$pageview")
-        filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]}, team=self.team)
-        events = _filter_events(filter=filter, team=self.team)
-        self.assertEqual(len(events), 1)
-
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
@@ -611,9 +220,7 @@ class TestFiltering(
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
 
-        prop_clause, prop_clause_params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
-        )
+        prop_clause, prop_clause_params = parse_prop_grouped_clauses(filter.property_groups, has_person_id_joined=False)
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
@@ -625,9 +232,7 @@ class TestFiltering(
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        prop_clause, prop_clause_params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
-        )
+        prop_clause, prop_clause_params = parse_prop_grouped_clauses(filter.property_groups, has_person_id_joined=False)
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
