@@ -317,9 +317,3 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 )
 
     return TestSessionRecording
-
-
-class DjangoSessionRecordingTest(
-    factory_session_recording_test(SessionRecording, SessionRecordingEvent.objects.create)  # type: ignore
-):
-    pass
