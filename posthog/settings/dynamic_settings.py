@@ -36,11 +36,6 @@ CONSTANCE_CONFIG = {
         "Used to disable automatic rollback of failed async migrations.",
         bool,
     ),
-    "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS": (
-        get_from_env("ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS", 60 * 30, type_cast=int),
-        "Sets the default timeout for completing an async migration operation.",
-        int,
-    ),
     "ASYNC_MIGRATIONS_AUTO_CONTINUE": (
         get_from_env("ASYNC_MIGRATIONS_AUTO_CONTINUE", True, type_cast=str_to_bool),
         "Whether to resume the migration, when celery worker crashed.",
@@ -103,7 +98,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "AUTO_START_ASYNC_MIGRATIONS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
-    "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
