@@ -7,10 +7,9 @@ import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
-import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql'
+import { resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/celery/client')
