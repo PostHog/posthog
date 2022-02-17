@@ -23,7 +23,7 @@ class PropertyMixin(BaseParamMixin):
             loaded_props = _props
 
         # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "groups" in loaded_props:
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
             # property_groups is main function from now on
             # TODO: this function will go away at end of migration
             return []
@@ -44,7 +44,7 @@ class PropertyMixin(BaseParamMixin):
             loaded_props = _props
 
         # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "groups" in loaded_props:
+        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
             try:
                 return self._parse_property_group(loaded_props)
             except ValidationError as e:
@@ -53,18 +53,18 @@ class PropertyMixin(BaseParamMixin):
                 raise ValidationError(f"PropertyGroup is unparsable: {e}")
 
         # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, groups=self.properties)
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
 
     @cached_property
     def property_groups_flat(self) -> List[Property]:
         return list(self._property_groups_flat(self.property_groups))
 
     def _property_groups_flat(self, prop_group: PropertyGroup):
-        for _group in prop_group.groups:
-            if isinstance(_group, PropertyGroup):
-                yield from self._property_groups_flat(_group)
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                yield from self._property_groups_flat(value)
             else:
-                yield _group
+                yield value
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
@@ -94,9 +94,9 @@ class PropertyMixin(BaseParamMixin):
         return ret
 
     def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
-        if group and "type" in group and "groups" in group:
+        if group and "type" in group and "values" in group:
             return PropertyGroup(
-                PropertyOperatorType(group["type"].upper()), self._parse_property_group_list(group["groups"])
+                PropertyOperatorType(group["type"].upper()), self._parse_property_group_list(group["values"])
             )
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
@@ -108,7 +108,7 @@ class PropertyMixin(BaseParamMixin):
         has_property_groups = False
         has_simple_properties = False
         for prop in prop_list:
-            if "type" in prop and "groups" in prop:
+            if "type" in prop and "values" in prop:
                 has_property_groups = True
             else:
                 has_simple_properties = True
@@ -124,5 +124,5 @@ class PropertyMixin(BaseParamMixin):
     @include_dict
     def properties_to_dict(self):
         return (
-            {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.groups else {}
+            {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.values else {}
         )
