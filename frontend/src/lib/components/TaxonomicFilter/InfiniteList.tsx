@@ -306,13 +306,13 @@ export function InfiniteList(): JSX.Element {
             className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
             style: style,
-            'data-attr': `prop-filter-${listGroupType}-${rowIndex}`,
             ref: isHighlighted ? setReferenceElement : null,
         }
 
         return item && group ? (
             <div
                 {...commonDivProps}
+                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
                 onClick={() => selectItem(group, itemValue ?? null, item)}
             >
@@ -326,6 +326,7 @@ export function InfiniteList(): JSX.Element {
         ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
             <div
                 {...commonDivProps}
+                data-attr={`expand-list-${listGroupType}`}
                 className={`taxonomic-list-row expand-row${rowIndex === index ? ' hover' : ''}${
                     isSelected ? ' selected' : ''
                 }`}
@@ -335,7 +336,11 @@ export function InfiniteList(): JSX.Element {
                     `Click here to see ${expandedCount - totalCount} more rows`}
             </div>
         ) : (
-            <div {...commonDivProps} className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}>
+            <div
+                {...commonDivProps}
+                data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
+                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
+            >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </div>
         )
