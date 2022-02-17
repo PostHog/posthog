@@ -151,6 +151,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         else:
             raise serializers.ValidationError("Dashboard not found")
 
+        # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard_item)
         return dashboard_item
 
