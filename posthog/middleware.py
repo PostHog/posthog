@@ -137,32 +137,12 @@ class AutoProjectMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        path_parts = request.path.strip("/").split("/")
-        user = cast(User, request.user)
-        queryset: Optional[QuerySet] = None
-
-        # Sync the paths with urls.ts!
-        if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                queryset = Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
-                insight_short_id = path_parts[1]
-                queryset = Insight.objects.filter(deleted=False, short_id=insight_short_id)
-            elif path_parts[0] == "feature_flags":
-                feature_flag_id = path_parts[1]
-                queryset = FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                queryset = Action.objects.filter(deleted=False, id=action_id)
-            elif path_parts[0] == "cohorts":
-                cohort_id = path_parts[1]
-                queryset = Cohort.objects.filter(deleted=False, id=cohort_id)
-
-        if queryset is not None:
+        target_queryset = self.get_target_queryset(request)
+        if target_queryset is not None:
+            user = cast(User, request.user)
             current_team = user.team
-            if current_team is not None and not queryset.filter(team=current_team).exists():
-                item_of_alternative_team = queryset.only("team").first()
+            if current_team is not None and not target_queryset.filter(team=current_team).exists():
+                item_of_alternative_team = target_queryset.only("team").first()
                 actual_item_team: Optional[Team] = item_of_alternative_team.team
                 if (
                     actual_item_team is not None
@@ -172,6 +152,26 @@ class AutoProjectMiddleware:
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
                     setattr(request, "preswitch_team_name", current_team.name)  # Context for POSTHOG_APP_CONTEXT
-
         response = self.get_response(request)
         return response
+
+    def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2:
+            if path_parts[0] == "dashboard":
+                dashboard_id = path_parts[1]
+                return Dashboard.objects.filter(deleted=False, id=dashboard_id)
+            elif path_parts[0] == "insights":
+                insight_short_id = path_parts[1]
+                return Insight.objects.filter(deleted=False, short_id=insight_short_id)
+            elif path_parts[0] == "feature_flags":
+                feature_flag_id = path_parts[1]
+                return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+            elif path_parts[0] == "action":
+                action_id = path_parts[1]
+                return Action.objects.filter(deleted=False, id=action_id)
+            elif path_parts[0] == "cohorts":
+                cohort_id = path_parts[1]
+                return Cohort.objects.filter(deleted=False, id=cohort_id)
+        return None
