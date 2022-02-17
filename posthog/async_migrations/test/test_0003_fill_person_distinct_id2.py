@@ -19,7 +19,8 @@ class Test0003FillPersonDistinctId2(BaseTest):
         self.timestamp = 0
         sync_execute("TRUNCATE TABLE person_distinct_id")
         sync_execute("TRUNCATE TABLE person_distinct_id2")
-        sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id ''")
+        sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
+        sync_execute("ALTER TABLE person_distinct_id_backup COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
     def test_is_required(self):
         from ee.clickhouse.client import sync_execute

@@ -40,14 +40,15 @@ class Migration(AsyncMigrationDefinition):
     def is_required(self):
         rows = sync_execute(
             """
-            SELECT comment
+            SELECT comment, table
             FROM system.columns
-            WHERE database = %(database)s AND table = 'person_distinct_id' AND name = 'distinct_id'
+            WHERE database = %(database)s
         """,
             {"database": CLICKHOUSE_DATABASE},
         )
 
-        return len(rows) > 0 and rows[0][0] != "skip_0003_fill_person_distinct_id2"
+        comments = [row[0] for row in rows]
+        return "skip_0003_fill_person_distinct_id2" not in comments
 
     @cached_property
     def operations(self):
