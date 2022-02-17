@@ -73,13 +73,13 @@ class SimplifyFilterMixin:
         from posthog.models.property import Property, PropertyGroup
 
         new_groups = []
-        for group in prop_group.groups:
+        for group in prop_group.values:
             if isinstance(group, PropertyGroup):
                 new_groups.append(self._simplify_property_group(team, group))
             elif isinstance(group, Property):
                 new_groups.extend(self._simplify_property(team, group))  # type: ignore
 
-        prop_group.groups = new_groups
+        prop_group.values = new_groups
         return prop_group
 
     def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> List["Property"]:

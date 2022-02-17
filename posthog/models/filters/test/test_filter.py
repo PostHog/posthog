@@ -52,7 +52,7 @@ class TestFilter(BaseTest):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],
+                    "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],
                 }
             },
         )
@@ -65,16 +65,16 @@ class TestFilter(BaseTest):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [
+                            "values": [
                                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
                             ],
                         },
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
                         },
                     ],
                 }
@@ -87,16 +87,16 @@ class TestFilter(BaseTest):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [
+                            "values": [
                                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
                             ],
                         },
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
                         },
                     ],
                 }

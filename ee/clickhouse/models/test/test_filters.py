@@ -69,7 +69,7 @@ class TestFilters(PGTestFilters):
 
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
         filter_with_groups = Filter(
-            data={"properties": {"type": "AND", "groups": [{"type": "cohort", "key": "id", "value": cohort.pk}]}}
+            data={"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": cohort.pk}]}}
         )
 
         self.assertEqual(
@@ -77,7 +77,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
                 }
             },
         )
@@ -87,7 +87,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                    "values": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
                 }
             },
         )
@@ -98,7 +98,7 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "groups": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
+                        "values": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
                     }
                 },
             )
@@ -108,7 +108,7 @@ class TestFilters(PGTestFilters):
                 {
                     "properties": {
                         "type": "AND",
-                        "groups": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
+                        "values": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
                     }
                 },
             )
@@ -122,7 +122,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                    "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None}],
                 }
             },
         )
@@ -136,7 +136,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
                 }
             },
         )
@@ -153,7 +153,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
                 }
             },
         )
@@ -174,7 +174,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                    "values": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
                 }
             },
         )
@@ -187,7 +187,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}],
+                    "values": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}],
                 }
             },
         )
@@ -250,7 +250,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}],
+                    "values": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}],
                 }
             },
         )
@@ -263,7 +263,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "groups": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}],
+                    "values": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}],
                 }
             },
         )
