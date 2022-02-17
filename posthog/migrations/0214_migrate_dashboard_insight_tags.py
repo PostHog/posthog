@@ -8,7 +8,6 @@ from posthog.models.tag import tagify
 def forwards(apps, schema_editor):
     Tag = apps.get_model("posthog", "Tag")
     TaggedItem = apps.get_model("posthog", "TaggedItem")
-    tags_to_create = []  # type: ignore
     tagged_items_to_create = []
 
     # Create new insight tags
@@ -17,14 +16,7 @@ def forwards(apps, schema_editor):
         if instance.deprecated_tags:
             unique_tags = set([tagify(t) for t in instance.deprecated_tags])
             for tag in unique_tags:
-                new_tag = Tag.objects.filter(name=tag, team_id=instance.team_id).first()
-                if not new_tag:
-                    new_tag = next(
-                        filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None
-                    )
-                    if not new_tag:
-                        new_tag = Tag(name=tag, team_id=instance.team_id)
-                        tags_to_create.append(new_tag)
+                new_tag, _ = Tag.objects.get_or_create(name=tag, team_id=instance.team_id)
                 tagged_items_to_create.append(TaggedItem(insight_id=instance.id, tag_id=new_tag.id))
 
     # Create new dashboard tags
@@ -33,17 +25,9 @@ def forwards(apps, schema_editor):
         if instance.deprecated_tags:
             unique_tags = set([tagify(t) for t in instance.deprecated_tags])
             for tag in unique_tags:
-                new_tag = Tag.objects.filter(name=tag, team_id=instance.team_id).first()
-                if not new_tag:
-                    new_tag = next(
-                        filter(lambda t: t.name == tag and t.team_id == instance.team_id, tags_to_create), None
-                    )
-                    if not new_tag:
-                        new_tag = Tag(name=tag, team_id=instance.team_id)
-                        tags_to_create.append(new_tag)
+                new_tag, _ = Tag.objects.get_or_create(name=tag, team_id=instance.team_id)
                 tagged_items_to_create.append(TaggedItem(dashboard_id=instance.id, tag_id=new_tag.id))
 
-    Tag.objects.bulk_create(tags_to_create)
     TaggedItem.objects.bulk_create(tagged_items_to_create)
 
 
