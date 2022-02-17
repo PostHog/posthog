@@ -33,8 +33,6 @@ describe('infiniteListLogic', () => {
                     (e: PropertyDefinition) => e.is_event_property === searchParams.is_event_property
                 )
             }
-            //debugger
-            // if(searchParams.)
 
             return {
                 results,
