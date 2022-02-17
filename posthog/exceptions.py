@@ -29,15 +29,6 @@ class EnterpriseFeatureException(APIException):
         )
 
 
-class ObjectExistsInOtherProject(ValidationError):
-    status_code = status.HTTP_400_BAD_REQUEST
-    default_code = "object_exists_in_other_project"
-
-    def __init__(self, alternative_team_id: int, feature: Optional[str] = None) -> None:
-        super().__init__(f"{feature.capitalize() if feature else 'This object'} exists in a different project.")
-        self.extra = {"project_id": alternative_team_id}
-
-
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long"

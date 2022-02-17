@@ -5,8 +5,6 @@ import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
-import { Modal } from 'antd'
-import { userLogic } from 'scenes/userLogic'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -62,16 +60,6 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                         (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                             (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                     ) {
-                        if (error?.code === 'object_exists_in_other_project') {
-                            Modal.confirm({
-                                title: error?.detail,
-                                content: 'Do you want to switch to this project instead?',
-                                okText: 'Switch projects',
-                                onOk: () => {
-                                    userLogic.actions.updateCurrentTeam(error.extra.project_id, window.location.href)
-                                },
-                            })
-                        }
                         errorToast(
                             `Error on ${identifierToHuman(reducerKey)}`,
                             `Attempting to ${identifierToHuman(actionKey).toLowerCase()} returned an error:`,
