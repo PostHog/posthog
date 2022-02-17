@@ -61,9 +61,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
 
-    # Send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
-    sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
-
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
     # delete old plugin logs every 4 hours
@@ -90,6 +87,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
@@ -324,11 +323,10 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
 
 
 @app.task(ignore_result=True)
-def send_weekly_email_report():
-    if settings.EMAIL_REPORTS_ENABLED:
-        from posthog.tasks.email import send_weekly_email_reports
+def calculate_cohort_ids_in_feature_flags_task():
+    from posthog.tasks.cohorts_in_feature_flag import calculate_cohort_ids_in_feature_flags
 
-        send_weekly_email_reports()
+    calculate_cohort_ids_in_feature_flags()
 
 
 @app.task(ignore_result=True, bind=True)

@@ -27,14 +27,20 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     from ee.clickhouse.client import sync_execute
 
-    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    try:
+        sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    except Exception as e:
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
-    with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */ " + sql)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"/* {query_id} */ " + sql)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def process_error(
@@ -79,14 +85,6 @@ def process_error(
     from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
-
-
-def can_resume_migration(migration_instance: AsyncMigration):
-    from posthog.async_migrations.runner import is_current_operation_resumable
-
-    if not is_current_operation_resumable(migration_instance):
-        return False, "Can't resume a migration because the current operation isn't resumable"
-    return True, ""
 
 
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):

@@ -1,4 +1,4 @@
-import { AnnotationScope } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -95,7 +95,6 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205 `control`, `test`
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
@@ -119,6 +118,25 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+}
+
+/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
+export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
+export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
+    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
+    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
+    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
+    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
+    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
+    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
+    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
+    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
+    [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.SAML]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

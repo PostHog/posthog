@@ -10,7 +10,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 
 export function ActionsLineGraph({
-    dashboardItemId,
     color = 'white',
     inSharedMode = false,
     showPersonsModal = true,
@@ -96,6 +95,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} />
     )
 }

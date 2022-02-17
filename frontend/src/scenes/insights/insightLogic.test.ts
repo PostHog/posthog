@@ -288,6 +288,7 @@ describe('insightLogic', () => {
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
                         }),
+                        maybeShowErrorMessage: true,
                     })
                     .delay(1)
                     .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
@@ -389,6 +390,7 @@ describe('insightLogic', () => {
                     .toMatchValues({
                         insight: partial({ short_id: '500', result: null, filters: {} }),
                         filters: {},
+                        maybeShowErrorMessage: true,
                     })
                     .delay(1)
                     .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
