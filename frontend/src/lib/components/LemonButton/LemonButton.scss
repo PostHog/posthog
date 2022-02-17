@@ -83,7 +83,8 @@
     position: relative;
     .side-button {
         position: absolute;
-        top: 0.5rem;
-        right: 0.5rem;
+        top: 1.25rem;
+        right: 1.25rem;
+        transform: translate(50%, -50%);
     }
 }

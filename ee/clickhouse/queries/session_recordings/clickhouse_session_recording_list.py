@@ -10,7 +10,6 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
@@ -18,6 +17,11 @@ class EventFiltersSQL(NamedTuple):
     aggregate_having_clause: str
     where_conditions: str
     params: Dict[str, Any]
+
+
+class SessionRecordingQueryResult(NamedTuple):
+    results: List
+    has_more_recording: bool
 
 
 class ClickhouseSessionRecordingList(ClickhouseEventQuery):

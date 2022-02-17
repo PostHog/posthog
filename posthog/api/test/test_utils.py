@@ -118,7 +118,7 @@ class TestUtils(BaseTest):
 
         assert entity.id == "$pageview"
         assert entity.type == "events"
-        assert entity.math == None
+        assert entity.math is None
 
         filter = Filter(
             data={

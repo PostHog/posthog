@@ -70,7 +70,7 @@
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
-                    "value": "1000"
+                    "value": "3000"
                 },
                 {
                     "name": "USING_PGBOUNCER",
@@ -161,13 +161,6 @@
             ],
             "linuxParameters": {
                 "initProcessEnabled": true
-            },
-            "healthCheck": {
-                "retries": 10,
-                "command": ["CMD-SHELL", "curl -f http://localhost:8000/_health || exit 1"],
-                "timeout": 10,
-                "interval": 45,
-                "startPeriod": null
             }
         }
     ],

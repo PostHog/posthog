@@ -8,15 +8,13 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_earliest_timestamp, parse_timestamps
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.lifecycle import LifecycleTrend
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -29,7 +27,7 @@ from posthog.queries.lifecycle import LifecycleTrend
 # during that period and their creation dates.
 
 
-class ClickhouseLifecycle(LifecycleTrend):
+class ClickhouseLifecycle:
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
 

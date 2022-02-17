@@ -4,7 +4,7 @@ axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
 database: 0002_auto_20190129_2304
 ee: 0008_null_definition_descriptions
-posthog: 0210_drop_update_person_functions
+posthog: 0212_alter_persondistinctid_team
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0010_uid_db_index
