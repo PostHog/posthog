@@ -77,3 +77,22 @@ GROUP BY person_id {count_condition}
 GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """
+
+GET_COHORTS_BY_PERSON_UUID = """
+SELECT cohort_id
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND person_id = %(person_id)s
+GROUP BY person_id, cohort_id, team_id
+HAVING sum(sign) > 0
+"""
+
+GET_COHORTPEOPLE_BY_COHORT_ID = """
+SELECT person_id
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+GROUP BY person_id, cohort_id, team_id
+HAVING sum(sign) > 0
+ORDER BY person_id
+LIMIT %(limit)s
+OFFSET %(offset)s
+"""

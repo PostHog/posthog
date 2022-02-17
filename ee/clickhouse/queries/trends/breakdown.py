@@ -77,7 +77,7 @@ class ClickhouseTrendsBreakdown:
         action_params: Dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = self.entity.get_action()
-            action_query, action_params = format_action_filter(action, table_name="e")
+            action_query, action_params = format_action_filter(team_id=self.team_id, action=action, table_name="e")
 
         self.params = {
             **self.params,

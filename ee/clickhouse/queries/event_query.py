@@ -167,6 +167,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return "", {}
 
         return parse_prop_grouped_clauses(
+            team_id=self._team_id,
             property_group=prop_group,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
@@ -186,6 +187,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 final.append(f"AND {person_id_query}")
             else:
                 filter_query, filter_params = parse_prop_grouped_clauses(
+                    team_id=self._team_id,
                     property_group=PropertyGroup(type=PropertyOperatorType.AND, groups=[prop]),
                     prepend=f"global_{idx}",
                     allow_denormalized_props=True,

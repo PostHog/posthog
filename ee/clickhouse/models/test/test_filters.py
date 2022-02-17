@@ -21,7 +21,9 @@ from posthog.models.team import Team
 def _filter_events(
     filter: Filter, team: Team, person_query: Optional[bool] = False, order_by: Optional[str] = None,
 ):
-    prop_filters, prop_filter_params = parse_prop_grouped_clauses(filter.property_groups)
+    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+        property_group=filter.property_groups, team_id=team.pk
+    )
     params = {"team_id": team.pk, **prop_filter_params}
 
     if order_by == "id":
@@ -60,14 +62,28 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},]},
+            filter.simplify(self.team).properties_to_dict(), {},
+        )
+
+        self.assertEqual(
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"key": "email", "value": ".com", "operator": "icontains", "type": "person"}],
+                }
+            },
         )
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             self.assertEqual(
-                filter.simplify(self.team).properties_to_dict(),
-                {"properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk, "operator": None},]},
+                filter.simplify(self.team).property_groups_to_dict(),
+                {
+                    "property_groups": {
+                        "type": "AND",
+                        "groups": [{"key": "id", "value": cohort.pk, "operator": None, "type": "precalculated-cohort"}],
+                    }
+                },
             )
 
     def test_simplify_static_cohort(self):
@@ -75,8 +91,13 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None},]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"type": "static-cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                }
+            },
         )
 
     def test_simplify_hasdone_cohort(self):
@@ -84,8 +105,13 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                }
+            },
         )
 
     def test_simplify_multi_group_cohort(self):
@@ -96,8 +122,13 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}],
+                }
+            },
         )
 
     def test_recursive_cohort(self):
@@ -112,16 +143,26 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": recursive_cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                }
+            },
         )
 
     def test_simplify_no_such_cohort(self):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": 555_555}]})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}],
+                }
+            },
         )
 
     def test_simplify_entities(self):
@@ -178,16 +219,26 @@ class TestFilters(PGTestFilters):
         filter = RetentionFilter(data={"aggregation_group_type_index": 0})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"key": "$group_0", "operator": "is_not", "value": "", "type": "event"}],
+                }
+            },
         )
 
     def test_simplify_funnel_entities_when_aggregating_by_group(self):
         filter = Filter(data={"events": [{"id": "$pageview"}], "aggregation_group_type_index": 2})
 
         self.assertEqual(
-            filter.simplify(self.team).properties_to_dict(),
-            {"properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}]},
+            filter.simplify(self.team).property_groups_to_dict(),
+            {
+                "property_groups": {
+                    "type": "AND",
+                    "groups": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"}],
+                }
+            },
         )
 
 
@@ -220,7 +271,9 @@ class TestFiltering(
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
 
-        prop_clause, prop_clause_params = parse_prop_grouped_clauses(filter.property_groups, has_person_id_joined=False)
+        prop_clause, prop_clause_params = parse_prop_grouped_clauses(
+            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
@@ -232,7 +285,9 @@ class TestFiltering(
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        prop_clause, prop_clause_params = parse_prop_grouped_clauses(filter.property_groups, has_person_id_joined=False)
+        prop_clause, prop_clause_params = parse_prop_grouped_clauses(
+            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(

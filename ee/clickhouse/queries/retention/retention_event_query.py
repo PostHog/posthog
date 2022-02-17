@@ -157,7 +157,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         prepend = self._event_query_type
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
-            action_query, params = format_action_filter(action, prepend=prepend, use_loop=False)
+            action_query, params = format_action_filter(
+                team_id=self._team_id, action=action, prepend=prepend, use_loop=False
+            )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
             condition = f"{self.EVENT_TABLE_ALIAS}.event = %({prepend}_event)s"

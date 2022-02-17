@@ -103,7 +103,6 @@ class PropertyMixin(BaseParamMixin):
         if not prop_list:
             # empty prop list
             return cast(List[Property], [])
-
         has_property_groups = False
         has_simple_properties = False
         for prop in prop_list:

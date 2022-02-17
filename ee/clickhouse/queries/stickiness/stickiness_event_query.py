@@ -66,6 +66,6 @@ class StickinessEventsQuery(ClickhouseEventQuery):
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return format_action_filter(self._entity.get_action())
+            return format_action_filter(team_id=self._team_id, action=self._entity.get_action())
         else:
             return "event = %(event)s", {"event": self._entity.id}

@@ -211,11 +211,12 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             }
         return duration_clause, duration_params
 
-    def format_event_filter(self, entity: Entity, prepend: str) -> Tuple[str, Dict[str, Any]]:
-        filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
+    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
+        filter_sql, params = format_entity_filter(team_id=team_id, entity=entity, prepend=prepend, filter_by_team=False)
         if entity.properties:
             filters, filter_params = parse_prop_grouped_clauses(
-                entity.property_groups,
+                team_id=team_id,
+                property_group=entity.property_groups,
                 prepend=prepend,
                 allow_denormalized_props=True,
                 has_person_id_joined=True,
@@ -245,7 +246,9 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 if entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
 
-            condition_sql, filter_params = self.format_event_filter(entity, prepend=f"event_matcher_{index}")
+            condition_sql, filter_params = self.format_event_filter(
+                entity, prepend=f"event_matcher_{index}", team_id=self._team_id
+            )
             aggregate_select_clause += f", sum(if({condition_sql}, 1, 0)) as count_event_match_{index}"
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}

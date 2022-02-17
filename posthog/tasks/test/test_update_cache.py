@@ -9,7 +9,6 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Event, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
