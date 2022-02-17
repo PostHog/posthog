@@ -16,7 +16,10 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
     "SAML_CONFIGURED": True,
-    "AUTHENTICATION_BACKENDS": settings.AUTHENTICATION_BACKENDS + ["social_core.backends.saml.SAMLAuth",],
+    "AUTHENTICATION_BACKENDS": settings.AUTHENTICATION_BACKENDS
+    + [
+        "social_core.backends.saml.SAMLAuth",
+    ],
     "SOCIAL_AUTH_SAML_ENABLED_IDPS": {
         "posthog_custom": {
             "entity_id": "http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
@@ -68,7 +71,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue("/complete/saml/" in response.content.decode())
+        self.assertIn("/complete/saml/", response.content.decode())
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
         self.client.logout()
@@ -110,7 +113,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -121,7 +126,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**MOCK_SETTINGS):
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": "posthog_custom",
+                },
                 follow=True,
                 format="multipart",
             )
@@ -146,7 +154,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -159,7 +169,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**MOCK_SETTINGS):
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": "posthog_custom",
+                },
                 format="multipart",
                 follow=True,
             )
@@ -200,7 +213,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -213,7 +228,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**MOCK_SETTINGS):
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": "posthog_custom",
+                },
                 format="multipart",
                 follow=True,
             )
@@ -256,7 +274,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -269,7 +289,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**settings):
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": "posthog_custom",
+                },
                 format="multipart",
                 follow=True,
             )
@@ -329,7 +352,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -343,7 +368,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
             with self.settings(**settings):
                 response = self.client.post(
                     "/complete/saml/",
-                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                    {
+                        "SAMLResponse": saml_response,
+                        "RelayState": "posthog_custom",
+                    },
                     format="multipart",
                     follow=True,
                 )
@@ -365,7 +393,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         _session = self.client.session
         _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+            {
+                "saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",
+            }
         )
         _session.save()
 
@@ -379,7 +409,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
             with self.settings(**MOCK_SETTINGS):
                 response = self.client.post(
                     "/complete/saml/",
-                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                    {
+                        "SAMLResponse": saml_response,
+                        "RelayState": "posthog_custom",
+                    },
                     format="multipart",
                     follow=True,
                 )

@@ -47,7 +47,7 @@ class Test0002EventsSampleBy(BaseTest):
         ENGINE = ReplacingMergeTree(_timestamp)
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-        SETTINGS index_granularity = 8192               
+        SETTINGS index_granularity = 8192
         """
         )
         execute_query(KAFKA_EVENTS_TABLE_SQL())
@@ -55,12 +55,12 @@ class Test0002EventsSampleBy(BaseTest):
 
         execute_query(
             f"""
-            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp) 
-            VALUES 
-                ('event1', '{str(uuid4())}', now()) 
-                ('event2', '{str(uuid4())}', now()) 
-                ('event3', '{str(uuid4())}', now()) 
-                ('event4', '{str(uuid4())}', now()) 
+            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp)
+            VALUES
+                ('event1', '{str(uuid4())}', now())
+                ('event2', '{str(uuid4())}', now())
+                ('event3', '{str(uuid4())}', now())
+                ('event4', '{str(uuid4())}', now())
                 ('event5', '{str(uuid4())}', '2019-01-01')
             """
         )
@@ -107,9 +107,9 @@ class Test0002EventsSampleBy(BaseTest):
             f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
         )
 
-        self.assertTrue(
-            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
-            in create_table_res[0][0]
+        self.assertIn(
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))",
+            create_table_res[0][0],
         )
 
         self.assertEqual(events_count_res[0][0], 5)

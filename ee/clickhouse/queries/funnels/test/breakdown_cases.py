@@ -48,7 +48,8 @@ def assert_funnel_breakdown_result_is_correct(result, steps: List[FunnelStepResu
         step_results.append(funnel_result(step_result, index))
 
     assert_funnel_results_equal(
-        result, step_results,
+        result,
+        step_results,
     )
 
 
@@ -724,9 +725,18 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
                     # no breakdown value for this guy
             events_by_person["person_null"] = [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12),},
-                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13),},
-                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15),},
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": datetime(2020, 1, 1, 13),
+                },
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 1, 15),
+                },
             ]
             people = journeys_for(events_by_person, self.team)
 
@@ -735,7 +745,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
             self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
             # skipped 1 and '' because the limit was 3.
-            self.assertTrue(people["person_null"].uuid in self._get_actor_ids_at_step(filter, 1, "Other"))
+            self.assertIn(people["person_null"].uuid, self._get_actor_ids_at_step(filter, 1, "Other"))
 
         @test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
@@ -778,9 +788,18 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
                     # no breakdown value for this guy
             events_by_person["person_null"] = [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12),},
-                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13),},
-                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15),},
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": datetime(2020, 1, 1, 13),
+                },
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 1, 15),
+                },
             ]
             people = journeys_for(events_by_person, self.team)
 
@@ -828,25 +847,37 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
             assert_funnel_breakdown_result_is_correct(
-                result[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1),]
+                result[0],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["0"], count=1),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[1], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),]
+                result[1],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),]
+                result[2],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Mac"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),]
+                result[3],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person1"].uuid])
@@ -929,7 +960,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # This caused some issues with SQL parsing
             _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
             people = journeys_for(
-                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},]}, self.team
+                {
+                    "person1": [
+                        {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},
+                    ]
+                },
+                self.team,
             )
 
             cohort = Cohort.objects.create(
@@ -1057,7 +1093,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @test_with_materialized_columns(["$current_url"])
         def test_basic_funnel_default_funnel_days_breakdown_action(self):
             # Same case as test_basic_funnel_default_funnel_days_breakdown_event but with an action
-            user_signed_up_action = _create_action(name="user signed up", event="user signed up", team=self.team,)
+            user_signed_up_action = _create_action(
+                name="user signed up",
+                event="user signed up",
+                team=self.team,
+            )
 
             events_by_person = {
                 "user_1": [
