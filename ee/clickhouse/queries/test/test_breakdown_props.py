@@ -170,7 +170,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "$pageview", "type": "events", "order": 0,}],
                 "properties": {
                     "type": "AND",
-                    "groups": [
+                    "values": [
                         {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
                     ],
                 },
