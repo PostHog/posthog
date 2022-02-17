@@ -172,7 +172,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
-        name: 'Instance status',
+        name: 'Instance status & settings',
     },
     [Scene.Licenses]: {
         instanceLevel: true,

@@ -12,6 +12,7 @@ import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetrics
 import { SceneExport } from 'scenes/sceneTypes'
 import { InstanceConfigTab } from './InstanceConfigTab'
 import { userLogic } from 'scenes/userLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -27,8 +28,21 @@ export function SystemStatus(): JSX.Element {
     return (
         <div className="system-status-scene">
             <PageHeader
-                title="Instance status"
-                caption="Here you can find all the critical runtime details and settings of your PostHog instance."
+                title="Instance status & settings"
+                caption={
+                    <>
+                        Here you can find all the critical runtime details and settings of your PostHog instance. You
+                        have access to this because you're a <b>staff user</b>.{' '}
+                        <a
+                            target="_blank"
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                            href="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
+                        >
+                            Learn more <IconOpenInNew style={{ marginLeft: 4 }} />
+                        </a>
+                        .
+                    </>
+                }
             />
             {error && (
                 <Alert
@@ -85,7 +99,14 @@ export function SystemStatus(): JSX.Element {
                         </Tabs.TabPane>
                     ))}
                 {user?.is_staff && (
-                    <Tabs.TabPane tab="Settings" key="settings">
+                    <Tabs.TabPane
+                        tab={
+                            <>
+                                Settings <LemonTag type="warning">Beta</LemonTag>
+                            </>
+                        }
+                        key="settings"
+                    >
                         <InstanceConfigTab />
                     </Tabs.TabPane>
                 )}
