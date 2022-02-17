@@ -5,7 +5,30 @@ import-order-style = pycharm
 max-line-length = 127
 max-complexity = 10
 
-select=E9,E712,F63,F7,F82,W605,T001,T002,T003,T004
+ignore=
+    C901,
+    E203,
+    E231,
+    E266,
+    E302,
+    E402,
+    E501,
+    E713,
+    E722,
+    E731,
+    E741,
+    F401,
+    F403,
+    F405,
+    F541,
+    F601,
+    F811,
+    F841,
+    W291,
+    W293,
+    W391,
+    W503,
+    W601,
 
 exclude =
     .git,
