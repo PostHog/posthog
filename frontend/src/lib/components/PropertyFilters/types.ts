@@ -6,6 +6,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 export interface PropertyFilterBaseProps {
     pageKey: string
@@ -36,5 +37,5 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
-    orFiltering?: boolean
+    propertyGroupType?: AndOr | null
 }

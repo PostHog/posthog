@@ -110,7 +110,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            <GlobalFiltersTitle />
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
                                 <PropertyGroupFilters
                                     propertyFilters={filters.property_groups}
@@ -129,19 +128,22 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     eventNames={allEventNames}
                                 />
                             ) : (
-                                <PropertyFilters
-                                    propertyFilters={filters.properties}
-                                    onChange={(properties) => setFilters({ properties })}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        ...groupsTaxonomicTypes,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                    pageKey="trends-filters"
-                                    eventNames={allEventNames}
-                                />
+                                <>
+                                    <GlobalFiltersTitle />
+                                    <PropertyFilters
+                                        propertyFilters={filters.properties}
+                                        onChange={(properties) => setFilters({ properties })}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            ...groupsTaxonomicTypes,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                        pageKey="trends-filters"
+                                        eventNames={allEventNames}
+                                    />
+                                </>
                             )}
 
                             <TestAccountFilter filters={filters} onChange={setFilters} />

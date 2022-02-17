@@ -21,7 +21,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AndOr } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 
 let uniqueMemoizedIndex = 0
 
@@ -32,7 +31,7 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
-    orFiltering,
+    propertyGroupType,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -96,16 +95,18 @@ export function TaxonomicPropertyFilter({
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
-                <div className={`taxonomic-filter-row ${orFiltering ? 'and-or' : ''}`}>
+                <div className="taxonomic-filter-row">
                     <Col className="taxonomic-where">
                         {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
-                                <span className="primary-alt">where</span>
+                                <span className="primary-alt">
+                                    <b>where</b>
+                                </span>
                             </>
-                        ) : orFiltering ? (
+                        ) : propertyGroupType ? (
                             <div className="primary-alt">
-                                <b>{AndOr.OR}</b>
+                                <b>{propertyGroupType}</b>
                             </div>
                         ) : (
                             <span className="stateful-badge and" style={{ fontSize: '90%' }}>

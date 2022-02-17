@@ -8,6 +8,7 @@ import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -23,6 +24,7 @@ interface PropertyFiltersProps {
     showNestedArrow?: boolean
     eventNames?: string[]
     orFiltering?: boolean
+    propertyGroupType?: AndOr | null
 }
 
 export function PropertyFilters({
@@ -38,6 +40,7 @@ export function PropertyFilters({
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
+    propertyGroupType = null,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -61,7 +64,7 @@ export function PropertyFilters({
                             filters={filtersWithNew}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
-                            disablePopover={disablePopover}
+                            disablePopover={disablePopover || orFiltering}
                             popoverPlacement={popoverPlacement}
                             taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                             showNestedArrow={showNestedArrow}
@@ -76,7 +79,8 @@ export function PropertyFilters({
                                     onComplete={onComplete}
                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                     eventNames={eventNames}
-                                    disablePopover={disablePopover}
+                                    propertyGroupType={propertyGroupType}
+                                    disablePopover={disablePopover || orFiltering}
                                     selectProps={{
                                         delayBeforeAutoOpen: 150,
                                         placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,

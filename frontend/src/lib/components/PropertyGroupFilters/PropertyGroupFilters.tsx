@@ -8,6 +8,7 @@ import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
 
 interface PropertyGroupFilters {
     propertyFilters?: AndOrPropertyFilter | null
@@ -47,16 +48,25 @@ export function PropertyGroupFilters({
             {filtersWithNew.groups && (
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                        {filtersWithNew.type && (
-                            <AndOrFilterSelect
-                                value={filtersWithNew.type}
-                                onChange={(value) => setPropertyGroupsType(value)}
-                            />
-                        )}
+                        <Row
+                            align="middle"
+                            justify="space-between"
+                            className="pb pr mb"
+                            style={{ borderBottom: '1px solid var(--border)' }}
+                        >
+                            <GlobalFiltersTitle orFiltering={true} />
+                            {filtersWithNew.type && (
+                                <AndOrFilterSelect
+                                    value={filtersWithNew.type}
+                                    onChange={(value) => setPropertyGroupsType(value)}
+                                    topLevelFilter={true}
+                                />
+                            )}
+                        </Row>
                         {filtersWithNew.groups.map((group: AndOrPropertyGroup, propertyGroupIndex: number) => {
                             return (
                                 <>
-                                    <div className="mt" style={style} key={propertyGroupIndex}>
+                                    <div className="mt mb" style={style} key={propertyGroupIndex}>
                                         <Row justify="space-between" align="middle" className="mb-05">
                                             <AndOrFilterSelect
                                                 onChange={(type) => setPropertyGroupType(type, propertyGroupIndex)}
@@ -85,10 +95,13 @@ export function PropertyGroupFilters({
                                             pageKey={`trends-filters-${propertyGroupIndex}`}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             eventNames={eventNames}
+                                            propertyGroupType={group.type}
                                         />
                                     </div>
                                     {propertyGroupIndex !== filtersWithNew?.groups.length - 1 && (
-                                        <Row>{filtersWithNew.type}</Row>
+                                        <Row className="text-small primary-alt">
+                                            <b>{filtersWithNew.type}</b>
+                                        </Row>
                                     )}
                                 </>
                             )
@@ -102,8 +115,8 @@ export function PropertyGroupFilters({
                         color: 'var(--primary)',
                         border: 'none',
                         boxShadow: 'none',
-                        marginBottom: '1rem',
                     }}
+                    className="mb"
                     icon={<PlusOutlined />}
                     onClick={() => addFilterGroup()}
                 >
@@ -122,9 +135,10 @@ export enum AndOr {
 interface AndOrFilterSelectProps {
     onChange: (type: AndOr) => void
     value: string
+    topLevelFilter?: boolean
 }
 
-export function AndOrFilterSelect({ onChange, value }: AndOrFilterSelectProps): JSX.Element {
+export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilterSelectProps): JSX.Element {
     return (
         <Row align="middle" className="and-or-filter">
             <span className="ml-05">Match</span>
@@ -135,6 +149,7 @@ export function AndOrFilterSelect({ onChange, value }: AndOrFilterSelectProps): 
                 defaultValue={AndOr.AND}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
+                placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
             >
                 <Select.Option value={AndOr.AND} label="all" className="condition-option">
                     <Row>
