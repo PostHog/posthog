@@ -6,7 +6,6 @@ from django.conf import settings
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
-from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 from posthog.version_requirement import ServiceVersionRequirement
@@ -106,9 +105,8 @@ class Migration(AsyncMigrationDefinition):
         def optimize_table_fn(query_id):
             default_timeout = getattr(config, "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS")
             try:
-                execute_op_clickhouse(
-                    "OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                    query_id,
+                sync_execute(
+                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL /* {query_id} */",
                     settings={
                         "max_execution_time": default_timeout,
                         "send_timeout": default_timeout,
