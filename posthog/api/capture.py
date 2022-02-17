@@ -12,6 +12,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception, configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
+from structlog import get_logger
 
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
@@ -23,6 +24,8 @@ from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address
+
+logger = get_logger(__name__)
 
 
 def parse_kafka_event_data(
@@ -48,17 +51,21 @@ def parse_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str) -> None:
-    if settings.DEBUG:
-        print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
+    logger.debug("send_event_to_kafka_success", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-    except Exception as e:
+    except Exception:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
-        raise e
+        logger.error(
+            "send_event_to_kafka_failure",
+            event_name=event_name,
+            kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+            exc_info=True,
+        )
+        raise
 
 
 def log_event_to_dead_letter_queue(
@@ -91,8 +98,11 @@ def log_event_to_dead_letter_queue(
         capture_exception(e)
         statsd.incr("events_dead_letter_queue_produce_error")
 
-        if settings.DEBUG:
-            print("Failed to produce to events dead letter queue with error:", e)
+        logger.debug(
+            "send_event_to_kafka_deadletter_queue_failure",
+            event_name=event_name,
+            kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+        )
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:

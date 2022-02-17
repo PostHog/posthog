@@ -74,7 +74,6 @@ per-file-ignores =
     ./ee/management/commands/migrate_clickhouse.py: T001
     ./ee/management/commands/run_async_migrations.py: T001
     ./gunicorn.config.py: T001
-    ./posthog/api/capture.py: T001
     ./posthog/apps.py: T001
     ./posthog/celery.py: T001
     ./posthog/email.py: T001
