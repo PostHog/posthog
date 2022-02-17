@@ -78,13 +78,13 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(property_group.groups) == 0:
+    if len(property_group.values) == 0:
         return "", {}
 
-    if isinstance(property_group.groups[0], PropertyGroup):
+    if isinstance(property_group.values[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        for idx, group in enumerate(property_group.groups):
+        for idx, group in enumerate(property_group.values):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
                     team_id=team_id,
@@ -106,7 +106,7 @@ def parse_prop_grouped_clauses(
         _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], property_group.groups),
+            filters=cast(List[Property], property_group.values),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,

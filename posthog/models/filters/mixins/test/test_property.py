@@ -12,32 +12,32 @@ def test_property_group_multi_level_parsing():
         data={
             "properties": {
                 "type": "AND",
-                "groups": [
+                "values": [
                     {
                         "type": "AND",
-                        "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                        "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                     },
-                    {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}]},
+                    {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                 ],
             }
         }
     )
 
     assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.groups[0], PropertyGroup)
-    assert filter.property_groups.groups[0].type == "AND"
-    assert isinstance(filter.property_groups.groups[0].groups[0], Property)
-    assert filter.property_groups.groups[0].groups[0].key == "attr"
-    assert filter.property_groups.groups[0].groups[0].value == "val_1"
-    assert isinstance(filter.property_groups.groups[0].groups[1], Property)
-    assert filter.property_groups.groups[0].groups[1].key == "attr_2"
-    assert filter.property_groups.groups[0].groups[1].value == "val_2"
+    assert isinstance(filter.property_groups.values[0], PropertyGroup)
+    assert filter.property_groups.values[0].type == "AND"
+    assert isinstance(filter.property_groups.values[0].values[0], Property)
+    assert filter.property_groups.values[0].values[0].key == "attr"
+    assert filter.property_groups.values[0].values[0].value == "val_1"
+    assert isinstance(filter.property_groups.values[0].values[1], Property)
+    assert filter.property_groups.values[0].values[1].key == "attr_2"
+    assert filter.property_groups.values[0].values[1].value == "val_2"
 
-    assert isinstance(filter.property_groups.groups[1], PropertyGroup)
-    assert filter.property_groups.groups[1].type == "OR"
-    assert isinstance(filter.property_groups.groups[1].groups[0], Property)
-    assert filter.property_groups.groups[1].groups[0].key == "attr"
-    assert filter.property_groups.groups[1].groups[0].value == "val_2"
+    assert isinstance(filter.property_groups.values[1], PropertyGroup)
+    assert filter.property_groups.values[1].type == "OR"
+    assert isinstance(filter.property_groups.values[1].values[0], Property)
+    assert filter.property_groups.values[1].values[0].key == "attr"
+    assert filter.property_groups.values[1].values[0].value == "val_2"
 
 
 def test_property_group_simple_parsing():
@@ -45,25 +45,25 @@ def test_property_group_simple_parsing():
         data={
             "properties": {
                 "type": "AND",
-                "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
         }
     )
 
     assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.groups[0], Property)
-    assert filter.property_groups.groups[0].key == "attr"
-    assert filter.property_groups.groups[0].value == "val_1"
-    assert isinstance(filter.property_groups.groups[1], Property)
-    assert filter.property_groups.groups[1].key == "attr_2"
-    assert filter.property_groups.groups[1].value == "val_2"
+    assert isinstance(filter.property_groups.values[0], Property)
+    assert filter.property_groups.values[0].key == "attr"
+    assert filter.property_groups.values[0].value == "val_1"
+    assert isinstance(filter.property_groups.values[1], Property)
+    assert filter.property_groups.values[1].key == "attr_2"
+    assert filter.property_groups.values[1].value == "val_2"
 
 
 def test_property_group_empty_parsing():
     filter = Filter(data={"properties": {}})
 
     assert filter.property_groups.type == "AND"
-    assert filter.property_groups.groups == []
+    assert filter.property_groups.values == []
 
 
 def test_property_group_invalid_parsing():
@@ -72,7 +72,7 @@ def test_property_group_invalid_parsing():
         data={
             "properties": {
                 "type": "XaND",
-                "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"},],
+                "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"},],
             }
         }
     )
@@ -87,11 +87,11 @@ def test_property_group_includes_unhomogenous_groups():
         data={
             "properties": {
                 "type": "AND",
-                "groups": [
-                    {"type": "or", "groups": [{"key": "attr", "value": "val_1"}]},
+                "values": [
+                    {"type": "or", "values": [{"key": "attr", "value": "val_1"}]},
                     {"key": "attr", "value": "val_1"},
                     {"key": "attr_2", "value": "val_2"},
-                    {"type": "OR", "groups": []},
+                    {"type": "OR", "values": []},
                 ],
             }
         }
@@ -106,12 +106,12 @@ def test_property_multi_level_to_dict():
         data={
             "properties": {
                 "type": "AND",
-                "groups": [
+                "values": [
                     {
                         "type": "AND",
-                        "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                        "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                     },
-                    {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}]},
+                    {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                 ],
             }
         }
@@ -119,15 +119,15 @@ def test_property_multi_level_to_dict():
 
     assert filter.property_groups.to_dict() == {
         "type": "AND",
-        "groups": [
+        "values": [
             {
                 "type": "AND",
-                "groups": [
+                "values": [
                     {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
                     {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
                 ],
             },
-            {"type": "OR", "groups": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
+            {"type": "OR", "values": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
         ],
     }
 
@@ -137,14 +137,14 @@ def test_property_group_simple_to_dict():
         data={
             "properties": {
                 "type": "AND",
-                "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
         }
     )
 
     assert filter.property_groups.to_dict() == {
         "type": "AND",
-        "groups": [
+        "values": [
             {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
             {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
         ],
@@ -155,19 +155,19 @@ def test_property_group_simple_json_parsing():
     filter = Filter(
         data={
             "properties": json.dumps(
-                {"type": "AND", "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],}
+                {"type": "AND", "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],}
             )
         }
     )
 
     assert filter.property_groups.type == "AND"
 
-    assert isinstance(filter.property_groups.groups[0], Property)
-    assert filter.property_groups.groups[0].key == "attr"
-    assert filter.property_groups.groups[0].value == "val_1"
-    assert isinstance(filter.property_groups.groups[1], Property)
-    assert filter.property_groups.groups[1].key == "attr_2"
-    assert filter.property_groups.groups[1].value == "val_2"
+    assert isinstance(filter.property_groups.values[0], Property)
+    assert filter.property_groups.values[0].key == "attr"
+    assert filter.property_groups.values[0].value == "val_1"
+    assert isinstance(filter.property_groups.values[1], Property)
+    assert filter.property_groups.values[1].key == "attr_2"
+    assert filter.property_groups.values[1].value == "val_2"
 
 
 def test_property_group_multi_level_json_parsing():
@@ -176,12 +176,12 @@ def test_property_group_multi_level_json_parsing():
             "properties": json.dumps(
                 {
                     "type": "AND",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                            "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}]},
+                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                     ],
                 }
             )
@@ -189,18 +189,18 @@ def test_property_group_multi_level_json_parsing():
     )
 
     assert filter.property_groups.type == "AND"
-    assert isinstance(filter.property_groups.groups[0], PropertyGroup)
-    assert filter.property_groups.groups[0].type == "AND"
+    assert isinstance(filter.property_groups.values[0], PropertyGroup)
+    assert filter.property_groups.values[0].type == "AND"
 
-    assert isinstance(filter.property_groups.groups[0].groups[0], Property)
-    assert filter.property_groups.groups[0].groups[0].key == "attr"
-    assert filter.property_groups.groups[0].groups[0].value == "val_1"
-    assert isinstance(filter.property_groups.groups[0].groups[1], Property)
-    assert filter.property_groups.groups[0].groups[1].key == "attr_2"
-    assert filter.property_groups.groups[0].groups[1].value == "val_2"
+    assert isinstance(filter.property_groups.values[0].values[0], Property)
+    assert filter.property_groups.values[0].values[0].key == "attr"
+    assert filter.property_groups.values[0].values[0].value == "val_1"
+    assert isinstance(filter.property_groups.values[0].values[1], Property)
+    assert filter.property_groups.values[0].values[1].key == "attr_2"
+    assert filter.property_groups.values[0].values[1].value == "val_2"
 
-    assert isinstance(filter.property_groups.groups[1], PropertyGroup)
-    assert filter.property_groups.groups[1].type == "OR"
-    assert isinstance(filter.property_groups.groups[1].groups[0], Property)
-    assert filter.property_groups.groups[1].groups[0].key == "attr"
-    assert filter.property_groups.groups[1].groups[0].value == "val_2"
+    assert isinstance(filter.property_groups.values[1], PropertyGroup)
+    assert filter.property_groups.values[1].type == "OR"
+    assert isinstance(filter.property_groups.values[1].values[0], Property)
+    assert filter.property_groups.values[1].values[0].key == "attr"
+    assert filter.property_groups.values[1].values[0].value == "val_2"
