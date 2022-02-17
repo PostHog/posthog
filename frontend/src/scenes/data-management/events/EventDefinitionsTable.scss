@@ -1,0 +1,13 @@
+.events-definition-table {
+    .LemonTable__content > table > tbody {
+        .event-definition-column-name {
+            display: flex;
+            flex-direction: row;
+
+            .event-definition-column-name-content {
+                display: flex;
+                flex-direction: column;
+            }
+        }
+    }
+}

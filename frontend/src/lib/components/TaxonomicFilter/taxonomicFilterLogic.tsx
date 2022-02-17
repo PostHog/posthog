@@ -22,17 +22,9 @@ import { capitalizeFirstLetter, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import {
-    ActionStack,
-    AutocaptureIcon,
-    CohortIcon,
-    PageleaveIcon,
-    PageviewIcon,
-    PropertyIcon,
-    UnverifiedEventStack,
-    VerifiedEventStack,
-} from 'lib/components/icons'
+import { ActionStack, CohortIcon, PropertyIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { getEventDefinitionIcon } from 'scenes/data-management/events/EventDefinitionHeader'
 
 const eventTaxonomicGroupProps = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -41,21 +33,7 @@ const eventTaxonomicGroupProps = {
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
-    getIcon: function _getIcon(eventDefinition: EventDefinition): JSX.Element {
-        if (eventDefinition.name === '$pageview') {
-            return <PageviewIcon className="taxonomy-icon-verified" />
-        }
-        if (eventDefinition.name === '$pageleave') {
-            return <PageleaveIcon className="taxonomy-icon-verified" />
-        }
-        if (eventDefinition.name === '$autocapture') {
-            return <AutocaptureIcon className="taxonomy-icon-verified" />
-        }
-        if (eventDefinition.verified || !!keyMapping.event[eventDefinition.name]) {
-            return <VerifiedEventStack className="taxonomy-icon-verified" />
-        }
-        return <UnverifiedEventStack className="taxonomy-icon-muted" />
-    },
+    getIcon: getEventDefinitionIcon,
 }
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
