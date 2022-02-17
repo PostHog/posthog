@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, Event, Filter, Insight
+from posthog.models import Dashboard, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
@@ -97,7 +98,7 @@ class TestUpdateCache(APIBaseTest):
                     ENTITY_ID: "watched movie",
                 },
                 team=self.team,
-                get_earliest_timestamp=Event.objects.earliest_timestamp,
+                get_earliest_timestamp=get_earliest_timestamp,
             ),
             CacheType.STICKINESS,
             patch_update_cache_item,
@@ -239,7 +240,7 @@ class TestUpdateCache(APIBaseTest):
                 "shown_as": "Stickiness",
             },
             team=self.team,
-            get_earliest_timestamp=Event.objects.earliest_timestamp,
+            get_earliest_timestamp=get_earliest_timestamp,
         )
         filter = Filter(
             data={

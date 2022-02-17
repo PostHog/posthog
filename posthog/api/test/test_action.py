@@ -6,7 +6,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Action, ActionStep, Element, Event, Organization, Tag
+from posthog.models import Action, ActionStep, Organization, Tag
 from posthog.test.base import APIBaseTest
 
 
@@ -18,11 +18,6 @@ def _create_event(uuid=None, **kwargs):
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={
@@ -91,18 +86,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
-
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
-        event2 = Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            properties={"$browser": "Chrome"},
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
-        )
         action_id = action.steps.get().pk
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -250,11 +238,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="test_event ",  # notice trailing space
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}],},

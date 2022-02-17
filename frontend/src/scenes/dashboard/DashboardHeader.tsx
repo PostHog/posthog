@@ -280,7 +280,7 @@ function CollaboratorBubbles({
             people={allCollaborators.map((collaborator) => ({
                 email: collaborator.user.email,
                 name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} (${privilegeLevelToName(collaborator.level)})`,
+                title: `${collaborator.user.first_name} (${privilegeLevelToName[collaborator.level]})`,
             }))}
             tooltip={tooltipParts.join(' • ')}
             onClick={onClick}
