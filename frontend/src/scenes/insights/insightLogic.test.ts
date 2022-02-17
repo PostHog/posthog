@@ -15,8 +15,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 jest.mock('lib/api')
 jest.mock('@sentry/browser')
 
-const API_FILTERS = {
-    insight: InsightType.TRENDS as InsightType,
+const API_FILTERS_42 = {
+    insight: InsightType.TRENDS,
+    events: [{ id: 3 }],
+    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+}
+const API_FILTERS_43 = {
+    insight: InsightType.FUNNELS,
     events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
 }
@@ -49,7 +54,7 @@ describe('insightLogic', () => {
                     result: pathname.endsWith('42') ? ['result from api'] : null,
                     id: pathname.endsWith('42') ? 42 : 43,
                     short_id: pathname.endsWith('42') ? Insight42 : Insight43,
-                    filters: data?.filters || API_FILTERS,
+                    filters: data?.filters || API_FILTERS_42,
                 }
             } else if (pathname === 'api/projects/997/insights/' && url.searchParams.short_id) {
                 if (url.searchParams.short_id === 500) {
@@ -62,7 +67,9 @@ describe('insightLogic', () => {
                             result: parseInt(url.searchParams.short_id) === 42 ? ['result from api'] : null,
                             id: parseInt(url.searchParams.short_id),
                             short_id: url.searchParams.short_id.toString(),
-                            filters: data?.filters || API_FILTERS,
+                            filters:
+                                data?.filters ||
+                                (parseInt(url.searchParams.short_id) === 42 ? API_FILTERS_42 : API_FILTERS_43),
                         },
                     ],
                 }
@@ -85,8 +92,8 @@ describe('insightLogic', () => {
             } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
                 return {
                     results: [
-                        { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
-                        { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
+                        { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS_42 },
+                        { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS_43 },
                     ],
                 }
             } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
@@ -604,7 +611,7 @@ describe('insightLogic', () => {
                     insight: partial({
                         id: 42,
                         result: ['result 42'],
-                        filters: API_FILTERS,
+                        filters: API_FILTERS_42,
                     }),
                 })
         })
@@ -638,16 +645,16 @@ describe('insightLogic', () => {
             filtersChanged: true,
         })
 
-        // results from API GET and POST calls change saved filters
+        // results from API GET and POST calls change filters
         await expectLogic(logic, () => {
             logic.actions.loadInsightSuccess({
                 short_id: Insight42,
                 filters: { insight: InsightType.PATHS },
             })
         }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
+            filters: partial({ insight: InsightType.PATHS }),
             savedFilters: partial({ insight: InsightType.PATHS }),
-            filtersChanged: true,
+            filtersChanged: false,
         })
         await expectLogic(logic, () => {
             logic.actions.updateInsightSuccess({
@@ -655,14 +662,14 @@ describe('insightLogic', () => {
                 filters: { insight: InsightType.RETENTION },
             })
         }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
+            filters: partial({ insight: InsightType.PATHS }),
             savedFilters: partial({ insight: InsightType.RETENTION }),
             filtersChanged: true,
         })
 
         // saving persists the in-flight filters
         await expectLogic(logic, () => {
-            logic.actions.setFilters(API_FILTERS)
+            logic.actions.setFilters(API_FILTERS_42)
         }).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({
             filters: partial({ insight: InsightType.TRENDS }),
