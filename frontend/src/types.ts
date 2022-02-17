@@ -1494,6 +1494,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** What was the name of the project before it was autoswitched for the user to retrieve the current item. */
+    preswitch_team_name?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

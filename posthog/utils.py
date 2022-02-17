@@ -259,6 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "preswitch_team_name": getattr(request, "preswitch_team_name", False),
             **posthog_app_context,
         }
 
@@ -810,7 +811,7 @@ def should_refresh(request: Request) -> bool:
     key = "refresh"
     return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
         key, False
-    ) == True
+    )
 
 
 def str_to_bool(value: Any) -> bool:
