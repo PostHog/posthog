@@ -38,59 +38,31 @@ export class LazyPluginVM {
     }
 
     public async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
-        const exportEvents = (await this.resolveInternalVm)?.methods.exportEvents || null
-        if (!this.ready && exportEvents) {
-            await this.setupPluginIfNeeded()
-        }
-        return exportEvents
+        return await this.getVmMethod('exportEvents')
     }
 
     public async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
-        const onEvent = (await this.resolveInternalVm)?.methods.onEvent || null
-        if (!this.ready && onEvent) {
-            await this.setupPluginIfNeeded()
-        }
-        return onEvent
+        return await this.getVmMethod('onEvent')
     }
 
     public async getOnAction(): Promise<PluginConfigVMResponse['methods']['onAction'] | null> {
-        const onAction = (await this.resolveInternalVm)?.methods.onAction || null
-        if (!this.ready && onAction) {
-            await this.setupPluginIfNeeded()
-        }
-        return onAction
+        return await this.getVmMethod('onAction')
     }
 
     public async getOnSnapshot(): Promise<PluginConfigVMResponse['methods']['onSnapshot'] | null> {
-        const onSnapshot = (await this.resolveInternalVm)?.methods.onSnapshot || null
-        if (!this.ready && onSnapshot) {
-            await this.setupPluginIfNeeded()
-        }
-        return onSnapshot
+        return await this.getVmMethod('onSnapshot')
     }
 
     public async getProcessEvent(): Promise<PluginConfigVMResponse['methods']['processEvent'] | null> {
-        const processEvent = (await this.resolveInternalVm)?.methods.processEvent || null
-        if (!this.ready && processEvent) {
-            await this.setupPluginIfNeeded()
-        }
-        return processEvent
+        return await this.getVmMethod('processEvent')
     }
 
     public async getHandleAlert(): Promise<PluginConfigVMResponse['methods']['handleAlert'] | null> {
-        const handleAlert = (await this.resolveInternalVm)?.methods.handleAlert || null
-        if (!this.ready && handleAlert) {
-            await this.setupPluginIfNeeded()
-        }
-        return handleAlert
+        return await this.getVmMethod('handleAlert')
     }
 
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
-        const getTeardownPlugin = (await this.resolveInternalVm)?.methods.teardownPlugin || null
-        if (!this.ready && getTeardownPlugin) {
-            await this.setupPluginIfNeeded()
-        }
-        return getTeardownPlugin
+        return await this.getVmMethod('teardownPlugin')
     }
 
     public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
@@ -107,6 +79,15 @@ export class LazyPluginVM {
             await this.setupPluginIfNeeded()
         }
         return tasks || {}
+    }
+
+    private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
+        const vmMethod = (await this.resolveInternalVm)?.methods[method] || null
+        if (!this.ready && method) {
+            await this.setupPluginIfNeeded()
+        }
+
+        return vmMethod
     }
 
     public clearRetryTimeoutIfExists(): void {
