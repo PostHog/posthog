@@ -71,8 +71,24 @@ def test_property_group_invalid_parsing():
     filter = Filter(
         data={
             "properties": {
+                "type": "XaND",
+                "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"},],
+            }
+        }
+    )
+
+    with pytest.raises(ValidationError):
+        filter.property_groups
+
+
+def test_property_group_includes_unhomogenous_groups():
+
+    filter = Filter(
+        data={
+            "properties": {
                 "type": "AND",
                 "groups": [
+                    {"type": "or", "groups": [{"key": "attr", "value": "val_1"}]},
                     {"key": "attr", "value": "val_1"},
                     {"key": "attr_2", "value": "val_2"},
                     {"type": "OR", "groups": []},
