@@ -109,7 +109,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
 
-            self.assertCountEqual([e.pk for e in events], [e.pk for e in expected_events])
+            self.assertCountEqual([e.pk for e in events], [event_uuid for event_uuid in expected_events])
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of
@@ -122,21 +122,21 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(event="$autocapture", action=action1, href="/a-url-2")
 
             team2 = Organization.objects.bootstrap(None)[2]
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever",
                 elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
             )
 
-            event2 = _create_event(
+            event2_uuid = _create_event(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever2",
                 elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
             )
 
-            event3 = _create_event(
+            event3_uuid = _create_event(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever",
@@ -147,7 +147,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 ],
             )
 
-            event4 = _create_event(
+            event4_uuid = _create_event(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever2",
@@ -174,16 +174,16 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 4)
-            self.assertEqual(events[0].pk, event4.pk)
-            self.assertEqual(events[1].pk, event3.pk)
-            self.assertEqual(events[2].pk, event2.pk)
-            self.assertEqual(events[3].pk, event1.pk)
+            self.assertEqual(events[0].pk, event4_uuid)
+            self.assertEqual(events[1].pk, event3_uuid)
+            self.assertEqual(events[2].pk, event2_uuid)
+            self.assertEqual(events[3].pk, event1_uuid)
 
         def test_with_class(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(event="$autocapture", action=action1, selector="a.nav-link.active", tag_name="a")
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -202,7 +202,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(events[0].pk, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_with_class_with_escaped_symbols(self):
@@ -211,7 +211,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(
                 event="$autocapture", action=action1, selector="a.na\\\\v-link\\:b\\@ld", tag_name="a"
             )
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -222,7 +222,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(events[0].pk, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_with_class_with_escaped_slashes(self):
@@ -231,7 +231,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(
                 event="$autocapture", action=action1, selector="a.na\\\\\\\\\\\\v-link\\:b\\@ld", tag_name="a"
             )
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -242,12 +242,12 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(events[0].pk, event1_uuid)
             self.assertEqual(len(events), 1)
 
         def test_attributes(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -259,7 +259,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].pk, event1.pk)
+            self.assertEqual(events[0].pk, event1_uuid)
 
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
@@ -285,8 +285,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="$autocapture", action=action4, url="/123$", url_matching=ActionStep.REGEX,
             )
 
-            event1 = _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
-            event2 = _create_event(
+            event1_uuid = _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
+            event2_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -295,19 +295,19 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action1)
-            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(events[0].pk, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action2)
-            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(events[0].pk, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action3)
-            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(events[0].pk, event2_uuid)
             self.assertEqual(len(events), 1)
 
             events = _get_events_for_action(action4)
-            self.assertEqual(events[0].pk, event2.pk)
+            self.assertEqual(events[0].pk, event2_uuid)
             self.assertEqual(len(events), 1)
 
         def test_person_with_different_distinct_id(self):
@@ -315,14 +315,14 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(action=action_watch_movie, tag_name="a", href="/movie", event="$autocapture")
 
             person = _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
-            event_watched_movie_anonymous = _create_event(
+            event_watched_movie_anonymous_uuid = _create_event(
                 distinct_id="anonymous_user",
                 team=self.team,
                 elements=[Element(tag_name="a", href="/movie")],
                 event="$autocapture",
             )
 
-            event_watched_movie = _create_event(
+            event_watched_movie_uuid = _create_event(
                 distinct_id="is_now_signed_up",
                 team=self.team,
                 elements=[Element(tag_name="a", href="/movie")],
@@ -330,7 +330,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(events[0].pk, event_watched_movie.pk)
+            self.assertEqual(events[0].pk, event_watched_movie_uuid)
             self.assertEqual(events[0].distinct_id, "is_now_signed_up")
 
         def test_no_person_leakage_from_other_teams(self):
@@ -380,7 +380,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             ActionStep.objects.create(action=action_null_selector, event="$autocapture", selector=None)
             action_empty_selector = Action.objects.create(team=self.team)
             ActionStep.objects.create(action=action_empty_selector, event="$autocapture", selector="")
-            event1 = _create_event(
+            event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
@@ -388,7 +388,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             )
 
             events_null_selector = _get_events_for_action(action_null_selector)
-            self.assertEqual(events_null_selector[0].pk, event1.pk)
+            self.assertEqual(events_null_selector[0].pk, event1_uuid)
             self.assertEqual(len(events_null_selector), 1)
 
             events_empty_selector = _get_events_for_action(action_empty_selector)

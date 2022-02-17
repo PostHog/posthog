@@ -15,11 +15,11 @@ from posthog.test.base import BaseTest
 from posthog.test.test_event_model import filter_by_actions_factory
 
 
-def _create_event(**kwargs) -> Event:
+def _create_event(**kwargs) -> str:
     pk = uuid4()
     kwargs.update({"event_uuid": pk})
     create_event(**kwargs)
-    return Event(pk=str(pk))
+    return str(pk)
 
 
 def query_action(action: Action) -> Optional[List]:
@@ -61,8 +61,7 @@ class TestActions(
 
 class TestActionFormat(ClickhouseTestMixin, BaseTest):
     def test_filter_event_exact_url(self):
-
-        event_target = _create_event(
+        event_target_uuid = _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="whatever",
@@ -91,7 +90,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(str(result[0][0]), event_target.pk)
+        self.assertEqual(str(result[0][0]), event_target_uuid)
 
     def test_filter_event_contains_url(self):
 
