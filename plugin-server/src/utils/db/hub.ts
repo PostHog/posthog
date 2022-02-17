@@ -191,7 +191,7 @@ export async function createHub(
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const promiseManager = new PromiseManager(serverConfig)
+    const promiseManager = new PromiseManager(serverConfig, statsd)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
