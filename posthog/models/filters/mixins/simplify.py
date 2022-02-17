@@ -26,11 +26,16 @@ class SimplifyFilterMixin:
 
         # :TRICKY: Make a copy to avoid caching issues
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
-        new_group_props = []
 
         if getattr(result, "filter_test_accounts", False):
-            result = result.with_data({"filter_test_accounts": False,})
-            new_group_props += team.test_account_filters
+
+            new_group = {"type": "AND", "values": team.test_account_filters}
+            prop_group = (
+                {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}
+                if result.property_groups.to_dict()
+                else new_group
+            )
+            result = result.with_data({"properties": prop_group, "filter_test_accounts": False,})
 
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
@@ -39,6 +44,7 @@ class SimplifyFilterMixin:
 
         prop_group = self._simplify_property_group(team, result.property_groups, **kwargs).to_dict()  # type: ignore
 
+        new_group_props = []
         if getattr(result, "aggregation_group_type_index", None) is not None:
             new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())  # type: ignore
 
