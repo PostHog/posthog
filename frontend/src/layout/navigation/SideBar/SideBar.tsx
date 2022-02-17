@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
-import { PushpinOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconBarChart,
@@ -17,6 +17,7 @@ import {
     IconPerson,
     IconPlus,
     IconRecording,
+    IconServer,
     IconSettings,
     IconTools,
 } from 'lib/components/icons'
@@ -244,7 +245,7 @@ function Pages(): JSX.Element {
                     <LemonSpacer />
                     <PageButton
                         title="Instance status"
-                        icon={<DatabaseOutlined />}
+                        icon={<IconServer />}
                         identifier={Scene.SystemStatus}
                         to={urls.instanceSettings()}
                     />
