@@ -117,16 +117,11 @@ export class LazyPluginVM {
                     const vm = createPluginConfigVM(hub, pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
                     const shouldSetupNow =
-                        (vm.tasks?.schedule && Object.values(vm.tasks?.schedule).length > 0) ||
+                        (!this.ready && // harmless check used to skip setup in tests
+                            vm.tasks?.schedule &&
+                            Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
                     if (shouldSetupNow) {
-                        console.log('I SHOULD SET UP NOWWWWW')
-                        console.log('I SHOULD SET UP NOWWWWW')
-                        console.log('I SHOULD SET UP NOWWWWW')
-                        console.log('I SHOULD SET UP NOWWWWW')
-                        console.log('I SHOULD SET UP NOWWWWW')
-                        console.log('I SHOULD SET UP NOWWWWW')
-
                         await vm.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
                         this.ready = true
                     }
