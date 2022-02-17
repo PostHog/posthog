@@ -70,7 +70,7 @@
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
-                    "value": "1000"
+                    "value": "3000"
                 },
                 {
                     "name": "USING_PGBOUNCER",
