@@ -107,8 +107,8 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_filters = [*self._filter.properties]
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query(

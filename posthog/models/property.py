@@ -152,12 +152,21 @@ class PropertyGroup:
         self.type = type
         self.groups = groups
 
+    def combine_properties(self, operator: PropertyOperatorType, properties: List[Property]) -> "PropertyGroup":
+        if not properties:
+            return self
+
+        if len(self.groups) == 0:
+            return PropertyGroup(PropertyOperatorType.AND, properties)
+
+        return PropertyGroup(operator, [self, PropertyGroup(PropertyOperatorType.AND, properties)])
+
     def to_dict(self):
         result: Dict = {}
         if not self.groups:
             return result
 
-        return {f"{self.type}": [prop.to_dict() for prop in self.groups]}
+        return {"type": self.type, "groups": [prop.to_dict() for prop in self.groups]}
 
     def __repr__(self):
         params_repr = ", ".join(f"{repr(prop)}" for prop in self.groups)

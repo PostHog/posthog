@@ -10,7 +10,7 @@ from posthog.models.property import Property, PropertyGroup
 def test_property_group_multi_level_parsing():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [
                     {
@@ -43,7 +43,7 @@ def test_property_group_multi_level_parsing():
 def test_property_group_simple_parsing():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
@@ -60,7 +60,7 @@ def test_property_group_simple_parsing():
 
 
 def test_property_group_empty_parsing():
-    filter = Filter(data={"property_groups": {}})
+    filter = Filter(data={"properties": {}})
 
     assert filter.property_groups.type == "AND"
     assert filter.property_groups.groups == []
@@ -70,9 +70,25 @@ def test_property_group_invalid_parsing():
 
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
+                "type": "XaND",
+                "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"},],
+            }
+        }
+    )
+
+    with pytest.raises(ValidationError):
+        filter.property_groups
+
+
+def test_property_group_includes_unhomogenous_groups():
+
+    filter = Filter(
+        data={
+            "properties": {
                 "type": "AND",
                 "groups": [
+                    {"type": "or", "groups": [{"key": "attr", "value": "val_1"}]},
                     {"key": "attr", "value": "val_1"},
                     {"key": "attr_2", "value": "val_2"},
                     {"type": "OR", "groups": []},
@@ -88,7 +104,7 @@ def test_property_group_invalid_parsing():
 def test_property_multi_level_to_dict():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [
                     {
@@ -102,22 +118,24 @@ def test_property_multi_level_to_dict():
     )
 
     assert filter.property_groups.to_dict() == {
-        "AND": [
+        "type": "AND",
+        "groups": [
             {
-                "AND": [
+                "type": "AND",
+                "groups": [
                     {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
                     {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
                 ],
             },
-            {"OR": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
-        ]
+            {"type": "OR", "groups": [{"key": "attr", "value": "val_2", "operator": None, "type": "event"}]},
+        ],
     }
 
 
 def test_property_group_simple_to_dict():
     filter = Filter(
         data={
-            "property_groups": {
+            "properties": {
                 "type": "AND",
                 "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
@@ -125,17 +143,18 @@ def test_property_group_simple_to_dict():
     )
 
     assert filter.property_groups.to_dict() == {
-        "AND": [
+        "type": "AND",
+        "groups": [
             {"key": "attr", "value": "val_1", "operator": None, "type": "event"},
             {"key": "attr_2", "value": "val_2", "operator": None, "type": "event"},
-        ]
+        ],
     }
 
 
 def test_property_group_simple_json_parsing():
     filter = Filter(
         data={
-            "property_groups": json.dumps(
+            "properties": json.dumps(
                 {"type": "AND", "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],}
             )
         }
@@ -154,7 +173,7 @@ def test_property_group_simple_json_parsing():
 def test_property_group_multi_level_json_parsing():
     filter = Filter(
         data={
-            "property_groups": json.dumps(
+            "properties": json.dumps(
                 {
                     "type": "AND",
                     "groups": [
