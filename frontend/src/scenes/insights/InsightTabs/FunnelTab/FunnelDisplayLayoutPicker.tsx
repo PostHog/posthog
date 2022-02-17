@@ -6,10 +6,11 @@ import { FunnelPlotOutlined, BarChartOutlined } from '@ant-design/icons'
 import { FunnelLayout } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelDisplayLayoutPicker(): JSX.Element {
+export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { barGraphLayout } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
+
     const options = [
         {
             value: FunnelLayout.vertical,
@@ -22,6 +23,7 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
             label: 'Top to bottom',
         },
     ]
+
     return (
         <Select
             defaultValue={FunnelLayout.vertical}
@@ -31,6 +33,7 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
             dropdownMatchSelectWidth={false}
             data-attr="funnel-bar-layout-selector"
             optionLabelProp="label"
+            disabled={disabled}
         >
             <Select.OptGroup label="Graph display options">
                 {options.map((option) => (

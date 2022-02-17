@@ -9,7 +9,6 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
-import { LazyPluginVM } from 'worker/vm/lazy'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
@@ -26,6 +25,7 @@ import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
+import { PromiseManager } from './../../worker/vm/promise-manager'
 import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
@@ -47,6 +47,7 @@ export async function createHub(
 
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
+    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `StatsD`)
         statsd = new StatsD({
@@ -64,8 +65,20 @@ export async function createHub(
         eventLoopLagInterval = setInterval(() => {
             const time = new Date()
             setImmediate(() => {
-                statsd?.timing('event_loop_lag', time)
+                statsd?.timing('event_loop_lag', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
             })
+        }, 2000)
+        eventLoopLagSetTimeoutInterval = setInterval(() => {
+            const time = new Date()
+            setTimeout(() => {
+                statsd?.timing('event_loop_lag_set_timeout', time, {
+                    instanceId: instanceId.toString(),
+                    threadId: String(threadId),
+                })
+            }, 0)
         }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
@@ -178,6 +191,7 @@ export async function createHub(
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const promiseManager = new PromiseManager(serverConfig)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -205,6 +219,7 @@ export async function createHub(
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
+        promiseManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
@@ -234,6 +249,11 @@ export async function createHub(
         if (eventLoopLagInterval) {
             clearInterval(eventLoopLagInterval)
         }
+
+        if (eventLoopLagSetTimeoutInterval) {
+            clearInterval(eventLoopLagSetTimeoutInterval)
+        }
+
         hub.mmdbUpdateJob?.cancel()
         await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()

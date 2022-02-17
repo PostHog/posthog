@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from semantic_version.base import SimpleSpec
@@ -202,12 +201,6 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
             return
 
     update_async_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
-
-
-def is_current_operation_resumable(migration_instance: AsyncMigration):
-    migration_definition = get_async_migration_definition(migration_instance.name)
-    index = migration_instance.current_operation_index
-    return migration_definition.operations[index].resumable
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):

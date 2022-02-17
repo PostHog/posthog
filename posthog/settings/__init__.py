@@ -25,7 +25,6 @@ from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import EE_AVAILABLE
-from posthog.settings.emails import *
 from posthog.settings.feature_flags import *
 from posthog.settings.logging import *
 from posthog.settings.sentry import *

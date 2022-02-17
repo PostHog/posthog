@@ -2,7 +2,7 @@ import { Col, Dropdown, Input, Menu, Radio, Row, Select, Tabs } from 'antd'
 import { router } from 'kea-router'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React from 'react'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
@@ -10,7 +10,6 @@ import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -29,15 +28,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { InsightCard } from 'lib/components/InsightCard'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -162,7 +158,6 @@ export function SavedInsights(): JSX.Element {
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
@@ -229,9 +224,13 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last modified',
             sorter: true,
-            dataIndex: 'updated_at',
-            render: function renderLastModified(updated_at: string) {
-                return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
+            dataIndex: 'last_modified_at',
+            render: function renderLastModified(last_modified_at: string) {
+                return (
+                    <div style={{ whiteSpace: 'nowrap' }}>
+                        {last_modified_at && <TZLabel time={last_modified_at} />}
+                    </div>
+                )
             },
         },
         {
@@ -437,7 +436,7 @@ export function SavedInsights(): JSX.Element {
                             rowKey="id"
                             nouns={['insight', 'insights']}
                         />
-                    ) : featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? (
+                    ) : (
                         <div className="saved-insights-grid">
                             {insights?.results.map((insight: InsightModel) => (
                                 <InsightCard
@@ -456,45 +455,6 @@ export function SavedInsights(): JSX.Element {
                             ))}
                             {insightsLoading && <Loading />}
                         </div>
-                    ) : (
-                        <Row gutter={[16, 16]}>
-                            {insights &&
-                                insights.results.map((insight: InsightModel, index: number) => (
-                                    <Col
-                                        xs={24}
-                                        sm={24}
-                                        md={24}
-                                        lg={12}
-                                        xl={12}
-                                        xxl={8}
-                                        key={insight.short_id}
-                                        style={{ height: 340 }}
-                                    >
-                                        <DashboardItem
-                                            item={{ ...insight, color: null }}
-                                            key={insight.short_id + '_user'}
-                                            loadDashboardItems={() => {
-                                                loadInsights()
-                                            }}
-                                            dashboardMode={null}
-                                            index={index}
-                                            isOnEditMode={false}
-                                            footer={
-                                                <div className="dashboard-item-footer">
-                                                    {
-                                                        <>
-                                                            Saved {dayjs(insight.created_at).fromNow()} by{' '}
-                                                            {insight.created_by?.first_name ||
-                                                                insight.created_by?.email ||
-                                                                'unknown'}
-                                                        </>
-                                                    }
-                                                </div>
-                                            }
-                                        />
-                                    </Col>
-                                ))}
-                        </Row>
                     )}
                 </>
             )}

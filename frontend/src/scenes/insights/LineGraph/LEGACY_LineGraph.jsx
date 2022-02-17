@@ -7,13 +7,13 @@ import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { areObjectValuesEmpty, capitalizeFirstLetter, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -66,7 +66,7 @@ export function LEGACY_LineGraph({
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
     const [tooltipVisible, setTooltipVisible] = useState(false)
-    const size = useWindowSize()
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     const annotationsCondition =
         type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
@@ -126,7 +126,7 @@ export function LEGACY_LineGraph({
         if (annotationsCondition) {
             calculateBoundaries()
         }
-    }, [myLineChart.current, size, type, annotationsCondition])
+    }, [myLineChart.current, chartWidth, chartHeight, type, annotationsCondition])
 
     function calculateBoundaries() {
         const boundaryLeftExtent = myLineChart.current.scales['x-axis-0'].left
@@ -340,7 +340,7 @@ export function LEGACY_LineGraph({
 
                     const altTitle =
                         tooltipModel.title && (dataset.compare || tooltipPreferAltTitle) ? tooltipModel.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                    const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
+                    const referenceDate = !dataset.compare ? dataset.days?.[referenceDataPoint.index] : undefined
                     const seriesData = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({

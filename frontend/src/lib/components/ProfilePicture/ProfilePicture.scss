@@ -49,3 +49,26 @@
         font-size: 12px;
     }
 }
+
+.ProfileBubbles {
+    display: flex;
+    align-items: center;
+    > :not(:first-child) {
+        margin-left: -0.125rem;
+    }
+}
+
+.ProfileBubbles__more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    width: 1.5rem;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: -0.05em;
+    user-select: none;
+}

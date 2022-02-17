@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -44,10 +44,10 @@ export function VolumeTable({
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
-    const { user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
 
-    const hasTaxonomyFeatures = user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
+    const hasTaxonomyFeatures = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {

@@ -565,7 +565,6 @@ export function FunnelStepTable(): JSX.Element | null {
             size="small"
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            style={{ height: '100%' }}
             data-attr={barGraphLayout === FunnelLayout.vertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
             className="funnel-steps-table"
         />

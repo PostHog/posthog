@@ -43,8 +43,7 @@ export function LemonSwitch({
                 checked && 'LemonSwitch--checked',
                 isActive && 'LemonSwitch--active',
                 loading && 'LemonSwitch--loading',
-                alt && 'LemonSwitch--alt',
-                disabled && 'LemonSwitch--disabled'
+                alt && 'LemonSwitch--alt'
             )}
             onClick={() => onChange(!checked)}
             onMouseDown={() => setIsActive(true)}

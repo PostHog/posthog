@@ -54,6 +54,7 @@ def log_event(data: Dict, event_name: str) -> None:
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
@@ -78,6 +79,7 @@ def log_event_to_dead_letter_queue(
     data["event"] = event_name
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
+    data["tags"] = json.dumps(["django_server"])
 
     data["event_uuid"] = event["uuid"]
     del data["uuid"]
@@ -238,7 +240,6 @@ def get_event(request):
             )
             continue
 
-        statsd.incr("posthog_cloud_plugin_server_ingestion")
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:

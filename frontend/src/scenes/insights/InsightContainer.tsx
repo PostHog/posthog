@@ -48,7 +48,8 @@ export function InsightContainer(
     const {
         insightProps,
         lastRefresh,
-        isLoading,
+        canEditInsight,
+        insightLoading,
         activeView,
         loadedView,
         filters,
@@ -62,7 +63,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || isLoading) {
+        if (activeView !== loadedView || insightLoading) {
             return (
                 <>
                     {
@@ -77,12 +78,12 @@ export function InsightContainer(
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelSingleStepState />
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !isLoading) {
+            if (!isValidFunnel && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -92,7 +93,7 @@ export function InsightContainer(
             return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={insightLoading} />
         }
 
         return null
@@ -128,6 +129,7 @@ export function InsightContainer(
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                        canCheckUncheckSeries={!canEditInsight}
                     />
                 </BindLogic>
             )
@@ -147,6 +149,7 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
+                            disabled={!canEditInsight}
                         />
                     )
                 }

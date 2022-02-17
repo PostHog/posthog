@@ -22,6 +22,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
+    --warning-hover: #{$warning_hover};
+    --warning-active: #{$warning_active};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
@@ -109,8 +111,9 @@ body strong {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    min-height: 2.5rem;
     gap: 0.5rem 1rem;
-    margin: 1.25rem 0 0.5rem;
+    margin: 1.25rem 0 0.25rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
     }
@@ -287,6 +290,10 @@ code.code {
     margin-left: $default_spacing;
 }
 
+.ml-2 {
+    margin-left: $default_spacing * 2;
+}
+
 .mr-05 {
     margin-right: $default_spacing * 0.5;
 }
@@ -354,6 +361,11 @@ code.code {
 .flex-center {
     display: flex;
     align-items: center;
+}
+
+.border-all {
+    border: 1px solid $border;
+    border-radius: 4px;
 }
 
 // Vendor-specific adjustments
@@ -543,10 +555,6 @@ input::-ms-clear {
     &.errored:not(:focus) {
         border-color: $danger !important;
     }
-}
-
-.ant-form-item-label label {
-    font-weight: $medium;
 }
 
 // Button styles
@@ -864,6 +872,21 @@ body {
     }
     .ant-modal-content {
         box-shadow: var(--shadow-elevation);
+    }
+    .ant-form-item-label {
+        > label {
+            font-weight: 600;
+            .ant-form-item-optional {
+                font-weight: 400;
+                color: var(--muted);
+            }
+        }
+    }
+    .ant-form-item {
+        margin-bottom: 1rem;
+        &:last-child {
+            margin-bottom: 0;
+        }
     }
 }
 

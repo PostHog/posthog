@@ -22,7 +22,6 @@ interface Props {
 type DataSet = any
 
 export function ActionsHorizontalBar({
-    dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
     showPersonsModal = true,
@@ -100,9 +99,10 @@ export function ActionsHorizontalBar({
             insightId={insight.id}
             totalValue={total}
             hiddenLegendKeys={hiddenLegendKeys}
+            showPersonsModal={showPersonsModal}
             interval={filtersParam?.interval}
             onClick={
-                dashboardItemId || filtersParam.formula || !showPersonsModal
+                !showPersonsModal || filtersParam.formula
                     ? undefined
                     : (point) => {
                           const { value: pointValue, index, points, seriesId } = point
@@ -138,6 +138,6 @@ export function ActionsHorizontalBar({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} />
     )
 }

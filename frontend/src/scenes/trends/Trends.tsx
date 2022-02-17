@@ -56,6 +56,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         showTotalCount
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
+                        isMainInsightView={true}
                     />
                 </BindLogic>
             )

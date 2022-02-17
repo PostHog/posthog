@@ -13,6 +13,7 @@ from posthog.version_requirement import ServiceVersionRequirement
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
 EVENTS_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.{EVENTS_TABLE}"
 BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0002_events_sample_by"
+FAILED_EVENTS_TABLE_NAME = f"{EVENTS_TABLE_NAME}_failed"
 
 """
 Migration Summary
@@ -44,7 +45,6 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
             toYYYYMM(timestamp) >= {partition_gte} {lt_expression}
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-        resumable=True,
         timeout_seconds=2 * 24 * 60 * 60,  # two days
     )
     return op
@@ -59,7 +59,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0001_events_sample_by"
 
     posthog_min_version = "1.30.0"
-    posthog_max_version = "1.32.0"
+    posthog_max_version = "1.33.9"
 
     service_version_requirements = [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
@@ -79,7 +79,6 @@ class Migration(AsyncMigrationDefinition):
                 SAMPLE BY cityHash64(distinct_id) 
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-                resumable=True,
             )
         ]
 
@@ -93,7 +92,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                resumable=True,
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -115,16 +113,13 @@ class Migration(AsyncMigrationDefinition):
                 """,
                 rollback=f"""
                     RENAME TABLE
-                        {EVENTS_TABLE_NAME} to {EVENTS_TABLE_NAME}_failed,
+                        {EVENTS_TABLE_NAME} to {FAILED_EVENTS_TABLE_NAME},
                         {BACKUP_TABLE_NAME} to {EVENTS_TABLE_NAME}
                     ON CLUSTER {CLICKHOUSE_CLUSTER}
                 """,
             ),
             AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE,
-                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                rollback="",
-                resumable=True,
+                database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", rollback="",
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -134,7 +129,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                resumable=True,
             ),
         ]
 
@@ -151,6 +145,13 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
+        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0][0]
+        if events_failed_table_exists:
+            return (
+                False,
+                f"{FAILED_EVENTS_TABLE_NAME} already exists. We use this table as a backup if the migration fails. You can delete or rename it and restart the migration.",
+            )
+
         events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
@@ -187,22 +188,13 @@ class Migration(AsyncMigrationDefinition):
 
         return (True, None)
 
-    def progress(self, _):
-        result = sync_execute(f"SELECT COUNT(1) FROM {TEMPORARY_TABLE_NAME}")
-        result2 = sync_execute(f"SELECT COUNT(1) FROM {EVENTS_TABLE_NAME}")
-        total_events_to_move = result2[0][0]
-        total_events_moved = result[0][0]
-
-        progress = 100 * (total_events_moved / total_events_to_move)
-        return progress
-
     @cached_property
     def _partitions(self):
         return list(
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
                 )
             )
         )

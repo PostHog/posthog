@@ -17,7 +17,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo import create_demo_team
-from posthog.event_usage import report_user_joined_organization, report_user_signed_up
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite
 from posthog.permissions import CanCreateOrg
@@ -209,6 +209,8 @@ class InviteSignupSerializer(serializers.Serializer):
 
         else:
             report_user_joined_organization(organization=invite.organization, current_user=user)
+
+        alias_invite_id(user, str(invite.id))
 
         # Update user props
         user_identify.identify_task.delay(user_id=user.id)

@@ -1,4 +1,4 @@
-from typing import List, Optional, cast
+from typing import List, Optional
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
@@ -20,6 +20,7 @@ class ClickhouseFunnelStrictActors(ClickhouseFunnelStrict, ActorBaseQuery):
             FUNNEL_PERSONS_BY_STEP_SQL.format(
                 steps_per_person_query=self.get_step_counts_query(),
                 persons_steps=self._get_funnel_person_step_condition(),
+                matching_events_select_statement=self._get_funnel_person_step_events(),
                 extra_fields=extra_fields_string,
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",

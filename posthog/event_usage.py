@@ -49,6 +49,10 @@ def report_user_signed_up(
     )
 
 
+def alias_invite_id(user: User, invite_id: str) -> None:
+    posthoganalytics.alias(f"invite_{invite_id}", user.distinct_id)
+
+
 def report_user_joined_organization(organization: Organization, current_user: User) -> None:
     """
     Triggered after an already existing user joins an already existing organization.
@@ -122,22 +126,41 @@ def report_user_password_reset(user: User) -> None:
 
 
 def report_team_member_invited(
-    user: User, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
+    inviting_user: User,
+    invite_id: str,
+    name_provided: bool,
+    current_invite_count: int,
+    current_member_count: int,
+    is_bulk: bool,
+    email_available: bool,
 ) -> None:
     """
     Triggered after a user creates an **individual** invite for a new team member. See `report_bulk_invited`
     for bulk invite creation.
     """
+
+    properties = {
+        "name_provided": name_provided,
+        "current_invite_count": current_invite_count,  # number of invites including this one
+        "current_member_count": current_member_count,
+        "email_available": email_available,
+        "is_bulk": is_bulk,
+    }
+
+    # Report for inviting user
     posthoganalytics.capture(
-        user.distinct_id,
+        inviting_user.distinct_id,
         "team invite executed",
-        properties={
-            "name_provided": name_provided,
-            "current_invite_count": current_invite_count,  # number of invites including this one
-            "current_member_count": current_member_count,
-            "email_available": email_available,
-        },
-        groups=groups(user.current_organization, user.current_team),
+        properties=properties,
+        groups=groups(inviting_user.current_organization, inviting_user.current_team),
+    )
+
+    # Report for invitee
+    posthoganalytics.capture(
+        f"invite_{invite_id}",  # see `alias_invite_id` too
+        "user invited",
+        properties=properties,
+        groups=groups(inviting_user.current_organization, None),
     )
 
 

@@ -23,6 +23,9 @@
         width: 100%;
         overflow: auto;
     }
+    .insight-empty-state {
+        font-size: 0.875rem;
+    }
 }
 
 .InsightViz {
@@ -36,6 +39,9 @@
     overflow: auto;
     .graph-container {
         padding: 1rem;
+        .annotations-root {
+            margin: 1rem;
+        }
     }
     .insight-empty-state {
         padding-top: 0;

@@ -48,9 +48,14 @@ export function AsyncMigrations(): JSX.Element {
         {
             title: 'Migration',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const link =
+                    'https://posthog.com/docs/self-host/configure/async-migrations/' +
+                    asyncMigration.name.split('_').join('-')
                 return (
                     <>
-                        <div className="row-name">{asyncMigration.name}</div>
+                        <div className="row-name">
+                            <a href={link}>{asyncMigration.name}</a>
+                        </div>
                         <div className="row-description">{asyncMigration.description}</div>
                     </>
                 )
@@ -74,7 +79,7 @@ export function AsyncMigrations(): JSX.Element {
                 const type: LemonTagPropsType =
                     status === AsyncMigrationStatus.Running
                         ? 'success'
-                        : status === AsyncMigrationStatus.Errored || AsyncMigrationStatus.FailedAtStartup
+                        : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
                         ? 'danger'
                         : status === AsyncMigrationStatus.Starting
                         ? 'warning'

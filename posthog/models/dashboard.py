@@ -44,38 +44,47 @@ class Dashboard(models.Model):
     )
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
 
-    def get_effective_privilege_level(self, user: "User") -> PrivilegeLevel:
+    @property
+    def effective_restriction_level(self) -> RestrictionLevel:
+        return (
+            self.restriction_level
+            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
+            else self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+    def get_effective_privilege_level(self, user_id: int) -> PrivilegeLevel:
         if (
-            # There is a need for  checks IF dashboard permissioning is available to this org
-            not self.team.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
             # Checks can be skipped if the dashboard in on the lowest restriction level
-            or self.restriction_level == self.PrivilegeLevel.CAN_VIEW
-            # Users with inherent restriction rights can do anything
-            or self.does_user_have_inherent_restriction_rights(user)
+            self.effective_restriction_level == self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            # Users with restriction rights can do anything
+            or self.can_user_restrict(user_id)
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
         from ee.models import DashboardPrivilege
 
         try:
-            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user=user))
+            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id))
         except DashboardPrivilege.DoesNotExist:
             # Returning the lowest access level if there's no explicit privilege for this user
             return self.PrivilegeLevel.CAN_VIEW
 
-    def can_user_edit(self, user: "User") -> bool:
-        if self.restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+    def can_user_edit(self, user_id: int) -> bool:
+        if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
             return True
-        return self.get_effective_privilege_level(user) >= self.PrivilegeLevel.CAN_EDIT
+        return self.get_effective_privilege_level(user_id) >= self.PrivilegeLevel.CAN_EDIT
 
-    def does_user_have_inherent_restriction_rights(self, user: "User") -> bool:
+    def can_user_restrict(self, user_id: int) -> bool:
+        # Sync conditions with frontend hasInherentRestrictionsRights
         from posthog.models.organization import OrganizationMembership
 
+        # The owner (aka creator) has full permissions
+        if user_id == self.created_by_id:
+            return True
+        effective_project_membership_level = self.team.get_effective_membership_level(user_id)
         return (
-            # The owner (aka creator) has full permissions
-            user.id == self.created_by_id
-            # Project admins get full permissions as well
-            or self.team.get_effective_membership_level(user) >= OrganizationMembership.Level.ADMIN
+            effective_project_membership_level is not None
+            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
         )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:

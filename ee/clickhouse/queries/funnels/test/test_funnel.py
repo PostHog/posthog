@@ -2,6 +2,7 @@ from typing import List, cast
 from unittest.case import skip
 from uuid import uuid4
 
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
@@ -1420,7 +1421,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         }
 
         # converts to precalculated-cohort due to simplify filters
-        cohort.calculate_people_ch()
+        cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()

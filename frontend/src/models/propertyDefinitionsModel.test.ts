@@ -3,11 +3,14 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { PropertyDefinition, PropertyType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 
 describe('the property definitions model', () => {
     let logic: ReturnType<typeof propertyDefinitionsModel.build>
+    let featureFlagsLogic: ReturnType<typeof featureFlagLogic.build>
 
     const propertyDefinitions: PropertyDefinition[] = [
         {
@@ -56,6 +59,8 @@ describe('the property definitions model', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagsLogic = featureFlagLogic()
+        featureFlagsLogic.mount()
         logic = propertyDefinitionsModel()
         logic.mount()
     })
@@ -91,35 +96,72 @@ describe('the property definitions model', () => {
         expect(logic.values.formatForDisplay(undefined, '1641368752.908')).toEqual('1641368752.908')
     })
 
-    it('can format a unix timestamp as seconds with fractional part for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', '1641368752.908')).toEqual('2022-01-05 07:45:52')
+    describe('with the query by datetime feature flag off', () => {
+        it('can format a unix timestamp as seconds with fractional part for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752.908')).toEqual('1641368752.908')
+        })
+
+        it('can format a unix timestamp as milliseconds for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752908')).toEqual('1641368752908')
+        })
+
+        it('can format a unix timestamp as seconds for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752')).toEqual('1641368752')
+        })
+
+        it('can format a date string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '2022-01-05')).toEqual('2022-01-05')
+        })
+
+        it('can format a datetime string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '2022-01-05 07:45:52')).toEqual('2022-01-05 07:45:52')
+        })
+
+        it('can format an array of datetime string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', ['1641368752.908', 1641368752.908])).toEqual([
+                '1641368752.908',
+                '1641368752.908',
+            ])
+        })
     })
 
-    it('can format a unix timestamp as milliseconds for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', '1641368752908')).toEqual('2022-01-05 07:45:52')
-    })
+    describe('with the query by datetime feature flag on', () => {
+        beforeEach(() => {
+            const variants = {}
+            variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = true
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+        })
 
-    it('can format a unix timestamp as seconds for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', '1641368752')).toEqual('2022-01-05 07:45:52')
-    })
+        it('can format a unix timestamp as seconds with fractional part for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752.908')).toEqual('2022-01-05 07:45:52')
+        })
 
-    it('can format a date string for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', '2022-01-05')).toEqual('2022-01-05')
-    })
+        it('can format a unix timestamp as milliseconds for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752908')).toEqual('2022-01-05 07:45:52')
+        })
 
-    it('can format a datetime string for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', '2022-01-05 07:45:52')).toEqual('2022-01-05 07:45:52')
+        it('can format a unix timestamp as seconds for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '1641368752')).toEqual('2022-01-05 07:45:52')
+        })
+
+        it('can format a date string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '2022-01-05')).toEqual('2022-01-05')
+        })
+
+        it('can format a datetime string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', '2022-01-05 07:45:52')).toEqual('2022-01-05 07:45:52')
+        })
+
+        it('can format an array of datetime string for display', () => {
+            expect(logic.values.formatForDisplay('$timestamp', ['1641368752.908', 1641368752.908])).toEqual([
+                '2022-01-05 07:45:52',
+                '2022-01-05 07:45:52',
+            ])
+        })
     })
 
     it('can format a null value for display', () => {
         expect(logic.values.formatForDisplay('$timestamp', null)).toEqual(null)
         expect(logic.values.formatForDisplay('$timestamp', undefined)).toEqual(null)
-    })
-
-    it('can format an array of datetime string for display', () => {
-        expect(logic.values.formatForDisplay('$timestamp', ['1641368752.908', 1641368752.908])).toEqual([
-            '2022-01-05 07:45:52',
-            '2022-01-05 07:45:52',
-        ])
     })
 })

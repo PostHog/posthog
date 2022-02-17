@@ -4,9 +4,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
+from posthog.models import Person, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.test.base import BaseTest, test_with_materialized_columns
 
 
@@ -15,7 +14,7 @@ def factory_session_recordings_list_test(
 ):
     class TestSessionRecordingsList(BaseTest):
         def create_action(self, name, team_id=None, properties=[]):
-            if team_id == None:
+            if team_id is None:
                 team_id = self.team.pk
             action = action_factory(team_id=team_id, name=name)
             action_step_factory(action=action, event=name, properties=properties)
@@ -29,7 +28,7 @@ def factory_session_recordings_list_test(
             event_name="$pageview",
             properties={"$os": "Windows 95", "$current_url": "aloha.com/2"},
         ):
-            if team == None:
+            if team is None:
                 team = self.team
             event_factory(
                 team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
@@ -38,7 +37,7 @@ def factory_session_recordings_list_test(
         def create_snapshot(
             self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
         ):
-            if team_id == None:
+            if team_id is None:
                 team_id = self.team.pk
             session_recording_event_factory(
                 team_id=team_id,

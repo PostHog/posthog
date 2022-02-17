@@ -21,7 +21,6 @@ import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
@@ -34,6 +33,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
@@ -53,10 +53,10 @@ interface LineGraphProps {
     insightId?: number
     inSharedMode?: boolean
     percentage?: boolean
-    interval?: IntervalType // TODO: Depecrate once LEGACY_LineGraph is removed
-    totalValue?: number // TODO: Depecrate once LEGACY_LineGraph is removed
+    interval?: IntervalType // TODO: Deprecate once LEGACY_LineGraph is removed
+    totalValue?: number // TODO: Deprecate once LEGACY_LineGraph is removed
+    tooltipPreferAltTitle?: boolean // TODO: Deprecate once LEGACY_LineGraph is removed
     showPersonsModal?: boolean
-    tooltipPreferAltTitle?: boolean // TODO: Depecrate once LEGACY_LineGraph is removed
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
@@ -120,7 +120,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
-    const size = useWindowSize()
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     const annotationsCondition =
         type === GraphType.Line && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
@@ -169,7 +169,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
         if (annotationsCondition) {
             calculateBoundaries()
         }
-    }, [myLineChart.current, size, type, annotationsCondition])
+    }, [myLineChart.current, chartWidth, chartHeight, type, annotationsCondition])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -361,7 +361,7 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                         renderCount={tooltipConfig?.renderCount}
                                         forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
                                         groupTypeLabel={
                                             labelGroupType === 'people'
                                                 ? 'people'
@@ -650,66 +650,69 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
-            <div className="annotations-root" ref={annotationsRoot} />
-            {annotationsCondition && (
-                <Annotations
-                    dates={datasets[0].days ?? []}
-                    leftExtent={leftExtent}
-                    interval={boundaryInterval}
-                    topExtent={topExtent}
-                    insightId={insightId}
-                    currentDateMarker={
-                        focused || annotationsFocused
-                            ? selectedDayLabel
-                            : enabled && labelIndex
-                            ? datasets[0].days?.[labelIndex]
-                            : null
-                    }
-                    onClick={() => {
-                        setFocused(false)
-                        setAnnotationsFocused(true)
-                    }}
-                    onClose={() => {
-                        setAnnotationsFocused(false)
-                    }}
-                    graphColor={color}
-                    color={colors.annotationColor}
-                    accessoryColor={colors.annotationAccessoryColor}
-                />
-            )}
-            {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
-                <AnnotationMarker
-                    insightId={insightId}
-                    currentDateMarker={focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null}
-                    onClick={() => {
-                        setFocused(true)
-                        setHoldLeft(left)
-                        setHoldLabelIndex(labelIndex)
-                        setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
-                    }}
-                    getPopupContainer={
-                        annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
-                    }
-                    onCreateAnnotation={(textInput, applyAll) => {
-                        const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
-                        if (date) {
-                            if (applyAll) {
-                                createGlobalAnnotation(textInput, date, insightId)
-                            } else {
-                                createAnnotation(textInput, date)
-                            }
+            <div className="annotations-root" ref={annotationsRoot}>
+                {annotationsCondition && (
+                    <Annotations
+                        dates={datasets[0].days ?? []}
+                        leftExtent={leftExtent}
+                        interval={boundaryInterval}
+                        topExtent={topExtent}
+                        insightId={insightId}
+                        currentDateMarker={
+                            focused || annotationsFocused
+                                ? selectedDayLabel
+                                : enabled && labelIndex
+                                ? datasets[0].days?.[labelIndex]
+                                : null
                         }
-                    }}
-                    onClose={() => setFocused(false)}
-                    dynamic={true}
-                    left={(focused ? holdLeft : left) - 12.5}
-                    top={topExtent}
-                    label={'Add Note'}
-                    graphColor={color}
-                    color={colors.annotationColor}
-                    accessoryColor={colors.annotationAccessoryColor}
-                />
-            )}
+                        onClick={() => {
+                            setFocused(false)
+                            setAnnotationsFocused(true)
+                        }}
+                        onClose={() => {
+                            setAnnotationsFocused(false)
+                        }}
+                        graphColor={color}
+                        color={colors.annotationColor}
+                        accessoryColor={colors.annotationAccessoryColor}
+                    />
+                )}
+                {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
+                    <AnnotationMarker
+                        insightId={insightId}
+                        currentDateMarker={
+                            focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
+                        }
+                        onClick={() => {
+                            setFocused(true)
+                            setHoldLeft(left)
+                            setHoldLabelIndex(labelIndex)
+                            setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
+                        }}
+                        getPopupContainer={
+                            annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
+                        }
+                        onCreateAnnotation={(textInput, applyAll) => {
+                            const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
+                            if (date) {
+                                if (applyAll) {
+                                    createGlobalAnnotation(textInput, date, insightId)
+                                } else {
+                                    createAnnotation(textInput, date)
+                                }
+                            }
+                        }}
+                        onClose={() => setFocused(false)}
+                        dynamic={true}
+                        left={(focused ? holdLeft : left) - 12.5}
+                        top={topExtent}
+                        label="Add note"
+                        graphColor={color}
+                        color={colors.annotationColor}
+                        accessoryColor={colors.annotationAccessoryColor}
+                    />
+                )}
+            </div>
         </div>
     )
 }

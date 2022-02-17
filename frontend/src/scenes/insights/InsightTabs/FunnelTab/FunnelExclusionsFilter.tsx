@@ -31,8 +31,8 @@ function ExclusionRowSuffix({
     }
 
     const onChange = (
-        funnel_from_step: number = stepRange.funnel_from_step,
-        funnel_to_step: number = stepRange.funnel_to_step
+        funnel_from_step: number | undefined = stepRange.funnel_from_step,
+        funnel_to_step: number | undefined = stepRange.funnel_to_step
     ): void => {
         setOneEventExclusionFilter(
             {

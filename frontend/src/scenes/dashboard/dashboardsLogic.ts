@@ -17,15 +17,17 @@ export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
     actions: {
         addNewDashboard: true,
-        setNewDashboardDrawer: (shown: boolean) => ({ shown }),
+        showNewDashboardModal: true,
+        hideNewDashboardModal: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
     },
     reducers: {
-        newDashboardDrawer: [
+        newDashboardModalVisible: [
             false,
             {
-                setNewDashboardDrawer: (_, { shown }) => shown,
+                showNewDashboardModal: () => true,
+                hideNewDashboardModal: () => false,
             },
         ],
         searchTerm: {
@@ -78,7 +80,7 @@ export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
     urlToAction: ({ actions }) => ({
         '/dashboard': (_: any, { new: newDashboard }) => {
             if (typeof newDashboard !== 'undefined') {
-                actions.setNewDashboardDrawer(true)
+                actions.showNewDashboardModal()
             }
         },
     }),

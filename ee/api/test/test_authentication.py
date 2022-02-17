@@ -1,11 +1,11 @@
 import copy
 import os
+import uuid
 from typing import Dict, cast
 
 import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
@@ -102,7 +102,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     def test_can_login_with_saml(self):
         self.client.logout()
 
-        user = User.objects.create(email="engineering@posthog.com")
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/login/saml/?idp=posthog_custom")

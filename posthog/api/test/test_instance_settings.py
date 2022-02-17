@@ -1,4 +1,6 @@
 from constance import config
+from constance.test import override_config
+from django.core import mail
 from rest_framework import status
 
 from posthog.api.instance_settings import get_instance_setting
@@ -21,14 +23,14 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["count"], len(CONSTANCE_CONFIG))
 
         # Check an example attribute
-        self.assertEqual(json_response["results"][0]["key"], "MATERIALIZED_COLUMNS_ENABLED")
-        self.assertEqual(json_response["results"][0]["value"], True)
+        self.assertEqual(json_response["results"][0]["key"], "RECORDINGS_TTL_WEEKS")
+        self.assertEqual(json_response["results"][0]["value"], 3)
         self.assertEqual(
             json_response["results"][0]["description"],
-            "Whether materialized columns should be created or used at query time",
+            "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         )
-        self.assertEqual(json_response["results"][0]["value_type"], "bool")
-        self.assertEqual(json_response["results"][0]["editable"], False)
+        self.assertEqual(json_response["results"][0]["value_type"], "int")
+        self.assertEqual(json_response["results"][0]["editable"], True)
 
         # Check an editable attribute
         for item in json_response["results"]:
@@ -45,7 +47,7 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["value"], False)
         self.assertEqual(
             json_response["description"],
-            "Whether the earliest unapplied async migration should be triggered automatically on server startup",
+            "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
         )
         self.assertEqual(json_response["value_type"], "bool")
         self.assertEqual(json_response["editable"], True)
@@ -77,6 +79,22 @@ class TestInstanceSettings(APIBaseTest):
 
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, True)
         self.assertEqual(getattr(config, "AUTO_START_ASYNC_MIGRATIONS"), True)
+
+    @override_config(EMAIL_HOST="localhost")
+    def test_updating_email_settings(self):
+        with self.settings(SITE_URL="http://localhost:8000", CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.patch(
+                f"/api/instance_settings/EMAIL_DEFAULT_FROM", {"value": "hellohello@posthog.com"}
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], "hellohello@posthog.com")
+
+        self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
+        self.assertEqual(
+            mail.outbox[0].subject, "This is a test email of your PostHog instance",
+        )
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.validate_basic_html(html_message, "http://localhost:8000", preheader="Email successfully set up!")
 
     def test_update_integer_setting(self):
         response = self.client.patch(

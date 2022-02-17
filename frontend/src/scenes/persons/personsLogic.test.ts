@@ -99,4 +99,12 @@ describe('personsLogic', () => {
                 })
         })
     })
+
+    describe('Load cohorts', () => {
+        it("Doesn't load cohort if we're on ", async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadCohorts()
+            }).toMatchValues({ cohorts: null })
+        })
+    })
 })

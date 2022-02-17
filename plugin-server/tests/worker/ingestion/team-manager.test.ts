@@ -6,7 +6,10 @@ import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/type
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import {
+    dateTimePropertyTypeFormatPatterns,
+    isNumericString,
+} from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -389,6 +392,23 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                 )
             })
 
+            it('identifies a numeric type sent as a string', async () => {
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_number: String(randomInteger()),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'some_number', true, teamId, 'Numeric'],
+                    },
+                    postgresQuery
+                )
+            })
+
             it('identifies a string type', async () => {
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_string: randomString(),
@@ -460,8 +480,8 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
 
                 const toNotMatch = {
                     ...toEdit,
-                    propertyKey: toEdit.propertyKey.replace('timestamp', 'string'),
-                    expectedPropertyType: typeof toEdit.date === 'string' ? PropertyType.String : PropertyType.Numeric,
+                    propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
+                    expectedPropertyType: isNumericString(toEdit.date) ? PropertyType.Numeric : PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
@@ -480,7 +500,7 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                             params: [
                                 expect.any(String),
                                 testcase.propertyKey,
-                                typeof testcase.date === 'number',
+                                testcase.expectedPropertyType === PropertyType.Numeric,
                                 teamId,
                                 testcase.expectedPropertyType,
                             ],

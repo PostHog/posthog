@@ -6,7 +6,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
-from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.utils import get_can_create_org
@@ -169,7 +168,7 @@ class TeamMemberAccessPermission(BasePermission):
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         return requesting_level is not None
 
 
@@ -190,7 +189,7 @@ class TeamMemberLightManagementPermission(BasePermission):
                 team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (
@@ -209,7 +208,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         team = view.team
-        requesting_level = team.get_effective_membership_level(cast(User, request.user))
+        requesting_level = team.get_effective_membership_level(request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (

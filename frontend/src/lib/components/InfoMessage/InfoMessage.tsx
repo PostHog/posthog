@@ -1,6 +1,6 @@
 import React from 'react'
 import './InfoMessage.scss'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { IconInfo } from '../icons'
 
 /** An informative message. */
 export function InfoMessage({
@@ -12,7 +12,7 @@ export function InfoMessage({
 }): JSX.Element {
     return (
         <div className="info-message" style={style}>
-            <InfoCircleOutlined />
+            <IconInfo className="info-message__icon" />
             <div>{children}</div>
         </div>
     )

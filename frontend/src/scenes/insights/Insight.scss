@@ -254,46 +254,6 @@ $funnel_canvas_background: #fff;
     }
 }
 
-.dashboard-item {
-    .insight-empty-state {
-        &.match-container {
-            background-color: transparent;
-        }
-    }
-
-    &.purple {
-        .insight-empty-state {
-            &.match-container {
-                &.error {
-                    .illustration-main {
-                        color: $text_light;
-                    }
-
-                    h2 {
-                        color: $text_light;
-                    }
-                }
-            }
-        }
-    }
-
-    &:not(.purple) {
-        .insight-empty-state {
-            &.match-container {
-                &.error {
-                    .illustration-main {
-                        color: $danger;
-                    }
-
-                    h2 {
-                        color: $danger;
-                    }
-                }
-            }
-        }
-    }
-}
-
 .trends-insights-container {
     position: relative;
     min-height: min(calc(90vh - 16rem), 36rem);

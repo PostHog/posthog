@@ -50,6 +50,10 @@ MIDDLEWARE = [
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
+    # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
+    # using dependencies that the healthcheck should be checking. It should be
+    # ok below the above middlewares however.
+    "posthog.health.healthcheck_middleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -200,11 +204,14 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer",],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
@@ -223,3 +230,5 @@ def add_recorder_js_headers(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
+
+CSRF_COOKIE_NAME = "posthog_csrftoken"

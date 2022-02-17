@@ -3,14 +3,13 @@ from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
@@ -18,6 +17,11 @@ class EventFiltersSQL(NamedTuple):
     aggregate_having_clause: str
     where_conditions: str
     params: Dict[str, Any]
+
+
+class SessionRecordingQueryResult(NamedTuple):
+    results: List
+    has_more_recording: bool
 
 
 class ClickhouseSessionRecordingList(ClickhouseEventQuery):
@@ -211,11 +215,12 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             }
         return duration_clause, duration_params
 
-    def format_event_filter(self, entity: Entity, prepend: str) -> Tuple[str, Dict[str, Any]]:
-        filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
+    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
+        filter_sql, params = format_entity_filter(team_id=team_id, entity=entity, prepend=prepend, filter_by_team=False)
         if entity.properties:
-            filters, filter_params = parse_prop_clauses(
-                entity.properties,
+            filters, filter_params = parse_prop_grouped_clauses(
+                team_id=team_id,
+                property_group=entity.property_groups,
                 prepend=prepend,
                 allow_denormalized_props=True,
                 has_person_id_joined=True,
@@ -245,7 +250,9 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 if entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
 
-            condition_sql, filter_params = self.format_event_filter(entity, prepend=f"event_matcher_{index}")
+            condition_sql, filter_params = self.format_event_filter(
+                entity, prepend=f"event_matcher_{index}", team_id=self._team_id
+            )
             aggregate_select_clause += f", sum(if({condition_sql}, 1, 0)) as count_event_match_{index}"
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}

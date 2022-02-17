@@ -27,7 +27,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             has_full_snapshot=True,
             type=2,
         ):
-            if team_id == None:
+            if team_id is None:
                 team_id = self.team.pk
             session_recording_event_factory(
                 team_id=team_id,
