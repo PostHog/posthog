@@ -373,7 +373,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 location: { pathname, search, hash },
             } = router.values
             if (pathname.endsWith('/')) {
-                router.actions.replace(pathname.slice(0, -1), search, hash)
+                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
     }),
