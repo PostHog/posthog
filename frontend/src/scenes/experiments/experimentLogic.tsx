@@ -403,13 +403,15 @@ export const experimentLogic = kea<experimentLogicType>({
                 loadSecondaryMetricResults: async () => {
                     const results = []
                     for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
-                        const secResults = await api.get(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${i}`)
+                        const secResults = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${i}`
+                        )
                         results.push(secResults.result)
                     }
                     return results
-                }
-            }
-        ]
+                },
+            },
+        ],
     }),
     selectors: {
         breadcrumbs: [

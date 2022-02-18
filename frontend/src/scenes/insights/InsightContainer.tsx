@@ -175,8 +175,8 @@ export function InsightContainer(
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
-                        (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                        filters.show_legend ? (
+                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                      filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

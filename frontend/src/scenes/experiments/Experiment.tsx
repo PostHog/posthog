@@ -76,7 +76,7 @@ export function Experiment_(): JSX.Element {
         groupTypes,
         aggregationLabel,
         experimentDataLoading,
-        secondaryMetricResults
+        secondaryMetricResults,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -764,7 +764,13 @@ export function Experiment_(): JSX.Element {
                                                                         <div>{capitalizeFirstLetter(metric.name)}</div>
                                                                         {experimentData?.parameters?.feature_flag_variants?.map(
                                                                             (variant, index) => (
-                                                                                <div key={index}>{secondaryMetricResults?.[idx][variant.key]}</div>
+                                                                                <div key={index}>
+                                                                                    {
+                                                                                        secondaryMetricResults?.[idx][
+                                                                                            variant.key
+                                                                                        ]
+                                                                                    }
+                                                                                </div>
                                                                             )
                                                                         )}
                                                                     </Row>
