@@ -33,7 +33,7 @@ describe('VMs are extra lazy 💤', () => {
         const lazyVm = new LazyPluginVM()
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
 
-        const pluginConfig = { ...pluginConfig39, vm: lazyVm }
+        const pluginConfig = { ...pluginConfig39, vm: lazyVm, plugin: plugin60 }
         await lazyVm.initialize!(hub, pluginConfig, indexJs, pluginDigest(plugin60))
 
         expect(lazyVm.ready).toEqual(true)
@@ -57,7 +57,7 @@ describe('VMs are extra lazy 💤', () => {
         const lazyVm = new LazyPluginVM()
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
 
-        const pluginConfig = { ...pluginConfig39, vm: lazyVm }
+        const pluginConfig = { ...pluginConfig39, vm: lazyVm, plugin: plugin60 }
         await lazyVm.initialize!(hub, pluginConfig, indexJs, pluginDigest(plugin60))
 
         expect(lazyVm.ready).toEqual(true)
