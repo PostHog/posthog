@@ -339,17 +339,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     ])
                 ),
         ],
-        totalCounts: [
+        infiniteListCounts: [
             (s) => [
                 (state, props) =>
                     Object.fromEntries(
                         Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
                             groupType,
-                            logic.isMounted() ? logic.selectors.totalCount(state, logic.props) : 0,
+                            logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0,
                         ])
                     ),
             ],
-            (totalCounts) => totalCounts,
+            (infiniteListCounts) => infiniteListCounts,
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -421,10 +421,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
-                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
                     actions.setActiveTab(taxonomicGroupTypes[newIndex])
                     return
                 }
@@ -432,10 +432,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
-                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
                     actions.setActiveTab(taxonomicGroupTypes[newIndex])
                     return
                 }
@@ -443,14 +443,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         setSearchQuery: () => {
-            const { activeTaxonomicGroup, totalCounts } = values
+            const { activeTaxonomicGroup, infiniteListCounts } = values
 
             // Taxonomic group with a local data source, zero results after searching.
             // Open the next tab.
             if (
                 activeTaxonomicGroup &&
                 !activeTaxonomicGroup.endpoint &&
-                totalCounts[activeTaxonomicGroup.type] === 0
+                infiniteListCounts[activeTaxonomicGroup.type] === 0
             ) {
                 actions.tabRight()
             }

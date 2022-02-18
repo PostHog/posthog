@@ -191,8 +191,9 @@ describe('infiniteListLogic', () => {
                     isExpandable: true,
                     isExpanded: false,
                     isExpandableButtonSelected: false,
-                    totalCount: 1,
-                    totalListCount: 2, // 1 + 1 for "expand list" button
+                    totalResultCount: 1,
+                    totalExtraCount: 1,
+                    totalListCount: 2,
                     expandedCount: 2,
                     remoteItems: partial({
                         count: 1,
@@ -210,7 +211,8 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalCount: 2,
+                    totalResultCount: 2,
+                    totalExtraCount: 0,
                     totalListCount: 2,
                     expandedCount: 0,
                     remoteItems: partial({
@@ -233,7 +235,8 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalCount: 2,
+                    totalResultCount: 2,
+                    totalExtraCount: 0,
                     totalListCount: 2,
                     expandedCount: 0,
                     remoteItems: partial({
@@ -257,8 +260,9 @@ describe('infiniteListLogic', () => {
                     isExpandable: true,
                     isExpanded: false,
                     isExpandableButtonSelected: false,
-                    totalCount: 1,
-                    totalListCount: 2, // 1 + 1 for "expand list" button
+                    totalResultCount: 1,
+                    totalExtraCount: 1,
+                    totalListCount: 2,
                     expandedCount: 2,
                     index: 0,
                     remoteItems: partial({
@@ -281,7 +285,8 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalCount: 2,
+                    totalResultCount: 2,
+                    totalExtraCount: 0,
                     totalListCount: 2,
                     expandedCount: 0,
                     remoteItems: partial({

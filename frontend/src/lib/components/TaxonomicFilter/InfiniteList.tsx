@@ -265,7 +265,7 @@ export function InfiniteList(): JSX.Element {
         selectedItem,
         selectedItemInView,
         isExpandable,
-        totalCount,
+        totalResultCount,
         totalListCount,
         expandedCount,
     } = useValues(infiniteListLogic)
@@ -330,9 +330,9 @@ export function InfiniteList(): JSX.Element {
                 data-attr={`expand-list-${listGroupType}`}
                 onClick={expand}
             >
-                {group.expandLabel?.({ count: totalCount, expandedCount }) ??
-                    `Click here to see ${expandedCount - totalCount} more ${pluralize(
-                        expandedCount - totalCount,
+                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
+                        expandedCount - totalResultCount,
                         'row'
                     )}`}
             </div>
