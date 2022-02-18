@@ -105,7 +105,7 @@ class PropertyDefinitionViewSet(
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
                 SELECT posthog_propertydefinition.*,
-                       ee_enterprisepropertydefinition.*, 
+                       ee_enterprisepropertydefinition.*,
                        {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
