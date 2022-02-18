@@ -161,6 +161,17 @@ class PropertyGroup:
 
         return PropertyGroup(operator, [self, PropertyGroup(PropertyOperatorType.AND, properties)])
 
+    def combine_property_group(
+        self, operator: PropertyOperatorType, property_group: Optional["PropertyGroup"]
+    ) -> "PropertyGroup":
+        if not property_group or not property_group.values:
+            return self
+
+        if len(self.values) == 0:
+            return property_group
+
+        return PropertyGroup(operator, [self, property_group])
+
     def to_dict(self):
         result: Dict = {}
         if not self.values:

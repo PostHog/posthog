@@ -88,7 +88,7 @@ class Entity(PropertyMixin):
             "math": self.math,
             "math_property": self.math_property,
             "math_group_type_index": self.math_group_type_index,
-            "properties": [prop.to_dict() for prop in self.properties],
+            "properties": self.property_groups.to_dict(),
         }
 
     def equals(self, other) -> bool:
@@ -101,6 +101,7 @@ class Entity(PropertyMixin):
         if self.type != other.type:
             return False
 
+        # TODO: How to compare property groups well?
         self_properties = sorted(str(prop) for prop in self.properties)
         other_properties = sorted(str(prop) for prop in other.properties)
         if self_properties != other_properties:

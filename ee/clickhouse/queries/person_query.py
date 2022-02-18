@@ -1,14 +1,15 @@
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyGroup
 
 
 class ClickhousePersonQuery:
@@ -74,7 +75,7 @@ class ClickhousePersonQuery:
         "Returns whether properties or any other columns are actually being queried"
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups_flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.properties):
+        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups_flat):
             return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
@@ -91,16 +92,24 @@ class ClickhousePersonQuery:
         properties_to_query -= extract_tables_and_properties(self._filter.property_groups_flat)
 
         if self._entity is not None:
-            properties_to_query -= extract_tables_and_properties(self._entity.properties)
+            properties_to_query -= extract_tables_and_properties(self._entity.property_groups_flat)
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
     def _get_person_filters(self) -> Tuple[str, Dict]:
-        conditions, params = [""], {}
 
-        properties = self._filter.property_groups_flat + (self._entity.properties if self._entity else [])
+        properties = self._filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
+        )
+
+        return self.parse_grouped_properties(properties)
+
+    def parse_properties(
+        self, properties: List[Property], operator: PropertyOperatorType, prepend: str = "personquery"
+    ) -> Tuple[str, Dict]:
+        conditions, params = [""], {}
 
         for index, property in enumerate(properties):
             if property.type != "person":
@@ -109,12 +118,54 @@ class ClickhousePersonQuery:
             expr, prop_params = prop_filter_json_extract(
                 property,
                 index,
-                prepend="personquery",
+                prepend=prepend,
                 allow_denormalized_props=True,
                 transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                property_operator=operator,
             )
 
             conditions.append(expr)
             params.update(prop_params)
 
-        return " ".join(conditions), params
+        if conditions:
+            # remove the first operator
+            return " ".join(conditions).replace(operator, "", 1), params
+
+        return "", params
+
+    def parse_grouped_properties(
+        self, property_group: PropertyGroup, prepend: str = "personquery", _top_level: bool = True,
+    ) -> Tuple[str, Dict]:
+
+        if len(property_group.values) == 0:
+            return "", {}
+
+        if isinstance(property_group.values[0], PropertyGroup):
+            group_clauses = []
+            final_params = {}
+            for idx, group in enumerate(property_group.values):
+                if isinstance(group, PropertyGroup):
+                    clause, params = self.parse_grouped_properties(
+                        property_group=group, prepend=f"{prepend}_{idx}", _top_level=False,
+                    )
+                    group_clauses.append(clause)
+                    final_params.update(params)
+
+            # purge empty returns
+            group_clauses = [clause for clause in group_clauses if clause]
+            _final = f"{property_group.type} ".join(group_clauses)
+        else:
+            _final, final_params = self.parse_properties(
+                properties=cast(List[Property], property_group.values),
+                prepend=f"{prepend}",
+                operator=property_group.type,
+            )
+
+        if not _final:
+            final = ""
+        elif _top_level:
+            final = f"AND ({_final})"
+        else:
+            final = f"({_final})"
+
+        return final, final_params

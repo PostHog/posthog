@@ -62,7 +62,7 @@ class ColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            if has_element_type_property(entity.properties):
+            if has_element_type_property(entity.property_groups_flat):
                 return True
 
             # :TRICKY: Action definition may contain elements_chain usage
@@ -103,7 +103,7 @@ class ColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            counter += extract_tables_and_properties(entity.properties)
+            counter += extract_tables_and_properties(entity.property_groups_flat)
 
             # Math properties are also implicitly used.
             #

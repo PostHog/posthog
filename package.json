@@ -215,8 +215,8 @@
         "(frontend/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": "eslint -c plugin-server/.eslintrc.js --fix",
         "*.{py,pyi}": [
-            "flake8",
             "black",
+            "flake8",
             "isort"
         ]
     },
