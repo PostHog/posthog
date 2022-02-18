@@ -49,7 +49,7 @@ class Dashboard(models.Model):
         ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
     )
     tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
     )
 
     @property

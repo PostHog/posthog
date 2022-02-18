@@ -68,7 +68,7 @@ class Insight(models.Model):
         ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
     )
     tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
