@@ -79,7 +79,6 @@ def log_event_to_dead_letter_queue(
     data["event"] = event_name
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
-    data["tags"] = json.dumps(["django_server"])
 
     data["event_uuid"] = event["uuid"]
     del data["uuid"]
