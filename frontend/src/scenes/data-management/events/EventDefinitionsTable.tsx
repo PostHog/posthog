@@ -3,11 +3,16 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { EventDefinition } from '~/types'
-import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import {
+    EVENT_DEFINITIONS_PER_PAGE,
+    eventDefinitionsTableLogic,
+} from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { getEventDefinitionIcon } from 'scenes/data-management/events/EventDefinitionHeader'
+import { DefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { humanFriendlyNumber } from 'lib/utils'
+import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -22,24 +27,16 @@ interface EventDefinitionsTableProps {
 export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions } = useActions(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
             title: 'Name',
             key: 'name',
-            className: 'event-definition-column-name',
-            render: function Render(_, definition: EventDefinition): JSX.Element {
+            className: 'definition-column-name',
+            render: function Render(_, definition: EventDefinition) {
                 console.log('DEFINITION', definition)
-                return (
-                    <>
-                        {getEventDefinitionIcon(definition)}
-                        <div className="event-definition-column-name-content">
-                            {definition.name}
-                            {definition.description || 'There is no description for this event'}
-                        </div>
-                    </>
-                )
+                return <DefinitionHeader definition={definition} />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
@@ -54,22 +51,34 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
-        {
-            title: '30 day volume',
-            key: '30_day_volume',
-            render: function Render(_, definition: EventDefinition): JSX.Element {
-                console.log('DEFINITION', definition)
-                return <div>{definition.name}</div>
-            },
-        },
-        {
-            title: '30 day queries',
-            key: '30_day_queries',
-            render: function Render(_, definition: EventDefinition): JSX.Element {
-                console.log('DEFINITION', definition)
-                return <div>{definition.name}</div>
-            },
-        },
+        ...(hasIngestionTaxonomy
+            ? [
+                  {
+                      title: '30 day volume',
+                      key: 'volume_30_day',
+                      align: 'right',
+                      render: function Render(_, definition: EventDefinition) {
+                          return definition.volume_30_day ? (
+                              humanFriendlyNumber(definition.volume_30_day)
+                          ) : (
+                              <span className="text-muted">—</span>
+                          )
+                      },
+                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+                  {
+                      title: '30 day queries',
+                      key: 'query_usage_30_day',
+                      align: 'right',
+                      render: function Render(_, definition: EventDefinition) {
+                          return definition.query_usage_30_day ? (
+                              humanFriendlyNumber(definition.query_usage_30_day)
+                          ) : (
+                              <span className="text-muted">—</span>
+                          )
+                      },
+                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+              ]
+            : []),
     ]
 
     return (
@@ -81,7 +90,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
             rowKey="id"
             pagination={{
                 controlled: true,
-                pageSize: 100,
+                pageSize: EVENT_DEFINITIONS_PER_PAGE,
                 onForward: !!eventDefinitions.next
                     ? () => {
                           loadEventDefinitions(eventDefinitions.next)
@@ -94,6 +103,13 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
                           window.scrollTo(0, 0)
                       }
                     : undefined,
+            }}
+            expandable={{
+                expandedRowRender: function RenderPropertiesTable(definition) {
+                    console.log('definition', definition)
+                    return <EventDefinitionProperties definition={definition} />
+                },
+                noIndent: true,
             }}
             dataSource={eventDefinitions.results}
             emptyState="No event definitions"

@@ -24,7 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ActionStack, CohortIcon, PropertyIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { getEventDefinitionIcon } from 'scenes/data-management/events/EventDefinitionHeader'
+import { DefinitionType, getDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 
 const eventTaxonomicGroupProps = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -33,7 +33,7 @@ const eventTaxonomicGroupProps = {
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
-    getIcon: getEventDefinitionIcon,
+    getIcon: getDefinitionIcon,
 }
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
@@ -134,7 +134,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (action: ActionType) => action.id,
                     getPopupHeader: () => 'Action',
                     getIcon: function _getIcon(): JSX.Element {
-                        return <ActionStack className="taxonomy-icon-muted" />
+                        return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
                     },
                 },
                 {
@@ -159,8 +159,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <PropertyIcon className="taxonomy-icon-muted" />
+                    getIcon: function _getIcon(definition): JSX.Element {
+                        return getDefinitionIcon(definition, DefinitionType.Property)
                     },
                 },
                 {
@@ -174,8 +174,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <PropertyIcon className="taxonomy-icon-muted" />
+                    getIcon: function _getIcon(definition): JSX.Element {
+                        return getDefinitionIcon(definition, DefinitionType.Property)
                     },
                 },
                 {
@@ -187,8 +187,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (personProperty: PersonProperty) => personProperty.name,
                     getValue: (personProperty: PersonProperty) => personProperty.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <PropertyIcon className="taxonomy-icon-muted" />
+                    getIcon: function _getIcon(definition): JSX.Element {
+                        return getDefinitionIcon(definition, DefinitionType.Property)
                     },
                 },
                 {
@@ -201,7 +201,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (cohort: CohortType) => cohort.id,
                     getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                     getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon className="taxonomy-icon-muted" />
+                        return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
                     },
                 },
                 {
@@ -214,7 +214,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (cohort: CohortType) => cohort.id,
                     getPopupHeader: () => `All Users`,
                     getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon className="taxonomy-icon-muted" />
+                        return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
                     },
                 },
                 {

@@ -1,12 +1,26 @@
 import { kea } from 'kea'
-import { AnyPropertyFilter, EventDefinition } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
+import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api from 'lib/api'
-interface EventDefinitionsPaginatedResponse {
+
+import { isPostHogProp } from 'lib/components/PropertyKeyInfo'
+import { toParams } from 'lib/utils'
+interface DefinitionsPaginatedResponse {
+    count: number
     next: string | null
     previous: string | null
+}
+
+interface EventDefinitionsPaginatedResponse extends DefinitionsPaginatedResponse {
     results: EventDefinition[]
+}
+
+export interface PropertyDefinitionWithExample extends PropertyDefinition {
+    example?: string
+}
+
+interface PropertyDefinitionsPaginatedResponse extends DefinitionsPaginatedResponse {
+    results: PropertyDefinitionWithExample[]
 }
 
 interface Filters {
@@ -14,19 +28,28 @@ interface Filters {
     properties: AnyPropertyFilter[]
 }
 
+export const EVENT_DEFINITIONS_PER_PAGE = 100
+export const PROPERTY_DEFINITIONS_PER_EVENT = 5
+
 export interface EventDefinitionsTableLogicProps {
     key: string
     syncWithUrl?: boolean
 }
 
 export const eventDefinitionsTableLogic = kea<
-    eventDefinitionsTableLogicType<EventDefinitionsPaginatedResponse, EventDefinitionsTableLogicProps, Filters>
+    eventDefinitionsTableLogicType<
+        EventDefinitionsPaginatedResponse,
+        EventDefinitionsTableLogicProps,
+        Filters,
+        PropertyDefinitionsPaginatedResponse
+    >
 >({
     path: (key) => ['scenes', 'data-management', 'events', 'eventDefinitionsTableLogic', key],
     props: {} as EventDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
         loadEventDefinitions: (url: string | null = '') => ({ url }),
+        loadPropertiesForEvent: (definition: EventDefinition) => ({ definition }),
         setFilters: (filters: Filters) => ({ filters }),
     },
     reducers: {
@@ -40,17 +63,56 @@ export const eventDefinitionsTableLogic = kea<
             },
         ],
     },
-    loaders: ({}) => ({
+    loaders: ({ values }) => ({
         eventDefinitions: [
-            { next: null, previous: null, results: [] } as EventDefinitionsPaginatedResponse,
+            { count: 0, next: null, previous: null, results: [] } as EventDefinitionsPaginatedResponse,
             {
                 loadEventDefinitions: async ({ url }, breakpoint) => {
                     if (!url) {
-                        url = `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=100`
+                        url = `api/projects/@current/event_definitions/?limit=${EVENT_DEFINITIONS_PER_PAGE}`
                     }
                     const results = await api.get(url)
                     breakpoint()
                     return results
+                },
+            },
+        ],
+        eventPropertiesCacheMap: [
+            {} as Record<string, PropertyDefinitionsPaginatedResponse>,
+            {
+                loadPropertiesForEvent: async ({ definition }) => {
+                    if (definition.id in values.eventPropertiesCacheMap) {
+                        return values.eventPropertiesCacheMap
+                    }
+                    let response = await api.get(`api/projects/@current/property_definitions/?event=${definition.name}`)
+                    // Fetch one event to populate properties with examples
+
+                    const exampleEventProperties = (
+                        await api.get(
+                            `api/projects/@current/events/?${toParams({
+                                event: definition.name,
+                                orderBy: ['-timestamp'],
+                                limit: 1,
+                            })}`
+                        )
+                    )?.results?.[0].properties
+                    // Exclude showing PH properties
+                    const nonPostHogProperties: PropertyDefinitionWithExample[] = response.results
+                        .filter((property: PropertyDefinition) => !isPostHogProp(property.name))
+                        .map((property: PropertyDefinition) => ({
+                            ...property,
+                            example: exampleEventProperties?.[property.name]?.toString(),
+                        }))
+                    response = {
+                        ...response,
+                        count: nonPostHogProperties.length,
+                        results: nonPostHogProperties,
+                    }
+
+                    return {
+                        ...values.eventPropertiesCacheMap,
+                        [definition.id]: response,
+                    }
                 },
             },
         ],
