@@ -131,11 +131,15 @@
 
             .event-list-item-highlight-dot {
                 position: absolute;
-                left: $recording_spacing - 5px;
-                width: 10px;
-                height: 10px;
+                left: 5px;
+                top: 50%;
+                transform: translateY(-50%);
+                margin-top: 4px;
+                width: 12px;
+                height: 12px;
                 border-radius: 50%;
                 background-color: $warning;
+                border: 2px solid $bg_light;
             }
 
             .event-item-icon {
