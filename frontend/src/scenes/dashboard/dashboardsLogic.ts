@@ -67,7 +67,7 @@ export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards: DashboardType[]): string[] =>
                 uniqueBy(
-                    dashboards.flatMap(({ tags }) => tags),
+                    dashboards.flatMap(({ tags }) => tags || ''),
                     (item) => item
                 ).sort(),
         ],
