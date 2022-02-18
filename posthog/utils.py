@@ -259,6 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "switched_team": getattr(request, "switched_team", False),
             **posthog_app_context,
         }
 
