@@ -301,7 +301,7 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
-        const commonDivProps = {
+        const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
             className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
