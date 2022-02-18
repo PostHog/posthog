@@ -1,13 +1,13 @@
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Hub, LogLevel } from '../../src/types'
-import { UUIDT } from '../../src/utils/utils'
+import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(100000) // 60 sec timeout
 
 describe('e2e postgres ingestion timeout', () => {
     let hub: Hub
@@ -55,7 +55,9 @@ describe('e2e postgres ingestion timeout', () => {
         expect((await hub.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
         await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
-        await delayUntilEventIngested(() => hub.db.fetchEvents())
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), 50)
+        await delay(10000)
+
         const events = await hub.db.fetchEvents()
         expect(events.length).toBe(1)
         expect(events[0].properties.name).toEqual('haha')
