@@ -41,12 +41,15 @@ class Dashboard(models.Model):
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices
+        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    )
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
     )
 
     @property
