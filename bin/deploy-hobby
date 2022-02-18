@@ -9,7 +9,17 @@ echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
 echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
 echo ""
-echo "Let's first start by getting the exact domain PostHog will be installed on"
+while true; do
+    echo "Should we setup a TLS certificate for you using Let's Encrypt?"
+    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n" 
+    read -p "" yn
+    case $yn in
+        [Yy]* ) export USE_SELF_SIGNED_CERT=0; break ;;
+        [Nn]* ) export USE_SELF_SIGNED_CERT=1; break ;;
+        * ) echo "Please answer yes or no." ;;
+    esac
+done
+echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
 echo "ie: test.posthog.net"
@@ -47,9 +57,16 @@ cd ..
 
 
 # rewrite caddyfile
+export TLS_BLOCK=""
+if [[ $USE_SELF_SIGNED_CERT -eq 1 ]]; then
+    echo "Using a self signed certificate as requested"
+    export TLS_BLOCK="tls internal"
+fi
+
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 $DOMAIN, :80, :443 {
+$TLS_BLOCK
 reverse_proxy http://web:8000
 }
 EOF
