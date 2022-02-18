@@ -1,4 +1,4 @@
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
   '
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
@@ -87,10 +87,8 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                              e.$session_id as "$session_id",
+                              e.$window_id as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -140,7 +138,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.1
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
   '
   
   SELECT DISTINCT session_id
@@ -150,7 +148,7 @@
     and session_id in ['s2']
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.2
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
   '
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
@@ -310,10 +308,8 @@
                                     e.timestamp as timestamp,
                                     pdi.person_id as aggregation_target,
                                     e.uuid AS uuid,
-                                    trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                                    trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                                    e.$session_id as "$session_id",
+                                    e.$window_id as "$window_id"
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -364,7 +360,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.3
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
   '
   
   SELECT DISTINCT session_id
@@ -374,7 +370,7 @@
     and session_id in ['s2']
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_properties_with_recordings
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
   '
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -463,10 +459,8 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                              e.$session_id as "$session_id",
+                              e.$window_id as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -506,7 +500,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_funnel_correlation_on_properties_with_recordings.1
+# name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
   '
   
   SELECT DISTINCT session_id
@@ -516,7 +510,7 @@
     and session_id in ['s2']
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_strict_funnel_correlation_with_recordings
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
   '
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -605,10 +599,8 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                              e.$session_id as "$session_id",
+                              e.$window_id as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -646,7 +638,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_strict_funnel_correlation_with_recordings.1
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
   '
   
   SELECT DISTINCT session_id
@@ -656,7 +648,7 @@
     and session_id in ['s2']
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_strict_funnel_correlation_with_recordings.2
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
   '
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -745,10 +737,8 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
+                              e.$session_id as "$session_id",
+                              e.$window_id as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -786,7 +776,7 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseFunnelCorrelationActors.test_strict_funnel_correlation_with_recordings.3
+# name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
   '
   
   SELECT DISTINCT session_id
