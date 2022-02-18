@@ -11,7 +11,9 @@ export const urls = {
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',
     eventStats: () => '/events/stats',
+    eventStat: (id: string | number) => `/events/stats/${id}`,
     eventPropertyStats: () => '/events/properties',
+    eventPropertyStat: (id: string | number) => `/events/properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
@@ -58,8 +60,9 @@ export const urls = {
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
+    instanceStatus: () => '/instance/status',
+    instanceSettings: () => '/instance/settings',
+    instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',
     deadLetterQueue: () => '/instance/dead_letter_queue',
 }

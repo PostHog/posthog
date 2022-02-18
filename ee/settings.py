@@ -49,10 +49,10 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 def getenv(key, default=""):
     """
     This is prevent a bug in helm deploys where the env var is not returning the default
-    because os.getenv is returning an empty string '' 
+    because os.getenv is returning an empty string ''
     """
     val = os.getenv(key)
-    if val == None or val == "":
+    if val is None or val == "":
         return default
     return val
 

@@ -178,7 +178,7 @@
      GROUP BY id
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
-    AND (person_id IN
+    AND (pdi.person_id IN
            (SELECT person_id
             FROM cohortpeople
             WHERE team_id = 2

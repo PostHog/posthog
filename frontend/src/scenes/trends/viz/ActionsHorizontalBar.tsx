@@ -22,7 +22,6 @@ interface Props {
 type DataSet = any
 
 export function ActionsHorizontalBar({
-    dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
     showPersonsModal = true,
@@ -139,6 +138,6 @@ export function ActionsHorizontalBar({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} />
     )
 }

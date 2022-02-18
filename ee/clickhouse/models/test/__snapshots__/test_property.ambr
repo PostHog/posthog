@@ -4,11 +4,11 @@
   FROM events
   WHERE team_id = 2
     AND ((has(['val_1'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'attr')))
+                              FROM JSONExtractRaw(properties, 'attr_1')))
           AND has(['val_2'], trim(BOTH '"'
                                   FROM JSONExtractRaw(properties, 'attr_2'))))
          OR (has(['val_2'], trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'attr')))))
+                                 FROM JSONExtractRaw(properties, 'attr_1')))))
   '
 ---
 # name: TestPropFormat.test_parse_groups_persons
@@ -20,18 +20,11 @@
             (SELECT distinct_id
              FROM
                (SELECT distinct_id,
-                       argMax(person_id, _timestamp) as person_id
-                FROM
-                  (SELECT distinct_id,
-                          person_id,
-                          max(_timestamp) as _timestamp
-                   FROM person_distinct_id
-                   WHERE team_id = 2
-                   GROUP BY person_id,
-                            distinct_id,
-                            team_id
-                   HAVING max(is_deleted) = 0)
-                GROUP BY distinct_id)
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
              WHERE person_id IN
                  (SELECT id
                   FROM
@@ -48,18 +41,11 @@
                (SELECT distinct_id
                 FROM
                   (SELECT distinct_id,
-                          argMax(person_id, _timestamp) as person_id
-                   FROM
-                     (SELECT distinct_id,
-                             person_id,
-                             max(_timestamp) as _timestamp
-                      FROM person_distinct_id
-                      WHERE team_id = 2
-                      GROUP BY person_id,
-                               distinct_id,
-                               team_id
-                      HAVING max(is_deleted) = 0)
-                   GROUP BY distinct_id)
+                          argMax(person_id, version) as person_id
+                   FROM person_distinct_id2
+                   WHERE team_id = 2
+                   GROUP BY distinct_id
+                   HAVING argMax(is_deleted, version) = 0)
                 WHERE person_id IN
                     (SELECT id
                      FROM
@@ -76,7 +62,7 @@
 ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   <class 'tuple'> (
-    'AND (  has(%(vglobalperson_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_0)s))))',
+    'AND (  has(%(vglobalperson_0)s, pmat_email))',
     <class 'dict'> {
       'kglobalperson_0': 'email',
       'vglobalperson_0': <class 'list'> [
@@ -92,15 +78,11 @@
       SELECT distinct_id
       FROM (
           
-      SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-      FROM (
-          SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-          FROM person_distinct_id
-          WHERE team_id = %(team_id)s
-          GROUP BY person_id, distinct_id, team_id
-          HAVING max(is_deleted) = 0
-      )
+      SELECT distinct_id, argMax(person_id, version) as person_id
+      FROM person_distinct_id2
+      WHERE team_id = 1
       GROUP BY distinct_id
+      HAVING argMax(is_deleted, version) = 0
       
       )
       WHERE person_id IN

@@ -4,7 +4,7 @@ from unittest import mock
 
 import pytz
 
-from posthog.models import Action, ActionStep, Event, Person
+from posthog.models import Action, ActionStep, Person
 from posthog.test.base import BaseTest
 
 
@@ -19,10 +19,8 @@ class TestPerson(BaseTest):
         person1.created_at = datetime.datetime(2019, 7, 1, tzinfo=pytz.UTC)
         person1.save()
 
-        Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="user signed up")
-        action.calculate_events()
 
         person2 = Person.objects.create(
             distinct_ids=["person_2"], team=self.team, properties={"$os": "Apple", "$browser": "MS Edge"},

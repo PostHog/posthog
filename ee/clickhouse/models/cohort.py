@@ -179,7 +179,9 @@ def _get_entity_query(
         return "event = %(event)s", {"event": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
-        action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+        action_filter_query, action_params = format_action_filter(
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+        )
         return action_filter_query, action_params
     else:
         raise ValidationError("Cohort query requires action_id or event_id")
@@ -236,10 +238,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    is_precalculated = is_precalculated_query(cohort)
-    person_query, params = (
-        format_precalculated_cohort_query(cohort.pk, index) if is_precalculated else format_person_query(cohort, index)
-    )
+    person_query, params = format_cohort_subquery(cohort, index)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
@@ -249,11 +248,23 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
+def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+    is_precalculated = is_precalculated_query(cohort)
+    person_query, params = (
+        format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
+        if is_precalculated
+        else format_person_query(cohort, index, custom_match_field=custom_match_field)
+    )
+    return person_query, params
+
+
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from ee.clickhouse.models.property import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_grouped_clauses(filters.property_groups, table_name="pdi")
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+    )
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
@@ -351,8 +362,10 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
             return [Property(type="cohort", key="id", value=cohort.pk)]
         elif group.get("properties"):
             # :TRICKY: This will recursively simplify all the properties
+            # :TRICKY: cohort groups will only contain 1 level deep properties which means we can use _property_groups_flat to return
+            # TODO: Update this when cohort groups use property_groups
             filter = Filter(data=group, team=team)
-            group_filters.append(filter.properties)
+            group_filters.append(filter.property_groups_flat)
 
     if len(group_filters) > 1:
         # :TODO: Support or properties

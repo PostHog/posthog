@@ -8,6 +8,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { teamLogic } from '../../teamLogic'
+import { urls } from 'scenes/urls'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     path: ['scenes', 'events', 'definitions', 'definitionDrawerLogic'],
@@ -209,6 +210,22 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 actions.saveDefinition({ definition: { ...property }, type: 'property' })
             })
             actions.closeDrawer()
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        openDrawer: ({ type, id }) => (type === 'property' ? urls.eventPropertyStat(id) : urls.eventStat(id)),
+        closeDrawer: () => (values.type === 'property' ? urls.eventPropertyStats() : urls.eventStats()),
+    }),
+    urlToAction: ({ actions }) => ({
+        '/events/stats/:id': ({ id }) => {
+            if (id) {
+                actions.openDrawer('event', id)
+            }
+        },
+        '/events/properties/:id': ({ id }) => {
+            if (id) {
+                actions.openDrawer('property', id)
+            }
         },
     }),
 })

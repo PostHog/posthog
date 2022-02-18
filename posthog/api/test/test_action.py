@@ -6,7 +6,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Action, ActionStep, Element, Event, Organization, Tag
+from posthog.models import Action, ActionStep, Organization, Tag
 from posthog.test.base import APIBaseTest
 
 
@@ -18,11 +18,6 @@ def _create_event(uuid=None, **kwargs):
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={
@@ -91,18 +86,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
-
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
-        event2 = Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            properties={"$browser": "Chrome"},
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
-        )
         action_id = action.steps.get().pk
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -137,13 +125,10 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["description"], "updated description")
 
         action.refresh_from_db()
-        action.calculate_events()
         steps = action.steps.all().order_by("id")
         self.assertEqual(action.name, "user signed up 2")
         self.assertEqual(steps[0].text, "sign up NOW")
         self.assertEqual(steps[1].href, "/a-new-link")
-        self.assertEqual(action.events.get(), event2)
-        self.assertEqual(action.events.count(), 1)
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -253,11 +238,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="test_event ",  # notice trailing space
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}],},
@@ -277,7 +257,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         # test team leakage
         _create_event(event="custom event", team=team2, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
 
-        action.calculate_events()
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
 

@@ -1,4 +1,4 @@
-import { AnnotationScope } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -46,19 +46,17 @@ export enum DashboardRestrictionLevel {
 export enum DashboardPrivilegeLevel {
     CanView = 21,
     CanEdit = 37,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _ProjectAdmin = 888,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _Owner = 999,
 }
 
-export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel.CanView]: 'can view',
     [DashboardPrivilegeLevel.CanEdit]: 'can edit',
-}
-
-export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
-    return privilegeLevel === 'owner'
-        ? 'owner'
-        : privilegeLevel === 'project-admin'
-        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
-        : rawPrivilegeLevelToName[privilegeLevel]
+    [DashboardPrivilegeLevel._Owner]: 'owner',
+    [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
@@ -118,6 +116,25 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+}
+
+/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
+export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
+export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
+    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
+    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
+    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
+    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
+    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
+    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
+    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
+    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
+    [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.SAML]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

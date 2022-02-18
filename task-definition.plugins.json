@@ -69,8 +69,8 @@
                     "value": "True"
                 },
                 {
-                    "name": "PISCINA_USE_ATOMICS",
-                    "value": "False"
+                    "name": "PISCINA_ATOMICS_TIMEOUT",
+                    "value": "3000"
                 },
                 {
                     "name": "USING_PGBOUNCER",

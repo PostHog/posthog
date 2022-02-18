@@ -90,7 +90,7 @@ class TestAsyncMigration(APIBaseTest):
         self.assertEqual(response["success"], True)
         self.assertEqual(sm1.status, MigrationStatus.Errored)
         errors = AsyncMigrationError.objects.filter(async_migration=sm1)
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors.count(), 1)
         self.assertEqual(errors[0].description, "Force stopped by user")
 
     @patch("posthog.celery.app.control.revoke")

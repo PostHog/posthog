@@ -1,10 +1,9 @@
 from unittest.mock import patch
 
 import pytest
-from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from posthog.models import Action, ActionStep, Cohort, Event, FeatureFlag, Person, Team
+from posthog.models import Cohort, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
 from posthog.test.base import BaseTest
 
@@ -91,6 +90,6 @@ class TestCohort(BaseTest):
         )
         flag.update_cohorts()
 
-        self.assertEqual(len(CohortPeople.objects.all()), 2)
+        self.assertEqual(CohortPeople.objects.count(), 2)
         batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
-        self.assertEqual(len(CohortPeople.objects.all()), 0)
+        self.assertEqual(CohortPeople.objects.count(), 0)
