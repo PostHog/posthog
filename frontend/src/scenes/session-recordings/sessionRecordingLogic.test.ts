@@ -211,6 +211,7 @@ describe('sessionRecordingLogic', () => {
         expected_events.push({
             ...events[1],
             playerTime: 0,
+            isHighlighted: false,
             playerPosition: {
                 time: 0,
                 windowId: events[1].properties.$window_id as string,
@@ -221,6 +222,7 @@ describe('sessionRecordingLogic', () => {
         expected_events.push({
             ...events[2],
             playerTime: 38998,
+            isHighlighted: false,
             playerPosition: {
                 time: 39000,
                 windowId: events[2].properties.$window_id as string,

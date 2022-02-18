@@ -14,6 +14,7 @@ import {
     ActorType,
     GraphDataset,
     MatchedRecording,
+    MatchedRecordingEvent,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -539,9 +540,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
         },
-        openRecordingModal: ({ sessionRecording }: { sessionRecording: MatchedRecording }) => {
+        openRecordingModal: ({ sessionRecording }) => {
             const sessionRecordingId = sessionRecording.session_id
-            const highlightedRecordingEvents = sessionRecording.events.map((event) => event.uuid)
+            const highlightedRecordingEvents = sessionRecording.events.map((event: MatchedRecordingEvent) => event.uuid)
             return [
                 router.values.location.pathname,
                 { ...router.values.searchParams },
