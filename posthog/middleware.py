@@ -9,7 +9,6 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.utils.cache import add_never_cache_headers
 
-from posthog.api.shared import TeamBasicSerializer
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication

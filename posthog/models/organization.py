@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -11,9 +11,11 @@ from rest_framework import exceptions
 
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
+from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.utils import mask_email_address
 
-from .utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 try:
     from ee.models.license import License
@@ -29,8 +31,8 @@ class OrganizationManager(models.Manager):
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
-    ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
+        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
+    ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
 
@@ -248,7 +250,7 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
+    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
         _email = email or (hasattr(user, "email") and user.email)
 
         if _email and _email != self.target_email:
@@ -276,7 +278,7 @@ class OrganizationInvite(UUIDModel):
                 code="existing_email_address",
             )
 
-    def use(self, user: Any, *, prevalidated: bool = False) -> None:
+    def use(self, user: Optional["User"], *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
