@@ -1,5 +1,8 @@
 # Changelog
 
+### 1.33.0 - Wednesday 23 February 2022
+- Changelog coming soon
+
 ### 1.32.0 - Monday 31 January 2022
 - Redesigned Persons & Groups pages.
 - Short link sharing.
