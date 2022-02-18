@@ -47,7 +47,7 @@ class TestUtils(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.Errored)
         self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
         errors = AsyncMigrationError.objects.filter(async_migration=sm).order_by("created_at")
-        self.assertEqual(len(errors), 2)
+        self.assertEqual(errors.count(), 2)
         self.assertEqual(errors[0].description, "some error")
         self.assertEqual(errors[1].description, "second error")
 
@@ -67,7 +67,7 @@ class TestUtils(BaseTest):
         mock_app_control_revoke.assert_called_once()
         self.assertEqual(sm.status, MigrationStatus.Errored)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors.count(), 1)
         self.assertEqual(errors[0].description, "Force stopped by user")
 
     def test_complete_migration(self):
@@ -82,4 +82,4 @@ class TestUtils(BaseTest):
 
         self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)
+        self.assertEqual(errors.count(), 0)

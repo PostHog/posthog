@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Callable, List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
+from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
 
@@ -38,7 +39,11 @@ class AsyncMigrationOperation:
 
     @classmethod
     def simple_op(
-        cls, sql, rollback=None, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60,
+        cls,
+        sql,
+        rollback=None,
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
+        timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     ):
         return cls(
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
@@ -47,7 +52,12 @@ class AsyncMigrationOperation:
         )
 
     @classmethod
-    def get_db_op(cls, sql: str, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+    def get_db_op(
+        cls,
+        sql: str,
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
+        timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    ):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         # timeout is currently CH only
@@ -81,7 +91,7 @@ class AsyncMigrationDefinition:
     depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
-    # e.g. instances with CLICKHOUSE_REPLICATION == True might need different migrations
+    # e.g. instances with CLICKHOUSE_REPLICATION is True might need different migrations
     def is_required(self) -> bool:
         return True
 

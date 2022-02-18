@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 import structlog
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Case, Q, When
@@ -11,11 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.models.utils import UUIDT, sane_repr
+from posthog.models.utils import sane_repr
 
-from .action import Action
-from .event import Event
-from .filters import Filter
 from .person import Person
 
 logger = structlog.get_logger(__name__)

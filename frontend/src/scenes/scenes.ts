@@ -172,6 +172,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
+        name: 'Instance status & settings',
     },
     [Scene.Licenses]: {
         instanceLevel: true,
@@ -243,8 +244,9 @@ export const routes: Record<string, Scene> = {
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.instanceLicenses()]: Scene.Licenses,
-    [urls.systemStatus()]: Scene.SystemStatus,
-    [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.instanceStatus()]: Scene.SystemStatus,
+    [urls.instanceSettings()]: Scene.SystemStatus,
+    [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,

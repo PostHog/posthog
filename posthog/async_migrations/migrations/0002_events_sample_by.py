@@ -6,8 +6,14 @@ from django.conf import settings
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from posthog.settings import (
+    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    CLICKHOUSE_CLUSTER,
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_REPLICATION,
+)
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -102,6 +108,21 @@ class Migration(AsyncMigrationDefinition):
 
         last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
 
+        def optimize_table_fn(query_id):
+            default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
+            try:
+                execute_op_clickhouse(
+                    "OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                    query_id,
+                    settings={
+                        "max_execution_time": default_timeout,
+                        "send_timeout": default_timeout,
+                        "receive_timeout": default_timeout,
+                    },
+                )
+            except:  # TODO: we should only pass the timeout one here
+                pass
+
         post_insert_ops = [
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -119,9 +140,6 @@ class Migration(AsyncMigrationDefinition):
                 """,
             ),
             AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", rollback="",
-            ),
-            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
@@ -130,6 +148,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             ),
+            AsyncMigrationOperation(fn=optimize_table_fn),
         ]
 
         _operations = create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops

@@ -731,10 +731,7 @@ export interface DashboardCollaboratorType {
 }
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
-    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
-}
-
+export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1341,6 +1338,7 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number
@@ -1494,6 +1492,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** Whether the user was autoswitched to the current item's team. */
+    switched_team: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

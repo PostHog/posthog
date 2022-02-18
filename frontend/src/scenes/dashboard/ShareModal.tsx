@@ -11,7 +11,7 @@ import { copyToClipboard } from 'lib/utils'
 import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -193,7 +193,7 @@ function CollaboratorRow({
     const { user, level } = collaborator
 
     const wasInvited = typeof level === 'number'
-    const privilegeLevelName = privilegeLevelToName(level)
+    const privilegeLevelName = privilegeLevelToName[level]
 
     return (
         <div className="CollaboratorRow">
@@ -202,7 +202,9 @@ function CollaboratorRow({
                 title={
                     !wasInvited
                         ? `${user.first_name || 'This person'} ${
-                              level === 'owner' ? 'created the dashboard' : 'is a project administrator'
+                              level === DashboardPrivilegeLevel._Owner
+                                  ? 'created the dashboard'
+                                  : 'is a project administrator'
                           }`
                         : null
                 }

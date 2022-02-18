@@ -259,6 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "switched_team": getattr(request, "switched_team", False),
             **posthog_app_context,
         }
 
@@ -602,7 +603,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
-    
+
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
@@ -810,7 +811,7 @@ def should_refresh(request: Request) -> bool:
     key = "refresh"
     return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
         key, False
-    ) == True
+    ) is True
 
 
 def str_to_bool(value: Any) -> bool:

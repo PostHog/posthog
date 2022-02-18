@@ -81,7 +81,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def _create_session_recording_event(
         self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
     ):
-        if team_id == None:
+        if team_id is None:
             team_id = self.team.pk
         create_session_recording_event(
             uuid=uuid4(),

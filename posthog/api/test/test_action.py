@@ -6,7 +6,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Action, ActionStep, Element, Event, Organization, Tag
+from posthog.models import Action, ActionStep, Organization, Tag
 from posthog.test.base import APIBaseTest
 
 
@@ -18,11 +18,6 @@ def _create_event(uuid=None, **kwargs):
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={
@@ -91,18 +86,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
-
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
-        event2 = Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            properties={"$browser": "Chrome"},
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
-        )
         action_id = action.steps.get().pk
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -250,11 +238,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="test_event ",  # notice trailing space
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}],},
@@ -293,7 +276,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_update_tags_on_non_ee_not_allowed(self):
@@ -306,7 +290,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics.",},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
 
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
@@ -334,5 +319,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             {"name": "action new name", "description": "Internal system metrics.", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(Action.objects.all().count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 1)
