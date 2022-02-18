@@ -132,6 +132,13 @@ class CsvNeverCacheMiddleware:
 
 
 class AutoProjectMiddleware:
+    """Automatic switching of the user's current project to that of the item being accessed if possible.
+
+    Sometimes you get sent a link to PostHog that points to an item from a different project than the one you currently
+    are in. With this middleware, if you have access to the target project, you are seamlessly switched to it,
+    instead of seeing a 404 eror.
+    """
+
     def __init__(self, get_response):
         self.get_response = get_response
 
