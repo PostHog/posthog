@@ -87,8 +87,10 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              e.$session_id as "$session_id",
-                              e.$window_id as "$window_id"
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -308,8 +310,10 @@
                                     e.timestamp as timestamp,
                                     pdi.person_id as aggregation_target,
                                     e.uuid AS uuid,
-                                    e.$session_id as "$session_id",
-                                    e.$window_id as "$window_id"
+                                    trim(BOTH '"'
+                                         FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
+                                    trim(BOTH '"'
+                                         FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -459,8 +463,10 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              e.$session_id as "$session_id",
-                              e.$window_id as "$window_id"
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -491,8 +497,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['bar'], trim(BOTH '"'
-                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], trim(BOTH '"'
+                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -599,8 +605,10 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              e.$session_id as "$session_id",
-                              e.$window_id as "$window_id"
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -629,8 +637,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['bar'], trim(BOTH '"'
-                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], trim(BOTH '"'
+                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -737,8 +745,10 @@
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
-                              e.$session_id as "$session_id",
-                              e.$window_id as "$window_id"
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$session_id')) as "$session_id",
+                              trim(BOTH '"'
+                                   FROM JSONExtractRaw(e.properties, '$window_id')) as "$window_id"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -767,8 +777,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['bar'], trim(BOTH '"'
-                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['bar'], trim(BOTH '"'
+                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id

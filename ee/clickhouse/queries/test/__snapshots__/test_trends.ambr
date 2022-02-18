@@ -141,8 +141,8 @@
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND has(['value'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON pdi.person_id = person.id
+        AND (has(['value'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -205,8 +205,8 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND (has(['value'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
@@ -457,8 +457,8 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND (has(['value'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
