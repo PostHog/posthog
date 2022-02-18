@@ -130,20 +130,17 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid $recording_player_container_bg;
-                background-color: $bg_light;
+                border: 0.5px solid $bg_charcoal;
+                background-color: $dark-grey;
                 transform-origin: center;
                 transition: transform 200ms;
-
                 &.big {
                     transform: scale(1.3);
                 }
                 &.highlighted-event {
-                    width: $tick_size * 2;
-                    height: $tick_size * 2;
+                    background-color: $warning;
+                    border: 0.5px solid $bg-light;
                     z-index: 2;
-
-                    top: -1 * floor($tick_size);
                 }
             }
         }
