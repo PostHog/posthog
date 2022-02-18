@@ -149,19 +149,23 @@ class AutoProjectMiddleware:
         if len(path_parts) >= 2:
             if path_parts[0] == "dashboard":
                 dashboard_id = path_parts[1]
-                return Dashboard.objects.filter(deleted=False, id=dashboard_id)
+                if dashboard_id.isnumeric():
+                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
-                return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                if feature_flag_id.isnumeric():
+                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
-                return Action.objects.filter(deleted=False, id=action_id)
+                if action_id.isnumeric():
+                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
-                return Cohort.objects.filter(deleted=False, id=cohort_id)
+                if cohort_id.isnumeric():
+                    return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
     def switch_team_if_needed_and_possible(self, request: HttpRequest, target_queryset: QuerySet):

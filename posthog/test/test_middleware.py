@@ -288,3 +288,14 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_feature_flags_api.status_code, 200)
+
+    def test_project_unchanged_when_creating_feature_flag(self):
+        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES):
+            response_app = self.client.get(f"/feature_flags/new")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        response_users_api_data = response_users_api.json()
+        self.user.refresh_from_db()
+
+        self.assertEqual(response_app.status_code, 200)
+        self.assertEqual(response_users_api.status_code, 200)
+        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
