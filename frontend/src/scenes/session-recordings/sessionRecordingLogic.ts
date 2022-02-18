@@ -393,7 +393,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     after: dayjs.utc(recordingStartTime).subtract(buffer_ms, 'ms').format(),
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
-                    limit: 2000,
                 }
             },
         ],
