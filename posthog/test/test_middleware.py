@@ -167,7 +167,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/{self.user.team.id}/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -181,7 +181,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/{self.user.team.id}/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -198,7 +198,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/{self.user.team.id}/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -212,7 +212,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_insights_api = self.client.get(f"/api/projects/{self.user.team.id}/insights/{insight.id}/")
+        response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -226,7 +226,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_insights_api = self.client.get(f"/api/projects/{self.user.team.id}/insights/{insight.id}/")
+        response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -240,7 +240,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_actions_api = self.client.get(f"/api/projects/{self.user.team.id}/actions/{action.id}/")
+        response_actions_api = self.client.get(f"/api/projects/@current/actions/{action.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -254,7 +254,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_cohorts_api = self.client.get(f"/api/projects/{self.user.team.id}/cohorts/{cohort.id}/")
+        response_cohorts_api = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
@@ -268,9 +268,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_feature_flags_api = self.client.get(
-            f"/api/projects/{self.user.team.id}/feature_flags/{feature_flag.id}/"
-        )
+        response_feature_flags_api = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}/")
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)

@@ -251,7 +251,7 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
-        _email = email or (hasattr(user, "email") and user.email)
+        _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
@@ -278,7 +278,7 @@ class OrganizationInvite(UUIDModel):
                 code="existing_email_address",
             )
 
-    def use(self, user: Optional["User"], *, prevalidated: bool = False) -> None:
+    def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
