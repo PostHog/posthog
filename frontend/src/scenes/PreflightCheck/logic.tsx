@@ -1,14 +1,26 @@
 import { kea } from 'kea'
+import React from 'react'
 import api from 'lib/api'
 import { PreflightStatus, Realm } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { toast } from 'react-toastify'
+import { teamLogic } from 'scenes/teamLogic'
 
 type PreflightMode = 'experimentation' | 'live'
 
-export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
+export interface EnvironmentConfigOption {
+    key: string
+    metric: string
+    value: string
+}
+
+export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightMode>>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     loaders: {
         preflight: [
             null as PreflightStatus | null,
@@ -52,7 +64,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
         ],
         configOptions: [
             (s) => [s.preflight],
-            (preflight): Record<string, string>[] => {
+            (preflight): EnvironmentConfigOption[] => {
                 // Returns the preflight config options to display in the /instance/status page
 
                 const RELEVANT_CONFIGS = [
@@ -60,14 +72,17 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
                         key: 'site_url',
                         label: 'Site URL',
                     },
-                    { key: 'email_service_available', label: 'Email service available' },
                 ]
 
                 if (!preflight) {
                     return []
                 }
                 // @ts-ignore
-                return RELEVANT_CONFIGS.map((config) => ({ metric: config.label, value: preflight[config.key] }))
+                return RELEVANT_CONFIGS.map((config) => ({
+                    key: config.key,
+                    metric: config.label,
+                    value: preflight[config.key],
+                }))
             },
         ],
     },
@@ -99,11 +114,21 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
     }),
     events: ({ actions, values }) => ({
         afterMount: () => {
-            const preflight = getAppContext()?.preflight
+            const appContext = getAppContext()
+            const preflight = appContext?.preflight
+            const switchedTeam = appContext?.switched_team
             if (preflight) {
                 actions.loadPreflightSuccess(preflight)
             } else if (!values.preflight) {
                 actions.loadPreflight()
+            }
+            if (switchedTeam) {
+                toast(
+                    <>
+                        You've switched globally to&nbsp;project{' '}
+                        <b style={{ whiteSpace: 'pre' }}>{values.currentTeam?.name}</b>
+                    </>
+                )
             }
         },
     }),

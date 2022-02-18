@@ -1,19 +1,7 @@
 import React from 'react'
-import './InfoMessage.scss'
-import { IconInfo } from '../icons'
+import { AlertMessage, AlertMessageInterface } from './AlertMessage'
 
-/** An informative message. */
-export function InfoMessage({
-    children,
-    style,
-}: {
-    children: string | JSX.Element
-    style?: React.CSSProperties
-}): JSX.Element {
-    return (
-        <div className="info-message" style={style}>
-            <IconInfo className="info-message__icon" />
-            <div>{children}</div>
-        </div>
-    )
+/** DEPRECATED: Use `AlertMessage` instead with type = 'info' */
+export function InfoMessage(props: AlertMessageInterface): JSX.Element {
+    return <AlertMessage {...props} />
 }

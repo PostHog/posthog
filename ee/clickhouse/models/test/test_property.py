@@ -1,6 +1,6 @@
 import inspect
 from datetime import datetime
-from typing import List, Literal, Union
+from typing import List, Literal, Union, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -990,3 +990,74 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
     assert uuids == expected
+
+
+def test_combine_group_properties():
+    propertyA = Property(key="a", operator="exact", value=["a", "b", "c"])
+    propertyB = Property(key="b", operator="exact", value=["d", "e", "f"])
+    propertyC = Property(key="c", operator="exact", value=["g", "h", "i"])
+    propertyD = Property(key="d", operator="exact", value=["j", "k", "l"])
+
+    property_group = PropertyGroup(PropertyOperatorType.OR, [propertyA, propertyB])
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.AND, [propertyC, propertyD])
+    assert combined_group.to_dict() == {
+        "type": "AND",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+                    {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+                ],
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+                    {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+                ],
+            },
+        ],
+    }
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.OR, [propertyC, propertyD])
+    assert combined_group.to_dict() == {
+        "type": "OR",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+                    {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+                ],
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+                    {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+                ],
+            },
+        ],
+    }
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.OR, [])
+    assert combined_group.to_dict() == {
+        "type": "OR",
+        "values": [
+            {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+            {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+        ],
+    }
+
+    combined_group = PropertyGroup(PropertyOperatorType.AND, cast(List[Property], [])).combine_properties(
+        PropertyOperatorType.OR, [propertyC, propertyD]
+    )
+    assert combined_group.to_dict() == {
+        "type": "AND",
+        "values": [
+            {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+            {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+        ],
+    }

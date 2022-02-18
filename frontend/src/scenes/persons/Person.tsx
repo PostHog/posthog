@@ -161,7 +161,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         key={PersonsTabType.SESSION_RECORDINGS}
                     >
                         <SessionRecordingsTable
-                            key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                            key={person.uuid} // force refresh if user changes
                             personUUID={person.uuid}
                             isPersonPage
                         />

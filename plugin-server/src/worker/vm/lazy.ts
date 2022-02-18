@@ -26,47 +26,72 @@ export class LazyPluginVM {
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
+    ready: boolean
+    vmResponseVariable: string | null
 
     constructor() {
         this.totalInitAttemptsCounter = 0
         this.initRetryTimeout = null
+        this.ready = false
+        this.vmResponseVariable = null
         this.initVm()
     }
 
     public async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
-        return (await this.resolveInternalVm)?.methods.exportEvents || null
+        return await this.getVmMethod('exportEvents')
     }
 
     public async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
-        return (await this.resolveInternalVm)?.methods.onEvent || null
+        return await this.getVmMethod('onEvent')
     }
 
     public async getOnAction(): Promise<PluginConfigVMResponse['methods']['onAction'] | null> {
-        return (await this.resolveInternalVm)?.methods.onAction || null
+        return await this.getVmMethod('onAction')
     }
 
     public async getOnSnapshot(): Promise<PluginConfigVMResponse['methods']['onSnapshot'] | null> {
-        return (await this.resolveInternalVm)?.methods.onSnapshot || null
+        return await this.getVmMethod('onSnapshot')
     }
 
     public async getProcessEvent(): Promise<PluginConfigVMResponse['methods']['processEvent'] | null> {
-        return (await this.resolveInternalVm)?.methods.processEvent || null
+        return await this.getVmMethod('processEvent')
     }
 
     public async getHandleAlert(): Promise<PluginConfigVMResponse['methods']['handleAlert'] | null> {
-        return (await this.resolveInternalVm)?.methods.handleAlert || null
+        return await this.getVmMethod('handleAlert')
     }
 
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
-        return (await this.resolveInternalVm)?.methods.teardownPlugin || null
+        // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
+        if (!this.ready) {
+            return null
+        }
+        return (await this.resolveInternalVm)?.methods['teardownPlugin'] || null
     }
 
     public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
-        return (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
+        const task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
+        if (!this.ready && task) {
+            await this.setupPluginIfNeeded()
+        }
+        return task
     }
 
     public async getTasks(type: PluginTaskType): Promise<Record<string, PluginTask>> {
-        return (await this.resolveInternalVm)?.tasks?.[type] || {}
+        const tasks = (await this.resolveInternalVm)?.tasks?.[type] || null
+        if (!this.ready && tasks && Object.values(tasks).length > 0) {
+            await this.setupPluginIfNeeded()
+        }
+        return tasks || {}
+    }
+
+    private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
+        const vmMethod = (await this.resolveInternalVm)?.methods[method] || null
+        if (!this.ready && vmMethod) {
+            await this.setupPluginIfNeeded()
+        }
+
+        return vmMethod
     }
 
     public clearRetryTimeoutIfExists(): void {
@@ -89,7 +114,17 @@ export class LazyPluginVM {
                     })
                 }
                 try {
-                    const vm = await createPluginConfigVM(hub, pluginConfig, indexJs)
+                    const vm = createPluginConfigVM(hub, pluginConfig, indexJs)
+                    this.vmResponseVariable = vm.vmResponseVariable
+                    const shouldSetupNow =
+                        (!this.ready && // harmless check used to skip setup in tests
+                            vm.tasks?.schedule &&
+                            Object.values(vm.tasks?.schedule).length > 0) ||
+                        (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
+                    if (shouldSetupNow) {
+                        await vm.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+                        this.ready = true
+                    }
                     await createLogEntry(`Plugin loaded (instance ID ${hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
                     void clearError(hub, pluginConfig)
@@ -132,6 +167,14 @@ export class LazyPluginVM {
                 resolve(null)
             }
         })
+    }
+
+    public async setupPluginIfNeeded(): Promise<void> {
+        if (this.ready) {
+            return
+        }
+        await (await this.resolveInternalVm)?.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+        this.ready = true
     }
 
     private async inferPluginCapabilities(

@@ -140,7 +140,7 @@ export function DemoWarnings(): JSX.Element | null {
                 showIcon
                 action={WARNINGS[demoWarning].action}
                 closable
-                style={{ marginTop: 32 }}
+                style={{ marginTop: '1.5rem' }}
                 onClose={() => reportDemoWarningDismissed(demoWarning)}
             />
         </>

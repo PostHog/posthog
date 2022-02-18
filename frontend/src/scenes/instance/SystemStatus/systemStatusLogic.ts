@@ -10,22 +10,58 @@ import {
     OrganizationType,
     UserType,
     PreflightStatus,
+    InstanceSetting,
 } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { isUserLoggedIn } from 'lib/utils'
+import { errorToast, isUserLoggedIn, successToast } from 'lib/utils'
 
-export type TabName = 'overview' | 'internal_metrics'
+export enum ConfigMode {
+    View = 'view',
+    Edit = 'edit',
+    Saving = 'saving',
+}
+export interface MetricRow {
+    metric: string
+    key: string
+    value: any
+}
 
-export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings'
+
+/**
+ * We whitelist the specific instance settings that can be edited via the /instance/status page.
+ * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
+ * For example: async migrations settings are handled in their own page.
+ */
+const EDITABLE_INSTANCE_SETTINGS = [
+    'RECORDINGS_TTL_WEEKS',
+    'EMAIL_ENABLED',
+    'EMAIL_HOST',
+    'EMAIL_PORT',
+    'EMAIL_HOST_USER',
+    'EMAIL_HOST_PASSWORD',
+    'EMAIL_USE_TLS',
+    'EMAIL_USE_SSL',
+    'EMAIL_DEFAULT_FROM',
+    'EMAIL_REPLY_TO',
+]
+
+export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
-        setTab: (tab: TabName) => ({ tab }),
+        setTab: (tab: InstanceStatusTabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
         setAnalyzeModalOpen: (isOpen: boolean) => ({ isOpen }),
         setAnalyzeQuery: (query: string) => ({ query }),
         openAnalyzeModalWithQuery: (query: string) => ({ query }),
+        setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
+        updateInstanceConfigValue: (key: string, value?: string | boolean | number) => ({ key, value }),
+        clearInstanceConfigEditing: true,
+        saveInstanceConfig: true,
+        setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
+        increaseUpdatedInstanceConfigCount: true,
     },
     loaders: ({ values }) => ({
         systemStatus: [
@@ -42,6 +78,14 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                     }
 
                     return (await api.get('api/instance_status')).results ?? null
+                },
+            },
+        ],
+        instanceSettings: [
+            [] as InstanceSetting[],
+            {
+                loadInstanceSettings: async () => {
+                    return (await api.get('api/instance_settings')).results ?? []
                 },
             },
         ],
@@ -64,7 +108,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     }),
     reducers: {
         tab: [
-            'overview' as TabName,
+            'overview' as InstanceStatusTabName,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -96,6 +140,35 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                 openAnalyzeModalWithQuery: (_, { query }) => query,
             },
         ],
+        instanceConfigMode: [
+            // Determines whether the Instance Configuration table on "Configuration" tab is on edit or view mode
+            ConfigMode.View,
+            {
+                setInstanceConfigMode: (_, { mode }) => mode,
+            },
+        ],
+        instanceConfigEditingState: [
+            {} as Record<string, string | boolean | number>,
+            {
+                updateInstanceConfigValue: (s, { key, value }) => {
+                    if (value) {
+                        return { ...s, [key]: value }
+                    }
+                    const newState = { ...s }
+                    delete newState[key]
+                    return newState
+                },
+                clearInstanceConfigEditing: () => ({}),
+            },
+        ],
+        updatedInstanceConfigCount: [
+            null as number | null, // Number of config items that have been updated; `null` means no update is in progress
+            {
+                setUpdatedInstanceConfigCount: (_, { count }) => count,
+                loadInstanceSettings: () => null,
+                increaseUpdatedInstanceConfigCount: (state) => (state ?? 0) + 1,
+            },
+        ],
     },
 
     selectors: () => ({
@@ -116,12 +189,54 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                 return !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin
             },
         ],
+        editableInstanceSettings: [
+            (s) => [s.instanceSettings],
+            (instanceSettings): InstanceSetting[] =>
+                instanceSettings.filter((item) => item.editable && EDITABLE_INSTANCE_SETTINGS.includes(item.key)),
+        ],
     }),
 
-    listeners: ({ actions }) => ({
-        setTab: ({ tab }: { tab: TabName }) => {
-            if (tab === 'internal_metrics') {
+    listeners: ({ actions, values }) => ({
+        setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
+            if (tab === 'metrics') {
                 actions.loadQueries()
+            }
+            actions.setInstanceConfigMode(ConfigMode.View)
+        },
+        updateInstanceConfigValue: ({ key, value }) => {
+            if (
+                value &&
+                values.editableInstanceSettings.find((item) => item.key === key)?.value.toString() === value.toString()
+            ) {
+                actions.updateInstanceConfigValue(key, undefined)
+            }
+        },
+        saveInstanceConfig: async (_, breakpoint) => {
+            actions.setUpdatedInstanceConfigCount(0)
+            Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
+                try {
+                    await api.update(`api/instance_settings/${key}`, {
+                        value,
+                    })
+                    actions.increaseUpdatedInstanceConfigCount()
+                } catch {
+                    errorToast(
+                        'Error updating settings',
+                        'There was an error updating all your settings. Please try again.'
+                    )
+                    await breakpoint(1000)
+                    actions.loadInstanceSettings()
+                }
+            })
+            await breakpoint(1000)
+            if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
+                actions.loadInstanceSettings()
+                actions.clearInstanceConfigEditing()
+                actions.setInstanceConfigMode(ConfigMode.View)
+                successToast(
+                    'Instance settings updated!',
+                    'Your settings have been updated and should take effect soon.'
+                )
             }
         },
     }),
@@ -133,12 +248,13 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     }),
 
     actionToUrl: ({ values }) => ({
-        setTab: () => '/instance/status' + (values.tab === 'overview' ? '' : '/' + values.tab),
+        setTab: () => '/instance/' + (values.tab === 'overview' ? 'status' : values.tab),
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '/instance/status(/:tab)': ({ tab }: { tab?: TabName }) => {
-            const currentTab = tab || 'overview'
+        '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
+            const currentTab = tab && ['metrics', 'settings'].includes(tab) ? tab : 'overview'
+            console.log(currentTab)
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }
