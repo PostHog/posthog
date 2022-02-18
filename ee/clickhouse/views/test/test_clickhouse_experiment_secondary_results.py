@@ -114,20 +114,26 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 "parameters": {},
                 "secondary_metrics": [
                     {
-                        "insight": "trends",
-                        "events": [{"order": 0, "id": "$pageview"}],
-                        "properties": [
-                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
-                            # properties superceded by FF breakdown
-                        ],
+                        "name": "trends whatever",
+                        "filters": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                                # properties superceded by FF breakdown
+                            ],
+                        }
                     },
                     {
-                        "insight": "funnels",
-                        "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
-                        "properties": [
-                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
-                            # properties superceded by FF breakdown
-                        ],
+                        "name": "funnels whatever",
+                        "filters": {
+                            "insight": "funnels",
+                            "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
+                            "properties": [
+                                {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                                # properties superceded by FF breakdown
+                            ],
+                        }
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
@@ -279,10 +285,13 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     ],
                 },
                 "secondary_metrics": [
-                    {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}],},
+                    {"name": "secondary metric", "filters": {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}]},},
                     {
-                        "insight": "funnels",
-                        "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                        "name": "funnel metric",
+                        "filters": {
+                            "insight": "funnels",
+                            "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                        }
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
