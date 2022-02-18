@@ -128,7 +128,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
-        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames],
+        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         taxonomicGroups: [
             (selectors) => [
                 selectors.currentTeamId,
