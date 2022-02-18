@@ -136,20 +136,10 @@ class AutoProjectMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        target_queryset = self.get_target_queryset(request)
-        if target_queryset is not None and request.user.is_authenticated:
-            user = cast(User, request.user)
-            current_team = user.team
-            if current_team is not None and not target_queryset.filter(team=current_team).exists():
-                actual_item = target_queryset.only("team").first()
-                if actual_item is not None:
-                    actual_item_team: Team = actual_item.team
-                    if actual_item_team.get_effective_membership_level(user.id) is not None:
-                        user.current_team = actual_item_team
-                        user.current_organization_id = actual_item_team.organization_id
-                        user.save()
-                        # Information for POSTHOG_APP_CONTEXT
-                        setattr(request, "switched_team", True)
+        if request.user.is_authenticated:
+            target_queryset = self.get_target_queryset(request)
+            if target_queryset is not None:
+                self.switch_team_if_needed_and_possible(request, target_queryset)
         response = self.get_response(request)
         return response
 
@@ -173,3 +163,17 @@ class AutoProjectMiddleware:
                 cohort_id = path_parts[1]
                 return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
+
+    def switch_team_if_needed_and_possible(self, request: HttpRequest, target_queryset: QuerySet):
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            actual_item = target_queryset.only("team").select_related("team").first()
+            if actual_item is not None:
+                actual_item_team: Team = actual_item.team
+                if actual_item_team.get_effective_membership_level(user.id) is not None:
+                    user.current_team = actual_item_team
+                    user.current_organization_id = actual_item_team.organization_id
+                    user.save()
+                    # Information for POSTHOG_APP_CONTEXT
+                    setattr(request, "switched_team", True)

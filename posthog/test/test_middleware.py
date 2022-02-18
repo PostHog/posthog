@@ -146,6 +146,8 @@ class TestToolbarCookieMiddleware(APIBaseTest):
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
+    BASE_APP_NUM_QUERIES = 45  # How may queries are made in the base app
+
     second_team: Team
 
     @classmethod
@@ -162,8 +164,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
-
-        response_app = self.client.get(f"/dashboard/{dashboard.id}")
+        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES + 4):  # AutoProjectMiddleware adds 4 queries
+            response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
@@ -204,6 +206,17 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
         self.assertEqual(response_dashboards_api.status_code, 404)
+
+    def test_project_unchanged_when_accessing_dashboards_list(self):
+        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES):  # No AutoProjectMiddleware queries
+            response_app = self.client.get(f"/dashboard")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        response_users_api_data = response_users_api.json()
+        self.user.refresh_from_db()
+
+        self.assertEqual(response_app.status_code, 200)
+        self.assertEqual(response_users_api.status_code, 200)
+        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
 
     def test_project_switched_when_accessing_insight_of_another_accessible_team(self):
         insight = Insight.objects.create(team=self.second_team)
@@ -264,7 +277,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
+        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES + 4):
+            response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
