@@ -333,7 +333,9 @@ export function InfiniteList(): JSX.Element {
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
                     `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
                         expandedCount - totalResultCount,
-                        'row'
+                        'row',
+                        'rows',
+                        false
                     )}`}
             </div>
         ) : (

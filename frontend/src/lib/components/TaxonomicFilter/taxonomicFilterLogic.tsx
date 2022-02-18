@@ -18,7 +18,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -188,9 +188,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                               }).url
                             : undefined,
                     expandLabel: ({ count, expandedCount }) =>
-                        `Show ${expandedCount - count} ${
-                            expandedCount - count === 1 ? 'property' : 'properties'
-                        } that haven't been seen with this event`,
+                        `Show ${pluralize(
+                            expandedCount - count,
+                            'property',
+                            'properties'
+                        )} that haven't been seen with ${pluralize(
+                            eventNames.length,
+                            'this event',
+                            'these events',
+                            false
+                        )}`,
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
