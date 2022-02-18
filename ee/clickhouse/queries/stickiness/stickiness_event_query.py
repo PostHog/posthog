@@ -5,9 +5,10 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.property import PropertyGroup
 
 
 class StickinessEventsQuery(ClickhouseEventQuery):
@@ -19,7 +20,11 @@ class StickinessEventsQuery(ClickhouseEventQuery):
         super().__init__(*args, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        prop_query, prop_params = self._get_props(self._filter.properties + self._entity.properties)
+
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups.combine_properties(PropertyOperatorType.AND, self._entity.properties)
+        )
+
         self.params.update(prop_params)
 
         actions_query, actions_params = self.get_actions_query()

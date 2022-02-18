@@ -61,8 +61,9 @@ export const urls = {
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
+    instanceStatus: () => '/instance/status',
+    instanceSettings: () => '/instance/settings',
+    instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',
     deadLetterQueue: () => '/instance/dead_letter_queue',
 }
