@@ -15,6 +15,7 @@ from rest_framework.request import Request
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
@@ -34,7 +35,7 @@ class CanEditDashboard(BasePermission):
         return dashboard.can_user_edit(cast(User, request.user).id)
 
 
-class DashboardSerializer(serializers.ModelSerializer):
+class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -75,6 +76,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -95,15 +97,17 @@ class DashboardSerializer(serializers.ModelSerializer):
                         "dashboard": dashboard.pk,
                         "last_refresh": now(),
                     }
-                    insight_serializer = InsightSerializer(
-                        data={
-                            **InsightSerializer(dashboard_item, context=self.context,).data,
-                            **override_dashboard_item_data,
-                        },
-                        context=self.context,
-                    )
+                    new_data = {
+                        **InsightSerializer(dashboard_item, context=self.context,).data,
+                        **override_dashboard_item_data,
+                    }
+                    new_tags = new_data.pop("tags", None)
+                    insight_serializer = InsightSerializer(data=new_data, context=self.context,)
                     insight_serializer.is_valid()
                     insight_serializer.save()
+
+                    # Create new insight's tags separately. Force create tags on dashboard duplication.
+                    self._attempt_set_tags(new_tags, insight_serializer.instance, force_create=True)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -115,6 +119,9 @@ class DashboardSerializer(serializers.ModelSerializer):
                     dashboard=dashboard,
                     team=team,
                 )
+
+        # Manual tag creation since this create method doesn't call super()
+        self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -167,7 +174,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if dive_source_id is not None:
             items = self.add_dive_source_item(items, int(dive_source_id))
 
-        #  Make sure all items have an insight set
+        #  Make sure all items have an insight set
         # This should have only happened historically
         for item in items:
             if not item.filters.get("insight"):
@@ -192,7 +199,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
     authentication_classes = [
