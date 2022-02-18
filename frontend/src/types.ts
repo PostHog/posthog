@@ -1492,6 +1492,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** Whether the user was autoswitched to the current item's team. */
+    switched_team: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
