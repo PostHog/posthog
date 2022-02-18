@@ -84,7 +84,7 @@ export function Dashboards(): JSX.Element {
                       title: 'Tags',
                       dataIndex: 'tags' as keyof DashboardType,
                       render: function Render(tags: DashboardType['tags']) {
-                          return <ObjectTags tags={tags} staticOnly />
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
                       },
                   } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
               ]
