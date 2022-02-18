@@ -32,6 +32,7 @@ import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { pluralize } from 'lib/utils'
 
 enum ListTooltip {
     None = 0,
@@ -330,7 +331,10 @@ export function InfiniteList(): JSX.Element {
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalCount, expandedCount }) ??
-                    `Click here to see ${expandedCount - totalCount} more rows`}
+                    `Click here to see ${expandedCount - totalCount} more ${pluralize(
+                        expandedCount - totalCount,
+                        'row'
+                    )}`}
             </div>
         ) : (
             <div
