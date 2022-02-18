@@ -3,6 +3,10 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+def tagify(tag: str):
+    return tag.strip().lower()
+
+
 class Tag(UUIDModel):
     name: models.CharField = models.CharField(max_length=255)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
