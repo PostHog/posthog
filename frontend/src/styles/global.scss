@@ -86,7 +86,7 @@ body strong {
 }
 
 .text-default {
-    color: var(--text-default);
+    color: $text_default;
     font-size: 14px;
     line-height: 20px;
     font-weight: 400;
@@ -437,17 +437,16 @@ input::-ms-clear {
 }
 
 .Toastify__toast {
-    padding: 1rem;
-    border-radius: var(--radius);
+    padding: 16px;
+    border-radius: $radius;
     font-family: inherit;
-    background: var(--bg-light);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-elevation);
+    background-color: $bg_light;
+    border: 1px solid $border;
     @extend .text-default;
 
     h1 {
         font-size: 1.14rem;
-        font-weight: 600;
+        font-weight: bold;
     }
 
     .action-bar {
