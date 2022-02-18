@@ -61,17 +61,41 @@ SENTRY_DSN=$SENTRY_DSN
 DOMAIN=$DOMAIN
 EOF
 
-
 # write entrypoint
 rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
+/compose/wait
 ./bin/migrate
 ./bin/docker-server
 ./bin/docker-frontend
 EOF
 chmod +x compose/start
+
+# write wait script
+cat > compose/wait <<EOF
+#!/usr/bin/env python3
+
+import socket
+import time
+
+def loop():
+    print("Waiting for ClickHouse and Postgres to be ready") 
+    try: 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('clickhouse', 9000))
+        print("Clickhouse is ready") 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('db', 5432))
+        print("Postgres is ready") 
+    except ConnectionRefusedError as e:
+        time.sleep(5) 
+        loop()
+
+loop()
+EOF
+chmod +x compose/wait
 
 # setup docker
 echo "Setting up Docker"
@@ -100,10 +124,12 @@ curl -L --header "Content-Type: application/json" -d '{
 }' https://app.posthog.com/batch/
 
 # start up the stack
+echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
+echo "Starting the stack!"
 sudo -E docker-compose -f docker-compose.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
