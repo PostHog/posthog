@@ -39,6 +39,7 @@ export enum AvailableFeature {
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
 }
 
 export enum LicensePlan {
@@ -233,6 +234,7 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
+    tags?: string[]
 }
 
 /** Sync with plugin-server/src/types.ts */
