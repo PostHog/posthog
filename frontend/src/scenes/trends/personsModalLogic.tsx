@@ -539,9 +539,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
         },
-        openRecordingModal: ({ sessionRecording }) => {
+        openRecordingModal: ({ sessionRecording }: { sessionRecording: MatchedRecording }) => {
             const sessionRecordingId = sessionRecording.session_id
-            console.log('sessionRecording', sessionRecording)
             const highlightedRecordingEvents = sessionRecording.events.map((event) => event.uuid)
             return [
                 router.values.location.pathname,
