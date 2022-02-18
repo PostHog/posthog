@@ -18,7 +18,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
-from posthog.exceptions import ObjectExistsInOtherProject
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.models.user import User
@@ -194,7 +193,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Dashboard.objects.all()
+    queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
     authentication_classes = [
         PersonalAPIKeyAuthentication,
@@ -209,29 +208,19 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().order_by("name")
-        if self.action == "list":
+        queryset = super().get_queryset()
+        if self.action != "update":
+            # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
         queryset = queryset.select_related("team__organization").prefetch_related(
-            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"),)
+            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"))
         )
         return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
-        try:
-            dashboard = get_object_or_404(queryset, pk=pk)
-        except Http404 as e:
-            user = cast(User, request.user)
-            alternative_team = Dashboard.objects.filter(deleted=False, team__in=user.teams, pk=pk)
-            if alternative_team.exists():
-                raise ObjectExistsInOtherProject(
-                    alternative_team_id=alternative_team.first().team_id,  # type: ignore
-                    feature="Dashboard",
-                )
-            raise e
-
+        dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save()
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})

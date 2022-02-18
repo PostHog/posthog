@@ -2,6 +2,7 @@
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
+// Sync the paths with AutoProjectMiddleware!
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
