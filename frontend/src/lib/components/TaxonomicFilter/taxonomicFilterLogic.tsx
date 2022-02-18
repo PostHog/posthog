@@ -465,7 +465,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && results.count === 0) {
+            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
                 actions.tabRight()
             }
         },
