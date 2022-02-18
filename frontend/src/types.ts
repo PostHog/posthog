@@ -881,8 +881,7 @@ export interface FilterType {
     interval?: IntervalType
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
-    property_groups?: AndOrPropertyFilter
+    properties?: PropertyFilter[] | AndOrPropertyFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
@@ -1454,12 +1453,12 @@ export interface SelectOption {
 
 export interface AndOrPropertyFilter {
     type?: AndOr
-    groups: AndOrPropertyGroup[]
+    values: AndOrPropertyValue[]
 }
 
-export interface AndOrPropertyGroup {
+export interface AndOrPropertyValue {
     type: AndOr
-    groups: AnyPropertyFilter[]
+    values: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {

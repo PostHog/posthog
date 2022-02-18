@@ -112,10 +112,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
                                 <PropertyGroupFilters
-                                    propertyFilters={filters.property_groups}
+                                    propertyFilters={filters.properties}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
-                                    onChange={(property_groups) => {
-                                        setFilters({ property_groups })
+                                    onChange={(properties) => {
+                                        setFilters({ properties })
                                     }}
                                     taxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,

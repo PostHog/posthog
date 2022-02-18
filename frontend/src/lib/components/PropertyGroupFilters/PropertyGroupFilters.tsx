@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { AndOrPropertyFilter, AndOrPropertyGroup } from '~/types'
+import { AndOrPropertyFilter, AndOrPropertyValue, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Button, Col, Row, Select } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
@@ -10,6 +10,9 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 
+export function isAndOrPropertyFilter(property: PropertyFilter[] | AndOrPropertyFilter) {
+
+}
 interface PropertyGroupFilters {
     propertyFilters?: AndOrPropertyFilter | null
     onChange: (filters: AndOrPropertyFilter) => void
@@ -40,12 +43,12 @@ export function PropertyGroupFilters({
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        setFilters(propertyFilters ?? { groups: [] })
+        setFilters(propertyFilters ?? { values: [] })
     }, [propertyFilters])
 
     return (
         <>
-            {filtersWithNew.groups && (
+            {filtersWithNew.values && (
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                         <Row
@@ -63,7 +66,7 @@ export function PropertyGroupFilters({
                                 />
                             )}
                         </Row>
-                        {filtersWithNew.groups.map((group: AndOrPropertyGroup, propertyGroupIndex: number) => {
+                        {filtersWithNew.values.map((group: AndOrPropertyValue, propertyGroupIndex: number) => {
                             return (
                                 <>
                                     <div className="mt mb" style={style} key={propertyGroupIndex}>
@@ -88,7 +91,7 @@ export function PropertyGroupFilters({
                                         </Row>
                                         <PropertyFilters
                                             orFiltering={true}
-                                            propertyFilters={group.groups}
+                                            propertyFilters={group.values}
                                             onChange={(properties) => {
                                                 setPropertyFilters(properties, propertyGroupIndex)
                                             }}
@@ -98,7 +101,7 @@ export function PropertyGroupFilters({
                                             propertyGroupType={group.type}
                                         />
                                     </div>
-                                    {propertyGroupIndex !== filtersWithNew?.groups.length - 1 && (
+                                    {propertyGroupIndex !== filtersWithNew.values.length - 1 && (
                                         <Row className="text-small primary-alt">
                                             <b>{filtersWithNew.type}</b>
                                         </Row>
