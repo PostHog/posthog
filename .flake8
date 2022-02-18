@@ -27,11 +27,6 @@ ignore=
     C413, # Unnecessary list call around sorted()
     C414, # Unnecessary list call within sorted().
     C416, # Unnecessary list comprehension - rewrite using list().
-    C812, # missing trailing comma
-    C813, # missing trailing comma in Python 3
-    C815, # missing trailing comma in Python 3.5+
-    C816, # missing trailing comma in Python 3.6+
-    C819, # trailing comma prohibited
     C901, # function complexity
     E203, # whitespace before ‘:’
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’
