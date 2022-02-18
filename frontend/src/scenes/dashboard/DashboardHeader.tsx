@@ -234,7 +234,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                                             className="insight-metadata-tags"
                                         />
-                                    ) : dashboard.tags.length ? (
+                                    ) : dashboard.tags && dashboard.tags.length ? (
                                         <ObjectTags
                                             tags={dashboard.tags}
                                             saving={dashboardLoading}
