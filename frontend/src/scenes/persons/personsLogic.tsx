@@ -280,9 +280,16 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
+                if (personDistinctId) {
+                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
+                    const decodedPersonDistinctId = personDistinctId && decodeURIComponent(personDistinctId)
 
-                if (personDistinctId && (!values.person || !values.person.distinct_ids.includes(personDistinctId))) {
-                    actions.loadPerson(personDistinctId) // underscore contains the wildcard
+                    if (
+                        personDistinctId &&
+                        (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId))
+                    ) {
+                        actions.loadPerson(personDistinctId) // underscore contains the wildcard
+                    }
                 }
             }
         },
