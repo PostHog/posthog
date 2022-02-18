@@ -76,6 +76,7 @@ export function Experiment_(): JSX.Element {
         groupTypes,
         aggregationLabel,
         experimentDataLoading,
+        secondaryMetricResults
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -753,27 +754,21 @@ export function Experiment_(): JSX.Element {
                                                         </Row>
                                                         {experimentData.start_date ? (
                                                             <>
-                                                                {experimentResults?.secondary_metric_results?.map(
-                                                                    (metric, idx) => (
-                                                                        <Row
-                                                                            className="border-top"
-                                                                            key={idx}
-                                                                            justify="space-between"
-                                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
-                                                                        >
-                                                                            <div>
-                                                                                {capitalizeFirstLetter(metric.name)}
-                                                                            </div>
-                                                                            {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                (variant, index) => (
-                                                                                    <div key={index}>
-                                                                                        {metric.result[variant.key]}
-                                                                                    </div>
-                                                                                )
-                                                                            )}
-                                                                        </Row>
-                                                                    )
-                                                                )}
+                                                                {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                    <Row
+                                                                        className="border-top"
+                                                                        key={idx}
+                                                                        justify="space-between"
+                                                                        style={{ paddingTop: 8, paddingBottom: 8 }}
+                                                                    >
+                                                                        <div>{capitalizeFirstLetter(metric.name)}</div>
+                                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                            (variant, index) => (
+                                                                                <div key={index}>{secondaryMetricResults?.[idx][variant.key]}</div>
+                                                                            )
+                                                                        )}
+                                                                    </Row>
+                                                                ))}
                                                             </>
                                                         ) : (
                                                             <>
@@ -990,7 +985,7 @@ export function Experiment_(): JSX.Element {
                     </div>
                 </div>
             ) : (
-                <div>Loading Data...</div>
+                <Spinner />
             )}
         </>
     )
