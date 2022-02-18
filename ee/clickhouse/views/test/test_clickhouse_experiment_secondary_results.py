@@ -119,10 +119,15 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                             "insight": "trends",
                             "events": [{"order": 0, "id": "$pageview"}],
                             "properties": [
-                                {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
                                 # properties superceded by FF breakdown
                             ],
-                        }
+                        },
                     },
                     {
                         "name": "funnels whatever",
@@ -130,10 +135,15 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                             "insight": "funnels",
                             "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
                             "properties": [
-                                {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
                                 # properties superceded by FF breakdown
                             ],
-                        }
+                        },
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
@@ -285,13 +295,16 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     ],
                 },
                 "secondary_metrics": [
-                    {"name": "secondary metric", "filters": {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}]},},
+                    {
+                        "name": "secondary metric",
+                        "filters": {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}]},
+                    },
                     {
                         "name": "funnel metric",
                         "filters": {
                             "insight": "funnels",
                             "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                        }
+                        },
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now

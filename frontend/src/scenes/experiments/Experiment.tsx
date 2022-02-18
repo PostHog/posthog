@@ -753,48 +753,62 @@ export function Experiment_(): JSX.Element {
                                                             )}
                                                         </Row>
 
-                                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                                            experimentData.start_date ? (
+                                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
+                                                            (experimentData.start_date ? (
                                                                 <>
-                                                                    {experimentData.secondary_metrics.map((metric, idx) => (
-                                                                        <Row
-                                                                            className="border-top"
-                                                                            key={idx}
-                                                                            justify="space-between"
-                                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
-                                                                        >
-                                                                            <div>{capitalizeFirstLetter(metric.name)}</div>
-                                                                            {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                (variant, index) => (
-                                                                                    <div key={index}>
-                                                                                        {
-                                                                                            secondaryMetricResults?.[idx][
-                                                                                            variant.key
-                                                                                            ]
-                                                                                        }
-                                                                                    </div>
-                                                                                )
-                                                                            )}
-                                                                        </Row>
-                                                                    ))}
+                                                                    {experimentData.secondary_metrics.map(
+                                                                        (metric, idx) => (
+                                                                            <Row
+                                                                                className="border-top"
+                                                                                key={idx}
+                                                                                justify="space-between"
+                                                                                style={{
+                                                                                    paddingTop: 8,
+                                                                                    paddingBottom: 8,
+                                                                                }}
+                                                                            >
+                                                                                <div>
+                                                                                    {capitalizeFirstLetter(metric.name)}
+                                                                                </div>
+                                                                                {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                                    (variant, index) => (
+                                                                                        <div key={index}>
+                                                                                            {
+                                                                                                secondaryMetricResults?.[
+                                                                                                    idx
+                                                                                                ][variant.key]
+                                                                                            }
+                                                                                        </div>
+                                                                                    )
+                                                                                )}
+                                                                            </Row>
+                                                                        )
+                                                                    )}
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    {experimentData.secondary_metrics.map((metric, idx) => (
-                                                                        <Row
-                                                                            className="border-top"
-                                                                            key={idx}
-                                                                            justify="space-between"
-                                                                            style={{ paddingTop: 8, paddingBottom: 8 }}
-                                                                        >
-                                                                            <div>{capitalizeFirstLetter(metric.name)}</div>
-                                                                            {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                (_, index) => (
-                                                                                    <div key={index}>--</div>
-                                                                                )
-                                                                            )}
-                                                                        </Row>
-                                                                    ))}
+                                                                    {experimentData.secondary_metrics.map(
+                                                                        (metric, idx) => (
+                                                                            <Row
+                                                                                className="border-top"
+                                                                                key={idx}
+                                                                                justify="space-between"
+                                                                                style={{
+                                                                                    paddingTop: 8,
+                                                                                    paddingBottom: 8,
+                                                                                }}
+                                                                            >
+                                                                                <div>
+                                                                                    {capitalizeFirstLetter(metric.name)}
+                                                                                </div>
+                                                                                {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                                    (_, index) => (
+                                                                                        <div key={index}>--</div>
+                                                                                    )
+                                                                                )}
+                                                                            </Row>
+                                                                        )
+                                                                    )}
                                                                 </>
                                                             ))}
                                                     </Col>
