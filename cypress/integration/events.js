@@ -23,7 +23,6 @@ const selectNewTimestampPropertyFilter = () => {
     cy.get('[data-attr=new-prop-filter-EventsTable]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
     cy.get('.taxonomic-list-row').should('have.length', 1)
-    // don't click on .skeleton-row
     cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 }
 
