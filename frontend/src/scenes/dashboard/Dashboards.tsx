@@ -78,7 +78,7 @@ export function Dashboards(): JSX.Element {
             },
             sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+        ...(hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
             ? [
                   {
                       title: 'Tags',

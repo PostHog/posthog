@@ -224,26 +224,22 @@ export function DashboardHeader(): JSX.Element | null {
                                     paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                                 />
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                <>
-                                    {canEditDashboard ? (
-                                        <ObjectTags
-                                            tags={dashboard.tags}
-                                            onChange={(_, tags) => triggerDashboardUpdate({ tags })}
-                                            saving={dashboardLoading}
-                                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                                            className="insight-metadata-tags"
-                                        />
-                                    ) : dashboard.tags.length ? (
-                                        <ObjectTags
-                                            tags={dashboard.tags}
-                                            saving={dashboardLoading}
-                                            staticOnly
-                                            className="insight-metadata-tags"
-                                        />
-                                    ) : null}
-                                </>
-                            )}
+                            {canEditDashboard ? (
+                                <ObjectTags
+                                    tags={dashboard.tags}
+                                    onChange={(_, tags) => triggerDashboardUpdate({ tags })}
+                                    saving={dashboardLoading}
+                                    tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
+                                    className="insight-metadata-tags"
+                                />
+                            ) : dashboard.tags.length ? (
+                                <ObjectTags
+                                    tags={dashboard.tags}
+                                    saving={dashboardLoading}
+                                    staticOnly
+                                    className="insight-metadata-tags"
+                                />
+                            ) : null}
                         </>
                     }
                     delimited

@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
 
@@ -43,11 +42,7 @@ class Dashboard(models.Model):
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices
     )
-
-    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
-    )
+    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:
@@ -102,5 +97,5 @@ class Dashboard(models.Model):
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
-            "tags_count": self.tagged_items.count(),
+            "tags_count": len(self.tags),
         }

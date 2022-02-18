@@ -3,16 +3,14 @@ import { useValues, useActions } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import React, { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
-import { AvailableFeature, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
-import { userLogic } from 'scenes/userLogic'
 
 export function EventPropertiesStats(): JSX.Element {
     const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } =
         useValues(definitionDrawerLogic)
     const { setEventPropertyDescription, saveAll, setEventPropertyDefinitionUpdateList, setEventPropertyDefinition } =
         useActions(definitionDrawerLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const propertyExamples = eventsSnippet[0]?.properties
     const tableColumns = [
         {
@@ -48,28 +46,24 @@ export function EventPropertiesStats(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function renderTags({ id, tags }: PropertyDefinition) {
-                          return (
-                              <ObjectTags
-                                  id={id}
-                                  tags={tags || []}
-                                  onChange={(_, newTags) => {
-                                      setEventPropertyDefinitionUpdateList(id)
-                                      setEventPropertyDefinition({ tags: newTags }, id)
-                                  }}
-                                  saving={tagLoading}
-                                  tagsAvailable={eventPropertiesDefinitionTags?.filter((tag) => !tags?.includes(tag))}
-                              />
-                          )
-                      },
-                  },
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function renderTags({ id, tags }: PropertyDefinition) {
+                return (
+                    <ObjectTags
+                        id={id}
+                        tags={tags || []}
+                        onChange={(_, newTags) => {
+                            setEventPropertyDefinitionUpdateList(id)
+                            setEventPropertyDefinition({ tags: newTags }, id)
+                        }}
+                        saving={tagLoading}
+                        tagsAvailable={eventPropertiesDefinitionTags?.filter((tag) => !tags?.includes(tag))}
+                    />
+                )
+            },
+        },
         {
             title: 'Example',
             key: 'example',

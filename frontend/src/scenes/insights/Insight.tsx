@@ -169,7 +169,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 }
                             />
                         )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) &&
                             (canEditInsight ? (
                                 <ObjectTags
                                     tags={insight.tags ?? []}

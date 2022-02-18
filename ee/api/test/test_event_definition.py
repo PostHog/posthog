@@ -7,7 +7,6 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import Tag
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -17,9 +16,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
-        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-        event.tagged_items.create(tag_id=tag.id)
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        )
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -50,13 +49,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        enterprise_property = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
         )
-        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-        enterprise_property.tagged_items.create(tag_id=tag.id)
-        regular_event = EnterpriseEventDefinition.objects.create(team=self.team, name="regular event", owner=self.user)
-        regular_event.tagged_items.create(tag_id=tag.id)
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="regular event", owner=self.user, tags=["deprecated"]
+        )
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -95,11 +93,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
+        self.assertEqual(response_data["tags"], ["official", "internal"])
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(set(event.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
+        self.assertEqual(event.tags, ["official", "internal"])
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")

@@ -28,7 +28,6 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -84,7 +83,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -137,23 +136,20 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
-        tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
             dashboard_item = Insight.objects.create(
                 team=team, created_by=request.user, last_modified_by=request.user, **validated_data
             )
+            return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = Insight.objects.create(
                 team=team, last_refresh=now(), created_by=created_by, last_modified_by=created_by, **validated_data
             )
+            return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard_item)
-        return dashboard_item
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
@@ -197,7 +193,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return representation
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Insight.objects.all().prefetch_related(
         "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
     )
@@ -413,7 +409,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        #  backwards compatibility
+        #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()

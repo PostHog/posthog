@@ -1,11 +1,11 @@
 import { Button, Input } from 'antd'
-import { ArrowRightOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
-import { useActions, useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
-import React, { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
@@ -62,7 +62,7 @@ export function VolumeTable({
                                     value={record.eventOrProp.name}
                                 />
                             </span>
-                            {hasAvailableFeature(AvailableFeature.TAGGING) ? (
+                            {hasTaxonomyFeatures ? (
                                 <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
                             ) : null}
                         </div>
