@@ -1,6 +1,43 @@
 #!/bin/bash
-set -e
 
+echo "Checking Django migrations"
 python manage.py migrate --check
+
+export ANY_ERROR=0
+if [ $? -eq 0 ]; then
+    echo "Django migrations are good to go ✅" 
+else
+    echo "Django migrations have not been applied and are in error state 🛑" 
+		export ANY_ERROR=1
+fi
+
+echo "Checking ClickHouse migrations"
 python manage.py migrate_clickhouse --check
+
+if [ $? -eq 0 ]; then
+    echo "ClickHouse migrations are good to go ✅" 
+else
+    python bin/shentry.py "ClickHouse migrations have not been applied and are in error state 🛑" 
+		export ANY_ERROR=1
+fi
+
+echo "Checking Async CH migrations"
 python manage.py run_async_migrations --check
+
+if [ $? -eq 0 ]; then
+    echo "Async migrations are good to go ✅" 
+else
+    python bin/shentry.py "Async migrations have not been applied and are in error state 🛑" 
+		export ANY_ERROR=1
+fi
+
+if [ $ANY_ERROR -eq 0 ]; then
+    echo "All migrations are good to go ✅"
+		exit 
+else
+    python bin/shentry.py "Some migrations are in an error state 🛑" 
+		exit 1
+fi
+
+
+
