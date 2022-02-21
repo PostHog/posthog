@@ -247,8 +247,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthoganalytics.feature_enabled")
-    def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
+    def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
         Note: This feature is currently behind a feature flag.
@@ -266,8 +265,6 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk").get()
-
-        mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
 
         self.assertEqual(
             response.json(),

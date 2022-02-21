@@ -86,8 +86,6 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # Used to allow self-serve account creation based on social login (#5111)
-    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
@@ -95,6 +93,10 @@ class Organization(UUIDModel):
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    # DEPRECATED attributes (should be removed on next major version)
+    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
+    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -142,17 +144,8 @@ class Organization(UUIDModel):
         return feature in self.available_features
 
     @property
-    def is_onboarding_active(self) -> bool:
-        return not self.setup_section_2_completed
-
-    @property
     def active_invites(self) -> QuerySet:
         return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
-
-    def complete_onboarding(self) -> "Organization":
-        self.setup_section_2_completed = True
-        self.save()
-        return self
 
     def get_analytics_metadata(self):
         return {
