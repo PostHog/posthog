@@ -159,6 +159,7 @@ jobs:
 
             - uses: ./.github/workflows/backend-tests-action
               with:
+                  cache-id: ${{ matrix.name }}
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}

@@ -1,5 +1,7 @@
 name: Backend Django tests
 inputs:
+    cache-id:
+        type: string
     python-version:
         required: true
         type: string
@@ -43,7 +45,7 @@ runs:
         - uses: syphar/restore-virtualenv@v1.2
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1-${{ inputs.name }}
+              custom_cache_key_element: v1-${{ inputs.cache-id }}
 
         - uses: syphar/restore-pip-download-cache@v1
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
