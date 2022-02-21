@@ -32,7 +32,7 @@ for name, module in all_migrations.items():
 def setup_async_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for async migrations to work:
-    1. Import all the migration definitions 
+    1. Import all the migration definitions
     2. Create a database record for each
     3. Check if all migrations necessary for this PostHog version have completed (else don't start)
     4. Populate a dependencies map and in-memory record of migration definitions

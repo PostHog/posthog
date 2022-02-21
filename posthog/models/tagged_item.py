@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("action",)
+RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action")
 
 
 def build_check():
@@ -38,6 +38,18 @@ class TaggedItem(UUIDModel):
 
     # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
     # the `RELATED_OBJECTS` tuple above.
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    insight: models.ForeignKey = models.ForeignKey(
+        "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    event_definition: models.ForeignKey = models.ForeignKey(
+        "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    property_definition: models.ForeignKey = models.ForeignKey(
+        "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
     )

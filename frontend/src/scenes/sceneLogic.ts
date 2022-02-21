@@ -32,6 +32,9 @@ export const sceneLogic = kea<sceneLogicType>({
     props: {} as {
         scenes?: Record<Scene, () => any>
     },
+    connect: {
+        logic: [router],
+    },
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -363,6 +366,15 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
+        },
+        [router.actionTypes.locationChanged]: () => {
+            // Remove trailing slash
+            const {
+                location: { pathname, search, hash },
+            } = router.values
+            if (pathname !== '/' && pathname.endsWith('/')) {
+                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+            }
         },
     }),
 })

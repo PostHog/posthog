@@ -7,7 +7,7 @@ describe('Insights', () => {
     })
 
     it('Create new insight and save copy', () => {
-        cy.visit('/saved_insights')
+        cy.visit('/saved_insights/') // Should work with trailing slash just like without it
         cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
@@ -69,7 +69,8 @@ describe('Insights', () => {
     })
 
     it('Loads default filters correctly', () => {
-        cy.visit('/events') // Test that default params are set correctly even if the app doesn't start on insights
+        // Test that default params are set correctly even if the app doesn't start on insights
+        cy.visit('/events/') // Should work with trailing slash just like without it
         cy.reload()
 
         cy.clickNavMenu('insight')

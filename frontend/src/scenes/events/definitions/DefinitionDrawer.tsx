@@ -15,12 +15,15 @@ import { DefinitionDescription } from './DefinitionDescription'
 import { EventsTableSnippet } from './EventsTableSnippet'
 import { UsageDisabledWarning } from '../UsageDisabledWarning'
 import { Tooltip } from 'lib/components/Tooltip'
+import { AvailableFeature } from '~/types'
+import { userLogic } from 'scenes/userLogic'
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } =
         useValues(definitionDrawerLogic)
     const { closeDrawer, setDefinition, saveAll } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { Panel } = Collapse
     const definitionTags = type === 'event' ? eventDefinitionTags : propertyDefinitionTags
 
@@ -70,19 +73,21 @@ export function DefinitionDrawer(): JSX.Element {
                                         <DefinitionDescription />
                                     </Col>
                                     <Col>
-                                        <Row>
-                                            <Col>
-                                                <h4 className="l4">Tags</h4>
-                                                <ObjectTags
-                                                    tags={definition.tags || []}
-                                                    onChange={(_, tags) => setDefinition({ tags })}
-                                                    saving={tagLoading}
-                                                    tagsAvailable={definitionTags?.filter(
-                                                        (tag) => !definition.tags?.includes(tag)
-                                                    )}
-                                                />
-                                            </Col>
-                                        </Row>
+                                        {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                            <Row>
+                                                <Col>
+                                                    <h4 className="l4">Tags</h4>
+                                                    <ObjectTags
+                                                        tags={definition.tags || []}
+                                                        onChange={(_, tags) => setDefinition({ tags })}
+                                                        saving={tagLoading}
+                                                        tagsAvailable={definitionTags?.filter(
+                                                            (tag) => !definition.tags?.includes(tag)
+                                                        )}
+                                                    />
+                                                </Col>
+                                            </Row>
+                                        )}
                                         {type === 'event' && (
                                             <Row>
                                                 <div style={{ paddingTop: 16 }}>
