@@ -49,7 +49,7 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login')
 
         cy.visit(
-            '/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24autocapture"%2C"name"%3A"%24autocapture"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&properties=%5B%5D&filter_test_accounts=false&new_entity=%5B%5D'
+            '#filters=%7B"insight"%3A"TRENDS"%2C"interval"%3A"day"%2C"display"%3A"ActionsLineGraph"%2C"actions"%3A%5B%5D%2C"events"%3A%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24autocapture"%2C"name"%3A"%24autocapture"%2C"type"%3A"events"%2C"order"%3A1%7D%5D%2C"properties"%3A%5B%5D%2C"filter_test_accounts"%3Afalse%2C"new_entity"%3A"%5B%5D\'"%7D'
         )
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
