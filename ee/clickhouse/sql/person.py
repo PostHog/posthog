@@ -391,6 +391,7 @@ FROM (
         person 
     WHERE 
         team_id = %(team_id)s AND
+        is_deleted = false AND
         {property_field} IS NOT NULL 
     ORDER BY id DESC
     LIMIT 100000
@@ -411,6 +412,7 @@ FROM (
         person 
     WHERE 
         team_id = %(team_id)s AND 
+        is_deleted = false AND
         {property_field} ILIKE %(value)s 
     ORDER BY id DESC
     LIMIT 100000
