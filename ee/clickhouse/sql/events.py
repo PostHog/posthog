@@ -117,7 +117,7 @@ FROM events WHERE team_id = %(team_id)s
 
 SELECT_PROP_VALUES_SQL = """
 SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+    DISTINCT {property_field} 
 FROM 
     events 
 WHERE 
@@ -130,12 +130,12 @@ LIMIT 10
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+    DISTINCT {property_field} 
 FROM
     events 
 WHERE 
     team_id = %(team_id)s AND 
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    {property_field} ILIKE %(value)s 
     {parsed_date_from} 
     {parsed_date_to} 
 LIMIT 10

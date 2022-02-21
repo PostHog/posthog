@@ -534,26 +534,36 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    property_field, _ = get_property_string_expr("event", key, "%(key)s", "properties")
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
     if value:
         return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
+                parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, property_field=property_field
+            ),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
     return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
+        SELECT_PROP_VALUES_SQL.format(
+            parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, property_field=property_field
+        ),
         {"team_id": team.pk, "key": key},
     )
 
 
 def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    property_field, _ = get_property_string_expr("person", key, "%(key)s", "properties")
+
     if value:
         return sync_execute(
-            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
+            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
-    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
+    return sync_execute(
+        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field), {"team_id": team.pk, "key": key},
+    )
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
