@@ -5,11 +5,6 @@ on:
         branches:
             - master
     pull_request:
-    workflow_dispatch:
-        updateTestTimings:
-            required: true
-            description: 'Whether to update test timings'
-            default: 'true'
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
