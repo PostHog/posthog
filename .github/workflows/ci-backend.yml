@@ -157,7 +157,7 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - uses: ./.github/workflows/ci-backend-reusable-workflow.yml
+            - uses: ./.github/workflows/backend-tests-action
               with:
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
