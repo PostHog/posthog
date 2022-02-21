@@ -120,6 +120,11 @@ jobs:
         steps:
             - uses: actions/checkout@v1
 
+            - name: Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d db &
+
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
