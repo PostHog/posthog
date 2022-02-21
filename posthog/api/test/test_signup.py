@@ -274,14 +274,9 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.items.count(), 1)
-        self.assertEqual(dashboard.name, "Web Analytics")
-        self.assertEqual(
-            dashboard.items.all()[0].description, "Shows a conversion funnel from sign up to watching a movie."
-        )
-
-        # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
-        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
+        self.assertEqual(dashboard.items.count(), 6)
+        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
