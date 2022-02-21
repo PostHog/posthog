@@ -60,7 +60,7 @@ jobs:
         # Make sure we only run on backend changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
-        name: Code quality checks
+        name: Python code quality checks
         runs-on: ubuntu-latest
 
         services:
