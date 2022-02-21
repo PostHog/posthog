@@ -136,7 +136,7 @@ class PropertyDefinitionViewSet(
 
         return PropertyDefinition.objects.raw(
             f"""
-                SELECT {property_definition_fields}, 
+                SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}

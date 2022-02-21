@@ -116,28 +116,28 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
-FROM 
-    events 
-WHERE 
+SELECT
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+FROM
+    events
+WHERE
     team_id = %(team_id)s AND
-    JSONHas(properties, %(key)s) 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    JSONHas(properties, %(key)s)
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+SELECT
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
 FROM
-    events 
-WHERE 
-    team_id = %(team_id)s AND 
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    events
+WHERE
+    team_id = %(team_id)s AND
+    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 
