@@ -22,7 +22,8 @@ const interceptPropertyDefinitions = () => {
 const selectNewTimestampPropertyFilter = () => {
     cy.get('[data-attr=new-prop-filter-EventsTable]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
-    cy.get('.taxonomic-list-row').should('have.length', 1).click()
+    cy.get('.taxonomic-list-row').should('have.length', 1)
+    cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 }
 
 const selectOperator = (operator, openPopUp) => {

@@ -32,6 +32,7 @@ import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { pluralize } from 'lib/utils'
 
 enum ListTooltip {
     None = 0,
@@ -255,12 +256,23 @@ export function InfiniteList(): JSX.Element {
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
-        useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, updateRemoteItem } = useActions(infiniteListLogic)
+    const {
+        isLoading,
+        results,
+        index,
+        listGroupType,
+        group,
+        selectedItem,
+        selectedItemInView,
+        isExpandable,
+        totalResultCount,
+        totalListCount,
+        expandedCount,
+    } = useValues(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalCount === 0 && !isLoading
+    const showEmptyState = totalListCount === 0 && !isLoading
     const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
@@ -290,15 +302,19 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
+        const commonDivProps: React.HTMLProps<HTMLDivElement> = {
+            key: `item_${rowIndex}`,
+            className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
+            style: style,
+            ref: isHighlighted ? setReferenceElement : null,
+        }
+
         return item && group ? (
             <div
-                key={`item_${rowIndex}`}
-                className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(group, itemValue ?? null, item)}
-                onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
-                style={style}
+                {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                ref={isHighlighted ? setReferenceElement : null}
+                onClick={() => selectItem(group, itemValue ?? null, item)}
             >
                 {renderItemContents({
                     item,
@@ -307,12 +323,25 @@ export function InfiniteList(): JSX.Element {
                     eventNames,
                 })}
             </div>
+        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
+            <div
+                {...commonDivProps}
+                className={`${commonDivProps.className} expand-row`}
+                data-attr={`expand-list-${listGroupType}`}
+                onClick={expand}
+            >
+                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
+                        expandedCount - totalResultCount,
+                        'row',
+                        'rows',
+                        false
+                    )}`}
+            </div>
         ) : (
             <div
-                key={`skeleton_${rowIndex}`}
-                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
-                onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                style={style}
+                {...commonDivProps}
+                className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
@@ -344,7 +373,7 @@ export function InfiniteList(): JSX.Element {
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
+                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
                             overscanRowCount={100}
                             rowHeight={32}
                             rowRenderer={renderItem}
