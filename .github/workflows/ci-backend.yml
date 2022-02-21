@@ -110,6 +110,25 @@ jobs:
               run: |
                   mypy .
 
+    check-migrations:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
+        name: Validate django migrations
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v1
+            - name: Check migrations
+              shell: bash
+              run: |
+                  python manage.py makemigrations --check --dry-run
+                  git fetch origin master
+                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+                  # In this check we exclusively care about files that were added (A) in posthog/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\tposthog/migrations/" | awk '{print $2}' | python manage.py test_migrations_are_null
+
     django:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
