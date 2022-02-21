@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
+import { escapeHtml } from 'lib/utils'
 
 interface AuthenticateResponseType {
     success: boolean
@@ -33,7 +34,7 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
-                window.location.href = afterLoginRedirect()
+                window.location.pathname = escapeHtml(afterLoginRedirect())
             }
         },
     },

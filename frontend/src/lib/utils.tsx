@@ -1319,3 +1319,20 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+const entityMap = {
+'&': '&amp;',
+'<': '&lt;',
+'>': '&gt;',
+'"': '&quot;',
+"'": '&#39;',
+'/': '&#x2F;',
+'`': '&#x60;',
+'=': '&#x3D;'
+};
+
+export function escapeHtml (string: string): string {
+    return String(string).replace(/[&<>"'`=\/]/g, function (s) {
+        return entityMap[s];
+    });
+}
