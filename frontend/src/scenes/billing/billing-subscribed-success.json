@@ -21,11 +21,6 @@
                 "created_at": "2021-10-04T05:18:43.263968Z",
                 "updated_at": "2021-10-27T21:38:07.164813Z",
                 "membership_level": 15,
-                "personalization": {},
-                "setup": {
-                    "is_active": false,
-                    "current_section": null
-                },
                 "plugins_access_level": 9,
                 "teams": [
                     {
@@ -126,11 +121,6 @@
                     "created_at": "2021-10-04T05:18:43.263968Z",
                     "updated_at": "2021-10-27T21:38:07.164813Z",
                     "membership_level": 15,
-                    "personalization": {},
-                    "setup": {
-                        "is_active": false,
-                        "current_section": null
-                    },
                     "plugins_access_level": 9,
                     "teams": [
                         {
