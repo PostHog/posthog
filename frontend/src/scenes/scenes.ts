@@ -122,17 +122,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideDemoWarnings: true,
         name: 'Project settings',
     },
-    [Scene.Personalization]: {
-        projectBased: true,
-        plain: true,
-    },
     [Scene.Ingestion]: {
         projectBased: true,
         plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        projectBased: true,
-        hideDemoWarnings: true,
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -258,8 +250,6 @@ export const routes: Record<string, Scene> = {
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
-    [urls.onboardingSetup()]: Scene.OnboardingSetup,
 }

@@ -1,15 +1,14 @@
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, response, serializers, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
-from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.event_usage import report_onboarding_completed, report_organization_deleted
+from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (

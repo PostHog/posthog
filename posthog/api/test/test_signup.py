@@ -254,13 +254,7 @@ class TestSignupAPI(APIBaseTest):
         """
 
         response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "Jane",
-                "email": "hedgehog75@posthog.com",
-                "password": "notsecure",
-                "redirect_url": "/ingestion",
-            },
+            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -274,7 +268,7 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/personalization",
+                "redirect_url": "/ingestion",
             },
         )
 
