@@ -33,7 +33,8 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
     listeners: {
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
-                window.location.href = afterLoginRedirect()
+                const redirect = afterLoginRedirect()
+                window.location.href = redirect.startsWith('/') ? redirect : '/'
             }
         },
     },
