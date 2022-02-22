@@ -1,3 +1,7 @@
+# This workflow runs all of our backend django tests.
+#
+# If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
+# .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 
 on:
