@@ -9,6 +9,11 @@ on:
         branches:
             - master
     pull_request:
+    workflow_dispatch:
+        inputs:
+            clickhouseServerVersion:
+                description: ClickHouse server version. Leave blank for default
+                type: string
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -19,6 +24,7 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     SAML_DISABLED: 1
     TEST: 1
+    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
 
 jobs:
     # Job to decide if we should run backend ci
@@ -154,7 +160,7 @@ jobs:
 
     django:
         needs: changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || ithub.event_name == 'workflow_dispatch' }}
 
         name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
