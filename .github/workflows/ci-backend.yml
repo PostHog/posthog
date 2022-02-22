@@ -160,7 +160,7 @@ jobs:
 
     django:
         needs: changes
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || ithub.event_name == 'workflow_dispatch' }}
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
         name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
