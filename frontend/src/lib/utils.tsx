@@ -175,9 +175,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
         () =>
             toast.error(
                 <div className="click-outside-block">
-                    <h1>
-                        <ExclamationCircleOutlined /> {title || 'Something went wrong'}
-                    </h1>
+                    <h1>{title || 'Something went wrong'}</h1>
                     <p>
                         {message || 'We could not complete your action. Detailed error:'}{' '}
                         <span className="error-details">{errorDetail || 'Unknown exception.'}</span>

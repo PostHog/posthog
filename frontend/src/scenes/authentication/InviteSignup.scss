@@ -5,7 +5,7 @@
     height: 100vh;
 
     &.authenticated {
-        height: calc(100vh - #{$top_nav_height});
+        height: calc(100vh - 3.5rem);
     }
 
     .inner {

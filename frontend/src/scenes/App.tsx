@@ -14,6 +14,8 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose } from 'lib/components/icons'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -102,6 +104,10 @@ function Models(): null {
     return null
 }
 
+function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
+    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} />
+}
+
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
@@ -111,7 +117,15 @@ function AppScene(): JSX.Element | null {
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
         (() => (showingDelayedSpinner ? <SceneLoading /> : null))
 
-    const toastContainer = <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
+    const toastContainer = (
+        <ToastContainer
+            autoClose={8000}
+            transition={Slide}
+            closeOnClick={false}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+        />
+    )
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (

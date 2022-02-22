@@ -75,6 +75,15 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
     // Insights
     --z-graph-tooltip: #{$z_graph_tooltip};
+    // Toasts
+    --toastify-color-info: var(--primary);
+    --toastify-color-success: var(--success);
+    --toastify-color-warning: var(--warning);
+    --toastify-color-error: var(--danger);
+    --toastify-toast-background: var(--bg-light);
+    --toastify-toast-width: 28rem;
+    --toastify-toast-min-height: 3.5rem;
+    --toastify-toast-max-height: 16rem;
 }
 
 // Text styles
@@ -86,7 +95,7 @@ body strong {
 }
 
 .text-default {
-    color: $text_default;
+    color: var(--text-default);
     font-size: 14px;
     line-height: 20px;
     font-weight: 400;
@@ -430,23 +439,20 @@ input::-ms-clear {
 
 // Toasts
 
-.Toastify__toast-container {
-    opacity: 1;
-    transform: none;
-    margin-top: $top_nav_height;
-}
-
 .Toastify__toast {
-    padding: 16px;
-    border-radius: $radius;
+    align-items: center;
+    opacity: 1 !important;
+    padding: 1rem;
+    border-radius: var(--radius);
     font-family: inherit;
-    background-color: $bg_light;
-    border: 1px solid $border;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
+    cursor: default;
     @extend .text-default;
 
     h1 {
         font-size: 1.14rem;
-        font-weight: bold;
+        font-weight: 600;
     }
 
     .action-bar {
@@ -468,38 +474,22 @@ input::-ms-clear {
     }
 }
 
+.Toastify__toast-body {
+    padding: 0;
+    button {
+        margin: 0 0.75rem;
+    }
+}
+
+.Toastify__toast-icon {
+    color: var(--muted-alt);
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 1.5rem;
+}
+
 .Toastify__progress-bar {
-    background: $success;
-}
-
-.Toastify__toast--success {
-    h1 {
-        color: $success;
-    }
-}
-
-.Toastify__toast--info {
-    h1 {
-        color: $primary_alt;
-    }
-    &.accent-border {
-        border-color: $primary_alt;
-    }
-    .Toastify__progress-bar {
-        background: $primary_alt;
-    }
-}
-
-.Toastify__toast--error {
-    h1 {
-        color: $danger;
-    }
-    .Toastify__progress-bar {
-        background: $danger;
-    }
-    .error-details {
-        font-style: italic;
-    }
+    height: var(--radius);
 }
 
 // Table styles
