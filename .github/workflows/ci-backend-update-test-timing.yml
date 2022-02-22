@@ -1,8 +1,6 @@
 name: Backend CI - Update test timing
 
 on:
-    # :TODO: Remove this
-    push:
     workflow_dispatch:
 
 env:
@@ -19,7 +17,6 @@ jobs:
     django:
         name: Run Django tests and save test durations
         runs-on: ubuntu-latest
-        if: ${{ github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/testing-improvements-ch' }}
         steps:
             - uses: actions/checkout@v2
 
