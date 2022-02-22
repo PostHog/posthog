@@ -34,7 +34,7 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
                 const redirect = afterLoginRedirect()
-                window.location.pathname = redirect.startsWith('/') ? redirect : '/'
+                window.location.pathname = redirect
             }
         },
     },
