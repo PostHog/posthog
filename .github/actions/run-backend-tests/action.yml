@@ -1,4 +1,4 @@
-name: Backend Django tests
+name: Run Backend Django tests
 inputs:
     cache-id:
         type: string
