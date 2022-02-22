@@ -68,11 +68,7 @@ class PropertyDefinitionViewSet(
                 use_entreprise_taxonomy = False
 
         properties_to_filter = self.request.GET.get("properties", None)
-        properties_belonging_to_event = self.request.GET.get("event", None)
-        if properties_belonging_to_event:
-            names = tuple(EventProperty.objects.filter(event=properties_belonging_to_event).values_list("property"))
-            name_filter = "AND name IN %(names)s"
-        elif properties_to_filter:
+        if properties_to_filter:
             names = tuple(properties_to_filter.split(","))
             name_filter = "AND name IN %(names)s"
         else:
