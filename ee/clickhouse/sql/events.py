@@ -1,12 +1,13 @@
+from django.conf import settings
+
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, ReplicationScheme, TableEngine, kafka_engine, table_engine
 
 EVENTS_TABLE = "events"
 
-TRUNCATE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
@@ -45,7 +46,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 """
 ).format(
     table_name=EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER,
     # :TODO: Note that this is out of sync with proper setup on sharded setups.
     engine=table_engine(
         EVENTS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree, replication_scheme=ReplicationScheme.SHARDED
@@ -53,14 +54,14 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)"
-    if not DEBUG
+    if not settings.DEBUG
     else "",  # https://github.com/PostHog/posthog/issues/5684
     storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
     materialized_columns="",
@@ -84,7 +85,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=EVENTS_TABLE, cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
 )
 
 INSERT_EVENT_SQL = """

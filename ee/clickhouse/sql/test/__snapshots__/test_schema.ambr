@@ -371,7 +371,7 @@
   ) ENGINE = ReplacingMergeTree(_timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-  
+  SAMPLE BY cityHash64(distinct_id)
   
   
   '
@@ -759,7 +759,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', '_timestamp')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-  
+  SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
