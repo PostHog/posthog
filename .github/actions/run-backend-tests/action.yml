@@ -36,7 +36,7 @@ runs:
               python-version: ${{ inputs.python-version }}
 
         - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
-          if: ${{ inputs.saml }}
+          if: ${{ inputs.saml == 'true' }}
           shell: bash
           run: |
               sudo apt-get update
@@ -58,7 +58,7 @@ runs:
               python -m pip install -r requirements.txt
 
         - name: Install SAML python dependencies
-          if: ${{ inputs.saml }}
+          if: ${{ inputs.saml == 'true' }}
           shell: bash
           run: |
               python -m pip install python3-saml==1.12.0
@@ -80,19 +80,19 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Run FOSS tests
-          if: ${{ inputs.foss }}
+          if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
               pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
         - name: Run SAML tests
-          if: ${{ inputs.saml }}
+          if: ${{ inputs.saml == 'true' }}
           shell: bash
           run: |
               pytest ee -m "saml_only"
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee }}
+          if: ${{ inputs.ee == 'true' }}
           shell: bash
           run: |
               pytest ee -m "not saml_only" \
@@ -103,13 +103,13 @@ runs:
                   --cov-report=xml:coverage-clickhouse.xml
 
         - name: Run pytest.mark.ee tests
-          if: ${{ inputs.ee && inputs.group == '1' }}
+          if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
           shell: bash
           run: |
               pytest posthog -m "ee"
 
         - uses: codecov/codecov-action@v2
-          if: ${{ !inputs.saml && !inputs.cloud }}
+          if: ${{ inputs.saml == 'false' && inputs.cloud == 'false' }}
           with:
               files: ./coverage-postgres.xml,./coverage-clickhouse.xml
               fail_ci_if_error: false
@@ -117,7 +117,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v2
-          if: ${{ inputs.ee }}
+          if: ${{ inputs.ee == 'true' }}
           with:
               name: timing_data-${{ inputs.group }}
               path: .test_durations
