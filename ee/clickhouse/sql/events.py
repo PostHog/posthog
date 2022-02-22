@@ -53,9 +53,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     ),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    sample_by="SAMPLE BY cityHash64(distinct_id)"
-    if not settings.DEBUG
-    else "",  # https://github.com/PostHog/posthog/issues/5684
+    sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
 
