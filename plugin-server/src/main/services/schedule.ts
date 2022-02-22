@@ -65,6 +65,7 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
     }
 
     const reloadSchedule = async () => {
+        await piscina.broadcastTask({ task: 'reloadSchedule' })
         pluginSchedulePromise = loadPluginSchedule(piscina)
         server.pluginSchedule = await pluginSchedulePromise
     }
