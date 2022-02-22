@@ -1,20 +1,23 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
-from typing import Literal, Union
+from enum import Enum
+from typing import Literal
 
 from django.conf import settings
 
-STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
-REPLACING_TABLE_ENGINE = lambda: (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard_key}/posthog.{table}', '{replica_key}', {ver})"
-    if settings.CLICKHOUSE_REPLICATION
-    else "ReplacingMergeTree({ver})"
-)
 
-COLLAPSING_TABLE_ENGINE = lambda: (
-    "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
-    if settings.CLICKHOUSE_REPLICATION
-    else "CollapsingMergeTree({ver})"
-)
+class ReplicationScheme(str, Enum):
+    NOT_SHARDED = "NOT_SHARDED"
+    SHARDED = "SHARDED"
+    REPLICATED = "REPLICATED"
+
+
+# Note: This does not list every table engine, just ones used in our codebase
+class TableEngine(str, Enum):
+    ReplacingMergeTree = "ReplacingMergeTree"
+    CollapsingMergeTree = "CollapsingMergeTree"
+
+
+STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
@@ -37,21 +40,29 @@ KAFKA_COLUMNS = """
 , _offset UInt64
 """
 
-COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
-REPLACING_MERGE_TREE = "replacing_merge_tree"
 
+# Relevant documentation:
+# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/
+# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replacingmergetree/
+# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/
+def table_engine(
+    table: str,
+    version_column: str,
+    engine_type: TableEngine,
+    replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED,
+) -> str:
+    if not settings.CLICKHOUSE_REPLICATION:
+        replication_scheme = ReplicationScheme.NOT_SHARDED
 
-# :TODO: Most table_engines calling this with sharded=True are out of sync with reality on cloud.
-def table_engine(table: str, ver: str, engine_type: str, sharded=True) -> str:
-    shard_key = "{shard}" if sharded else "noshard"
-    replica_key = "{replica}" if sharded else "{replica}-{shard}"
+    if replication_scheme == ReplicationScheme.NOT_SHARDED:
+        return f"{engine_type}({version_column})"
 
-    if engine_type == COLLAPSING_MERGE_TREE and ver:
-        return COLLAPSING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
-    elif engine_type == REPLACING_MERGE_TREE and ver:
-        return REPLACING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
+    if replication_scheme == ReplicationScheme.SHARDED:
+        shard_key, replica_key = "{shard}", "{replica}"
     else:
-        raise ValueError(f"Unknown engine type {engine_type}")
+        shard_key, replica_key = "noshard", "{replica}-{shard}"
+
+    return f"Replicated{engine_type}('/clickhouse/tables/{shard_key}/posthog.{table}', '{replica_key}', '{version_column}')"
 
 
 def kafka_engine(

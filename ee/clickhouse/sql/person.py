@@ -1,14 +1,7 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import (
-    COLLAPSING_MERGE_TREE,
-    KAFKA_COLUMNS,
-    REPLACING_MERGE_TREE,
-    STORAGE_POLICY,
-    kafka_engine,
-    table_engine,
-)
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, TableEngine, kafka_engine, table_engine
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -40,7 +33,7 @@ PERSONS_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSONS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -115,7 +108,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", TableEngine.CollapsingMergeTree),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -181,7 +174,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", REPLACING_MERGE_TREE, sharded=False),
+    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", TableEngine.ReplacingMergeTree),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
@@ -235,7 +228,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
     storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )

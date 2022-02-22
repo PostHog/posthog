@@ -723,7 +723,7 @@
       cohort_id Int64,
       team_id Int64,
       sign Int8
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.cohortpeople', '{replica}-{shard}', 'sign')
   Order By (team_id, cohort_id, person_id)
   
   
@@ -756,7 +756,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', '_timestamp')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   
@@ -789,7 +789,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events_dead_letter_queue', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', '_timestamp')
   ORDER BY (id, event_uuid, distinct_id, team_id)
   
   SETTINGS index_granularity=512
@@ -810,7 +810,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.groups', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.groups', '{replica}-{shard}', '_timestamp')
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -831,7 +831,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.person', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person', '{replica}-{shard}', '_timestamp')
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -851,7 +851,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id', '{replica}-{shard}', '_sign')
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -872,7 +872,7 @@
   , _offset UInt64
   
   , _partition UInt64
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id2', '{replica}-{shard}', 'version')
   
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
@@ -892,7 +892,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.person_static_cohort', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_static_cohort', '{replica}-{shard}', '_timestamp')
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -916,7 +916,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.plugin_log_entries', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.plugin_log_entries', '{replica}-{shard}', '_timestamp')
   PARTITION BY plugin_id ORDER BY (team_id, id)
   
   SETTINGS index_granularity=512
@@ -943,7 +943,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.session_recording_events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.session_recording_events', '{replica}', '_timestamp')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   

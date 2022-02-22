@@ -1,7 +1,7 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, ReplicationScheme, TableEngine, kafka_engine, table_engine
 
 EVENTS_TABLE = "events"
 
@@ -46,7 +46,10 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 ).format(
     table_name=EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    # :TODO: Note that this is out of sync with proper setup on sharded setups.
+    engine=table_engine(
+        EVENTS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree, replication_scheme=ReplicationScheme.SHARDED
+    ),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)"

@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, TableEngine, kafka_engine, table_engine, ttl_period
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -40,7 +40,7 @@ SETTINGS index_granularity=512
     table_name=DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=table_engine(DEAD_LETTER_QUEUE_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(DEAD_LETTER_QUEUE_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
