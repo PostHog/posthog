@@ -69,7 +69,7 @@ jobs:
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
 
@@ -113,7 +113,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
 
             - name: Start stack with Docker Compose
               run: |
@@ -123,18 +123,12 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: ${{ inputs.python-version }}
-
-            - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
-              if: ${{ inputs.saml }}
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  python-version: 3.8.5
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-${{ inputs.cache-id }}
+                  custom_cache_key_element: v1-
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -198,7 +192,7 @@ jobs:
                       concurrency: 1
                       group: 1
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
 
