@@ -4,10 +4,12 @@ from ee.kafka_client.topics import KAFKA_EVENTS
 
 from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, ReplicationScheme, TableEngine, kafka_engine, table_engine
 
-EVENTS_TABLE = "events"
+EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
-TRUNCATE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+TRUNCATE_EVENTS_TABLE_SQL = (
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+)
+DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
@@ -45,11 +47,11 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 {storage_policy}
 """
 ).format(
-    table_name=EVENTS_TABLE,
+    table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     # :TODO: Note that this is out of sync with proper setup on sharded setups.
     engine=table_engine(
-        EVENTS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree, replication_scheme=ReplicationScheme.SHARDED
+        EVENTS_DATA_TABLE(), "_timestamp", TableEngine.ReplacingMergeTree, replication_scheme=ReplicationScheme.SHARDED
     ),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
@@ -58,7 +60,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 )
 
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE,
+    table_name="kafka_" + EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
@@ -83,7 +85,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=EVENTS_TABLE, cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
+    table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
 )
 
 INSERT_EVENT_SQL = """

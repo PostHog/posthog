@@ -732,7 +732,7 @@
 # name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer.$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer.$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer.$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer.$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer.$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer.$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer.test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'\n\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMM(timestamp)\nORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))\nSAMPLE BY cityHash64(distinct_id)\n\n]
   '
   
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER posthog
   (
       uuid UUID,
       event VARCHAR,
@@ -756,7 +756,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', '_timestamp')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events', '{replica}', '_timestamp')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)

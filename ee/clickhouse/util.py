@@ -61,7 +61,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute(DROP_EVENTS_TABLE_SQL)
+        sync_execute(DROP_EVENTS_TABLE_SQL())
         sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
@@ -72,7 +72,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def tearDown(self):
         super().tearDown()
-        sync_execute(DROP_EVENTS_TABLE_SQL)
+        sync_execute(DROP_EVENTS_TABLE_SQL())
         sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
