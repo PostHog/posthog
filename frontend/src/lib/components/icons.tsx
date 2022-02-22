@@ -223,6 +223,15 @@ export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Elemen
     )
 }
 
+/** Material Design Swap Horiz Less icon. */
+export function IconSwapHoriz({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6.99 11-3.99 4 3.99 4v-3h7.01v-2h-7.01zm14.01-2-3.99-4v3h-7.01v2h7.01v3z" fill="currentColor" />
+        </svg>
+    )
+}
+
 /** Material Design Chevron Left icon. */
 export function IconChevronLeft(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -315,6 +324,19 @@ export function IconSettings({ style }: { style?: CSSProperties }): JSX.Element 
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="m19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.09-.16-.26-.25-.44-.25-.06 0-.12.01-.17.03l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65c-.03-.24-.24-.42-.49-.42h-4.00004c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.06-.02-.12-.03-.18-.03-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.09.16.26.25.44.25.06 0 .12-.01.17-.03l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4.00004c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64zm-1.98-1.71c.04.31.05.52.05.73s-.02.43-.05.73l-.14 1.13.89.7 1.08.84-.7 1.21-1.27-.51-1.04-.42-.9.68c-.43.32-.84.56-1.25.73l-1.06.43-.16 1.13-.2 1.35h-1.4l-.19-1.35-.16-1.13-1.06004-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7-1.06.43-1.27.51-.7-1.21 1.08-.84.89-.7-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13-.89-.7-1.08-.84.7-1.21 1.27.51 1.04.42.9-.68c.43-.32.84-.56 1.25-.73l1.06004-.43.16-1.13.2-1.35h1.39l.19 1.35.16 1.13 1.06.43c.43.18.83.41 1.23.71l.91.7 1.06-.43 1.27-.51.7 1.21-1.07.85-.89.7zm-5.45-3.27c-2.21004 0-4.00004 1.79-4.00004 4s1.79 4 4.00004 4c2.21 0 4-1.79 4-4s-1.79-4-4-4zm0 6c-1.1 0-2.00004-.9-2.00004-2s.90004-2 2.00004-2 2 .9 2 2-.9 2-2 2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Dns icon. */
+export function IconServer({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
+            <path d="m0 0h24v24h-24z" fill="none" />
+            <path
+                d="m19 15v4h-14v-4zm1-2h-16c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zm-13 5.5c-.82 0-1.5-.67-1.5-1.5s.68-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm12-13.5v4h-14v-4zm1-2h-16c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zm-13 5.5c-.82 0-1.5-.67-1.5-1.5s.68-1.5 1.5-1.5 1.5.68 1.5 1.5-.67 1.5-1.5 1.5z"
                 fill="currentColor"
             />
         </svg>
@@ -550,7 +572,6 @@ export function IconEmojiPeople(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
             fill="currentColor"
             {...props}
         >
-            <path d="m0 0h24v24h-24z" fill="none" />
             <circle cx="12" cy="4" r="2" />
             <path d="m15.89 8.11c-.39-.39-1.06-1.11-2.36-1.11-.21 0-1.42 0-2.54 0-2.75-.01-4.99-2.25-4.99-5h-2c0 3.16 2.11 5.84 5 6.71v13.29h2v-6h2v6h2v-11.95l3.95 3.95 1.41-1.41z" />
         </svg>
@@ -688,7 +709,6 @@ export function IconCopy(props: React.SVGProps<SVGSVGElement>): JSX.Element {
 export function IconOpenInNew(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
-            <path d="m0 0h24v24h-24z" fill="none" />
             <path
                 d="m19 19h-14v-14h7v-2h-7c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-5-16v2h3.59l-9.83 9.83 1.41 1.41 9.83-9.83v3.59h2v-7z"
                 fill="currentColor"

@@ -251,8 +251,8 @@ class InviteSignupViewset(generics.CreateAPIView):
         )
 
 
-## Social Signup
-## views & serializers
+# Social Signup
+# views & serializers
 class SocialSignupSerializer(serializers.Serializer):
     """
     Signup serializer when the account is created using social authentication.

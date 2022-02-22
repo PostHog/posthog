@@ -221,7 +221,7 @@ def is_cache_backend_connected() -> bool:
         # convenient less fragile way to do this. It would be nice if we could
         # have a `check_health` exposed in some generic way, as the python redis
         # client does appear to have something for this task.
-        cache.has_key("_connection_test_key")
+        cache.has_key("_connection_test_key")  # noqa: W601
     except (redis.exceptions.RedisError, django_redis.exceptions.ConnectionInterrupted):
         # NOTE: There doesn't seems to be a django cache specific exception
         # here, so we will just have to add which ever exceptions the cache

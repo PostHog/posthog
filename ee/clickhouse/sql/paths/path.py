@@ -8,7 +8,7 @@ PATH_ARRAY_QUERY = """
             if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
             path_dropoff_key
         FROM (
-        
+
             SELECT person_id
                 , joined_path_tuple.1 as path
                 , joined_path_tuple.2 as conversion_time

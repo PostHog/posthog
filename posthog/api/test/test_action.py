@@ -276,7 +276,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_update_tags_on_non_ee_not_allowed(self):
@@ -289,7 +290,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics.",},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
 
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
@@ -317,5 +319,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
             {"name": "action new name", "description": "Internal system metrics.", "tags": []},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(Action.objects.all().count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 1)

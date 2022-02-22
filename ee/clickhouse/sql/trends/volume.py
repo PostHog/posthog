@@ -9,7 +9,7 @@ SELECT {aggregate_operation} as data FROM ({event_query}) events
 ACTIVE_USER_SQL = """
 SELECT counts as total, timestamp as day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts FROM (
-        SELECT toStartOfDay(timestamp) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp 
+        SELECT toStartOfDay(timestamp) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
         SELECT toStartOfDay(timestamp) as timestamp, person_id FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, person_id

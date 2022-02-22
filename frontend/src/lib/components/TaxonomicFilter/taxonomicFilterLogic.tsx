@@ -18,7 +18,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -106,7 +106,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
-        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames],
+        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         taxonomicGroups: [
             (selectors) => [
                 selectors.currentTeamId,
@@ -154,8 +154,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     type: TaxonomicFilterGroupType.EventProperties,
                     endpoint: combineUrl(
                         `api/projects/${teamId}/property_definitions`,
-                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
+                            ? { event_names: eventNames }
+                            : {}
                     ).url,
+                    scopedEndpoint:
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] && eventNames.length > 0
+                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                  event_names: eventNames,
+                                  is_event_property: true,
+                              }).url
+                            : undefined,
+                    expandLabel: ({ count, expandedCount }) =>
+                        `Show ${pluralize(
+                            expandedCount - count,
+                            'property',
+                            'properties'
+                        )} that haven't been seen with ${pluralize(
+                            eventNames.length,
+                            'this event',
+                            'these events',
+                            false
+                        )}`,
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
@@ -304,17 +324,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     ])
                 ),
         ],
-        totalCounts: [
+        infiniteListCounts: [
             (s) => [
                 (state, props) =>
                     Object.fromEntries(
                         Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
                             groupType,
-                            logic.isMounted() ? logic.selectors.totalCount(state, logic.props) : 0,
+                            logic.isMounted() ? logic.selectors.totalListCount(state, logic.props) : 0,
                         ])
                     ),
             ],
-            (totalCounts) => totalCounts,
+            (infiniteListCounts) => infiniteListCounts,
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -386,10 +406,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
-                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
                     actions.setActiveTab(taxonomicGroupTypes[newIndex])
                     return
                 }
@@ -397,10 +417,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
-                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
                     actions.setActiveTab(taxonomicGroupTypes[newIndex])
                     return
                 }
@@ -408,14 +428,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         setSearchQuery: () => {
-            const { activeTaxonomicGroup, totalCounts } = values
+            const { activeTaxonomicGroup, infiniteListCounts } = values
 
             // Taxonomic group with a local data source, zero results after searching.
             // Open the next tab.
             if (
                 activeTaxonomicGroup &&
                 !activeTaxonomicGroup.endpoint &&
-                totalCounts[activeTaxonomicGroup.type] === 0
+                infiniteListCounts[activeTaxonomicGroup.type] === 0
             ) {
                 actions.tabRight()
             }
@@ -423,7 +443,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && results.count === 0) {
+            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
                 actions.tabRight()
             }
         },

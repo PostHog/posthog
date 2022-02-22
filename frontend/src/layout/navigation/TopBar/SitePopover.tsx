@@ -160,12 +160,12 @@ function SystemStatus(): JSX.Element {
                     {systemStatus ? 'All systems operational' : 'Potential system issue'}
                 </div>
                 <Link
-                    to={urls.systemStatus()}
+                    to={urls.instanceStatus()}
                     onClick={closeSitePopover}
                     className="SitePopover__side-link"
                     data-attr="system-status-badge"
                 >
-                    System status
+                    Instance status
                 </Link>
             </>
         </LemonRow>

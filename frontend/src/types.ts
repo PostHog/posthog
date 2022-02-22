@@ -688,7 +688,7 @@ export interface InsightModel {
     dive_dashboard?: number
     result: any | null
     updated_at: string
-    tags: string[]
+    tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
@@ -713,7 +713,7 @@ export interface DashboardType {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    tags: string[]
+    tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
 }
@@ -1338,6 +1338,7 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number
@@ -1491,6 +1492,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** Whether the user was autoswitched to the current item's team. */
+    switched_team: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

@@ -47,7 +47,7 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
         INSERT INTO {TEMPORARY_TABLE_NAME}
         SELECT *
         FROM {EVENTS_TABLE}
-        WHERE 
+        WHERE
             toYYYYMM(timestamp) >= {partition_gte} {lt_expression}
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
@@ -82,7 +82,7 @@ class Migration(AsyncMigrationDefinition):
                 ENGINE = ReplacingMergeTree(_timestamp)
                 PARTITION BY toYYYYMM(timestamp)
                 ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-                SAMPLE BY cityHash64(distinct_id) 
+                SAMPLE BY cityHash64(distinct_id)
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             )
@@ -174,11 +174,11 @@ class Migration(AsyncMigrationDefinition):
         events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
-        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
+        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM
             (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-        JOIN 
+        JOIN
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
-        ON event_table_size.jc=free_space.jc 
+        ON event_table_size.jc=free_space.jc
         """
         )
         event_size_to_free_space_ratio = result[0][0]
@@ -189,9 +189,9 @@ class Migration(AsyncMigrationDefinition):
         else:
             result = sync_execute(
                 f"""
-            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM 
+            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM
                 (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-            JOIN 
+            JOIN
                 (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
             ON event_table_size.jc=free_space.jc
             """
