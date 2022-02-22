@@ -27,6 +27,7 @@ export enum Scene {
     FeatureFlag = 'FeatureFlag',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
+    ProjectHomepage = 'ProjectHomepage',
     ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',

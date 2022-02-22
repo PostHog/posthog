@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -34,6 +36,7 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     connect: {
         logic: [router],
+        values: [featureFlagLogic, ['featureFlags']],
     },
     path: ['scenes', 'sceneLogic'],
     actions: {
@@ -150,7 +153,7 @@ export const sceneLogic = kea<sceneLogicType>({
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     },
-    urlToAction: ({ actions }) => {
+    urlToAction: ({ actions, values }) => {
         const mapping: Record<
             string,
             (
@@ -165,7 +168,12 @@ export const sceneLogic = kea<sceneLogicType>({
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect = redirects[path]
+                let redirect = redirects[path]
+                if (values.featureFlags[FEATURE_FLAGS.PROJECT_HOMEPAGE]) {
+                    if (path === '/') {
+                        redirect = urls.projectHomepage()
+                    }
+                }
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
