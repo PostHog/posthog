@@ -1493,7 +1493,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     /** Whether the user was autoswitched to the current item's team. */
-    switched_team: boolean
+    switched_team: TeamType['id'] | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
