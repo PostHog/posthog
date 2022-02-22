@@ -67,7 +67,7 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
-EVENTS_TABLE_MV_SQL = """
+EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {database}.{table_name}
 AS SELECT
