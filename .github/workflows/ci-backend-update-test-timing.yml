@@ -23,7 +23,7 @@ jobs:
         steps:
             - uses: actions/checkout@v2
 
-            - uses: ./.github/workflows/backend-tests-action
+            - uses: ./.github/actions/run-backend-tests
               with:
                   python-version: 3.8.5
                   ee: true

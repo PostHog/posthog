@@ -196,7 +196,7 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - uses: ./.github/workflows/backend-tests-action
+            - uses: ./.github/actions/run-backend-tests
               with:
                   cache-id: ${{ matrix.name }}
                   python-version: ${{ matrix.python-version }}
