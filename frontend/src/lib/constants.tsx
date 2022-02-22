@@ -116,7 +116,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
-    PROJECT_HOMEPAGE: 'project-homepage', // owner: @Twixes
+    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
