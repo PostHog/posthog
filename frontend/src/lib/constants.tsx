@@ -98,7 +98,6 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
-    EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
@@ -113,7 +112,7 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
+    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
 }
