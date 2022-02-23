@@ -1,8 +1,8 @@
 from django.conf import settings
 
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS
-
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, ReplicationScheme, TableEngine, kafka_engine, table_engine
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
@@ -50,9 +50,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     # :TODO: Note that this is out of sync with proper setup on sharded setups.
-    engine=table_engine(
-        EVENTS_DATA_TABLE(), "_timestamp", TableEngine.ReplacingMergeTree, replication_scheme=ReplicationScheme.SHARDED
-    ),
+    engine=ReplacingMergeTree(EVENTS_DATA_TABLE(), ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)",

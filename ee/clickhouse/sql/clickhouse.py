@@ -1,21 +1,8 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
-from enum import Enum
+
 from typing import Literal
 
 from django.conf import settings
-
-
-class ReplicationScheme(str, Enum):
-    NOT_SHARDED = "NOT_SHARDED"
-    SHARDED = "SHARDED"
-    REPLICATED = "REPLICATED"
-
-
-# Note: This does not list every table engine, just ones used in our codebase
-class TableEngine(str, Enum):
-    ReplacingMergeTree = "ReplacingMergeTree"
-    CollapsingMergeTree = "CollapsingMergeTree"
-
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
@@ -39,30 +26,6 @@ KAFKA_COLUMNS = """
 , _timestamp DateTime
 , _offset UInt64
 """
-
-
-# Relevant documentation:
-# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/
-# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replacingmergetree/
-# - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/
-def table_engine(
-    table: str,
-    version_column: str,
-    engine_type: TableEngine,
-    replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED,
-) -> str:
-    if not settings.CLICKHOUSE_REPLICATION:
-        replication_scheme = ReplicationScheme.NOT_SHARDED
-
-    if replication_scheme == ReplicationScheme.NOT_SHARDED:
-        return f"{engine_type}({version_column})"
-
-    if replication_scheme == ReplicationScheme.SHARDED:
-        shard_key, replica_key = "{shard}", "{replica}"
-    else:
-        shard_key, replica_key = "noshard", "{replica}-{shard}"
-
-    return f"Replicated{engine_type}('/clickhouse/tables/{shard_key}/posthog.{table}', '{replica_key}', '{version_column}')"
 
 
 def kafka_engine(

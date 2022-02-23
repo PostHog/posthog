@@ -1,8 +1,8 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
+from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
-
-from .clickhouse import KAFKA_COLUMNS, TableEngine, kafka_engine, table_engine, ttl_period
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
 
@@ -32,7 +32,7 @@ SETTINGS index_granularity=512
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=table_engine(PLUGIN_LOG_ENTRIES_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
+    engine=ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp"),
     ttl_period=ttl_period("timestamp", TTL_WEEKS),
 )
 

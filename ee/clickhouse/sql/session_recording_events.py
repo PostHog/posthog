@@ -1,7 +1,7 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
+from ee.clickhouse.sql.table_engines import ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-from .clickhouse import KAFKA_COLUMNS, ReplicationScheme, TableEngine, kafka_engine, table_engine, ttl_period
 
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 
@@ -46,8 +46,8 @@ SETTINGS index_granularity=512
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
     # :TODO: Note that this is out of sync with proper setup on sharded setups.
-    engine=table_engine(
-        SESSION_RECORDING_EVENTS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree, ReplicationScheme.SHARDED
+    engine=ReplacingMergeTree(
+        SESSION_RECORDING_EVENTS_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
     ),
     ttl_period=ttl_period(),
 )

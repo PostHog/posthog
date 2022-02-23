@@ -1,7 +1,7 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, TableEngine, kafka_engine, table_engine
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -33,7 +33,7 @@ PERSONS_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
+    engine=ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -108,7 +108,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", TableEngine.CollapsingMergeTree),
+    engine=CollapsingMergeTree(PERSONS_DISTINCT_ID_TABLE, ver="_sign"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -174,7 +174,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", TableEngine.ReplacingMergeTree),
+    engine=ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version"),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
@@ -228,7 +228,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", TableEngine.ReplacingMergeTree),
+    engine=ReplacingMergeTree(PERSON_STATIC_COHORT_TABLE, ver="_timestamp"),
     storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
