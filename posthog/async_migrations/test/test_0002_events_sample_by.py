@@ -25,7 +25,7 @@ def mocked_execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optio
 
     from ee.clickhouse.client import sync_execute
 
-    settings = settings if settings else { "max_execution_time": timeout_seconds }
+    settings = settings if settings else {"max_execution_time": timeout_seconds}
 
     try:
         sync_execute(f"/* {query_id} */ " + sql, settings=settings)
