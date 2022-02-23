@@ -66,7 +66,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL())
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
@@ -77,7 +77,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL())
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
