@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
+import { AndOrPropertyFilter, AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function parseProperties(
@@ -17,6 +17,10 @@ export function parseProperties(
             type: 'event',
         }
     })
+}
+
+export function parsePropertyGroups(groups: AndOrPropertyFilter): AndOrPropertyFilter {
+    return groups || { groups: [] }
 }
 
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */

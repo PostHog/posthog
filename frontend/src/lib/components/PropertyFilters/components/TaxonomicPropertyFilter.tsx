@@ -31,6 +31,7 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    propertyGroupType,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -89,6 +90,7 @@ export function TaxonomicPropertyFilter({
                 disablePopover && 'row-on-page',
                 !disablePopover && ' in-dropdown large'
             )}
+            style={{ marginTop: 8 }}
         >
             {showInitialSearchInline ? (
                 taxonomicFilter
@@ -98,8 +100,14 @@ export function TaxonomicPropertyFilter({
                         {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
-                                <span className="text">where</span>
+                                <span className="primary-alt">
+                                    <b>where</b>
+                                </span>
                             </>
+                        ) : propertyGroupType ? (
+                            <div className="primary-alt">
+                                <b>{propertyGroupType}</b>
+                            </div>
                         ) : (
                             <span className="stateful-badge and" style={{ fontSize: '90%' }}>
                                 AND
