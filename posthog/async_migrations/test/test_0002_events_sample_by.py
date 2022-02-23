@@ -1,4 +1,5 @@
-from typing import Any
+from typing import Any, Optional
+from unittest import mock
 from uuid import uuid4
 
 import pytest
@@ -16,6 +17,20 @@ def execute_query(query: str) -> Any:
     from ee.clickhouse.client import sync_execute
 
     return sync_execute(query)
+
+
+def mocked_execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
+    if sql.startswith("OPTIMIZE TABLE"):
+        raise Exception()
+
+    from ee.clickhouse.client import sync_execute
+
+    settings = settings if settings else { "max_execution_time": timeout_seconds }
+
+    try:
+        sync_execute(f"/* {query_id} */ " + sql, settings=settings)
+    except Exception as e:
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 class Test0002EventsSampleBy(BaseTest):
@@ -89,6 +104,35 @@ class Test0002EventsSampleBy(BaseTest):
     # Run the full migration through
     @pytest.mark.ee
     def test_run_migration_in_full(self):
+        from ee.clickhouse.client import sync_execute
+
+        migration_successful = start_async_migration(MIGRATION_NAME)
+        sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
+
+        self.assertTrue(migration_successful)
+        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
+        self.assertEqual(sm.progress, 100)
+        self.assertEqual(sm.current_operation_index, 9)
+        errors = AsyncMigrationError.objects.filter(async_migration=sm)
+        self.assertEqual(errors.count(), 0)
+
+        create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
+        events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
+        backup_events_count_res = sync_execute(
+            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
+        )
+
+        self.assertTrue(
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            in create_table_res[0][0]
+        )
+
+        self.assertEqual(events_count_res[0][0], 5)
+        self.assertEqual(backup_events_count_res[0][0], 5)
+
+    @pytest.mark.ee
+    @mock.patch("posthog.async_migrations.utils.execute_op_clickhouse", side_effect=mocked_execute_op_clickhouse)
+    def test_run_migration_in_full_optimize_fails(self, _):
         from ee.clickhouse.client import sync_execute
 
         migration_successful = start_async_migration(MIGRATION_NAME)
