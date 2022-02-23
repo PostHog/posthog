@@ -54,7 +54,8 @@ class HistoricalVersion(models.Model):
     # the id of the item being versioned
     # this might be a numerical id, short id, or UUID, so each will be converted to string
     # it will be used to lookup rows with exactly matching item_ids
-    # it probably only needs to be 36 characters but 72 may be useful to avoid a migration in future
+    # it probably only needs to be 36 characters in order to hold a GUID
+    # but 72 may be useful to avoid a migration in future
     item_id = models.fields.CharField(max_length=72, null=False)
 
     # to avoid an integer version field for ordering revisions
