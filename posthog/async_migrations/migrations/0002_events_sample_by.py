@@ -216,11 +216,15 @@ class Migration(AsyncMigrationDefinition):
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
+                    {"database": CLICKHOUSE_DATABASE},
                 )
             )
         )
 
     def _events_table_engine(self) -> str:
-        rows = sync_execute("SELECT engine FROM system.tables WHERE database = 'posthog' AND name = 'events'")
+        rows = sync_execute(
+            "SELECT engine FROM system.tables WHERE database = %(database)s AND name = 'events'",
+            {"database": CLICKHOUSE_DATABASE},
+        )
         return rows[0][0]
