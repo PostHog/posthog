@@ -392,7 +392,7 @@ FROM (
     WHERE
         team_id = %(team_id)s AND
         is_deleted = 0 AND
-        {property_field} IS NOT NULL AND 
+        {property_field} IS NOT NULL AND
         {property_field} != ''
     ORDER BY id DESC
     LIMIT 100000

@@ -117,7 +117,7 @@ FROM events WHERE team_id = %(team_id)s
 
 SELECT_PROP_VALUES_SQL = """
 SELECT
-    DISTINCT {property_field} 
+    DISTINCT {property_field}
 FROM
     events
 WHERE
