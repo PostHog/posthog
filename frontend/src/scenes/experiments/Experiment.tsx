@@ -75,7 +75,6 @@ export function Experiment_(): JSX.Element {
         taxonomicGroupTypesForSelection,
         groupTypes,
         aggregationLabel,
-        experimentDataLoading,
         secondaryMetricResults,
     } = useValues(experimentLogic)
     const {
@@ -560,7 +559,7 @@ export function Experiment_(): JSX.Element {
                         </Button>
                     </Form>
                 </>
-            ) : !experimentDataLoading && !experimentResultsLoading && experimentData ? (
+            ) : experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width pb">
