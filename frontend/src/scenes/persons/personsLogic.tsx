@@ -269,7 +269,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
             }
         },
-        '/person/*': ({ _: personDistinctId }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
                     if (values.showSessionRecordings) {
@@ -280,15 +280,12 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
-                if (personDistinctId) {
+                if (rawPersonDistinctId) {
                     // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
-                    const decodedPersonDistinctId = personDistinctId && decodeURIComponent(personDistinctId)
+                    const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
 
-                    if (
-                        personDistinctId &&
-                        (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId))
-                    ) {
-                        actions.loadPerson(personDistinctId) // underscore contains the wildcard
+                    if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
+                        actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
                     }
                 }
             }
