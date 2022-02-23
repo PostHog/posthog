@@ -48,9 +48,7 @@ MERGE_TREE_TABLE_QUERIES = [query for query in CREATE_TABLE_QUERIES if "MergeTre
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=build_query)
 def test_create_table_query(query, snapshot):
-    if not isinstance(query, str):
-        query = query()
-    assert query == snapshot
+    assert build_query(query) == snapshot
 
 
 @pytest.mark.parametrize("query", MERGE_TREE_TABLE_QUERIES, ids=build_query)
@@ -58,20 +56,14 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     settings.CLICKHOUSE_REPLICATION = True
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
-    if not isinstance(query, str):
-        query = query()
-
-    assert query == snapshot
+    assert build_query(query) == snapshot
 
 
 @pytest.mark.parametrize("query", KAFKA_CREATE_TABLE_QUERIES, ids=build_query)
 def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings):
     settings.KAFKA_HOSTS_FOR_CLICKHOUSE = "test.kafka.broker:9092"
 
-    if not isinstance(query, str):
-        query = query()
-
-    assert query == snapshot
+    assert build_query(query) == snapshot
 
 
 def test_create_kafka_events_with_disabled_protobuf(snapshot, settings):
