@@ -27,9 +27,11 @@ class HistoryListItem:
 
 
 # from https://stackoverflow.com/a/4628446/222163
-def pairwise(t: List[HistoricalVersion]) -> Iterable[Tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
-    left = iter(t)
-    right = iter(t[1:])
+def pairwise(
+    historical_versions: List[HistoricalVersion],
+) -> Iterable[Tuple[HistoricalVersion, Union[HistoricalVersion, None]]]:
+    left = iter(historical_versions)
+    right = iter(historical_versions[1:])
     return zip_longest(left, right)
 
 
