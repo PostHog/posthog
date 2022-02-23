@@ -139,8 +139,6 @@ class OrganizationTeamInline(admin.TabularInline):
 class OrganizationAdmin(admin.ModelAdmin):
     fields = [
         "name",
-        "personalization",
-        "setup_section_2_completed",
         "created_at",
         "updated_at",
         "plugins_access_level",

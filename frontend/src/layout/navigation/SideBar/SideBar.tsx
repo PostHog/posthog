@@ -146,17 +146,6 @@ function Pages(): JSX.Element {
 
     return (
         <div className="Pages">
-            {currentOrganization?.setup.is_active && (
-                <>
-                    <PageButton
-                        title="Setup"
-                        icon={<IconSettings />}
-                        identifier={Scene.OnboardingSetup}
-                        to={urls.onboardingSetup()}
-                    />
-                    <LemonSpacer />
-                </>
-            )}
             <PageButton
                 icon={<IconGauge />}
                 identifier={Scene.Dashboards}

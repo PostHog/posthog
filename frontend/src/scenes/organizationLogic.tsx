@@ -9,7 +9,7 @@ import { OrganizationMembershipLevel } from '../lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 
 export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
+    Pick<OrganizationType, 'name' | 'domain_whitelist' | 'is_member_join_email_enabled'>
 >
 
 export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
