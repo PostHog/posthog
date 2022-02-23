@@ -18,9 +18,7 @@ operations = [
 ]
 
 if CLICKHOUSE_REPLICATION:
-    operations.extend(
-        [
-            migrations.RunSQL(WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-            migrations.RunSQL(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-        ]
-    )
+    operations = [
+        migrations.RunSQL(WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+        migrations.RunSQL(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    ] + operations
