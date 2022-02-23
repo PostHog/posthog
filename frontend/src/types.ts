@@ -60,17 +60,20 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
-/* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicType {
-    id: number
+interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
     email: string
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserBasicType extends UserBaseType {
+    id: number
+}
+
 /** Full User model. */
-export interface UserType extends UserBasicType {
+export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
