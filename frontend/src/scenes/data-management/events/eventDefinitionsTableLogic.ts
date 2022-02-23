@@ -5,6 +5,7 @@ import api from 'lib/api'
 
 import { isPostHogProp } from 'lib/components/PropertyKeyInfo'
 import { toParams } from 'lib/utils'
+import { encodeParams } from 'kea-router'
 interface DefinitionsPaginatedResponse {
     count: number
     next: string | null
@@ -84,9 +85,13 @@ export const eventDefinitionsTableLogic = kea<
                     if (definition.id in values.eventPropertiesCacheMap) {
                         return values.eventPropertiesCacheMap
                     }
-                    let response = await api.get(`api/projects/@current/property_definitions/?event=${definition.name}`)
+                    let response = await api.get(
+                        `api/projects/@current/property_definitions/?${encodeParams({
+                            event_names: [definition.name],
+                            is_event_property: true,
+                        })}`
+                    )
                     // Fetch one event to populate properties with examples
-
                     const exampleEventProperties = (
                         await api.get(
                             `api/projects/@current/events/?${toParams({
