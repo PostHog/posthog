@@ -700,6 +700,27 @@
   
   '
 ---
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')\n\n    \n) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+  
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  '
+---
 # name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMMDD(timestamp)\nORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)\n\nSETTINGS index_granularity=512\n]
   '
   
@@ -744,6 +765,25 @@
       
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER posthog
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
   
   '
 ---
@@ -803,7 +843,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
@@ -973,7 +1013,7 @@
 # name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMMDD(timestamp)\nORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)\n\nSETTINGS index_granularity=512\n]
   '
   
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER posthog
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),

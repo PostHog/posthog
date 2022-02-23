@@ -48,7 +48,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 ).format(
     table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=ReplacingMergeTree(EVENTS_DATA_TABLE(), ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED),
+    engine=ReplacingMergeTree("events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
