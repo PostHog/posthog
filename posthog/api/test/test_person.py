@@ -131,9 +131,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
         cohort.insert_users_by_list(["1", "123"])
 
-        with freeze_time("2020-01-10"):
-            cohort.calculate_people_ch(pending_version=0)
-
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
 
