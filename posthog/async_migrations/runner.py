@@ -116,7 +116,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     if not migration_instance:
         try:
-            migration_instance = AsyncMigration.objects.get(name=migration_name, status__in=[MigrationStatus.Running, MigrationStatus.Starting])
+            migration_instance = AsyncMigration.objects.get(name=migration_name, status=MigrationStatus.Running)
         except AsyncMigration.DoesNotExist:
             return (False, False)
     else:
