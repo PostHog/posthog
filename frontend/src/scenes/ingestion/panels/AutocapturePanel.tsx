@@ -43,10 +43,11 @@ export function AutocapturePanel(): JSX.Element {
                 <Collapse onChange={handlePanelChange}>
                     <Collapse.Panel
                         header={
-                            <>
-                                <BulbOutlined style={{ color: 'var(--warning)' }} /> <b>Just exploring?</b> Immediately
-                                run PostHog on your website for some initial exploring.
-                            </>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <BulbOutlined style={{ color: 'var(--warning)' }} />{' '}
+                                <b className="mr-05 ml-025">Just exploring?</b> Immediately run PostHog on your website
+                                for some initial exploring.
+                            </div>
                         }
                         key="bookmarklet"
                     >
