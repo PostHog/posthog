@@ -116,18 +116,22 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     if not migration_instance:
         try:
-            migration_instance = AsyncMigration.objects.get(name=migration_name, status=MigrationStatus.Running)
+            migration_instance = AsyncMigration.objects.get(name=migration_name, status__in=[MigrationStatus.Running, MigrationStatus.Starting])
         except AsyncMigration.DoesNotExist:
             return (False, False)
     else:
         migration_instance.refresh_from_db()
 
     assert migration_instance is not None
+    
 
     migration_definition = get_async_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
         complete_migration(migration_instance)
         return (False, True)
+
+    if migration_instance.status == MigrationStatus.Starting:
+        update_async_migration(migration_instance, status=MigrationStatus.Running)
 
     op = migration_definition.operations[migration_instance.current_operation_index]
 
