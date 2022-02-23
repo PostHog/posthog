@@ -116,9 +116,6 @@ interface OrganizationMetadata {
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
-    personalization: PersonalizationData
-    setup: SetupState
-    setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -1000,25 +997,6 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
-
-export type PersonalizationData = Record<string, string | string[] | null>
-
-interface EnabledSetupState {
-    is_active: true // Whether the onbarding setup is currently active
-    current_section: number
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
-    has_invited_team_members: boolean
-}
-
-interface DisabledSetupState {
-    is_active: false
-    current_section: null
-}
-
-export type SetupState = EnabledSetupState | DisabledSetupState
-
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string

@@ -263,8 +263,7 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/personalization')
+                        !location.pathname.startsWith('/ingestion')
                     ) {
                         console.log('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())

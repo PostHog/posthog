@@ -4,7 +4,6 @@ import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const ingestionLogic = kea<ingestionLogicType>({
@@ -126,9 +125,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
             })
         },
         updateCurrentTeamSuccess: () => {
-            const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
-            // If user is under the new setup state (#2822), take them back to start section II of the setup
-            window.location.href = usingOnboardingSetup ? '/setup' : '/'
+            window.location.href = '/'
         },
     }),
 })

@@ -53,9 +53,7 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',
