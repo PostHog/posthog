@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from ee.clickhouse.sql.table_engines import ReplacingMergeTree, ReplicationScheme
+from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
@@ -38,7 +38,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
 
 """
 
-# :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
@@ -49,7 +48,6 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 ).format(
     table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
-    # :TODO: Note that this is out of sync with proper setup on sharded setups.
     engine=ReplacingMergeTree(EVENTS_DATA_TABLE(), ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
@@ -58,7 +56,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 )
 
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_DATA_TABLE(),
+    table_name="kafka_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
@@ -69,7 +67,7 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW events_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
@@ -81,9 +79,31 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM {database}.kafka_{table_name}
+FROM {database}.kafka_events
 """.format(
-    table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+)
+
+# Distributed engine tables are only created if CLICKHOUSE_REPLICATED
+
+# This table is responsible for writing to sharded_events based on a sharding key.
+WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="writable_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields="",
+    materialized_columns="",
+)
+
+# This table is responsible for reading from events on a cluster setting
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields="",
+    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
 )
 
 INSERT_EVENT_SQL = (
