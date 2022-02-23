@@ -211,16 +211,15 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] &&
-                (hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                    !preflight?.instance_preferences?.disable_paid_fs) && (
-                    <PageButton
-                        icon={<IconExperiment />}
-                        identifier={Scene.Experiments}
-                        to={urls.experiments()}
-                        highlight="beta"
-                    />
-                )}
+            {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                !preflight?.instance_preferences?.disable_paid_fs) && (
+                <PageButton
+                    icon={<IconExperiment />}
+                    identifier={Scene.Experiments}
+                    to={urls.experiments()}
+                    highlight="beta"
+                />
+            )}
             {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
