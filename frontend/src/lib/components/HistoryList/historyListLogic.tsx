@@ -83,12 +83,6 @@ function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
     }, [] as HumanizedHistoryListItem[])
 }
 
-/**
- * Since we may be tracking history for a number of items on the same page
- * E.g. insights on a dashboard
- * We have a single logic for all items of a type which caches its responses
- *
- */
 export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps, HumanizedHistoryListItem>>({
     path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
     props: {} as HistoryListLogicProps,
