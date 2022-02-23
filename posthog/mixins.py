@@ -1,6 +1,4 @@
-import copy
-from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 import structlog
 from rest_framework import response, status
@@ -11,7 +9,7 @@ from posthog.models import HistoricalVersion
 logger = structlog.get_logger(__name__)
 
 
-def _should_log_history(instance: Any) -> bool:
+def _should_save_historical_version(instance: Any) -> bool:
     return instance.__class__.__name__ in ["FeatureFlag"]
 
 
@@ -33,7 +31,7 @@ class AnalyticsDestroyModelMixin:
 
         report_user_action(request.user, f"{instance._meta.verbose_name} deleted", metadata)
 
-        if _should_log_history(instance) and metadata:
+        if _should_save_historical_version(instance) and metadata:
             """
             This is mixed in to API view sets so has team_id available
             """
