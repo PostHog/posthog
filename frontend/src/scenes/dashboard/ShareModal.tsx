@@ -98,15 +98,15 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
         dashboard && (
             <>
                 <h5>Collaboration settings</h5>
-                {(!canEditDashboard || !canRestrictDashboard) && (
-                    <InfoMessage>
-                        {canEditDashboard
-                            ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
-                            : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                    </InfoMessage>
-                )}
                 <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING} style={{ marginTop: '0.75rem' }}>
                     <section>
+                        {(!canEditDashboard || !canRestrictDashboard) && (
+                            <InfoMessage>
+                                {canEditDashboard
+                                    ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
+                                    : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
+                            </InfoMessage>
+                        )}
                         <LemonSelect
                             value={dashboard.effective_restriction_level}
                             onChange={(newValue) =>
