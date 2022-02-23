@@ -369,7 +369,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             (dashboard, user, currentTeam): boolean =>
                 !!dashboard &&
                 !!user &&
-                (user.uuid == dashboard.created_by?.uuid ||
+                (user.uuid === dashboard.created_by?.uuid ||
                     (!!currentTeam?.effective_membership_level &&
                         currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin)),
         ],
