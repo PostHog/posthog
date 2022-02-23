@@ -20,15 +20,6 @@
                 "created_at": "2021-02-10T07:45:03.611692Z",
                 "updated_at": "2021-11-10T09:39:37.109828Z",
                 "membership_level": 15,
-                "personalization": {
-                    "role": "engineer",
-                    "products": ["web", "backend", "website"],
-                    "technical": "technical"
-                },
-                "setup": {
-                    "is_active": false,
-                    "current_section": null
-                },
                 "plugins_access_level": 9,
                 "teams": [
                     {
@@ -153,15 +144,6 @@
                     "created_at": "2021-02-10T07:45:03.611692Z",
                     "updated_at": "2021-11-10T09:39:37.109828Z",
                     "membership_level": 15,
-                    "personalization": {
-                        "role": "engineer",
-                        "products": ["web", "backend", "website"],
-                        "technical": "technical"
-                    },
-                    "setup": {
-                        "is_active": false,
-                        "current_section": null
-                    },
                     "plugins_access_level": 9,
                     "teams": [
                         {
@@ -16287,21 +16269,6 @@
                             "first_name": "Marius",
                             "email": "marius@posthog.com"
                         }
-                    },
-                    {
-                        "id": "01791516-3240-0000-b061-2be23da5efb6",
-                        "name": "personalization finalized",
-                        "owner": {
-                            "distinct_id": "",
-                            "first_name": "",
-                            "email": ""
-                        },
-                        "description": null,
-                        "tags": null,
-                        "volume_30_day": 0,
-                        "query_usage_30_day": 0,
-                        "updated_at": null,
-                        "updated_by": null
                     },
                     {
                         "id": "01791516-3264-0000-93b5-026933998d7b",

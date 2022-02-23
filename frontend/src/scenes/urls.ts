@@ -2,6 +2,7 @@
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
+// Sync the paths with AutoProjectMiddleware!
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
@@ -52,9 +53,7 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',

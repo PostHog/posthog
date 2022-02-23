@@ -167,8 +167,8 @@ export async function createUserTeamAndOrganization(
         plugins_access_level: 9,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        personalization: '{}',
-        setup_section_2_completed: true,
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
         available_features: [],
         domain_whitelist: [],

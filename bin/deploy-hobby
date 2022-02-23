@@ -9,7 +9,17 @@ echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
 echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
 echo ""
-echo "Let's first start by getting the exact domain PostHog will be installed on"
+while true; do
+    echo "Should we setup a TLS certificate for you using Let's Encrypt?"
+    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n" 
+    read -p "" yn
+    case $yn in
+        [Yy]* ) export USE_SELF_SIGNED_CERT=0; break ;;
+        [Nn]* ) export USE_SELF_SIGNED_CERT=1; break ;;
+        * ) echo "Please answer yes or no." ;;
+    esac
+done
+echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
 echo "ie: test.posthog.net"
@@ -47,9 +57,16 @@ cd ..
 
 
 # rewrite caddyfile
+export TLS_BLOCK=""
+if [[ $USE_SELF_SIGNED_CERT -eq 1 ]]; then
+    echo "Using a self signed certificate as requested"
+    export TLS_BLOCK="tls internal"
+fi
+
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 $DOMAIN, :80, :443 {
+$TLS_BLOCK
 reverse_proxy http://web:8000
 }
 EOF
@@ -61,17 +78,41 @@ SENTRY_DSN=$SENTRY_DSN
 DOMAIN=$DOMAIN
 EOF
 
-
 # write entrypoint
 rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
+/compose/wait
 ./bin/migrate
 ./bin/docker-server
 ./bin/docker-frontend
 EOF
 chmod +x compose/start
+
+# write wait script
+cat > compose/wait <<EOF
+#!/usr/bin/env python3
+
+import socket
+import time
+
+def loop():
+    print("Waiting for ClickHouse and Postgres to be ready") 
+    try: 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('clickhouse', 9000))
+        print("Clickhouse is ready") 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('db', 5432))
+        print("Postgres is ready") 
+    except ConnectionRefusedError as e:
+        time.sleep(5) 
+        loop()
+
+loop()
+EOF
+chmod +x compose/wait
 
 # setup docker
 echo "Setting up Docker"
@@ -100,10 +141,12 @@ curl -L --header "Content-Type: application/json" -d '{
 }' https://app.posthog.com/batch/
 
 # start up the stack
+echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
+echo "Starting the stack!"
 sudo -E docker-compose -f docker-compose.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"

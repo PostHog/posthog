@@ -223,6 +223,15 @@ export function IconUnfoldLess({ style }: { style?: CSSProperties }): JSX.Elemen
     )
 }
 
+/** Material Design Swap Horiz Less icon. */
+export function IconSwapHoriz({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6.99 11-3.99 4 3.99 4v-3h7.01v-2h-7.01zm14.01-2-3.99-4v3h-7.01v2h7.01v3z" fill="currentColor" />
+        </svg>
+    )
+}
+
 /** Material Design Chevron Left icon. */
 export function IconChevronLeft(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
@@ -563,7 +572,6 @@ export function IconEmojiPeople(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
             fill="currentColor"
             {...props}
         >
-            <path d="m0 0h24v24h-24z" fill="none" />
             <circle cx="12" cy="4" r="2" />
             <path d="m15.89 8.11c-.39-.39-1.06-1.11-2.36-1.11-.21 0-1.42 0-2.54 0-2.75-.01-4.99-2.25-4.99-5h-2c0 3.16 2.11 5.84 5 6.71v13.29h2v-6h2v6h2v-11.95l3.95 3.95 1.41-1.41z" />
         </svg>
@@ -701,7 +709,6 @@ export function IconCopy(props: React.SVGProps<SVGSVGElement>): JSX.Element {
 export function IconOpenInNew(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
-            <path d="m0 0h24v24h-24z" fill="none" />
             <path
                 d="m19 19h-14v-14h7v-2h-7c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-5-16v2h3.59l-9.83 9.83 1.41 1.41 9.83-9.83v3.59h2v-7z"
                 fill="currentColor"

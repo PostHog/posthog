@@ -2854,7 +2854,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             }
         )
         _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
-        self.assertEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
         self.assertCountEqual(

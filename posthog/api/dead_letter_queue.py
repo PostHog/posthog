@@ -132,11 +132,11 @@ def get_dead_letter_queue_events_last_24h() -> int:
 def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Union[str, int]]:
     return sync_execute(
         f"""
-        SELECT error, count(*) AS c 
-        FROM events_dead_letter_queue 
-        GROUP BY error 
-        ORDER BY c DESC, error DESC 
-        LIMIT {ROWS_LIMIT} 
+        SELECT error, count(*) AS c
+        FROM events_dead_letter_queue
+        GROUP BY error
+        ORDER BY c DESC, error DESC
+        LIMIT {ROWS_LIMIT}
         OFFSET {offset}
         """
     )
@@ -145,11 +145,11 @@ def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Un
 def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List[Union[str, int]]:
     return sync_execute(
         f"""
-        SELECT error_location, count(*) AS c 
-        FROM events_dead_letter_queue 
-        GROUP BY error_location 
-        ORDER BY c DESC, error_location DESC 
-        LIMIT {ROWS_LIMIT} 
+        SELECT error_location, count(*) AS c
+        FROM events_dead_letter_queue
+        GROUP BY error_location
+        ORDER BY c DESC, error_location DESC
+        LIMIT {ROWS_LIMIT}
         OFFSET {offset}
         """
     )
@@ -158,11 +158,11 @@ def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List
 def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Union[str, int]]:
     return sync_execute(
         f"""
-        SELECT toDate(error_timestamp) as day, count(*) AS c 
-        FROM events_dead_letter_queue 
-        GROUP BY day 
-        ORDER BY c DESC, day DESC 
-        LIMIT {ROWS_LIMIT} 
+        SELECT toDate(error_timestamp) as day, count(*) AS c
+        FROM events_dead_letter_queue
+        GROUP BY day
+        ORDER BY c DESC, day DESC
+        LIMIT {ROWS_LIMIT}
         OFFSET {offset}
         """
     )
@@ -171,10 +171,10 @@ def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Unio
 def get_dead_letter_queue_events_per_tag(offset: Optional[int] = 0) -> List[Union[str, int]]:
     return sync_execute(
         f"""
-        SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue 
+        SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue
         GROUP BY tag
-        ORDER BY c DESC, tag DESC 
-        LIMIT {ROWS_LIMIT} 
+        ORDER BY c DESC, tag DESC
+        LIMIT {ROWS_LIMIT}
         OFFSET {offset}
         """
     )

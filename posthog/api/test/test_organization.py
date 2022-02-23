@@ -23,31 +23,21 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response_data["available_features"], [])
         self.assertEqual(response_data["domain_whitelist"], ["hogflix.posthog.com"])
 
-    def test_current_organization_on_setup_mode(self):
-
-        self.organization.setup_section_2_completed = False
-        self.organization.save()
-
-        response_data = self.client.get("/api/organizations/@current").json()
-        self.assertEqual(response_data["setup"]["is_active"], True)
-        self.assertEqual(response_data["setup"]["current_section"], 1)
-        self.assertEqual(response_data["setup"]["any_project_completed_snippet_onboarding"], False)
-        self.assertEqual(response_data["setup"]["non_demo_team_id"], self.team.id)
+        # DEPRECATED attributes
+        self.assertNotIn("personalization", response_data)
+        self.assertNotIn("setup", response_data)
 
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
         self.organization.save()
         Team.objects.create(organization=self.organization, is_demo=True, ingested_event=True)
-        team2 = Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
+        Team.objects.create(organization=self.organization, completed_snippet_onboarding=True)
         self.team.is_demo = True
         self.team.save()
 
         response_data = self.client.get("/api/organizations/@current").json()
 
         self.assertEqual(response_data["id"], str(self.organization.id))
-        self.assertEqual(response_data["setup"]["any_project_ingested_events"], False)
-        self.assertEqual(response_data["setup"]["any_project_completed_snippet_onboarding"], True)
-        self.assertEqual(response_data["setup"]["non_demo_team_id"], team2.id)
 
     # Creating organizations
 
@@ -139,74 +129,6 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.domain_whitelist, [])
-
-    @patch("posthoganalytics.capture")
-    def test_member_can_complete_onboarding_setup(self, mock_capture):
-        non_admin = User.objects.create(email="non_admin@posthog.com", distinct_id=str(uuid.uuid4()))
-        non_admin.join(organization=self.organization)
-
-        for user in [self.user, non_admin]:
-            # Any user should be able to complete the onboarding
-            self.client.force_login(user)
-
-            self.organization.setup_section_2_completed = False
-            self.organization.save()
-
-            response = self.client.post(f"/api/organizations/@current/onboarding")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
-            self.organization.refresh_from_db()
-            self.assertEqual(self.organization.setup_section_2_completed, True)
-
-            # Assert the event was reported
-            mock_capture.assert_called_with(
-                user.distinct_id,
-                "onboarding completed",
-                properties={"team_members_count": 2},
-                groups={
-                    "instance": ANY,
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.uuid),
-                },
-            )
-
-    def test_cannot_complete_onboarding_for_another_org(self):
-        _, _, user = User.objects.bootstrap(
-            organization_name="Evil, Inc", email="another_one@posthog.com", password="12345678",
-        )
-
-        self.client.force_login(user)
-
-        self.organization.setup_section_2_completed = False
-        self.organization.save()
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
-
-        # Object did not change
-        self.organization.refresh_from_db()
-        self.assertEqual(self.organization.setup_section_2_completed, False)
-
-    @patch("posthoganalytics.capture")
-    def test_cannot_complete_already_completed_onboarding(self, mock_capture):
-        self.organization.setup_section_2_completed = True
-        self.organization.save()
-
-        response = self.client.post(f"/api/organizations/@current/onboarding")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Onboarding already completed.",
-                "attr": None,
-            },
-        )
-
-        # Assert nothing was reported
-        mock_capture.assert_not_called()
 
 
 def create_organization(name: str) -> Organization:
