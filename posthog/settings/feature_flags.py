@@ -11,7 +11,11 @@ env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
-    "new-paths-ui-edge-weights",
+    "dashboard-permissions",
+    "invite-teammates-prompt",
+    "stale-events",
+    "unseen-event-properties",
+    "insight-legends",
 ]
 
 if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG and not E2E_TESTING:
