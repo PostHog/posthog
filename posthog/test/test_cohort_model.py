@@ -90,6 +90,6 @@ class TestCohort(BaseTest):
         )
         flag.update_cohorts()
 
-        self.assertEqual(len(CohortPeople.objects.all()), 2)
+        self.assertEqual(CohortPeople.objects.count(), 2)
         batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
-        self.assertEqual(len(CohortPeople.objects.all()), 0)
+        self.assertEqual(CohortPeople.objects.count(), 0)

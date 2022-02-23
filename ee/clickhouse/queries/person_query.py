@@ -72,7 +72,7 @@ class ClickhousePersonQuery:
     @property
     def is_used(self):
         "Returns whether properties or any other columns are actually being queried"
-        if any(self._uses_person_id(prop) for prop in self._filter.properties):
+        if any(self._uses_person_id(prop) for prop in self._filter.property_groups_flat):
             return True
         if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.properties):
             return True
@@ -88,7 +88,7 @@ class ClickhousePersonQuery:
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
-        properties_to_query -= extract_tables_and_properties(self._filter.properties)
+        properties_to_query -= extract_tables_and_properties(self._filter.property_groups_flat)
 
         if self._entity is not None:
             properties_to_query -= extract_tables_and_properties(self._entity.properties)
@@ -100,7 +100,7 @@ class ClickhousePersonQuery:
     def _get_person_filters(self) -> Tuple[str, Dict]:
         conditions, params = [""], {}
 
-        properties = self._filter.properties + (self._entity.properties if self._entity else [])
+        properties = self._filter.property_groups_flat + (self._entity.properties if self._entity else [])
 
         for index, property in enumerate(properties):
             if property.type != "person":

@@ -14,14 +14,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-type WarningType =
-    | 'welcome'
-    | 'incomplete_setup_on_demo_project'
-    | 'incomplete_setup_on_real_project'
-    | 'demo_project'
-    | 'real_project_with_no_events'
-    | 'invite_teammates'
-    | null
+type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
 
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
@@ -167,21 +160,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     return null
                 }
 
-                if (
-                    organization.setup.is_active &&
-                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
-                    currentTeam?.is_demo
-                ) {
-                    // TODO: Currently unused
-                    return 'welcome'
-                } else if (organization.setup.is_active && currentTeam?.is_demo) {
-                    // TODO: Currently unused
-
-                    return 'incomplete_setup_on_demo_project'
-                } else if (organization.setup.is_active) {
-                    // TODO: Currently unused
-                    return 'incomplete_setup_on_real_project'
-                } else if (currentTeam?.is_demo && !preflight?.demo) {
+                if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide

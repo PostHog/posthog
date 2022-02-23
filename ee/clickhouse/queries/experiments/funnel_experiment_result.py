@@ -1,4 +1,4 @@
-import dataclasses
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from math import exp, sqrt
 from typing import List, Optional, Tuple, Type
@@ -20,7 +20,7 @@ from posthog.models.team import Team
 Probability = float
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     success_count: int
@@ -92,7 +92,7 @@ class ClickhouseFunnelExperimentResult:
             "filters": self.funnel._filter.to_dict(),
             "significance_code": significance_code,
             "expected_loss": loss,
-            "variants": [dataclasses.asdict(variant) for variant in [control_variant, *test_variants]],
+            "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, funnel_results):
@@ -116,10 +116,10 @@ class ClickhouseFunnelExperimentResult:
     ) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
-        
+
         Supports maximum 4 variants today
 
-        For each variant, we create a Beta distribution of conversion rates, 
+        For each variant, we create a Beta distribution of conversion rates,
         where alpha (successes) = success count of variant + prior success
         beta (failures) = failure count + variant + prior failures
 

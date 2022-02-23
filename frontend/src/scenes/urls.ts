@@ -9,6 +9,8 @@ To add a new URL to the front end:
  - add a scene configuration in scenes.ts
  - add a route to scene mapping in scenes.ts
  - and add a scene import in appScenes.ts
+
+   Sync the paths with AutoProjectMiddleware!
  */
 export const urls = {
     default: () => '/',
@@ -61,16 +63,15 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
+    instanceStatus: () => '/instance/status',
+    instanceSettings: () => '/instance/settings',
+    instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',
     deadLetterQueue: () => '/instance/dead_letter_queue',
 }

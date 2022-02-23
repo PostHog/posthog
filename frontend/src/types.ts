@@ -116,9 +116,6 @@ interface OrganizationMetadata {
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
-    personalization: PersonalizationData
-    setup: SetupState
-    setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -695,7 +692,7 @@ export interface InsightModel {
     dive_dashboard?: number
     result: any | null
     updated_at: string
-    tags: string[]
+    tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
@@ -720,7 +717,7 @@ export interface DashboardType {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    tags: string[]
+    tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
 }
@@ -738,10 +735,7 @@ export interface DashboardCollaboratorType {
 }
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
-export interface FusedDashboardCollaboratorType extends Pick<DashboardCollaboratorType, 'user'> {
-    level: DashboardPrivilegeLevel | 'owner' | 'project-admin'
-}
-
+export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1010,25 +1004,6 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
-
-export type PersonalizationData = Record<string, string | string[] | null>
-
-interface EnabledSetupState {
-    is_active: true // Whether the onbarding setup is currently active
-    current_section: number
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
-    has_invited_team_members: boolean
-}
-
-interface DisabledSetupState {
-    is_active: false
-    current_section: null
-}
-
-export type SetupState = EnabledSetupState | DisabledSetupState
-
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1348,6 +1323,7 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number
@@ -1501,6 +1477,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** Whether the user was autoswitched to the current item's team. */
+    switched_team: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

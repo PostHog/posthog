@@ -172,6 +172,7 @@ export const asyncMigrationsLogic = kea<
             }
         },
         updateSetting: async ({ settingKey, newValue }) => {
+            // TODO: Use systemStatusLogic.ts for consistency
             try {
                 await api.update(`/api/instance_settings/${settingKey}`, {
                     value: newValue,

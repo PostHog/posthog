@@ -44,8 +44,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.BillingSubscribed]: () => import('./billing/BillingSubscribed'),
     [Scene.Plugins]: () => import('./plugins/Plugins'),
-    [Scene.Personalization]: () => import('./onboarding/Personalization'),
-    [Scene.OnboardingSetup]: () => import('./onboarding/OnboardingSetup'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),

@@ -10,7 +10,6 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
@@ -18,6 +17,11 @@ class EventFiltersSQL(NamedTuple):
     aggregate_having_clause: str
     where_conditions: str
     params: Dict[str, Any]
+
+
+class SessionRecordingQueryResult(NamedTuple):
+    results: List
+    has_more_recording: bool
 
 
 class ClickhouseSessionRecordingList(ClickhouseEventQuery):
@@ -261,7 +265,9 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
         person_query, person_query_params = self._get_person_query()
-        prop_query, prop_params = self._get_props(self._filter.properties)
+
+        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
         person_id_clause, person_id_params = self._get_person_id_clause()

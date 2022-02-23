@@ -69,7 +69,7 @@ class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
     def filter_test_accounts(self) -> bool:
         setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
-        if setting == True or setting == "true":
+        if setting is True or setting == "true":
             return True
         return False
 
@@ -390,7 +390,7 @@ class IncludeRecordingsMixin(BaseParamMixin):
     @cached_property
     def include_recordings(self) -> bool:
         include_recordings = self._data.get("include_recordings")
-        return include_recordings == True or include_recordings == "true"
+        return include_recordings is True or include_recordings == "true"
 
     @include_dict
     def include_recordings_to_dict(self):

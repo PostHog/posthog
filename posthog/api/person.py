@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models import Q
 from django.db.models.query import Prefetch
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
@@ -37,6 +37,7 @@ from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
@@ -50,20 +51,13 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import cached_function
-from posthog.models import Cohort, Event, Filter, Person, User
-from posthog.models.cohort import CohortPeople
+from posthog.models import Cohort, Filter, Person, User
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.split_person import split_person
-from posthog.utils import (
-    convert_property_value,
-    flatten,
-    format_query_params_absolute_url,
-    is_anonymous_id,
-    relative_date_parse,
-)
+from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
@@ -478,8 +472,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
         if not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 

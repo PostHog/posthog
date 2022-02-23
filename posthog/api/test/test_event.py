@@ -1,14 +1,12 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Union
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
 
 import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -16,24 +14,16 @@ from rest_framework import status
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import AnalyticsDBMS
-from posthog.models import (
-    Action,
-    ActionStep,
-    Element,
-    Event,
-    Organization,
-    Person,
-    Team,
-    User,
-)
+from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
 from posthog.test.base import APIBaseTest
 
 
 def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid.uuid4()})
-    return Event(pk=create_event(**kwargs))
+    event_uuid = uuid.uuid4()
+    kwargs.update({"event_uuid": event_uuid})
+    create_event(**kwargs)
+    return str(event_uuid)
 
 
 def _create_person(**kwargs):
@@ -101,7 +91,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
         )
-        event2 = _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},)
+        event2_uuid = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
 
         expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
 
@@ -110,7 +102,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.id}/events/?properties=%s"
                 % (json.dumps([{"key": "$browser", "value": "Safari"}]))
             ).json()
-        self.assertEqual(response["results"][0]["id"], event2.pk)
+        self.assertEqual(response["results"][0]["id"], event2_uuid)
 
         properties = "invalid_json"
 
@@ -173,46 +165,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
-
-    def _signup_event(self, distinct_id: str):
-        sign_up = _create_event(
-            event="$autocapture",
-            distinct_id=distinct_id,
-            team=self.team,
-            elements=[Element(tag_name="button", text="Sign up!")],
-        )
-        return sign_up
-
-    def _pay_event(self, distinct_id: str):
-        sign_up = _create_event(
-            event="$autocapture",
-            distinct_id=distinct_id,
-            team=self.team,
-            elements=[
-                Element(tag_name="button", text="Pay $10"),
-                # check we're not duplicating
-                Element(tag_name="div", text="Sign up!"),
-            ],
-        )
-        return sign_up
-
-    def _movie_event(self, distinct_id: str):
-        sign_up = _create_event(
-            event="$autocapture",
-            distinct_id=distinct_id,
-            team=self.team,
-            elements=[
-                Element(
-                    tag_name="a",
-                    attr_class=["watch_movie", "play"],
-                    text="Watch now",
-                    attr_id="something",
-                    href="/movie",
-                ),
-                Element(tag_name="div", href="/movie"),
-            ],
-        )
-        return sign_up
 
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
@@ -302,11 +254,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2020-01-10"):
-            event1 = _create_event(team=self.team, event="sign up", distinct_id="2")
+            event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
         with freeze_time("2020-01-8"):
-            event2 = _create_event(team=self.team, event="sign up", distinct_id="2")
+            event2_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
         with freeze_time("2020-01-7"):
-            event3 = _create_event(team=self.team, event="random other event", distinct_id="2")
+            event3_uuid = _create_event(team=self.team, event="random other event", distinct_id="2")
 
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="sign up")
@@ -315,23 +267,23 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
         ).json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["id"], event1.pk)
+        self.assertEqual(response["results"][0]["id"], event1_uuid)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?before=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
         ).json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["id"], event2.pk)
+        self.assertEqual(response["results"][0]["id"], event2_uuid)
 
         # without action
         response = self.client.get(f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["id"], event1.pk)
+        self.assertEqual(response["results"][0]["id"], event1_uuid)
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2020-01-09T00:00:00.000Z").json()
         self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(response["results"][0]["id"], event2.pk)
-        self.assertEqual(response["results"][1]["id"], event3.pk)
+        self.assertEqual(response["results"][0]["id"], event2_uuid)
+        self.assertEqual(response["results"][1]["id"], event3_uuid)
 
     def test_pagination(self):
         with freeze_time("2021-10-10T12:03:03.829294Z"):
@@ -469,8 +421,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 0)
 
     def test_get_single_action(self):
-        event1 = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-        response = self.client.get(f"/api/projects/{self.team.id}/events/%s/" % event1.id)
+        event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+        response = self.client.get(f"/api/projects/{self.team.id}/events/%s/" % event1_uuid)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["event"], "sign up")
         self.assertEqual(response.json()["properties"], {"key": "test_val"})
@@ -532,23 +484,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_event_by_id(self):
-        event_id: Union[str, int] = 12345
-
-        if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
-            from ee.clickhouse.models.event import create_event
-
-            event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"
-            Event(
-                pk=create_event(
-                    team=self.team,
-                    event="event",
-                    distinct_id="1",
-                    timestamp=timezone.now(),
-                    event_uuid=uuid.UUID(event_id),
-                )
-            )
-        else:
-            _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), id=event_id)
+        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -592,16 +528,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertNotEqual(user2.team.id, self.team.id)
 
-        event1 = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-        event2 = _create_event(team=user2.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+        event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+        event2_uuid = _create_event(team=user2.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
 
-        response_team1 = self.client.get(f"/api/projects/{self.team.id}/events/{event1.id}/")
+        response_team1 = self.client.get(f"/api/projects/{self.team.id}/events/{event1_uuid}/")
         response_team1_token = self.client.get(
-            f"/api/projects/{self.team.id}/events/{event1.id}/", data={"token": self.team.api_token}
+            f"/api/projects/{self.team.id}/events/{event1_uuid}/", data={"token": self.team.api_token}
         )
 
         response_team2_event1 = self.client.get(
-            f"/api/projects/{self.team.id}/events/{event1.id}/", data={"token": user2.team.api_token}
+            f"/api/projects/{self.team.id}/events/{event1_uuid}/", data={"token": user2.team.api_token}
         )
 
         # The feature being tested here is usually used with personal API token auth,
@@ -609,7 +545,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.client.force_login(user2)
 
         response_team2_event2 = self.client.get(
-            f"/api/projects/{self.team.id}/events/{event2.id}/", data={"token": user2.team.api_token}
+            f"/api/projects/{self.team.id}/events/{event2_uuid}/", data={"token": user2.team.api_token}
         )
 
         self.assertEqual(response_team1.status_code, status.HTTP_200_OK)
