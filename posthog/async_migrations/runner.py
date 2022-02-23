@@ -123,7 +123,6 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         migration_instance.refresh_from_db()
 
     assert migration_instance is not None
-    
 
     migration_definition = get_async_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
