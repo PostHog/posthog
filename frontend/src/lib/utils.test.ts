@@ -29,6 +29,7 @@ import {
     numericOperatorMap,
     chooseOperatorMap,
     booleanOperatorMap,
+    roundToDecimal,
 } from './utils'
 import { ActionFilter, ElementType, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -167,6 +168,18 @@ describe('compactNumber()', () => {
         expect(compactNumber(null)).toEqual('-')
     })
 })
+
+describe('roundToDecimal()', () => {
+    it('formats number correctly', () => {
+        expect(roundToDecimal(null)).toEqual('-')
+        expect(roundToDecimal(293)).toEqual('293.00')
+        expect(roundToDecimal(102.121233)).toEqual('102.12')
+        expect(roundToDecimal(102.99999)).toEqual('103.00')
+        expect(roundToDecimal(1212)).toEqual('1212.00')
+        expect(roundToDecimal(1212, 3)).toEqual('1212.000')
+    })
+})
+
 describe('pluralize()', () => {
     it('handles singular cases', () => {
         expect(pluralize(1, 'member')).toEqual('1 member')
