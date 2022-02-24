@@ -99,7 +99,7 @@ export const propertyDefinitionsModel = kea<
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] => [...propertyStorage.results] || [],
+            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components

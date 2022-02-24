@@ -11,7 +11,7 @@ import {
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
 import { BindLogic, Provider, useActions, useValues } from 'kea'
-import { infiniteListLogic } from './infiniteListLogic'
+import { infiniteListLogic, NO_OPEN_POPUP } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
@@ -250,7 +250,12 @@ const selectedItemHasPopup = (
     )
 }
 
-export function InfiniteList(): JSX.Element {
+export interface InfiniteListProps {
+    popperPlacement?: 'left' | 'right'
+    popperAlwaysOpen?: boolean
+}
+
+export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = true }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -279,7 +284,7 @@ export function InfiniteList(): JSX.Element {
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
     const { styles, attributes, forceUpdate } = usePopper(referenceElement, popperElement, {
-        placement: 'right',
+        placement: popperPlacement,
         modifiers: [
             {
                 name: 'offset',
@@ -304,8 +309,13 @@ export function InfiniteList(): JSX.Element {
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
-            className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
-            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
+            className: clsx(
+                'taxonomic-list-row',
+                rowIndex === index && mouseInteractionsEnabled && 'hover',
+                isSelected && 'selected'
+            ),
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_OPEN_POPUP)),
+            onMouseLeave: () => (mouseInteractionsEnabled && !popperAlwaysOpen ? setIndex(NO_OPEN_POPUP) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
         }

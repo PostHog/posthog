@@ -7,6 +7,7 @@ import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -19,6 +20,8 @@ export function TaxonomicFilter({
     taxonomicGroupTypes,
     optionsFromProp,
     eventNames,
+    style,
+    infiniteListProps,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -49,7 +52,14 @@ export function TaxonomicFilter({
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-            <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
+            <div
+                className={clsx(
+                    'taxonomic-filter',
+                    taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
+                    !style?.width && 'force-minimum-width'
+                )}
+                style={style}
+            >
                 <div style={{ position: 'relative' }}>
                     <Input
                         style={{ flexGrow: 1 }}
@@ -118,7 +128,11 @@ export function TaxonomicFilter({
                         </Tooltip>
                     </span>
                 </div>
-                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
+                <InfiniteSelectResults
+                    focusInput={focusInput}
+                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                    infinitelistProps={infiniteListProps}
+                />
             </div>
         </BindLogic>
     )

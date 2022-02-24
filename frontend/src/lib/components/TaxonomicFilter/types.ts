@@ -1,6 +1,8 @@
 import { LogicWrapper } from 'kea'
 import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
+import { CSSProperties } from 'react'
+import { InfiniteListProps } from 'lib/components/TaxonomicFilter/InfiniteList'
 
 export interface SimpleOption {
     name: string
@@ -15,6 +17,8 @@ export interface TaxonomicFilterProps {
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
+    style?: CSSProperties
+    infiniteListProps?: InfiniteListProps
 }
 
 export type TaxonomicFilterValue = string | number
@@ -61,6 +65,7 @@ export enum TaxonomicFilterGroupType {
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
+    mouseInteractionsDisabled?: boolean
 }
 
 export interface ListStorage {
