@@ -2,7 +2,7 @@
 
 *Please describe. If this affects the frontend, include screenshots.*
 
-*Follow our [coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
+*Stay up-to-date with our [coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
 
 ## How did you test this code?
 
