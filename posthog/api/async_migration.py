@@ -103,10 +103,10 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {"success": False, "error": "Can't resume a migration that isn't in errored state",}, status=400,
             )
-        
+
         migration_instance.status = MigrationStatus.Running
         migration_instance.save()
-        
+
         trigger_migration(migration_instance, fresh_start=False)
         return response.Response({"success": True}, status=200)
 
