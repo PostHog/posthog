@@ -564,12 +564,18 @@ export function LEGACY_LineGraph({
                         return
                     }
 
-                    const xAxis = myLineChart.current.scales['x-axis-0'],
-                        _leftExtent = xAxis.left,
-                        _rightExtent = xAxis.right,
-                        ticks = xAxis.ticks.length,
-                        delta = _rightExtent - _leftExtent,
-                        _interval = delta / (ticks - 1)
+                    const xAxis = myLineChart.current.scales.x
+                    let _leftExtent = xAxis.left
+                    const _rightExtent = xAxis.right
+                    let ticks = xAxis.ticks.length
+                    const delta = _rightExtent - _leftExtent
+                    let _interval = delta / (ticks - 1)
+
+                    if (type === GraphType.Bar) {
+                        // With Bar graphs we want the annotations to be in the middle
+                        _interval = delta / ticks
+                        _leftExtent += _interval / 2
+                    }
                     if (offsetX < _leftExtent - _interval / 2) {
                         return
                     }
