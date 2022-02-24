@@ -69,7 +69,10 @@ export function LEGACY_LineGraph({
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     const annotationsCondition =
-        type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
+        (type === 'line' || type === 'bar') &&
+        datasets?.length > 0 &&
+        !inSharedMode &&
+        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const colors = getGraphColors(color === 'white')
 

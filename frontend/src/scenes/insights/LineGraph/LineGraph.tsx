@@ -123,7 +123,10 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     const annotationsCondition =
-        type === GraphType.Line && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
+        (type === GraphType.Line || type === GraphType.Bar) &&
+        datasets?.length > 0 &&
+        !inSharedMode &&
+        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const colors = getGraphColors(color === 'white')
     const isHorizontal = type === GraphType.HorizontalBar
@@ -181,11 +184,16 @@ function LineGraphV2(props: LineGraphProps): JSX.Element {
 
     function calculateBoundaries(): void {
         if (myLineChart.current) {
-            const boundaryLeftExtent = myLineChart.current.scales.x.left
+            let boundaryLeftExtent = myLineChart.current.scales.x.left
             const boundaryRightExtent = myLineChart.current.scales.x.right
             const boundaryTicks = myLineChart.current.scales.x.ticks.length
             const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-            const _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+            let _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+            if (type === GraphType.Bar) {
+                // With Bar graphs we want the annotations to be in the middle
+                _boundaryInterval = boundaryDelta / boundaryTicks
+                boundaryLeftExtent += _boundaryInterval / 2
+            }
             const boundaryTopExtent = myLineChart.current.scales.x.top + 8
             setLeftExtent(boundaryLeftExtent)
             setBoundaryInterval(_boundaryInterval)
