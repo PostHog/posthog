@@ -112,7 +112,7 @@ class Migration(AsyncMigrationDefinition):
             default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
             try:
                 execute_op_clickhouse(
-                    "OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
                     query_id,
                     settings={
                         "max_execution_time": default_timeout,
