@@ -25,7 +25,6 @@ Let's get you developing the plugin server in no time:
 
 1. To run migrations for the test, run `yarn setup:test:postgres` or `setup:test:clickhouse`. Run Postgres pipeline tests with `yarn test:postgres:{1,2}`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`. Run a specific test with `yarn run jest --runInBand --forceExit tests/postgres/vm.test.ts`.
 
-
 ## Alternative modes
 
 This program's main mode of operation is processing PostHog events, but there are also a few alternative utility ones.
