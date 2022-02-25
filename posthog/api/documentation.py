@@ -90,8 +90,5 @@ def custom_postprocessing_hook(result, generator, request, public):
         **result,
         "info": {"title": "PostHog API", "version": None, "description": "",},
         "paths": paths,
-        "x-tagGroups": [
-            {"name": "Analytics", "tags": ["analytics", "AML", "Customers Timeline"]},
-            {"name": "All endpoints", "tags": sorted(list(set(all_tags)))},
-        ],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(list(set(all_tags)))},],
     }
