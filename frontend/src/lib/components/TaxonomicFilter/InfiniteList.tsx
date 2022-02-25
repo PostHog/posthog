@@ -1,6 +1,6 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -275,6 +275,12 @@ export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = tru
         expandedCount,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
+
+    useEffect(() => {
+        if (popperAlwaysOpen === false) {
+            setIndex(NO_OPEN_POPUP)
+        }
+    }, [popperAlwaysOpen])
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
