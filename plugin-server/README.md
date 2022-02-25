@@ -23,7 +23,8 @@ Let's get you developing the plugin server in no time:
 
 1. Start the plugin server in autoreload mode with `yarn start`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
 
-1. To run migrations for the test, run `yarn setup:test:postgres` or `setup:test:clickhouse`. Run Postgres pipeline tests with `yarn test:postgres:{1,2}`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`.
+1. To run migrations for the test, run `yarn setup:test:postgres` or `setup:test:clickhouse`. Run Postgres pipeline tests with `yarn test:postgres:{1,2}`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`. Run a specific test with `yarn run jest --runInBand --forceExit tests/postgres/vm.test.ts`.
+
 
 ## Alternative modes
 
