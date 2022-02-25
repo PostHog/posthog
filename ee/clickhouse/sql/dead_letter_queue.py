@@ -44,7 +44,12 @@ SETTINGS index_granularity=512
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
-KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
+# We also set kafka_max_block_size to ensure that we allow skipping all broken messages in a block
+# while ClickHouse doesn't update kafka_skip_broken_messages to be a boolean
+KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
+    DEAD_LETTER_QUEUE_TABLE_BASE_SQL 
+    + "SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505"
+).format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
