@@ -78,9 +78,11 @@ _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
 """.format(
-    target_table="writable_session_recording_events"
-    if settings.CLICKHOUSE_REPLICATION
-    else SESSION_RECORDING_EVENTS_DATA_TABLE(),
+    target_table=(
+        "writable_session_recording_events"
+        if settings.CLICKHOUSE_REPLICATION
+        else SESSION_RECORDING_EVENTS_DATA_TABLE()
+    ),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
 )
