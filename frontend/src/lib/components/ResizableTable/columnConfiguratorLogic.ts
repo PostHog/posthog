@@ -17,7 +17,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnCon
         save: true,
     },
     reducers: ({ props }) => ({
-        visibleColumns: [
+        selectedColumns: [
             props.selectedColumns,
             {
                 selectColumn: (state, { column }) => [...state, column],
@@ -27,7 +27,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnCon
     }),
     listeners: ({ values }) => ({
         save: () => {
-            tableConfigLogic.actions.setSelectedColumns(values.visibleColumns)
+            tableConfigLogic.actions.setSelectedColumns(values.selectedColumns)
         },
         resetColumns: ({ columns }) => {
             tableConfigLogic.actions.setSelectedColumns(columns)

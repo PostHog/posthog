@@ -49,26 +49,26 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
     const rowContainerHeight = 36
     const rowItemHeight = 32
 
-    const { selectedColumns, modalVisible } = useValues(tableConfigLogic)
+    const { selectedColumns: currentlySelectedColumns, modalVisible } = useValues(tableConfigLogic)
     const { hideModal } = useActions(tableConfigLogic)
 
     const logic = columnConfiguratorLogic({
         availableColumns,
-        selectedColumns: selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns,
+        selectedColumns: currentlySelectedColumns === 'DEFAULT' ? defaultColumns : currentlySelectedColumns,
     })
     const { selectColumn, unselectColumn, resetColumns, save } = useActions(logic)
-    const { visibleColumns } = useValues(logic)
+    const { selectedColumns } = useValues(logic)
 
     function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(visibleColumns[index])
+        const disabled = immutableColumns?.includes(selectedColumns[index])
 
         return (
-            <div style={style} key={key} onClick={() => !disabled && unselectColumn(visibleColumns[index])}>
+            <div style={style} key={key} onClick={() => !disabled && unselectColumn(selectedColumns[index])}>
                 <div
                     className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
                     style={{ height: `${rowItemHeight}px` }}
                 >
-                    <PropertyKeyInfo value={visibleColumns[index]} />
+                    <PropertyKeyInfo value={selectedColumns[index]} />
                     <div className="text-right" style={{ flex: 1 }}>
                         <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
                             {disabled ? <LockOutlined /> : <CloseOutlined style={{ color: 'var(--danger)' }} />}
@@ -132,14 +132,14 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
                     </div>
                 </Col>
                 <Col xs={24} sm={12}>
-                    <h3 className="l3">Visible columns ({visibleColumns.length})</h3>
+                    <h3 className="l3">Visible columns ({selectedColumns.length})</h3>
                     <div style={{ height: 320 }}>
                         <AutoSizer>
                             {({ height, width }: { height: number; width: number }) => {
                                 return (
                                     <VirtualizedList
                                         height={height}
-                                        rowCount={visibleColumns.length}
+                                        rowCount={selectedColumns.length}
                                         rowRenderer={SelectedColumn}
                                         rowHeight={rowContainerHeight}
                                         width={width}
