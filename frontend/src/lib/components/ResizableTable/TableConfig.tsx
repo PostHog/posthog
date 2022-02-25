@@ -114,7 +114,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
         >
             <Row gutter={16} className="mt">
                 <Col xs={24} sm={12}>
-                    <h3 className="l3">All columns</h3>
+                    <h3 className="l3">Selected columns</h3>
                     <div style={{ height: 320 }}>
                         <AutoSizer>
                             {({ height, width }: { height: number; width: number }) => {
