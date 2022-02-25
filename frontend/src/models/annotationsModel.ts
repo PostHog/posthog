@@ -11,9 +11,10 @@ import { userLogic } from 'scenes/userLogic'
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
     actions: {
-        createGlobalAnnotation: (content: string, date_marker: string, insightId?: number) => ({
+        createGlobalAnnotation: (content: string, date_marker: string, scope: AnnotationScope, insightId?: number) => ({
             content,
             date_marker,
+            scope,
             created_at: now(),
             created_by: userLogic.values.user,
             insightId,
@@ -32,13 +33,13 @@ export const annotationsModel = kea<annotationsModelType>({
                 )
                 return response.results
             },
-            createGlobalAnnotation: async ({ insightId, content, date_marker, created_at }) => {
+            createGlobalAnnotation: async ({ insightId, content, scope, date_marker, created_at }) => {
                 await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: (dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker)).toISOString(),
                     created_at: created_at.toISOString(),
                     dashboard_item: insightId,
-                    scope: AnnotationScope.Organization,
+                    scope: scope || AnnotationScope.Organization,
                 } as Partial<AnnotationType>)
                 return values.globalAnnotations || []
             },
@@ -46,7 +47,7 @@ export const annotationsModel = kea<annotationsModelType>({
     }),
     reducers: {
         globalAnnotations: {
-            createGlobalAnnotation: (state, { content, date_marker, created_at, created_by }) => [
+            createGlobalAnnotation: (state, { content, date_marker, scope, created_at, created_by }) => [
                 ...state,
                 {
                     id: getNextKey(state).toString(),
@@ -55,7 +56,7 @@ export const annotationsModel = kea<annotationsModelType>({
                     created_at: created_at.toISOString(),
                     updated_at: created_at.toISOString(),
                     created_by,
-                    scope: AnnotationScope.Organization,
+                    scope: scope || AnnotationScope.Organization,
                 } as AnnotationType,
             ],
             deleteGlobalAnnotation: (state, { id }) => {

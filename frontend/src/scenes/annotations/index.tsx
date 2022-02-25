@@ -1,10 +1,9 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
+import { Tag, Button, Modal, Input, Row, Select } from 'antd'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
-import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
-import { annotationScopeToName } from 'lib/constants'
+import { DeleteOutlined, RedoOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { AnnotationType, AnnotationScope } from '~/types'
@@ -155,11 +154,11 @@ export function Annotations(): JSX.Element {
                 onCancel={(): void => {
                     closeModal()
                 }}
-                onSubmit={async (input, selectedDate): Promise<void> => {
+                onSubmit={async (input, selectedDate, scope): Promise<void> => {
                     if (selectedAnnotation && (await selectedAnnotation)) {
                         updateAnnotation(selectedAnnotation.id, input)
                     } else {
-                        createGlobalAnnotation(input, selectedDate.format('YYYY-MM-DD'))
+                        createGlobalAnnotation(input, selectedDate.format('YYYY-MM-DD'), scope)
                     }
                     closeModal()
                 }}
@@ -186,7 +185,7 @@ interface CreateAnnotationModalProps {
     onCancel: () => void
     onDelete: () => void
     onRestore: () => void
-    onSubmit: (input: string, date: dayjs.Dayjs) => void
+    onSubmit: (input: string, date: dayjs.Dayjs, scope: AnnotationScope) => void
     annotation?: any
 }
 
@@ -212,7 +211,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     }, [props.annotation])
 
     const _onSubmit = (input: string, date: dayjs.Dayjs): void => {
-        props.onSubmit(input, date)
+        props.onSubmit(input, date, scope)
         // Reset input
         setTextInput('')
         setDate(dayjs())
@@ -243,24 +242,13 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         >
             {modalMode === ModalMode.CREATE ? (
                 <span>
-                    This annotation will appear on all
-                    <Dropdown
-                        overlay={
-                            <Menu activeKey={scope} onSelect={(e) => setScope(e.key as AnnotationScope)}>
-                                <Menu.Item key={AnnotationScope.Project} icon={<ProjectOutlined />}>
-                                    Project
-                                </Menu.Item>
-                                <Menu.Item key={AnnotationScope.Organization} icon={<DeploymentUnitOutlined />}>
-                                    Organization
-                                </Menu.Item>
-                            </Menu>
-                        }
-                    >
-                        <Button style={{ marginLeft: 8, marginRight: 8 }}>
-                            {annotationScopeToName.get(scope)} <DownOutlined />
-                        </Button>
-                    </Dropdown>{' '}
-                    charts
+                    This annotation will appear on this
+                    <Select value={scope} style={{ width: 240, marginLeft: 10 }} onChange={setScope}>
+                        <Select.Option value={AnnotationScope.Project}>project</Select.Option>
+                        <Select.Option value={AnnotationScope.Organization}>
+                            all projects in this organization
+                        </Select.Option>
+                    </Select>
                 </span>
             ) : (
                 <Row justify="space-between">

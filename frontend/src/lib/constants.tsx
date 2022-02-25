@@ -1,4 +1,4 @@
-import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
+import { AvailableFeature, LicensePlan } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -29,12 +29,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
