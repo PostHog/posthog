@@ -67,7 +67,8 @@ def custom_postprocessing_hook(result, generator, request, public):
             match = re.search(r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/", path)
             if match:
                 definition["tags"].append(match.group("one"))
-                all_tags.append(match.group("one"))
+            for tag in definition["tags"]:
+                all_tags.append(tag)
             definition["operationId"] = (
                 definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
             )
