@@ -19,18 +19,18 @@ describe('the column configurator lets the user change which columns should be v
 
     it('has expected defaults', () => {
         expectLogic(logic).toMatchValues({
-            visibleColumns: selectedColumns,
+            selectedColumns: selectedColumns,
         })
     })
 
-    it('sets selected columns to visible columns on save', async () => {
+    it('sets selected columns on save', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('d')
             logic.actions.save()
         }).toDispatchActions([tableConfigLogic.actionCreators.setSelectedColumns(['a', 'b', 'ant', 'aardvark', 'd'])])
     })
 
-    it('sets selected columns to provided on reset', async () => {
+    it('sets selected columns to those provided on reset', async () => {
         await expectLogic(logic, () => {
             logic.actions.resetColumns(['1', '2'])
         }).toDispatchActions([tableConfigLogic.actionCreators.setSelectedColumns(['1', '2'])])

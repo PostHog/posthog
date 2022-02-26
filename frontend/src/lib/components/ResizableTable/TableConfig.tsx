@@ -15,7 +15,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface TableConfigProps {
-    availableColumns: string[] //the full set of column titles in the table's data
     immutableColumns?: string[] //the titles of the columns that are always displayed
     defaultColumns: string[] // the titles of the set of columns to show when there is no user choice
 }
@@ -32,16 +31,12 @@ export function TableConfig(props: TableConfigProps): JSX.Element {
             <Button data-attr="events-table-column-selector" onClick={showModal} icon={<ControlOutlined rotate={90} />}>
                 Customize columns
             </Button>
-            <ColumnConfigurator
-                immutableColumns={props.immutableColumns}
-                availableColumns={props.availableColumns}
-                defaultColumns={props.defaultColumns}
-            />
+            <ColumnConfigurator immutableColumns={props.immutableColumns} defaultColumns={props.defaultColumns} />
         </>
     )
 }
 
-function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns }: TableConfigProps): JSX.Element {
+function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigProps): JSX.Element {
     // the virtualised list doesn't support gaps between items in the list
     // setting the container to be larger than we need
     // and adding a container with a smaller height to each row item
@@ -53,7 +48,6 @@ function ColumnConfigurator({ immutableColumns, defaultColumns, availableColumns
     const { hideModal } = useActions(tableConfigLogic)
 
     const logic = columnConfiguratorLogic({
-        availableColumns,
         selectedColumns: currentlySelectedColumns === 'DEFAULT' ? defaultColumns : currentlySelectedColumns,
     })
     const { selectColumn, unselectColumn, resetColumns, save } = useActions(logic)

@@ -3,13 +3,12 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { kea } from 'kea'
 
 export interface ColumnConfiguratorLogicProps {
-    availableColumns: string[] // all of the columns the table could display
-    selectedColumns: string[] //the columns the table is currently displaying
+    selectedColumns: string[] // the columns the table is currently displaying
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnConfiguratorLogicProps>>({
     path: ['lib', 'components', 'ResizableTable', 'columnConfiguratorLogic'],
-    props: { availableColumns: [], selectedColumns: [] } as ColumnConfiguratorLogicProps,
+    props: { selectedColumns: [] } as ColumnConfiguratorLogicProps,
     actions: {
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),
