@@ -7,11 +7,10 @@ describe('the column configurator lets the user change which columns should be v
     let logic: ReturnType<typeof columnConfiguratorLogic.build>
 
     const selectedColumns = ['a', 'b', 'ant', 'aardvark']
-    const availableColumns = [...selectedColumns, 'c', 'd', 'e']
 
     initKeaTestLogic({
         logic: columnConfiguratorLogic,
-        props: { availableColumns, selectedColumns },
+        props: { selectedColumns },
         onLogic: (l) => {
             logic = l
         },
