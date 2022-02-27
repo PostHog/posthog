@@ -60,7 +60,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
                 <p key={index}>
                     {key}: from: {part.start}ms to {part.end}ms (
-                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(2)}%)
+                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)
                 </p>
             ))}
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
@@ -70,9 +70,11 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                     {asResourceTiming.encodedBodySize !== asResourceTiming.decodedBodySize && (
                         <p>
                             Was compressed. Sent {humanizeBytes(asResourceTiming.encodedBodySize)}. Saving{' '}
-                            {((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
-                                asResourceTiming.decodedBodySize) *
-                                100}
+                            {(
+                                ((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
+                                    asResourceTiming.decodedBodySize) *
+                                100
+                            ).toFixed(1)}
                             %
                         </p>
                     )}
