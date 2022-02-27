@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Col, Row, Typography } from 'antd'
+import { Button, Col, Collapse, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -323,9 +323,15 @@ const EventsWithPerformanceTable = (): JSX.Element => {
 const DebugPerfData = (): JSX.Element => {
     const { currentEvent } = useValues(webPerformanceLogic)
     return (
-        <pre>
-            {currentEvent ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2) : null}
-        </pre>
+        <Collapse>
+            <Collapse.Panel header="Performance Debug Information" key="1">
+                <pre>
+                    {currentEvent
+                        ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)
+                        : null}
+                </pre>
+            </Collapse.Panel>
+        </Collapse>
     )
 }
 
