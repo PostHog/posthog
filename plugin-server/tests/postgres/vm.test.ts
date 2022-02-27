@@ -845,7 +845,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/event?token=token',
+                'https://app.posthog.com/api/events?token=token',
                 {
                     headers: { Authorization: 'Bearer secret' },
                     method: 'GET',
