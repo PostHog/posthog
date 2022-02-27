@@ -3,12 +3,13 @@ import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { AndOrPropertyFilter, AndOrPropertyValue, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Button, Col, Row, Select } from 'antd'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { IconDelete, IconPlus } from '../icons'
+import { LemonButton } from '../LemonButton'
 
 export function isAndOrFilter(property?: PropertyFilter[] | AndOrPropertyFilter): property is AndOrPropertyFilter {
     return (property as AndOrPropertyFilter).values !== undefined
@@ -84,9 +85,11 @@ export function PropertyGroupFilters({
                                                     flex: 1,
                                                 }}
                                             />
-                                            <DeleteOutlined
+                                            <LemonButton
+                                                icon={<IconDelete />}
+                                                type="tertiary"
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
-                                                style={{ fontSize: 16, color: 'var(--primary-alt)' }}
+                                                compact
                                             />
                                         </Row>
                                         <PropertyFilters
@@ -113,30 +116,21 @@ export function PropertyGroupFilters({
                 </div>
             )}
             <div>
-                <Button
-                    style={{
-                        color: 'var(--primary)',
-                        border: 'none',
-                        boxShadow: 'none',
-                    }}
-                    className="mb"
-                    icon={<PlusOutlined />}
-                    onClick={() => addFilterGroup()}
-                >
-                    Add filter group
-                </Button>
+                <LemonButton className="mb" type="secondary" onClick={() => addFilterGroup()}>
+                    <IconPlus /> Add filter group
+                </LemonButton>
             </div>
         </>
     )
 }
 
-export enum AndOr {
-    AND = 'AND',
-    OR = 'OR',
+export enum FilterLogicalOperator {
+    And = 'AND',
+    Or = 'OR',
 }
 
 interface AndOrFilterSelectProps {
-    onChange: (type: AndOr) => void
+    onChange: (type: FilterLogicalOperator) => void
     value: string
     topLevelFilter?: boolean
 }
@@ -149,14 +143,16 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={AndOr.AND}
+                defaultValue={FilterLogicalOperator.And}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
             >
-                <Select.Option value={AndOr.AND} label="all" className="condition-option">
+                <Select.Option value={FilterLogicalOperator.And} label="all" className="condition-option">
                     <Row>
-                        <div className={`condition-text ${value === AndOr.AND ? 'selected' : ''}`}>{AndOr.AND}</div>
+                        <div className={`condition-text ${value === FilterLogicalOperator.And ? 'selected' : ''}`}>
+                            {FilterLogicalOperator.And}
+                        </div>
                         <Col>
                             <div>
                                 <b>All filter</b>{' '}
@@ -165,9 +161,11 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                         </Col>
                     </Row>
                 </Select.Option>
-                <Select.Option value={AndOr.OR} label="any" className="condition-option">
+                <Select.Option value={FilterLogicalOperator.Or} label="any" className="condition-option">
                     <Row>
-                        <div className={`condition-text ${value === AndOr.OR ? 'selected' : ''}`}>{AndOr.OR}</div>
+                        <div className={`condition-text ${value === FilterLogicalOperator.Or ? 'selected' : ''}`}>
+                            {FilterLogicalOperator.Or}
+                        </div>
                         <Col>
                             <div>
                                 <b>Any filter</b>{' '}

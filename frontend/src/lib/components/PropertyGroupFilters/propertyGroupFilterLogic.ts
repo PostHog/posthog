@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import { AndOrPropertyFilter } from '~/types'
 import { parsePropertyGroups } from 'lib/components/PropertyFilters/utils'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
+import { FilterLogicalOperator } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 import clone from 'clone'
@@ -17,9 +17,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
         update: (propertyGroupIndex?: number) => ({ propertyGroupIndex }),
         setFilters: (filters: AndOrPropertyFilter) => ({ filters }),
         removeFilterGroup: (filterGroup: number) => ({ filterGroup }),
-        setPropertyGroupsType: (type: AndOr) => ({ type }),
+        setPropertyGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
-        setPropertyGroupType: (type: AndOr, index: number) => ({ type, index }),
+        setPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         addFilterGroup: true,
     }),
 
@@ -33,17 +33,17 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                         return {
                             values: [
                                 {
-                                    type: AndOr.AND,
+                                    type: FilterLogicalOperator.And,
                                     values: [{}],
                                 },
                             ],
                         }
                     }
                     const groupsCopy = clone(state)
-                    groupsCopy.values.push({ type: AndOr.AND, values: [{}] })
+                    groupsCopy.values.push({ type: FilterLogicalOperator.And, values: [{}] })
 
                     if (groupsCopy.values.length > 1 && !groupsCopy.type) {
-                        groupsCopy.type = AndOr.AND
+                        groupsCopy.type = FilterLogicalOperator.And
                     }
                     return groupsCopy
                 },

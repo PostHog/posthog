@@ -55,8 +55,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row>
+                <Col md={12} xs={24}>
                     <ActionFilter
                         horizontalUI
                         filters={filters}
@@ -82,7 +82,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         }
                     />
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
