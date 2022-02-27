@@ -345,7 +345,19 @@ export const WebPerformance = (): JSX.Element => {
                     </Row>
                 }
                 caption={
-                    'Shows page view events where performance information has been captured. Not all events have all performance information.'
+                    <div>
+                        <p>
+                            Shows page view events where performance information has been captured. Not all events have
+                            all performance information.
+                        </p>
+                        <p>
+                            To capture performance information you must be using posthog-js and set{' '}
+                            <code>_capture_performance</code> to true. See the{' '}
+                            <a href="https://posthog.com/docs/integrate/client/js#config" target="_blank">
+                                config instructions in our handbook
+                            </a>
+                        </p>
+                    </div>
                 }
             />
             <Row gutter={[0, 32]}>
