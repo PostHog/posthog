@@ -24,8 +24,8 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
-    /** The maximum width to be set on the popover. Must be a valid CSS width */
-    maxWidth?: string
+    /** The width to be set on the popover. Must be a valid CSS width */
+    width?: string
     className?: string
 }
 
@@ -46,7 +46,7 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
-    maxWidth,
+    width,
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -83,12 +83,12 @@ export function Popup({
                       requires: ['computeStyles'],
                   }
                 : {},
-            !!maxWidth
+            !!width
                 ? {
-                      name: 'maxWidth',
+                      name: 'width',
                       enabled: true,
                       fn: ({ state }) => {
-                          state.styles.popper.width = maxWidth
+                          state.styles.popper.width = width
                       },
                       phase: 'beforeWrite',
                       requires: ['computeStyles'],

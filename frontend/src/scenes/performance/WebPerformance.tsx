@@ -95,7 +95,7 @@ const MouseTriggeredPopUp = ({
     const [mouseIsOver, setMouseIsOver] = useState(false)
 
     return (
-        <Popup overlay={content} visible={mouseIsOver} maxWidth={'300px'}>
+        <Popup overlay={content} visible={mouseIsOver} width={'300px'}>
             <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
                 {children}
             </div>
