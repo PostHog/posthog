@@ -182,6 +182,15 @@ const pointInTimeContent = {
             </a>
         </div>
     ),
+    firstContentfulPaint: (
+        <div>
+            First Contentful Paint (FCP) is when the browser renders the first bit of content from the DOM, providing
+            the first feedback to the user that the page is actually loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
 }
 
 const pointInTimeContentFor = (pointInTimeMarker: string): JSX.Element =>
