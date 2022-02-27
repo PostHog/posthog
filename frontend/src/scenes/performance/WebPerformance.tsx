@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Col, Collapse, Popover, Row, Typography } from 'antd'
+import { Button, Col, Collapse, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -85,6 +85,24 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     )
 }
 
+const MouseTriggeredPopUp = ({
+    content,
+    children,
+}: {
+    content: JSX.Element
+    children: React.ReactNode
+}): JSX.Element => {
+    const [mouseIsOver, setMouseIsOver] = useState(false)
+
+    return (
+        <Popup overlay={content} visible={mouseIsOver} maxWidth={'300px'}>
+            <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
+                {children}
+            </div>
+        </Popup>
+    )
+}
+
 export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element => {
     if (max) {
         let right = 0
@@ -121,18 +139,14 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
             })
         }
 
-        const [mouseIsOver, setMouseIsOver] = useState(false)
-
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <Popup overlay={overlayFor(resourceTiming)} visible={mouseIsOver}>
-                <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
-                    {blocks}
-                    <div className="positioned" style={textPosition}>
-                        {Math.round(end)}ms
-                    </div>
+            <MouseTriggeredPopUp content={overlayFor(resourceTiming)}>
+                {blocks}
+                <div className="positioned" style={textPosition}>
+                    {Math.round(end)}ms
                 </div>
-            </Popup>
+            </MouseTriggeredPopUp>
         )
     } else {
         return <></>
@@ -212,9 +226,9 @@ const WaterfallChart = (): JSX.Element => {
                                 <Col key={marker} span={6}>
                                     <div className={'color-legend'}>
                                         {marker}{' '}
-                                        <Popover content={pointInTimeContentFor(marker)}>
+                                        <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
                                             <span className={'color-block'} style={{ backgroundColor: color }} />
-                                        </Popover>
+                                        </MouseTriggeredPopUp>
                                     </div>
                                 </Col>
                             )
