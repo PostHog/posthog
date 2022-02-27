@@ -24,6 +24,7 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
+    /** The maximum width to be set on the popover. Must be a valid CSS width */
     maxWidth?: string
     className?: string
 }
