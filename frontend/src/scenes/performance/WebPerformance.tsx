@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Col, Collapse, Row, Typography } from 'antd'
+import { Button, Col, Collapse, Popover, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -139,6 +139,40 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
     }
 }
 
+const pointInTimeContent = {
+    domComplete: (
+        <div>
+            The document and all sub-resources have finished loading. The state indicates that the load event is about
+            to fire.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+    domInteractive: (
+        <div>
+            The document has finished loading and the document has been parsed but sub-resources such as scripts,
+            images, stylesheets and frames are still loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+    pageLoaded: (
+        <div>
+            The load event is fired when the whole page has loaded, including all dependent resources such as
+            stylesheets and images. This is in contrast to DOMContentLoaded, which is fired as soon as the page DOM has
+            been loaded, without waiting for resources to finish loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+}
+
+const pointInTimeContentFor = (pointInTimeMarker: string): JSX.Element =>
+    pointInTimeContent[pointInTimeMarker] ?? <div>Unknown marker: {pointInTimeMarker}</div>
+
 const VerticalMarker = ({
     max,
     position,
@@ -177,7 +211,10 @@ const WaterfallChart = (): JSX.Element => {
                             return (
                                 <Col key={marker} span={6}>
                                     <div className={'color-legend'}>
-                                        {marker} <span className={'color-block'} style={{ backgroundColor: color }} />
+                                        {marker}{' '}
+                                        <Popover content={pointInTimeContentFor(marker)}>
+                                            <span className={'color-block'} style={{ backgroundColor: color }} />
+                                        </Popover>
                                     </div>
                                 </Col>
                             )
@@ -322,16 +359,14 @@ const EventsWithPerformanceTable = (): JSX.Element => {
 
 const DebugPerfData = (): JSX.Element => {
     const { currentEvent } = useValues(webPerformanceLogic)
-    return (
+    return currentEvent ? (
         <Collapse>
             <Collapse.Panel header="Performance Debug Information" key="1">
-                <pre>
-                    {currentEvent
-                        ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)
-                        : null}
-                </pre>
+                <pre>{JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)}</pre>
             </Collapse.Panel>
         </Collapse>
+    ) : (
+        <></>
     )
 }
 
