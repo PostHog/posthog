@@ -1423,10 +1423,16 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
+    secondary_metric_results?: SecondaryMetricResult[]
+}
+
+export interface SecondaryMetricResult {
+    name: string
+    result: Record<string, number>
 }
 
 export interface SecondaryExperimentMetric {
-    name?: string
+    name: string
     filters: Partial<FilterType>
 }
 
