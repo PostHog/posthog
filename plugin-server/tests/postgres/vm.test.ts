@@ -845,7 +845,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/events?token=token',
+                'https://app.posthog.com/api/event?token=token',
                 {
                     headers: { Authorization: 'Bearer secret' },
                     method: 'GET',
@@ -854,7 +854,7 @@ describe('vm tests', () => {
             [
                 'https://app.posthog.com/api/projects/' +
                     pluginConfig39.team_id +
-                    '/events?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                    '/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'GET',
