@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+PERSONS_TABLE_ENGINE = ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp")
 PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
@@ -33,7 +34,7 @@ PERSONS_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp"),
+    engine=PERSONS_TABLE_ENGINE,
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
