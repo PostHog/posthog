@@ -104,16 +104,14 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
-    const annotationsCondition =
-        (type === GraphType.Line || type === GraphType.Bar) &&
-        datasets?.length > 0 &&
-        !inSharedMode &&
-        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
-
     const colors = getGraphColors(color === 'white')
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
+    const isAnnotated = [GraphType.Line, GraphType.Bar].includes(type)
+
+    const annotationsCondition =
+        isAnnotated && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // exclude stickiness graphs
 
     useEscapeKey(() => setFocused(false), [focused])
 
