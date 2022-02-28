@@ -50,9 +50,18 @@ def get_breakdown_prop_values(
     """
 
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
+
+    # TODO: maybe I should somehow handle this in parse_prop_grouped_clauses? since it's basically the same
+    # idea: When mode = EXCLUDE, we need the outer properties
+
+    props_to_filter = filter.property_groups.combine_properties(PropertyOperatorType.AND, entity.properties)
+    # TRICKY: Fix: What if no column optimizer is passed?
+    # Hmm, makes me question this optimisation, does property_optimizer need to be in column_optimizer?
+    outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id,
-        property_group=filter.property_groups.combine_properties(PropertyOperatorType.AND, entity.properties),
+        property_group=outer_properties,
         table_name="e",
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.EXCLUDE,
