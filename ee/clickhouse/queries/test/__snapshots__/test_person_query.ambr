@@ -23,7 +23,7 @@
 # name: test_person_query_with_and_and_or_property_groups
   '
   
-              SELECT id
+              SELECT id, argMax(properties, _timestamp) as person_props
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
@@ -78,7 +78,7 @@
 # name: test_person_query_with_entity_filters_and_property_group_filters.1
   '
   
-              SELECT id
+              SELECT id, argMax(properties, _timestamp) as person_props
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id

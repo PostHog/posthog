@@ -117,7 +117,7 @@ def test_person_query_with_and_and_or_property_groups(testdata, team, snapshot):
     )
 
     assert person_query(team, filter) == snapshot
-    assert run_query(team, filter) == {"rows": 2, "columns": 1}
+    assert run_query(team, filter) == {"rows": 2, "columns": 2}
 
 
 def test_person_query_with_extra_requested_fields(testdata, team, snapshot):
@@ -206,4 +206,4 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
     assert run_query(team, filter) == {"rows": 2, "columns": 3}
 
     assert person_query(team, filter, entity=filter.entities[0]) == snapshot
-    assert run_query(team, filter, entity=filter.entities[0]) == {"rows": 2, "columns": 1}
+    assert run_query(team, filter, entity=filter.entities[0]) == {"rows": 2, "columns": 2}
