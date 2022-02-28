@@ -69,6 +69,9 @@ export async function ingestEvent(
             }
             await Promise.all(promises)
         }
+    } else {
+        // processEvent might not return an event. This is expected and plugins, e.g. downsample plugin uses it.
+        server.statsd?.increment('kafka_queue.dropped_event')
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
