@@ -1,4 +1,4 @@
-import { AndOrPropertyFilter, AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AndOrPropertyFilter, AnyPropertyFilter, FilterLogicalOperator, PropertyFilter } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -6,7 +6,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { FilterLogicalOperator } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 export interface PropertyFilterBaseProps {
     pageKey: string

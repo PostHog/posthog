@@ -1,9 +1,8 @@
 import { kea } from 'kea'
 
-import { AndOrPropertyFilter } from '~/types'
+import { AndOrPropertyFilter, FilterLogicalOperator } from '~/types'
 import { parsePropertyGroups } from 'lib/components/PropertyFilters/utils'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { FilterLogicalOperator } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 import clone from 'clone'

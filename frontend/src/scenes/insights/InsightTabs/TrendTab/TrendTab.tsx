@@ -55,8 +55,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row>
-                <Col md={12} xs={24}>
+            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
+                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
                     <ActionFilter
                         horizontalUI
                         filters={filters}
@@ -82,7 +82,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         }
                     />
                 </Col>
-                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col
+                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
+                    xs={24}
+                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
+                >
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
@@ -112,11 +116,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
                                 <PropertyGroupFilters
-                                    propertyFilters={filters.property_groups}
+                                    propertyFilters={null}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
-                                    onChange={(property_groups) => {
-                                        setFilters({ property_groups })
-                                    }}
+                                    onChange={() => {}} // TODO: update when ready to refactor FE to use new backend properties
                                     taxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,

@@ -190,7 +190,6 @@ export function cleanFilters(
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],
-            ...(filters.property_groups ? { property_groups: filters.property_groups } : {}), // TODO: fix once backend is updated for or filtering
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }

@@ -4,11 +4,10 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { FilterLogicalOperator } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 interface PropertyFiltersProps {
     endpoint?: string | null

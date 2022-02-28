@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { AndOrPropertyFilter, AndOrPropertyValue, PropertyFilter } from '~/types'
+import { AndOrPropertyFilter, AndOrPropertyValue, FilterLogicalOperator, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
@@ -122,11 +122,6 @@ export function PropertyGroupFilters({
             </div>
         </>
     )
-}
-
-export enum FilterLogicalOperator {
-    And = 'AND',
-    Or = 'OR',
 }
 
 interface AndOrFilterSelectProps {
