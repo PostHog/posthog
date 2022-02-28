@@ -16,19 +16,22 @@ import { router } from 'kea-router'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
-import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonUUID = string
-interface Params {
-    filters?: RecordingFilters
-    source?: RecordingWatchedSource
-}
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
+    recordingFilters?: RecordingFilters
+    source?: RecordingWatchedSource
+}
+
+export enum RecordingTableLocation {
+    RecordingsPage = 'recordings_page',
+    HomePage = 'home_page',
+    PersonPage = 'person_page',
 }
 
 const LIMIT = 50
@@ -55,11 +58,15 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
+export const DEFAULT_FROM_DATE = '-21d'
+
+export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID, RecordingTableLocation>>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
-    key: (props) => props.personUUID || 'global',
+    key: (props) => props.personUUID || props.tableLocation || 'global',
     props: {} as {
         personUUID?: PersonUUID
+        tableLocation?: RecordingTableLocation
+        disableFiltering?: boolean
     },
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -182,7 +189,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             },
         ],
         fromDate: [
-            dayjs().subtract(7, 'days').format('YYYY-MM-DD') as null | string,
+            DEFAULT_FROM_DATE as null | string,
             {
                 setDateRange: (_, { incomingFromDate }) => incomingFromDate ?? null,
             },
@@ -246,24 +253,26 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             },
         ],
     },
-    actionToUrl: ({ values }) => {
+    actionToUrl: ({ values, props }) => {
         const buildURL = (
-            overrides: Partial<Params> = {},
-            replace: boolean
+            replace: boolean,
+            source?: RecordingWatchedSource
         ): [
             string,
-            Params,
             Record<string, any>,
+            HashParams,
             {
                 replace: boolean
             }
         ] => {
-            const params: Params = {
-                filters: values.filterQueryParams,
-                ...overrides,
-            }
             const hashParams: HashParams = {
                 ...router.values.hashParams,
+            }
+            console.log(props, Object.keys(values.filterQueryParams).length === 0)
+            if (props.disableFiltering || Object.keys(values.filterQueryParams).length === 0) {
+                delete hashParams.recordingFilters
+            } else {
+                hashParams.recordingFilters = values.filterQueryParams
             }
 
             if (!values.sessionRecordingId) {
@@ -272,31 +281,37 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 hashParams.sessionRecordingId = values.sessionRecordingId
             }
 
-            return [router.values.location.pathname, params, hashParams, { replace }]
+            if (!source) {
+                delete hashParams.source
+            } else {
+                hashParams.source = source
+            }
+
+            return [router.values.location.pathname, {}, hashParams, { replace }]
         }
 
         return {
-            loadSessionRecordings: () => buildURL({}, true),
-            openSessionPlayer: ({ source }) => buildURL({ source }, false),
-            closeSessionPlayer: () => buildURL({}, false),
-            setEntityFilters: () => buildURL({}, true),
-            setPropertyFilters: () => buildURL({}, true),
-            setDateRange: () => buildURL({}, true),
-            setDurationFilter: () => buildURL({}, true),
-            loadNext: () => buildURL({}, true),
-            loadPrev: () => buildURL({}, true),
+            loadSessionRecordings: () => buildURL(true),
+            openSessionPlayer: ({ source }) => buildURL(false, source),
+            closeSessionPlayer: () => buildURL(false),
+            setEntityFilters: () => buildURL(true),
+            setPropertyFilters: () => buildURL(true),
+            setDateRange: () => buildURL(true),
+            setDurationFilter: () => buildURL(true),
+            loadNext: () => buildURL(true),
+            loadPrev: () => buildURL(true),
         }
     },
 
     urlToAction: ({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
+        const urlToAction = (_: any, _params: any, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
                 actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }
 
-            const filters = params.filters
-            if (filters) {
+            const filters = hashParams.recordingFilters
+            if (filters && !props.disableFiltering) {
                 if (
                     !equal(filters.actions, values.entityFilters.actions) ||
                     !equal(filters.events, values.entityFilters.events)
@@ -320,7 +335,12 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 }
             }
         }
-        const urlPattern = props.personUUID ? '/person/*' : '/recordings'
+        const urlPattern =
+            props.tableLocation === RecordingTableLocation.PersonPage
+                ? '/person/*'
+                : props.tableLocation === RecordingTableLocation.HomePage
+                ? '/home'
+                : '/recordings'
         return {
             [urlPattern]: urlToAction,
         }

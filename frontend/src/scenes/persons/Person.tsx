@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Loading } from 'lib/utils'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { RecordingTableLocation } from 'scenes/session-recordings/sessionRecordingsTableLogic'
 
 const { TabPane } = Tabs
 
@@ -163,7 +164,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         <SessionRecordingsTable
                             key={person.uuid} // force refresh if user changes
                             personUUID={person.uuid}
-                            isPersonPage
+                            tableLocation={RecordingTableLocation.PersonPage}
                         />
                     </TabPane>
                 )}

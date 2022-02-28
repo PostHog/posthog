@@ -6,11 +6,10 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconClose } from 'lib/components/icons'
 
 interface SessionPlayerDrawerProps {
-    isPersonPage?: boolean
     onClose: () => void
 }
 
-export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
+export function SessionPlayerDrawer({ onClose }: SessionPlayerDrawerProps): JSX.Element {
     return (
         <Drawer
             destroyOnClose
@@ -29,7 +28,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     justify="space-between"
                 >
                     <Button type="link" onClick={onClose}>
-                        <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'recordings'}
+                        <ArrowLeftOutlined /> Back
                     </Button>
                     <div
                         className="text-muted cursor-pointer flex-center"

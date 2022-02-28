@@ -8,7 +8,10 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import {
+    RecordingTableLocation,
+    sessionRecordingsTableLogic,
+} from 'scenes/session-recordings/sessionRecordingsTableLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -35,7 +38,7 @@ export function SessionsRecordings(): JSX.Element {
                 />
             ) : null}
 
-            <SessionRecordingsTable key="global" />
+            <SessionRecordingsTable tableLocation={RecordingTableLocation.RecordingsPage} />
         </div>
     )
 }
