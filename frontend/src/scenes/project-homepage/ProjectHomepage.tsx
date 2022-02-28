@@ -8,10 +8,7 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="project-homepage">
             <PageHeader title="Homepage" />
-            <SessionRecordingsTable
-                onlyShowList
-                tableLocation={RecordingTableLocation.HomePage}
-             />
+            <SessionRecordingsTable onlyShowList tableLocation={RecordingTableLocation.HomePage} />
         </div>
     )
 }
