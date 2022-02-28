@@ -49,7 +49,6 @@ class SimplifyFilterMixin:
             new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())  # type: ignore
 
         if new_group_props:
-            new_group_props = [prop for prop in new_group_props]
             new_group = {"type": "AND", "values": new_group_props}
             prop_group = {"type": "AND", "values": [new_group, prop_group]} if prop_group else new_group
 
