@@ -24,7 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ActionStack, CohortIcon, PropertyIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { DefinitionType, getDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 
 const eventTaxonomicGroupProps = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -33,7 +33,7 @@ const eventTaxonomicGroupProps = {
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
-    getIcon: getDefinitionIcon,
+    getIcon: getEventDefinitionIcon,
 }
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
@@ -179,9 +179,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(definition): JSX.Element {
-                        return getDefinitionIcon(definition, DefinitionType.Property)
-                    },
+                    getIcon: getPropertyDefinitionIcon,
                 },
                 {
                     name: 'Numerical event properties',
@@ -194,9 +192,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(definition): JSX.Element {
-                        return getDefinitionIcon(definition, DefinitionType.Property)
-                    },
+                    getIcon: getPropertyDefinitionIcon,
                 },
                 {
                     name: 'Person properties',
@@ -207,9 +203,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: (personProperty: PersonProperty) => personProperty.name,
                     getValue: (personProperty: PersonProperty) => personProperty.name,
                     getPopupHeader: () => 'Property',
-                    getIcon: function _getIcon(definition): JSX.Element {
-                        return getDefinitionIcon(definition, DefinitionType.Property)
-                    },
+                    getIcon: getPropertyDefinitionIcon,
                 },
                 {
                     name: 'Cohorts',

@@ -29,7 +29,7 @@ interface Filters {
     properties: AnyPropertyFilter[]
 }
 
-export const EVENT_DEFINITIONS_PER_PAGE = 100
+export const EVENT_DEFINITIONS_PER_PAGE = 3
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
 export interface EventDefinitionsTableLogicProps {
@@ -50,7 +50,7 @@ export const eventDefinitionsTableLogic = kea<
     key: (props) => props.key || 'scene',
     actions: {
         loadEventDefinitions: (url: string | null = '') => ({ url }),
-        loadPropertiesForEvent: (definition: EventDefinition) => ({ definition }),
+        loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Filters) => ({ filters }),
     },
     reducers: {
@@ -70,7 +70,7 @@ export const eventDefinitionsTableLogic = kea<
             {
                 loadEventDefinitions: async ({ url }, breakpoint) => {
                     if (!url) {
-                        url = `api/projects/@current/event_definitions/?limit=${EVENT_DEFINITIONS_PER_PAGE}`
+                        return await api.eventDefinitions.list()
                     }
                     const results = await api.get(url)
                     breakpoint()

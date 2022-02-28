@@ -21,12 +21,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
         loadPropertiesForEvent(definition)
     }, [])
 
-    console.log('CACHE MAP', eventPropertiesCacheMap)
-
-    if (!(eventPropertiesCacheMap?.[definition.id]?.count > 0)) {
-        return <>This event has no properties.</>
-    }
-
     const columns: LemonTableColumns<PropertyDefinitionWithExample> = [
         {
             title: 'Property',
@@ -105,7 +99,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 id={`event-properties-definition-table-${definition.id}`}
                 columns={columns}
                 className={`event-properties-definition-table-${definition.id}`}
-                dataSource={eventPropertiesCacheMap?.[definition.id]?.results}
+                dataSource={eventPropertiesCacheMap?.[definition.id]?.results ?? []}
                 emptyState="This event has no properties"
                 nouns={['definition', 'definitions']}
                 pagination={{

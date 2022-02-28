@@ -16,13 +16,10 @@ export enum DefinitionType {
     Property = 'property',
 }
 
-export function getDefinitionIcon(
-    definition: EventDefinition | PropertyDefinition,
-    type: DefinitionType = DefinitionType.Event
-): JSX.Element {
-    if (type === DefinitionType.Property) {
-        return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
-    }
+export function getPropertyDefinitionIcon(): JSX.Element {
+    return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+}
+export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     const _definition = definition as EventDefinition
     // Rest are events
     if (_definition.name === '$pageview') {
@@ -65,7 +62,7 @@ export function DefinitionHeader({
 }): JSX.Element {
     return (
         <>
-            {!hideIcon && <div className="definition-column-name-icon">{getDefinitionIcon(definition)}</div>}
+            {!hideIcon && <div className="definition-column-name-icon">{getEventDefinitionIcon(definition)}</div>}
             <div className="definition-column-name-content">
                 <div className="definition-column-name-content-title">
                     <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
