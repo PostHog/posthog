@@ -209,6 +209,33 @@ function Version(): JSX.Element {
     )
 }
 
+function AsyncMigrations(): JSX.Element {
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { asyncMigrationsOk } = useValues(navigationLogic)
+
+    return (
+        <LemonRow
+            status={asyncMigrationsOk ? 'success' : 'warning'}
+            icon={asyncMigrationsOk ? <IconCheckmark /> : <IconUpdate />}
+            fullWidth
+        >
+            <>
+                <div className="SitePopover__main-info">
+                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Async migrations pending'}
+                </div>
+                <Link
+                    to={urls.asyncMigrations()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="async-migrations-status-badge"
+                >
+                    Async Migrations
+                </Link>
+            </>
+        </LemonRow>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -268,6 +295,7 @@ export function SitePopover(): JSX.Element {
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
+                            {!preflight?.cloud && <AsyncMigrations />}
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection>
