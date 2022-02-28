@@ -106,22 +106,22 @@ class Migration(AsyncMigrationDefinition):
                 """,
                 rollback=f"DROP TABLE {table.tmp_table_name}",
             ),
-            # AsyncMigrationOperation.simple_op(
-            #     sql=f"DETACH TABLE {table.materialized_view_name}",
-            #     rollback=f"ATTACH TABLE {table.materialized_view_name}",
-            # ),
+            AsyncMigrationOperation.simple_op(
+                sql=f"DETACH TABLE {table.materialized_view_name}",
+                rollback=f"ATTACH TABLE {table.materialized_view_name}",
+            ),
             AsyncMigrationOperation(
                 fn=lambda _: self.move_partitions(table.name, table.tmp_table_name),
                 rollback_fn=lambda _: self.move_partitions(table.tmp_table_name, table.name),
             ),
-            # AsyncMigrationOperation.simple_op(
-            #     sql=f"RENAME TABLE {table.name} TO {table.backup_table_name}, {table.tmp_table_name} TO {table.renamed_table_name}",
-            #     rollback=f"RENAME TABLE {table.backup_table_name} TO {table.name}, {table.renamed_table_name} TO {table.tmp_table_name}",
-            # ),
-            # AsyncMigrationOperation.simple_op(
-            #     sql=f"DETACH TABLE {table.materialized_view_name}",
-            #     rollback=f"ATTACH TABLE {table.materialized_view_name}",
-            # ),
+            AsyncMigrationOperation.simple_op(
+                sql=f"RENAME TABLE {table.name} TO {table.backup_table_name}, {table.tmp_table_name} TO {table.renamed_table_name}",
+                rollback=f"RENAME TABLE {table.backup_table_name} TO {table.name}, {table.renamed_table_name} TO {table.tmp_table_name}",
+            ),
+            AsyncMigrationOperation.simple_op(
+                sql=f"ATTACH TABLE {table.materialized_view_name}",
+                rollback=f"DETACH TABLE {table.materialized_view_name}",
+            ),
         ]
 
     def get_new_engine(self, table: TableMigrationData):
