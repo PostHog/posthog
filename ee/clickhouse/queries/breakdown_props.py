@@ -48,7 +48,7 @@ def get_breakdown_prop_values(
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-
+    column_optimizer = column_optimizer or ColumnOptimizer(filter, team_id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
     # TODO: maybe I should somehow handle this in parse_prop_grouped_clauses? since it's basically the same
