@@ -1,14 +1,14 @@
 import re
 from dataclasses import dataclass
 from functools import cached_property
+from typing import List
 
 import structlog
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.person import PERSONS_TABLE_ENGINE
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
-from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +49,7 @@ class TableMigrationData:
     name: str
     new_table_engine: MergeTreeEngine
     materialized_view_name: str
+    create_materialized_view: str
 
     @property
     def renamed_table_name(self):
@@ -56,33 +57,28 @@ class TableMigrationData:
 
     @property
     def backup_table_name(self):
-        return f"{self.name}_backup_0004_replicated_schema"
+        return f"{self.name}_backup_0004_replicated_schema4"
 
     @property
     def tmp_table_name(self):
-        return f"{self.name}_tmp_0004_replicated_schema"
+        return f"{self.name}_tmp_0004_replicated_schema4"
 
 
 @dataclass(frozen=True)
 class ShardedTableMigrationData(TableMigrationData):
     rename_to: str
-    create_materialized_view: str
+    extra_tables: List[str]
 
     @property
     def renamed_table_name(self):
         return self.rename_to
 
 
-TABLES_TO_MIGRATE = [
-    TableMigrationData(name="person", new_table_engine=PERSONS_TABLE_ENGINE, materialized_view_name="person_mv"),
-]
-
-
 class Migration(AsyncMigrationDefinition):
 
     description = "Replace tables with replicated counterparts"
 
-    depends_on = "0002_events_sample_by"
+    depends_on = "0003_fill_person_distinct_id2"
 
     def is_required(self):
         # :TODO: Check whether events table is Distributed
@@ -90,39 +86,49 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def operations(self):
+        assert CLICKHOUSE_REPLICATION, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
+
         # :TODO: Validate CLICKHOUSE_REPLICATED is set
         # :TODO: Validate only a single replica (this one)
         # :TODO: Stop column materialization
         # :TODO: Assert no ongoing merges
-        # :TODO: Stop merges for that part.
-        return [operation for table in TABLES_TO_MIGRATE for operation in self.replicated_table_operations(table)]
+        # :TODO: Stop merges while this is ongoing
+        return [
+            operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
+        ]
 
     def replicated_table_operations(self, table: TableMigrationData):
-        return [
-            AsyncMigrationOperation.simple_op(
-                sql=f"""
-                CREATE TABLE {table.tmp_table_name} AS {table.name}
-                ENGINE = {self.get_new_engine(table)}
-                """,
-                rollback=f"DROP TABLE {table.tmp_table_name}",
-            ),
-            AsyncMigrationOperation.simple_op(
-                sql=f"DETACH TABLE {table.materialized_view_name}",
-                rollback=f"ATTACH TABLE {table.materialized_view_name}",
-            ),
-            AsyncMigrationOperation(
-                fn=lambda _: self.move_partitions(table.name, table.tmp_table_name),
-                rollback_fn=lambda _: self.move_partitions(table.tmp_table_name, table.name),
-            ),
-            AsyncMigrationOperation.simple_op(
-                sql=f"RENAME TABLE {table.name} TO {table.backup_table_name}, {table.tmp_table_name} TO {table.renamed_table_name}",
-                rollback=f"RENAME TABLE {table.backup_table_name} TO {table.name}, {table.renamed_table_name} TO {table.tmp_table_name}",
-            ),
-            AsyncMigrationOperation.simple_op(
-                sql=f"ATTACH TABLE {table.materialized_view_name}",
-                rollback=f"DETACH TABLE {table.materialized_view_name}",
-            ),
-        ]
+        yield AsyncMigrationOperation.simple_op(
+            sql=f"""
+            CREATE TABLE {table.tmp_table_name} AS {table.name}
+            ENGINE = {self.get_new_engine(table)}
+            """,
+            rollback=f"DROP TABLE {table.tmp_table_name}",
+        )
+
+        if table.materialized_view_name is not None:
+            yield AsyncMigrationOperation.simple_op(
+                sql=f"DROP TABLE {table.materialized_view_name}", rollback=table.create_materialized_view,
+            )
+
+        yield AsyncMigrationOperation(
+            fn=lambda _: self.move_partitions(table.name, table.tmp_table_name),
+            rollback_fn=lambda _: self.move_partitions(table.tmp_table_name, table.name),
+        )
+        yield AsyncMigrationOperation.simple_op(
+            sql=f"RENAME TABLE {table.name} TO {table.backup_table_name}, {table.tmp_table_name} TO {table.renamed_table_name}",
+            rollback=f"RENAME TABLE {table.backup_table_name} TO {table.name}, {table.renamed_table_name} TO {table.tmp_table_name}",
+        )
+
+        if table.materialized_view_name is not None:
+            yield AsyncMigrationOperation.simple_op(
+                sql=table.create_materialized_view, rollback=f"DROP TABLE {table.materialized_view_name}",
+            )
+
+        # NOTE: Relies on IF NOT EXISTS on the query
+        if isinstance(table, ShardedTableMigrationData):
+            for create_table_query in table.extra_tables:
+                yield AsyncMigrationOperation.simple_op(sql=create_table_query)
 
     def get_new_engine(self, table: TableMigrationData):
         """
@@ -170,3 +176,95 @@ class Migration(AsyncMigrationDefinition):
             # :KLUDGE: Partition IDs are special and cannot be passed as arguments
             sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
+
+    def tables_to_migrate(self):
+        from ee.clickhouse.sql.cohort import COHORTPEOPLE_TABLE_ENGINE
+        from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_ENGINE, DEAD_LETTER_QUEUE_TABLE_MV_SQL
+        from ee.clickhouse.sql.events import (
+            DISTRIBUTED_EVENTS_TABLE_SQL,
+            EVENTS_DATA_TABLE_ENGINE,
+            EVENTS_TABLE_MV_SQL,
+            WRITABLE_EVENTS_TABLE_SQL,
+        )
+        from ee.clickhouse.sql.groups import GROUPS_TABLE_ENGINE, GROUPS_TABLE_MV_SQL
+        from ee.clickhouse.sql.person import (
+            PERSON_DISTINCT_ID2_MV_SQL,
+            PERSON_DISTINCT_ID2_TABLE_ENGINE,
+            PERSON_STATIC_COHORT_TABLE_ENGINE,
+            PERSONS_TABLE_ENGINE,
+            PERSONS_TABLE_MV_SQL,
+        )
+        from ee.clickhouse.sql.plugin_log_entries import (
+            PLUGIN_LOG_ENTRIES_TABLE_ENGINE,
+            PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
+        )
+        from ee.clickhouse.sql.session_recording_events import (
+            DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
+            SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE,
+            SESSION_RECORDING_EVENTS_TABLE_MV_SQL,
+            WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
+        )
+
+        return [
+            ShardedTableMigrationData(
+                name="events",
+                new_table_engine=EVENTS_DATA_TABLE_ENGINE(),
+                materialized_view_name="events_mv",
+                rename_to="sharded_events",
+                create_materialized_view=EVENTS_TABLE_MV_SQL(),
+                extra_tables=[WRITABLE_EVENTS_TABLE_SQL(), DISTRIBUTED_EVENTS_TABLE_SQL()],
+            ),
+            ShardedTableMigrationData(
+                name="session_recording_events",
+                new_table_engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
+                materialized_view_name="session_recording_events_mv",
+                rename_to="sharded_session_recording_events",
+                create_materialized_view=SESSION_RECORDING_EVENTS_TABLE_MV_SQL(),
+                extra_tables=[
+                    WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                    DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                ],
+            ),
+            TableMigrationData(
+                name="events_dead_letter_queue",
+                new_table_engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
+                materialized_view_name="events_dead_letter_queue_mv",
+                create_materialized_view=DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+            ),
+            TableMigrationData(
+                name="groups",
+                new_table_engine=GROUPS_TABLE_ENGINE(),
+                materialized_view_name="groups_mv",
+                create_materialized_view=GROUPS_TABLE_MV_SQL,
+            ),
+            TableMigrationData(
+                name="person",
+                new_table_engine=PERSONS_TABLE_ENGINE(),
+                materialized_view_name="person_mv",
+                create_materialized_view=PERSONS_TABLE_MV_SQL,
+            ),
+            TableMigrationData(
+                name="person_distinct_id2",
+                new_table_engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
+                materialized_view_name="person_distinct_id2_mv",
+                create_materialized_view=PERSON_DISTINCT_ID2_MV_SQL,
+            ),
+            TableMigrationData(
+                name="plugin_log_entries",
+                new_table_engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
+                materialized_view_name="plugin_log_entries_mv",
+                create_materialized_view=PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
+            ),
+            TableMigrationData(
+                name="cohortpeople",
+                new_table_engine=COHORTPEOPLE_TABLE_ENGINE(),
+                materialized_view_name=None,
+                create_materialized_view=None,
+            ),
+            TableMigrationData(
+                name="person_static_cohort",
+                new_table_engine=PERSON_STATIC_COHORT_TABLE_ENGINE(),
+                materialized_view_name=None,
+                create_materialized_view=None,
+            ),
+        ]

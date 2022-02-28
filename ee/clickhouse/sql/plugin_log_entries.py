@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+PLUGIN_LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp")
 PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY plugin_id ORDER BY (team_id, id)
@@ -32,7 +33,7 @@ SETTINGS index_granularity=512
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp"),
+    engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", TTL_WEEKS),
 )
 

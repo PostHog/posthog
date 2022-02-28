@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+GROUPS_TABLE_ENGINE = lambda: ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
 GROUPS_TABLE_SQL = lambda: (
     GROUPS_TABLE_BASE_SQL
     + """Order By (team_id, group_type_index, group_key)
@@ -27,7 +28,7 @@ GROUPS_TABLE_SQL = lambda: (
 ).format(
     table_name=GROUPS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp"),
+    engine=GROUPS_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
