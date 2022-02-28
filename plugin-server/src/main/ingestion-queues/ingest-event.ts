@@ -69,6 +69,8 @@ export async function ingestEvent(
             }
             await Promise.all(promises)
         }
+    } else {
+        server.statsd?.increment('kafka_queue.dropped_event')
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
