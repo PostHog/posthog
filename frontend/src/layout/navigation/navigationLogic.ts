@@ -133,10 +133,8 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         asyncMigrationsOk: [
             () => [systemStatusLogic.selectors.overview, systemStatusLogic.selectors.systemStatusLoading],
             (statusMetrics, systemStatusLoading) => {
-                return (
-                    systemStatusLoading ||
-                    !!statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok' && sm.value).length
-                )
+                const asyncMigrations = statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok')[0]
+                return systemStatusLoading || !asyncMigrations || asyncMigrations.value
             },
         ],
         updateAvailable: [
