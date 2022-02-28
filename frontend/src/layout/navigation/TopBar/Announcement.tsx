@@ -7,6 +7,7 @@ import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { AttentionRequiredBanner } from 'lib/introductions/AttentionRequiredBanner'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -23,6 +24,8 @@ export function Announcement(): JSX.Element | null {
                 <a href="https://posthog.com/signup">deploy your own PostHog instance or sign up for PostHog Cloud</a>.
             </b>
         )
+    } else if (shownAnnouncementType === AnnouncementType.AttentionRequired) {
+        return <AttentionRequiredBanner />
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
     } else if (shownAnnouncementType === AnnouncementType.NewFeature) {

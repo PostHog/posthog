@@ -9,10 +9,12 @@ export enum AnnouncementType {
     Demo = 'Demo',
     CloudFlag = 'CloudFlag',
     NewFeature = 'NewFeature',
+    AttentionRequired = 'AttentionRequired',
 }
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
-const ShowNewFeatureAnnouncement = false
+const ShowNewFeatureAnnouncement = true
+const SelfHostedAnnouncement = AnnouncementType.AttentionRequired
 
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
@@ -69,7 +71,7 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
                 } else if (ShowNewFeatureAnnouncement) {
-                    return AnnouncementType.NewFeature
+                    return SelfHostedAnnouncement
                 }
                 return null
             },
