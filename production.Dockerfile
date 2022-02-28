@@ -3,7 +3,7 @@
 #
 # Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
 #
-FROM python:3.8-alpine3.14
+FROM python:3.8.12-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
 

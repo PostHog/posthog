@@ -25,10 +25,7 @@ import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType, IntervalType } from '~/types'
-import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -53,9 +50,6 @@ interface LineGraphProps {
     insightId?: number
     inSharedMode?: boolean
     percentage?: boolean
-    interval?: IntervalType // TODO: Deprecate once LEGACY_LineGraph is removed
-    totalValue?: number // TODO: Deprecate once LEGACY_LineGraph is removed
-    tooltipPreferAltTitle?: boolean // TODO: Deprecate once LEGACY_LineGraph is removed
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
@@ -65,36 +59,24 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
-export function LineGraph(props: LineGraphProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
-        return <LineGraphV2 {...props} />
-    } else {
-        // @ts-expect-error
-        return <LEGACY_LineGraph {...props} />
-    }
-}
-
-function LineGraphV2(props: LineGraphProps): JSX.Element {
-    const {
-        datasets: _datasets,
-        hiddenLegendKeys,
-        labels,
-        color,
-        type,
-        isInProgress = false,
-        onClick,
-        ['data-attr']: dataAttr,
-        insightId,
-        inSharedMode = false,
-        percentage = false,
-        showPersonsModal = true,
-        isCompare = false,
-        incompletenessOffsetFromEnd = -1,
-        tooltip: tooltipConfig,
-        labelGroupType,
-    } = props
+export function LineGraph({
+    datasets: _datasets,
+    hiddenLegendKeys,
+    labels,
+    color,
+    type,
+    isInProgress = false,
+    onClick,
+    ['data-attr']: dataAttr,
+    insightId,
+    inSharedMode = false,
+    percentage = false,
+    showPersonsModal = true,
+    isCompare = false,
+    incompletenessOffsetFromEnd = -1,
+    tooltip: tooltipConfig,
+    labelGroupType,
+}: LineGraphProps): JSX.Element {
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)

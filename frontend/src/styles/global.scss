@@ -368,6 +368,13 @@ code.code {
     border-radius: 4px;
 }
 
+.border-top {
+    border-top: 1px solid $border;
+}
+
+.border-bottom {
+    border-bottom: 1px solid $border;
+}
 // Vendor-specific adjustments
 
 input::-ms-clear {
