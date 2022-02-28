@@ -25,6 +25,7 @@ import {
     SecondaryExperimentMetric,
     AvailableFeature,
     SignificanceCode,
+    SecondaryMetricResult,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -313,6 +314,7 @@ export const experimentLogic = kea<experimentLogicType>({
             } else {
                 actions.resetNewExperiment()
                 actions.loadExperimentResults()
+                actions.loadSecondaryMetricResults()
             }
         },
         launchExperiment: async () => {
@@ -393,6 +395,21 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 },
                 emptyExperimentResults: () => null,
+            },
+        ],
+        secondaryMetricResults: [
+            null as SecondaryMetricResult[] | null,
+            {
+                loadSecondaryMetricResults: async () => {
+                    const results = []
+                    for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
+                        const secResults = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${i}`
+                        )
+                        results.push(secResults.result)
+                    }
+                    return results
+                },
             },
         ],
     }),
