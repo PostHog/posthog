@@ -87,7 +87,7 @@ export function PropertyGroupFilters({
                                             />
                                             <LemonButton
                                                 icon={<IconDelete />}
-                                                type="tertiary"
+                                                type="primary-alt"
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                 compact
                                             />

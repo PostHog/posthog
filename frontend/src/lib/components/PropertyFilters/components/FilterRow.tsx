@@ -6,11 +6,14 @@ import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
+import { IconDelete } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { CloseButton } from 'lib/components/CloseButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -69,19 +72,25 @@ export const FilterRow = React.memo(function FilterRow({
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
-                    {!!Object.keys(filters[index]).length && (
-                        <DeleteOutlined
-                            onClick={() => onRemove(index)}
-                            style={{
-                                fontSize: 16,
-                                cursor: 'pointer',
-                                float: 'none',
-                                paddingLeft: 8,
-                                paddingTop: 4,
-                                color: 'var(--primary-alt)',
-                            }}
-                        />
-                    )}
+                    {!!Object.keys(filters[index]).length &&
+                        (orFiltering ? (
+                            <LemonButton
+                                icon={<IconDelete />}
+                                type="primary-alt"
+                                onClick={() => onRemove(index)}
+                                compact
+                            />
+                        ) : (
+                            <CloseButton
+                                onClick={() => onRemove(index)}
+                                style={{
+                                    cursor: 'pointer',
+                                    float: 'none',
+                                    paddingLeft: 8,
+                                    paddingTop: 4,
+                                }}
+                            />
+                        ))}
                 </>
             ) : (
                 <>

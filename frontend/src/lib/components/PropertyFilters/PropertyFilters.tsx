@@ -8,7 +8,7 @@ import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { AndOr } from '../PropertyGroupFilters/PropertyGroupFilters'
+import { FilterLogicalOperator } from '../PropertyGroupFilters/PropertyGroupFilters'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -24,7 +24,7 @@ interface PropertyFiltersProps {
     showNestedArrow?: boolean
     eventNames?: string[]
     orFiltering?: boolean
-    propertyGroupType?: AndOr | null
+    propertyGroupType?: FilterLogicalOperator | null
 }
 
 export function PropertyFilters({
