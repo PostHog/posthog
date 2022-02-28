@@ -1436,12 +1436,12 @@ export enum FilterLogicalOperator {
     And = 'AND',
     Or = 'OR',
 }
-export interface AndOrPropertyFilter {
+export interface PropertyGroupFilter {
     type?: FilterLogicalOperator
-    values: AndOrPropertyValue[]
+    values: PropertyGroupFilterValue[]
 }
 
-export interface AndOrPropertyValue {
+export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
     values: AnyPropertyFilter[]
 }

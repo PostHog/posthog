@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { AndOrPropertyFilter, AndOrPropertyValue, FilterLogicalOperator, PropertyFilter } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator, PropertyFilter, PropertyGroupFilterValue } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
@@ -11,12 +11,12 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconDelete, IconPlus } from '../icons'
 import { LemonButton } from '../LemonButton'
 
-export function isAndOrFilter(property?: PropertyFilter[] | AndOrPropertyFilter): property is AndOrPropertyFilter {
-    return (property as AndOrPropertyFilter).values !== undefined
+export function isAndOrFilter(property?: PropertyFilter[] | PropertyGroupFilter): property is PropertyGroupFilter {
+    return (property as PropertyGroupFilter).values !== undefined
 }
 interface PropertyGroupFilters {
-    propertyFilters?: AndOrPropertyFilter | null
-    onChange: (filters: AndOrPropertyFilter) => void
+    propertyFilters?: PropertyGroupFilter | null
+    onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -37,8 +37,8 @@ export function PropertyGroupFilters({
         setFilters,
         addFilterGroup,
         removeFilterGroup,
-        setPropertyGroupsType,
-        setPropertyGroupType,
+        setOuterPropertyGroupsType,
+        setInnerPropertyGroupType,
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
@@ -62,18 +62,18 @@ export function PropertyGroupFilters({
                             {filtersWithNew.type && (
                                 <AndOrFilterSelect
                                     value={filtersWithNew.type}
-                                    onChange={(value) => setPropertyGroupsType(value)}
+                                    onChange={(value) => setOuterPropertyGroupsType(value)}
                                     topLevelFilter={true}
                                 />
                             )}
                         </Row>
-                        {filtersWithNew.values?.map((group: AndOrPropertyValue, propertyGroupIndex: number) => {
+                        {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
                                 <>
                                     <div className="mt mb" style={style} key={propertyGroupIndex}>
                                         <Row justify="space-between" align="middle" className="mb-05">
                                             <AndOrFilterSelect
-                                                onChange={(type) => setPropertyGroupType(type, propertyGroupIndex)}
+                                                onChange={(type) => setInnerPropertyGroupType(type, propertyGroupIndex)}
                                                 value={group.type}
                                             />
                                             <div

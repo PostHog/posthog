@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 
-import { AndOrPropertyFilter, FilterLogicalOperator } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
 import { parsePropertyGroups } from 'lib/components/PropertyFilters/utils'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
@@ -14,17 +14,17 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
 
     actions: () => ({
         update: (propertyGroupIndex?: number) => ({ propertyGroupIndex }),
-        setFilters: (filters: AndOrPropertyFilter) => ({ filters }),
+        setFilters: (filters: PropertyGroupFilter) => ({ filters }),
         removeFilterGroup: (filterGroup: number) => ({ filterGroup }),
-        setPropertyGroupsType: (type: FilterLogicalOperator) => ({ type }),
+        setOuterPropertyGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
-        setPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
+        setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         addFilterGroup: true,
     }),
 
     reducers: ({ props }) => ({
         filters: [
-            props.propertyFilters ? parsePropertyGroups(props.propertyFilters) : ({} as AndOrPropertyFilter),
+            props.propertyFilters ? parsePropertyGroups(props.propertyFilters) : ({} as PropertyGroupFilter),
             {
                 setFilters: (_, { filters }) => filters,
                 addFilterGroup: (state) => {
@@ -57,7 +57,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                     }
                     return removedFilterGroupState
                 },
-                setPropertyGroupsType: (state, { type }) => {
+                setOuterPropertyGroupsType: (state, { type }) => {
                     return { ...state, type }
                 },
                 setPropertyFilters: (state, { properties, index }) => {
@@ -69,7 +69,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                     }
                     return newState
                 },
-                setPropertyGroupType: (state, { type, index }) => {
+                setInnerPropertyGroupType: (state, { type, index }) => {
                     const newState = { ...state }
                     newState.values[index].type = type
                     return newState
@@ -80,8 +80,8 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
     listeners: ({ actions, props, values }) => ({
         setFilters: () => actions.update(),
         setPropertyFilters: () => actions.update(),
-        setPropertyGroupType: () => actions.update(),
-        setPropertyGroupsType: () => actions.update(),
+        setInnerPropertyGroupType: () => actions.update(),
+        setOuterPropertyGroupsType: () => actions.update(),
         removeFilterGroup: () => actions.update(),
         addFilterGroup: () => actions.update(),
         update: () => {

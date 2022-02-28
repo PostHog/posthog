@@ -1,4 +1,4 @@
-import { AndOrPropertyFilter, AnyPropertyFilter, FilterLogicalOperator, PropertyFilter } from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, FilterLogicalOperator, PropertyFilter } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -17,8 +17,8 @@ export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
 }
 
 export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilters?: AndOrPropertyFilter | null
-    onChange: (filters: AndOrPropertyFilter) => void
+    propertyFilters?: PropertyGroupFilter | null
+    onChange: (filters: PropertyGroupFilter) => void
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
