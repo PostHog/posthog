@@ -177,7 +177,7 @@ class PropertyGroup:
         if not self.values:
             return result
 
-        return {"type": self.type, "values": [prop.to_dict() for prop in self.values]}
+        return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
 
     def __repr__(self):
         params_repr = ", ".join(f"{repr(prop)}" for prop in self.values)

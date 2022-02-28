@@ -106,6 +106,7 @@ class ClickhousePersonQuery:
 
         return self.parse_grouped_properties(properties)
 
+    # TODO: get rid of this, we'll now use parse_prop_group_clauses to generate this as well
     def parse_properties(
         self, properties: List[Property], operator: PropertyOperatorType, prepend: str = "personquery"
     ) -> Tuple[str, Dict]:
