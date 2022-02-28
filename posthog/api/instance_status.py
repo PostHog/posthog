@@ -90,7 +90,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 }
             )
             metrics.append(
-                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
+                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()},
             )
 
         from ee.clickhouse.system_status import system_status

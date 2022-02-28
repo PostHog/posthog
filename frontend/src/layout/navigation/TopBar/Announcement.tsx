@@ -7,7 +7,7 @@ import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { AttentionRequiredBanner } from 'lib/introductions/AttentionRequiredBanner'
+import { LinkButton } from 'lib/components/LinkButton'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -25,7 +25,19 @@ export function Announcement(): JSX.Element | null {
             </b>
         )
     } else if (shownAnnouncementType === AnnouncementType.AttentionRequired) {
-        return <AttentionRequiredBanner />
+        message = (
+            <div>
+                <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
+                next release.
+                <LinkButton
+                    to="/instance/async_migrations"
+                    className="NewFeatureAnnouncement__button"
+                    data-attr="site-banner-async-migrations"
+                >
+                    Click here to fix
+                </LinkButton>
+            </div>
+        )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
     } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
