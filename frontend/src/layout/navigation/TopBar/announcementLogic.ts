@@ -1,9 +1,9 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { userLogic } from 'scenes/userLogic'
+import { navigationLogic } from '../navigationLogic'
 
 import { announcementLogicType } from './announcementLogicType'
 
@@ -27,8 +27,8 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             ['preflight'],
             userLogic,
             ['user'],
-            systemStatusLogic,
-            ['overview', 'systemStatusLoading'],
+            navigationLogic,
+            ['asyncMigrationsOk'],
         ],
     },
     actions: {
@@ -74,15 +74,14 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.overview, s.systemStatusLoading],
-            (cloudAnnouncement, preflight, user, overview, systemStatusLoading): AnnouncementType | null => {
+            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
                 } else if (
-                    !systemStatusLoading &&
-                    !overview.find((metric) => metric.key === 'async_migrations_ok')?.value &&
+                    !asyncMigrationsOk &&
                     (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)
                 ) {
                     return AnnouncementType.AttentionRequired

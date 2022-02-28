@@ -123,13 +123,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 }
 
                 // if you have status metrics these three must have `value: true`
-                const aliveMetrics = [
-                    'redis_alive',
-                    'db_alive',
-                    'plugin_sever_alive',
-                    'dead_letter_queue_ratio_ok',
-                    'async_migrations_ok',
-                ]
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive', 'dead_letter_queue_ratio_ok']
                 const aliveSignals = statusMetrics
                     .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
                     .filter((sm) => sm.value).length
@@ -137,9 +131,12 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
         asyncMigrationsOk: [
-            () => [systemStatusLogic.selectors.overview],
-            (statusMetrics) => {
-                return !!statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok' && sm.value).length
+            () => [systemStatusLogic.selectors.overview, systemStatusLogic.selectors.systemStatusLoading],
+            (statusMetrics, systemStatusLoading) => {
+                return (
+                    systemStatusLoading ||
+                    !!statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok' && sm.value).length
+                )
             },
         ],
         updateAvailable: [

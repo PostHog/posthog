@@ -221,7 +221,7 @@ function AsyncMigrations(): JSX.Element {
         >
             <>
                 <div className="SitePopover__main-info">
-                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Async migrations pending'}
+                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Pending async migrations'}
                 </div>
                 <Link
                     to={urls.asyncMigrations()}
@@ -229,7 +229,7 @@ function AsyncMigrations(): JSX.Element {
                     className="SitePopover__side-link"
                     data-attr="async-migrations-status-badge"
                 >
-                    Async Migrations
+                    Manage
                 </Link>
             </>
         </LemonRow>
@@ -295,7 +295,7 @@ export function SitePopover(): JSX.Element {
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
-                            {!preflight?.cloud && <AsyncMigrations />}
+                            <AsyncMigrations />
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection>
