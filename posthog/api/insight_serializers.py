@@ -145,6 +145,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
     formula = serializers.CharField(
         required=False,
         help_text="Combine the result of events or actions into a single number. For example `A + B` or `(A-B)/B`. The letters correspond to the order of the `events` or `actions` lists.",
+        allow_blank=True,
     )
     compare = serializers.BooleanField(
         help_text="For each returned result show the current period and the previous period. The result will contain `compare:true` and a `compare_label` with either `current` or `previous`.",

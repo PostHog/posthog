@@ -41,7 +41,8 @@ export enum Scene {
     Plugins = 'Plugins',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
-    // Authentication & onboarding routes
+    WebPerformance = 'WebPerformance',
+    // Authentication, onboarding & initialization routes
     Login = 'Login',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
@@ -49,9 +50,6 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
-    OnboardingSetup = 'OnboardingSetup',
-    Personalization = 'Personalization',
-    WebPerformance = 'WebPerformance',
 }
 
 export type SceneProps = Record<string, any>

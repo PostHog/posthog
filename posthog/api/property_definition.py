@@ -89,8 +89,13 @@ class PropertyDefinitionViewSet(
         if event_names:
             event_names = json.loads(event_names)
 
+        event_property_filter = ""
         if event_names and len(event_names) > 0:
             event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
+            if self.request.GET.get("is_event_property", None) == "true":
+                event_property_filter = f"AND {event_property_field} = true"
+            elif self.request.GET.get("is_event_property", None) == "false":
+                event_property_filter = f"AND {event_property_field} = false"
         else:
             event_property_field = "NULL"
 
@@ -117,7 +122,7 @@ class PropertyDefinitionViewSet(
                                    {event_property_field} AS is_event_property
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                            WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                            WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
                             ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
                 params=params,
@@ -131,10 +136,10 @@ class PropertyDefinitionViewSet(
 
         return PropertyDefinition.objects.raw(
             f"""
-                SELECT {property_definition_fields}, 
+                SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
-                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query}
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,
             params=params,

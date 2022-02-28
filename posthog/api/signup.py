@@ -66,11 +66,6 @@ class SignupSerializer(serializers.Serializer):
         )
         user = self._user
 
-        # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
-        if self.enable_new_onboarding(user):
-            self._organization.setup_section_2_completed = False
-            self._organization.save()
-
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
@@ -107,22 +102,15 @@ class SignupSerializer(serializers.Serializer):
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if settings.DEMO or self.enable_new_onboarding(user):
+        if settings.DEMO:
             return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = (
-            "/personalization" if self.enable_new_onboarding() else "/ingestion" if not settings.DEMO else "/"
-        )
+        data["redirect_url"] = "/ingestion" if not settings.DEMO else "/"
         return data
-
-    def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
-        if user is None:
-            user = self._user
-        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id)
 
 
 class SignupViewset(generics.CreateAPIView):
@@ -251,8 +239,8 @@ class InviteSignupViewset(generics.CreateAPIView):
         )
 
 
-## Social Signup
-## views & serializers
+# Social Signup
+# views & serializers
 class SocialSignupSerializer(serializers.Serializer):
     """
     Signup serializer when the account is created using social authentication.

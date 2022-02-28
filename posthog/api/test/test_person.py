@@ -3,6 +3,8 @@ import unittest
 from unittest import mock
 from uuid import uuid4
 
+from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
@@ -117,6 +119,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
+
+    def test_filter_by_static_cohort(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, distinct_ids=["1"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort.insert_users_by_list(["1", "123"])
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 2, response)
 
     def test_filter_person_list(self):
 

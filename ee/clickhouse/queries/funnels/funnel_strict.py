@@ -39,7 +39,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop(group_remaining=True)
 
         inner_query = f"""
-            SELECT 
+            SELECT
             aggregation_target,
             timestamp,
             {partition_select}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Col, Row, Typography } from 'antd'
+import { Button, Col, Collapse, Row, Typography } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -60,7 +60,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
                 <p key={index}>
                     {key}: from: {part.start}ms to {part.end}ms (
-                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(2)}%)
+                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)
                 </p>
             ))}
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
@@ -70,9 +70,11 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                     {asResourceTiming.encodedBodySize !== asResourceTiming.decodedBodySize && (
                         <p>
                             Was compressed. Sent {humanizeBytes(asResourceTiming.encodedBodySize)}. Saving{' '}
-                            {((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
-                                asResourceTiming.decodedBodySize) *
-                                100}
+                            {(
+                                ((asResourceTiming.decodedBodySize - asResourceTiming.encodedBodySize) /
+                                    asResourceTiming.decodedBodySize) *
+                                100
+                            ).toFixed(1)}
                             %
                         </p>
                     )}
@@ -321,9 +323,15 @@ const EventsWithPerformanceTable = (): JSX.Element => {
 const DebugPerfData = (): JSX.Element => {
     const { currentEvent } = useValues(webPerformanceLogic)
     return (
-        <pre>
-            {currentEvent ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2) : null}
-        </pre>
+        <Collapse>
+            <Collapse.Panel header="Performance Debug Information" key="1">
+                <pre>
+                    {currentEvent
+                        ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)
+                        : null}
+                </pre>
+            </Collapse.Panel>
+        </Collapse>
     )
 }
 
@@ -343,7 +351,19 @@ export const WebPerformance = (): JSX.Element => {
                     </Row>
                 }
                 caption={
-                    'Shows page view events where performance information has been captured. Not all events have all performance information.'
+                    <div>
+                        <p>
+                            Shows page view events where performance information has been captured. Not all events have
+                            all performance information.
+                        </p>
+                        <p>
+                            To capture performance information you must be using posthog-js and set{' '}
+                            <code>_capture_performance</code> to true. See the{' '}
+                            <a href="https://posthog.com/docs/integrate/client/js#config" target="_blank">
+                                config instructions in our handbook
+                            </a>
+                        </p>
+                    </div>
                 }
             />
             <Row gutter={[0, 32]}>

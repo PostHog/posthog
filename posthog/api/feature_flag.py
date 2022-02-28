@@ -141,6 +141,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+
+    If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
 
     queryset = FeatureFlag.objects.all()
