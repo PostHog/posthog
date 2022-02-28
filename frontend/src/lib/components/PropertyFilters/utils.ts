@@ -20,7 +20,7 @@ export function parseProperties(
 }
 
 export function parsePropertyGroups(groups: PropertyGroupFilter): PropertyGroupFilter {
-    return groups || { groups: [] }
+    return groups || { values: [] }
 }
 
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */
