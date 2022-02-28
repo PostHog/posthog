@@ -166,45 +166,14 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
+        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+
         return parse_prop_grouped_clauses(
             team_id=self._team_id,
-            property_group=prop_group,
+            property_group=outer_properties,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.EXCLUDE,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-
-    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-        final = []
-        params: Dict[str, Any] = {}
-
-        for idx, prop in enumerate(filters):
-            if prop.type == "cohort":
-                person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
-                params = {**params, **cohort_filter_params}
-                final.append(f"AND {person_id_query}")
-            else:
-                filter_query, filter_params = parse_prop_grouped_clauses(
-                    team_id=self._team_id,
-                    property_group=PropertyGroup(type=PropertyOperatorType.AND, values=[prop]),
-                    prepend=f"global_{idx}",
-                    allow_denormalized_props=True,
-                    person_properties_mode=PersonPropertiesMode.EXCLUDE,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
-        return " ".join(final), params
-
-    def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
-        try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
-        except Cohort.DoesNotExist:
-            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
-
-        person_id_query, cohort_filter_params = format_cohort_subquery(
-            cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        )
-
-        return person_id_query, cohort_filter_params

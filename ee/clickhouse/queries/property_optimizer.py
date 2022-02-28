@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
@@ -12,6 +13,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
 
 
+@dataclass(frozen=True)
+class PropertyGroups:
+    outer: Optional[PropertyGroup]
+    inner: Optional[PropertyGroup]
+
+
 class PropertyOptimizer:
     """
     This class is responsible for figuring out what person or group properties can and should be pushed down to their
@@ -20,38 +27,26 @@ class PropertyOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team_id: int):
-        self.filter = filter
-        self.team_id = team_id
-
-    @cached_property
-    def property_groups(self):
-        property_group = self.filter.property_groups
-        return self._parse_property_groups(property_group)
-
-    def _parse_property_groups(
-        self, property_group: PropertyGroup
-    ) -> Tuple[Optional[PropertyGroup], Optional[PropertyGroup]]:
+    def parse_property_groups(self, property_group: PropertyGroup) -> PropertyGroups:
         " Returns outer and inner property groups for persons"
-        # TODO: handle cohorts?
 
         if len(property_group.values) == 0:
-            return None, None
+            return PropertyGroups(None, None)
 
         # If all person properties, push them down
         if property_group.type == PropertyOperatorType.OR:
             # with OR'ed properties, we can't push properties down,
             # unless they're all person properties
             if self.using_only_person_properties(property_group):
-                return None, property_group
+                return PropertyGroups(None, property_group)
             else:
-                return property_group, None
+                return PropertyGroups(property_group, None)
 
         else:
             # Top level type is AND.
             # If all person properties, push them down
             if self.using_only_person_properties(property_group):
-                return None, property_group
+                return PropertyGroups(None, property_group)
             else:
                 # Mixed, look into each individual group
                 if isinstance(property_group.values[0], PropertyGroup):
@@ -62,14 +57,14 @@ class PropertyOptimizer:
                     for group in property_group.values:
                         assert isinstance(group, PropertyGroup)
 
-                        outer, inner = self._parse_property_groups(group)
-                        if outer:
-                            outer_property_group_values.append(outer)
+                        subquery_groups = self.parse_property_groups(group)
+                        if subquery_groups.outer:
+                            outer_property_group_values.append(subquery_groups.outer)
 
-                        if inner:
-                            inner_property_group_values.append(inner)
+                        if subquery_groups.inner:
+                            inner_property_group_values.append(subquery_groups.inner)
 
-                    return (
+                    return PropertyGroups(
                         PropertyGroup(PropertyOperatorType.AND, outer_property_group_values),
                         PropertyGroup(PropertyOperatorType.AND, inner_property_group_values),
                     )
@@ -86,7 +81,7 @@ class PropertyOptimizer:
                             inner_property_values.append(property)
                         else:
                             outer_property_values.append(property)
-                    return (
+                    return PropertyGroups(
                         PropertyGroup(PropertyOperatorType.AND, outer_property_values),
                         PropertyGroup(PropertyOperatorType.AND, inner_property_values),
                     )

@@ -95,14 +95,20 @@ def test_person_query_with_and_and_or_property_groups(testdata, team, snapshot):
                         "type": "OR",
                         "values": [
                             {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-                            {"key": "email", "type": "person", "value": "karl", "operator": "icontains"},
+                            {"key": "$browser", "type": "person", "value": "karl", "operator": "icontains"},
                         ],
                     },
                     {
                         "type": "OR",
                         "values": [
                             {"key": "event_prop", "value": "value"},
-                            {"key": "$os", "type": "person", "value": "windows", "operator": "exact"},
+                            {
+                                "key": "$os",
+                                "type": "person",
+                                "value": "windows",
+                                "operator": "exact",
+                            },  # this can't be pushed down
+                            # so person query should return only rows from the first OR group
                         ],
                     },
                 ],
@@ -181,7 +187,7 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
                         "type": "OR",
                         "values": [
                             {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-                            {"key": "email", "type": "person", "value": "karl", "operator": "icontains"},
+                            {"key": "$browser", "type": "person", "value": "karl", "operator": "icontains"},
                         ],
                     },
                     {

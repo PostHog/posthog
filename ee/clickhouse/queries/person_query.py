@@ -1,8 +1,14 @@
 from typing import Dict, List, Optional, Set, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
+from ee.clickhouse.models.property import (
+    extract_tables_and_properties,
+    parse_prop_grouped_clauses,
+    prop_filter_json_extract,
+)
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.entity import Entity
@@ -104,69 +110,12 @@ class ClickhousePersonQuery:
             PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
         )
 
-        return self.parse_grouped_properties(properties)
+        inner_person_properties = self._column_optimizer.property_optimizer.parse_property_groups(properties).inner
 
-    # TODO: get rid of this, we'll now use parse_prop_group_clauses to generate this as well
-    def parse_properties(
-        self, properties: List[Property], operator: PropertyOperatorType, prepend: str = "personquery"
-    ) -> Tuple[str, Dict]:
-        conditions, params = [""], {}
-
-        for index, property in enumerate(properties):
-            if property.type != "person":
-                continue
-
-            expr, prop_params = prop_filter_json_extract(
-                property,
-                index,
-                prepend=prepend,
-                allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
-                property_operator=operator,
-            )
-
-            conditions.append(expr)
-            params.update(prop_params)
-
-        if conditions:
-            # remove the first operator
-            return " ".join(conditions).replace(operator, "", 1), params
-
-        return "", params
-
-    def parse_grouped_properties(
-        self, property_group: PropertyGroup, prepend: str = "personquery", _top_level: bool = True,
-    ) -> Tuple[str, Dict]:
-
-        if len(property_group.values) == 0:
-            return "", {}
-
-        if isinstance(property_group.values[0], PropertyGroup):
-            group_clauses = []
-            final_params = {}
-            for idx, group in enumerate(property_group.values):
-                if isinstance(group, PropertyGroup):
-                    clause, params = self.parse_grouped_properties(
-                        property_group=group, prepend=f"{prepend}_{idx}", _top_level=False,
-                    )
-                    group_clauses.append(clause)
-                    final_params.update(params)
-
-            # purge empty returns
-            group_clauses = [clause for clause in group_clauses if clause]
-            _final = f"{property_group.type} ".join(group_clauses)
-        else:
-            _final, final_params = self.parse_properties(
-                properties=cast(List[Property], property_group.values),
-                prepend=f"{prepend}",
-                operator=property_group.type,
-            )
-
-        if not _final:
-            final = ""
-        elif _top_level:
-            final = f"AND ({_final})"
-        else:
-            final = f"({_final})"
-
-        return final, final_params
+        return parse_prop_grouped_clauses(
+            self._team_id,
+            inner_person_properties,
+            has_person_id_joined=False,
+            group_properties_joined=False,
+            person_properties_mode=PersonPropertiesMode.USING_DIRECT_QUERY,
+        )

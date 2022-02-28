@@ -24,10 +24,6 @@ FILTER_WITH_GROUPS = BASE_FILTER.with_data({"properties": {"type": "AND", "value
 TEAM_ID = 3
 
 
-class TestPropertyOptimizer:
-    pass
-
-
 class TestPersonPropertySelector(unittest.TestCase):
     def test_basic_selector(self):
 
@@ -106,7 +102,13 @@ class TestPersonPushdown(unittest.TestCase):
     maxDiff = None
 
     def test_basic_pushdowns(self):
-        outer, inner = PropertyOptimizer(FILTER_WITH_GROUPS, TEAM_ID).property_groups
+        property_groups = PropertyOptimizer().parse_property_groups(FILTER_WITH_GROUPS.property_groups)
+        inner = property_groups.inner
+        outer = property_groups.outer
+
+        assert inner is not None
+        assert outer is not None
+
         self.assertEqual(
             inner.to_dict(),
             {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person", "operator": None},]},
@@ -156,7 +158,12 @@ class TestPersonPushdown(unittest.TestCase):
             }
         )
 
-        outer, inner = PropertyOptimizer(filter, TEAM_ID).property_groups
+        property_groups = PropertyOptimizer().parse_property_groups(filter.property_groups)
+        inner = property_groups.inner
+        outer = property_groups.outer
+
+        assert inner is not None
+        assert outer is not None
 
         self.assertEqual(
             inner.to_dict(),
@@ -219,7 +226,12 @@ class TestPersonPushdown(unittest.TestCase):
             }
         )
 
-        outer, inner = PropertyOptimizer(filter, TEAM_ID).property_groups
+        property_groups = PropertyOptimizer().parse_property_groups(filter.property_groups)
+        inner = property_groups.inner
+        outer = property_groups.outer
+
+        assert inner is not None
+        assert outer is not None
 
         self.assertEqual(
             inner.to_dict(),
