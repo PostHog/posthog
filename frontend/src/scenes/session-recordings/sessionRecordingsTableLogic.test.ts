@@ -2,6 +2,7 @@ import {
     sessionRecordingsTableLogic,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
+    RecordingTableLocation,
 } from './sessionRecordingsTableLogic'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
@@ -44,10 +45,66 @@ describe('sessionRecordingsTableLogic', () => {
         }
     })
 
-    describe('global logic', () => {
+    describe('home page logic', () => {
         initKeaTestLogic({
             logic: sessionRecordingsTableLogic,
             onLogic: (l) => (logic = l),
+            props: {
+                tableLocation: RecordingTableLocation.HomePage,
+                disableFiltering: true,
+            },
+        })
+
+        describe('core assumptions', () => {
+            it('loads session recordings after mounting', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+            })
+        })
+
+        describe('sessionRecordingId', () => {
+            it('starts as null', () => {
+                expectLogic(logic).toMatchValues({ sessionRecordingId: null })
+            })
+
+            it('is read from the URL on the home page', async () => {
+                router.actions.push('/home', {}, { sessionRecordingId: 'recording1212' })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
+
+                await expectLogic(logic)
+                    .toDispatchActions(['openSessionPlayer'])
+                    .toMatchValues({ sessionRecordingId: 'recording1212' })
+            })
+        })
+
+        it('do not set filters from the URL', async () => {
+            router.actions.push(
+                '/home',
+                {},
+                {
+                    recordingFilters: {
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    },
+                }
+            )
+
+            await expectLogic(logic)
+                .toDispatchActions(['getSessionRecordings', 'getSessionRecordingsSuccess'])
+                .toMatchValues({
+                    entityFilters: DEFAULT_ENTITY_FILTERS,
+                })
+        })
+    })
+
+    describe('recording page logic', () => {
+        initKeaTestLogic({
+            logic: sessionRecordingsTableLogic,
+            onLogic: (l) => (logic = l),
+            props: {
+                tableLocation: RecordingTableLocation.RecordingsPage,
+            },
         })
 
         describe('core assumptions', () => {
@@ -99,7 +156,7 @@ describe('sessionRecordingsTableLogic', () => {
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
-                expect(router.values.searchParams.filters).toHaveProperty('events', [
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('events', [
                     { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
                 ])
             })
@@ -113,7 +170,7 @@ describe('sessionRecordingsTableLogic', () => {
                     .toMatchValues({ offset: 50 })
                     .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['List of recordings offset by 50'] })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', 50)
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('offset', 50)
 
                 await expectLogic(logic, () => {
                     logic.actions.loadPrev()
@@ -121,7 +178,7 @@ describe('sessionRecordingsTableLogic', () => {
                     .toMatchValues({ offset: 0 })
                     .toDispatchActions(['loadPrev', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', 0)
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('offset', 0)
             })
         })
 
@@ -134,8 +191,8 @@ describe('sessionRecordingsTableLogic', () => {
                     .toDispatchActions(['setDateRange', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
 
-                expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
-                expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('date_from', '2021-10-05')
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('date_to', '2021-10-20')
             })
         })
         describe('duration filter', () => {
@@ -164,7 +221,7 @@ describe('sessionRecordingsTableLogic', () => {
                     .toDispatchActions(['setDurationFilter', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
-                expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
+                expect(router.values.hashParams.recordingFilters).toHaveProperty('session_recording_duration', {
                     type: 'recording',
                     key: 'duration',
                     value: 600,
@@ -229,21 +286,25 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push('/recordings', {
-                filters: {
-                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                    date_from: '2021-10-01',
-                    date_to: '2021-10-10',
-                    offset: 50,
-                    session_recording_duration: {
-                        type: 'recording',
-                        key: 'duration',
-                        value: 600,
-                        operator: PropertyOperator.LessThan,
+            router.actions.push(
+                '/recordings',
+                {},
+                {
+                    recordingFilters: {
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                        date_from: '2021-10-01',
+                        date_to: '2021-10-10',
+                        offset: 50,
+                        session_recording_duration: {
+                            type: 'recording',
+                            key: 'duration',
+                            value: 600,
+                            operator: PropertyOperator.LessThan,
+                        },
                     },
-                },
-            })
+                }
+            )
 
             await expectLogic(logic)
                 .toDispatchActions(['setEntityFilters', 'setDateRange', 'setOffset', 'setDurationFilter'])
@@ -264,11 +325,13 @@ describe('sessionRecordingsTableLogic', () => {
                 })
         })
     })
+
     describe('person specific logic', () => {
         initKeaTestLogic({
             logic: sessionRecordingsTableLogic,
             props: {
                 personUUID: 'cool_user_99',
+                tableLocation: RecordingTableLocation.PersonPage,
             },
             onLogic: (l) => (logic = l),
         })
