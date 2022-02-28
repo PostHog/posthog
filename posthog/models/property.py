@@ -13,6 +13,7 @@ from typing import (
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.constants import PropertyOperatorType
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
@@ -182,3 +183,14 @@ class PropertyGroup:
     def __repr__(self):
         params_repr = ", ".join(f"{repr(prop)}" for prop in self.values)
         return f"PropertyGroup(type={self.type}-{params_repr})"
+
+    @cached_property
+    def flat(self) -> List[Property]:
+        return list(self._property_groups_flat(self))
+
+    def _property_groups_flat(self, prop_group: "PropertyGroup"):
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                yield from self._property_groups_flat(value)
+            else:
+                yield value

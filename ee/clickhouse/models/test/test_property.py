@@ -19,6 +19,7 @@ from ee.clickhouse.models.property import (
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import PropertyOperatorType
@@ -450,11 +451,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
+        outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
-            property_group=filter.property_groups,
+            property_group=outer_properties,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         joins = ""
         if join_person_tables:
@@ -516,6 +518,46 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "not_icontains"}],}
         )
         self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 0)
+
+    def test_prop_person_groups_denormalized(self):
+        _filter = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event", "operator": None},
+                            {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
+                            {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                        ],
+                    },
+                ],
+            }
+        }
+
+        filter = Filter(data=_filter)
+
+        _create_person(distinct_ids=["some_id_1"], team_id=self.team.pk, properties={})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_1", properties={"event_prop2": "foo2"})
+
+        _create_person(distinct_ids=["some_id_2"], team_id=self.team.pk, properties={"person_prop2": "efg2"})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_2")
+
+        _create_person(distinct_ids=["some_id_3"], team_id=self.team.pk, properties={"person_prop": "efg"})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_3", properties={"event_prop": "foo"})
+
+        materialize("events", "event_prop")
+        materialize("events", "event_prop2")
+        materialize("person", "person_prop")
+        materialize("person", "person_prop2")
+        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 3)
 
     def test_prop_event_denormalized_ints(self):
         _create_event(

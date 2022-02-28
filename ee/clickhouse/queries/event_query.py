@@ -100,7 +100,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         # :KLUDGE: The following is mostly making sure if cohorts are included as well.
         #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
-        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups_flat):
+        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
@@ -174,7 +174,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 

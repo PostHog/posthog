@@ -59,12 +59,12 @@ class ColumnOptimizer:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
 
-        if has_element_type_property(self.filter.property_groups_flat):
+        if has_element_type_property(self.filter.property_groups.flat):
             return True
 
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            if has_element_type_property(entity.property_groups_flat):
+            if has_element_type_property(entity.property_groups.flat):
                 return True
 
             # :TRICKY: Action definition may contain elements_chain usage
@@ -79,7 +79,7 @@ class ColumnOptimizer:
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups_flat)
+        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -105,7 +105,7 @@ class ColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            counter += extract_tables_and_properties(entity.property_groups_flat)
+            counter += extract_tables_and_properties(entity.property_groups.flat)
 
             # Math properties are also implicitly used.
             #

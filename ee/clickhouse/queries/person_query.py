@@ -34,6 +34,7 @@ class ClickhousePersonQuery:
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: Set[ColumnName]
+    _inner_person_properties: Optional[PropertyGroup]
 
     def __init__(
         self,
@@ -52,6 +53,14 @@ class ClickhousePersonQuery:
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
+
+        properties = self._filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
+        )
+
+        self._inner_person_properties = self._column_optimizer.property_optimizer.parse_property_groups(
+            properties
+        ).inner
 
     def get_query(self) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
@@ -79,9 +88,9 @@ class ClickhousePersonQuery:
     @property
     def is_used(self):
         "Returns whether properties or any other columns are actually being queried"
-        if any(self._uses_person_id(prop) for prop in self._filter.property_groups_flat):
+        if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups_flat):
+        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
             return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
@@ -95,26 +104,17 @@ class ClickhousePersonQuery:
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
-        properties_to_query -= extract_tables_and_properties(self._filter.property_groups_flat)
-
-        if self._entity is not None:
-            properties_to_query -= extract_tables_and_properties(self._entity.property_groups_flat)
+        if self._inner_person_properties:
+            properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
     def _get_person_filters(self) -> Tuple[str, Dict]:
-
-        properties = self._filter.property_groups.combine_property_group(
-            PropertyOperatorType.AND, self._entity.property_groups if self._entity else None
-        )
-
-        inner_person_properties = self._column_optimizer.property_optimizer.parse_property_groups(properties).inner
-
         return parse_prop_grouped_clauses(
             self._team_id,
-            inner_person_properties,
+            self._inner_person_properties,
             has_person_id_joined=False,
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.USING_DIRECT_QUERY,
