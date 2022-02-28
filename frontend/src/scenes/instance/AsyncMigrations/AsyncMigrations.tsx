@@ -128,7 +128,7 @@ export function AsyncMigrations(): JSX.Element {
                         status === AsyncMigrationStatus.FailedAtStartup ? (
                             <Tooltip title="Start">
                                 <Button
-                                    type="primary"
+                                    type="link"
                                     icon={<PlayCircleOutlined />}
                                     onClick={() => triggerMigration(asyncMigration.id)}
                                 >
