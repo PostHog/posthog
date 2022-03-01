@@ -65,10 +65,10 @@ describe('taxonomicFilterLogic', () => {
         ).toBeFalsy()
     })
 
-    it('keeps totalCounts in sync', async () => {
+    it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -78,7 +78,7 @@ describe('taxonomicFilterLogic', () => {
             .delay(1)
             .clearHistory()
             .toMatchValues({
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 56,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -100,7 +100,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events,
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 3,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
@@ -116,7 +116,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'selector',
                 activeTab: TaxonomicFilterGroupType.Elements, // tab changed!
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 1,
@@ -132,7 +132,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'this is not found',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
@@ -148,7 +148,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: '',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 56,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -181,7 +181,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events, // changed!
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 3,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,

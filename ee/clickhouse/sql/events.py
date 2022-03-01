@@ -1,12 +1,15 @@
+from django.conf import settings
+
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
-EVENTS_TABLE = "events"
-
-TRUNCATE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_EVENTS_TABLE_SQL = (
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
+)
+DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER {settings.CLICKHOUSE_CLUSTER}"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
@@ -35,7 +38,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
 
 """
 
-# :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
@@ -44,20 +46,18 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 {storage_policy}
 """
 ).format(
-    table_name=EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    table_name=EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=ReplacingMergeTree("events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    sample_by="SAMPLE BY cityHash64(distinct_id)"
-    if not DEBUG
-    else "",  # https://github.com/PostHog/posthog/issues/5684
+    sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    table_name="kafka_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
     materialized_columns="",
@@ -65,9 +65,9 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
-EVENTS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+EVENTS_TABLE_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_mv ON CLUSTER {cluster}
+TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
@@ -79,15 +79,39 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM {database}.kafka_{table_name}
+FROM {database}.kafka_events
 """.format(
-    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
-INSERT_EVENT_SQL = """
-INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
+# Distributed engine tables are only created if CLICKHOUSE_REPLICATED
+
+# This table is responsible for writing to sharded_events based on a sharding key.
+WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="writable_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields="",
+    materialized_columns="",
+)
+
+# This table is responsible for reading from events on a cluster setting
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields="",
+    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+)
+
+INSERT_EVENT_SQL = (
+    lambda: f"""
+INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
 SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
 """
+)
 
 GET_EVENTS_SQL = """
 SELECT
@@ -116,28 +140,28 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
-FROM 
-    events 
-WHERE 
+SELECT
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+FROM
+    events
+WHERE
     team_id = %(team_id)s AND
-    JSONHas(properties, %(key)s) 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    JSONHas(properties, %(key)s)
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+SELECT
+    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
 FROM
-    events 
-WHERE 
-    team_id = %(team_id)s AND 
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    events
+WHERE
+    team_id = %(team_id)s AND
+    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 

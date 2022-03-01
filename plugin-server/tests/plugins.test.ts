@@ -64,7 +64,10 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(pluginConfig.config).toEqual(pluginConfig39.config)
     expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
-    expect(pluginConfig.plugin).toEqual(plugin60)
+    expect(pluginConfig.plugin).toEqual({
+        ...plugin60,
+        capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+    })
 
     expect(pluginConfig.attachments).toEqual({
         maxmindMmdb: {
@@ -729,21 +732,6 @@ test("capabilities don't reload without changes", async () => {
     expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
     expect(setPluginCapabilities.mock.calls.length).toBe(1)
     expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
-})
-
-test('plugin lazy loads capabilities', async () => {
-    getPluginRows.mockReturnValueOnce([
-        mockPluginWithArchive(`
-            function setupPlugin (meta) { meta.global.key = 'value' }
-            function onEvent (event, meta) { event.properties={"x": 1}; return event }
-        `),
-    ])
-    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-    await setupPlugins(hub)
-    const pluginConfig = hub.pluginConfigs.get(39)!
-    expect(pluginConfig.plugin!.capabilities).toEqual({})
 })
 
 test('plugin sets exported metrics', async () => {

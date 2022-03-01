@@ -121,7 +121,7 @@ if settings.TEST:
         from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
 
-        sync_execute(TRUNCATE_EVENTS_TABLE_SQL)
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

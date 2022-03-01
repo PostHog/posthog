@@ -369,7 +369,7 @@ function InsightMeta({
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
-                            {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+                            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>

@@ -41,6 +41,7 @@ export const urls = {
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
+    projectHomepage: () => '/home',
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
@@ -53,9 +54,7 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',

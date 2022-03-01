@@ -1,14 +1,7 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-from .clickhouse import (
-    COLLAPSING_MERGE_TREE,
-    KAFKA_COLUMNS,
-    REPLACING_MERGE_TREE,
-    STORAGE_POLICY,
-    kafka_engine,
-    table_engine,
-)
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -40,7 +33,7 @@ PERSONS_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -115,7 +108,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
+    engine=CollapsingMergeTree(PERSONS_DISTINCT_ID_TABLE, ver="_sign"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -181,7 +174,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", REPLACING_MERGE_TREE, sharded=False),
+    engine=ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version"),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
@@ -235,7 +228,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=ReplacingMergeTree(PERSON_STATIC_COHORT_TABLE, ver="_timestamp"),
     storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
@@ -381,17 +374,17 @@ COMMENT_DISTINCT_ID_COLUMN_SQL = (
 
 
 SELECT_PERSON_PROP_VALUES_SQL = """
-SELECT 
-    value, 
-    count(value) 
+SELECT
+    value,
+    count(value)
 FROM (
-    SELECT 
+    SELECT
         trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
-    FROM 
-        person 
-    WHERE 
+    FROM
+        person
+    WHERE
         team_id = %(team_id)s AND
-        JSONHas(properties, %(key)s) 
+        JSONHas(properties, %(key)s)
     ORDER BY id DESC
     LIMIT 100000
 )
@@ -401,17 +394,17 @@ LIMIT 20
 """
 
 SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT 
-    value, 
-    count(value) 
+SELECT
+    value,
+    count(value)
 FROM (
-    SELECT 
+    SELECT
         trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
-    FROM 
-        person 
-    WHERE 
-        team_id = %(team_id)s AND 
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
+    FROM
+        person
+    WHERE
+        team_id = %(team_id)s AND
+        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
     ORDER BY id DESC
     LIMIT 100000
 )

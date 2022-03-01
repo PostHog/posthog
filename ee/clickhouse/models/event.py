@@ -61,7 +61,7 @@ def create_event(
 
     p = ClickhouseProducer()
 
-    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+    p.produce_proto(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS, data=pb_event)
 
     return str(event_uuid)
 
@@ -264,7 +264,7 @@ def get_event_count_for_last_month() -> int:
         SELECT
         COUNT(1) freq
         FROM events
-        WHERE 
+        WHERE
         toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
     """
     )[0][0]
@@ -289,9 +289,9 @@ def get_events_count_for_team_by_client_lib(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
+        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
         FROM events
-        WHERE team_id = %(team_id)s 
+        WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
         GROUP BY lib
     """,
@@ -305,11 +305,11 @@ def get_events_count_for_team_by_event_type(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT event, COUNT(1) as freq 
+        SELECT event, COUNT(1) as freq
         FROM events
         WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
-        GROUP BY event 
+        GROUP BY event
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )

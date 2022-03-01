@@ -19,6 +19,17 @@ describe('personsLogic', () => {
             return { result: ['result from api'] }
         } else if (`api/person/` === pathname && ['abc', 'xyz'].includes(searchParams['distinct_id'])) {
             return { results: ['person from api'] }
+        } else if (`api/person/` === pathname && ['test@test.com'].includes(searchParams['distinct_id'])) {
+            return {
+                results: [
+                    {
+                        id: 1,
+                        name: 'test@test.com',
+                        distinct_ids: ['test@test.com'],
+                        uuid: 'abc-123',
+                    },
+                ],
+            }
         }
     })
 
@@ -66,6 +77,25 @@ describe('personsLogic', () => {
             await expectLogic(logic).toMatchValues({
                 person: null,
             })
+        })
+
+        it('gets the person from the url', async () => {
+            router.actions.push('/person/test%40test.com')
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({
+                    person: {
+                        id: 1,
+                        name: 'test@test.com',
+                        distinct_ids: ['test@test.com'],
+                        uuid: 'abc-123',
+                    },
+                })
+
+            // Dont fetch again if the url changes (even with encoded distinct IDs)
+            router.actions.push('/person/test%40test.com', {}, { sessionRecordingId: 'abc-123' })
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadPerson'])
         })
 
         it('loads a person', async () => {
