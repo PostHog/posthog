@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import uuid4
 
 import pytest
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
 from ee.clickhouse.sql.events import KAFKA_EVENTS_TABLE_SQL
 from ee.clickhouse.sql.groups import KAFKA_GROUPS_TABLE_SQL
@@ -17,6 +17,12 @@ from posthog.async_migrations.setup import get_async_migration_definition, setup
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
+
+
+def _create_event(**kwargs):
+    pk = uuid4()
+    kwargs.update({"event_uuid": pk})
+    create_event(**kwargs)
 
 
 @pytest.mark.ee
@@ -36,12 +42,20 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
     def test_migration(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.
+
+        _create_event(team=self.team, distinct_id="test", event="$pageview")
+        _create_event(team=self.team, distinct_id="test2", event="$pageview")
+
         settings.CLICKHOUSE_REPLICATION = True
 
         setup_async_migrations()
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertTrue(migration_successful)
 
+        self.verify_table_engines_correct()
+        self.assertEqual(self.get_event_table_row_count(), 2)
+
+    def verify_table_engines_correct(self):
         table_engines = sync_execute(
             """
             SELECT name, engine_full
@@ -64,3 +78,6 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def assert_correct_engine(self, name, engine):
         valid_engine = any(engine_type in engine for engine_type in ("Replicated", "Distributed", "Kafka"))
         assert valid_engine, f"Unexpected table engine for '{name}': {engine}"
+
+    def get_event_table_row_count(self):
+        return sync_execute("SELECT count() FROM events")[0][0]
