@@ -9,11 +9,18 @@ If users ran the old version of this, they will be ok to run 0002, if not, they 
 """
 
 
+def echo(query_id):
+    print(f"Async migration 0001: {query_id}")
+
+
 class Migration(AsyncMigrationDefinition):
 
     description = "Test migration"
+    posthog_max_version = "1.32.9"
 
     operations: List[AsyncMigrationOperation] = []
 
     def is_required(self):
-        return False
+        return True
+
+    operations = [AsyncMigrationOperation(fn=echo, rollback_fn=echo)]
