@@ -31,7 +31,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
@@ -711,7 +710,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         createAndRedirectToNewInsight: async ({ filters }, breakpoint) => {
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: '',
                 description: '',
                 tags: [],
                 filters: cleanFilters(filters || {}),

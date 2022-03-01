@@ -123,16 +123,24 @@ function SeriesDisplay({
 }
 
 function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const humanEventTypes: string[] = []
+    // Sync with summarizePaths in utils
+    let humanEventTypes: string[] = []
     if (filters.include_event_types) {
+        let matchCount = 0
         if (filters.include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
+            matchCount++
         }
         if (filters.include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
+            matchCount++
         }
         if (filters.include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
+            matchCount++
+        }
+        if (matchCount === 0 || matchCount === 3) {
+            humanEventTypes = ['all events']
         }
     }
 
