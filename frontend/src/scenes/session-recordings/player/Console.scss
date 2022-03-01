@@ -1,0 +1,45 @@
+.console-log {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.log-line {
+    border-bottom: 1px solid rgb(248, 248, 248);
+    font-size: 10px;
+    white-space: nowrap;
+    cursor: pointer;
+    height: 21px;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    margin: 30px 0;
+
+    div {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    a {
+        color: grey;
+        text-decoration: underline;
+        white-space: nowrap;
+        border-radius: 10px;
+        display: inline-block;
+    }
+
+    &.level-error {
+        background: rgb(252, 241, 240);
+        color: red;
+    }
+    &.level-warn {
+        background: rgb(254, 251, 231);
+    }
+
+    &:hover {
+        background: rgba(83, 117, 255, 0.1);
+    }
+}

@@ -3562,6 +3562,11 @@
   resolved "https://registry.yarnpkg.com/@types/css-font-loading-module/-/css-font-loading-module-0.0.4.tgz#94a835e27d1af444c65cba88523533c174463d64"
   integrity sha512-ENdXf7MW4m9HeDojB2Ukbi7lYMIuQNBHVf98dbzaiG4EEJREBd6oleVAjrLRCrp7dm6CK1mmdmU9tcgF61acbw==
 
+"@types/css-font-loading-module@0.0.7":
+  version "0.0.7"
+  resolved "https://registry.yarnpkg.com/@types/css-font-loading-module/-/css-font-loading-module-0.0.7.tgz#2f98ede46acc0975de85c0b7b0ebe06041d24601"
+  integrity sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==
+
 "@types/d3-array@*":
   version "3.0.1"
   resolved "https://registry.yarnpkg.com/@types/d3-array/-/d3-array-3.0.1.tgz#0ff28ee7052a2e504cb951d17df7437c33d442d6"
@@ -5271,6 +5276,11 @@ balanced-match@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.0.tgz#89b4d199ab2bee49de164ea02b89ce462d71b767"
   integrity sha1-ibTRmasr7kneFk6gK4nORi1xt2c=
+
+base64-arraybuffer@^1.0.1:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/base64-arraybuffer/-/base64-arraybuffer-1.0.2.tgz#1c37589a7c4b0746e34bd1feb951da2df01c1bdc"
+  integrity sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==
 
 base64-js@^1.0.2, base64-js@^1.3.1:
   version "1.5.1"
@@ -14565,15 +14575,15 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
+rrweb-snapshot@^1.1.13:
+  version "1.1.13"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.13.tgz#fc15adb7eb6354c859c8d594f57b09e1f5bccdd8"
+  integrity sha512-lv4vBSJ5orBcRoJnjLvtly6cSsctC+TNm5orVzYRL9SH3LmtSpQ+wI4bw7eh4AcyKoUf0x4pe1Bn632GggmKWQ==
+
 rrweb-snapshot@^1.1.7:
   version "1.1.7"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
   integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
-
-rrweb-snapshot@^1.1.9:
-  version "1.1.9"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.9.tgz#f8d0f560291a37dab00dc5ac6d9368f76208256f"
-  integrity sha512-kpoWi2gx1AmX2PZU8XNKMvIvh5WPSz9lKfyHs9GYvczYE2H7VNrmPf7+rDin8Y+HcJ9Tu7x9id4JOCD2PsSPQA==
 
 rrweb@^1.0.2:
   version "1.0.2"
@@ -14586,16 +14596,17 @@ rrweb@^1.0.2:
     mitt "^1.1.3"
     rrweb-snapshot "^1.1.7"
 
-rrweb@^1.0.6:
-  version "1.0.6"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.6.tgz#381027a4331c610739145dc4142364be680504ba"
-  integrity sha512-uiRpPMNEd1oMqNYRelKBz28WBLXQEirx9u+nlTIaxk65fbTEUyKBr81GhcUSjeZAsTpkUtIAHacS0Gjz35x/Rw==
+rrweb@^1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.1.2.tgz#65279c8528dcfff7158bb31ed21323d3f26a741f"
+  integrity sha512-D1r3MdfYshY7rA8lN3R0cXqeY6fTtgHlkLQM4lxkU+TdKi023/hNQz6tvDJbXGX3HWGa4mRAmQs3S2uGho6Nsw==
   dependencies:
-    "@types/css-font-loading-module" "0.0.4"
+    "@types/css-font-loading-module" "0.0.7"
     "@xstate/fsm" "^1.4.0"
+    base64-arraybuffer "^1.0.1"
     fflate "^0.4.4"
     mitt "^1.1.3"
-    rrweb-snapshot "^1.1.9"
+    rrweb-snapshot "^1.1.13"
 
 rsvp@^4.8.4:
   version "4.8.5"
