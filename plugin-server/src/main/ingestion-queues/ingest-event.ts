@@ -19,6 +19,8 @@ export async function ingestEvent(
 
     checkAndPause?.()
 
+    server.statsd?.increment('kafka_queue_ingest_event_hit')
+
     // run processEvent on all events that are not $snapshot
     if (!isSnapshot) {
         processedEvent = await runInstrumentedFunction({
@@ -53,6 +55,8 @@ export async function ingestEvent(
                 timeoutMessage: `After 30 seconds still running ${isSnapshot ? 'onSnapshot' : 'onEvent'}`,
             }),
         ])
+
+        server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
 
         if (actionMatches.length > 0) {
             const promises = []
