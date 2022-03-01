@@ -304,17 +304,21 @@ export const experimentLogic = kea<experimentLogicType>({
                 trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
             }
         },
+        loadExperiment: async () => {
+            actions.loadExperimentResults('new')
+        },
         loadExperimentSuccess: async ({ experimentData }) => {
             experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
             actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
+            actions.loadExperimentResults('new')
             if (!experimentData?.start_date) {
                 // loading a draft experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
                 actions.resetNewExperiment()
-                actions.loadExperimentResults()
-                actions.loadSecondaryMetricResults()
+                actions.loadExperimentResults(undefined)
+                actions.loadSecondaryMetricResults(undefined)
             }
         },
         launchExperiment: async () => {
@@ -372,11 +376,22 @@ export const experimentLogic = kea<experimentLogicType>({
         experimentResults: [
             null as ExperimentResults | null,
             {
-                loadExperimentResults: async () => {
+                loadExperimentResults: async (id: 'new' | undefined, breakpoint) => {
+                    await breakpoint(10)
+
+                    if (id === 'new') {
+                        return null
+                    }
+
                     try {
+                        const experimentId = values.experimentId
                         const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+                            `api/projects/${values.currentTeamId}/experiments/${experimentId}/results`
                         )
+                        if (values.experimentId != experimentId) {
+                            // experiment has been updated, don't return stale old results
+                            return null
+                        }
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
                     } catch (error) {
                         if (error.code === 'no_data') {
@@ -394,19 +409,25 @@ export const experimentLogic = kea<experimentLogicType>({
                         return null
                     }
                 },
-                emptyExperimentResults: () => null,
             },
         ],
         secondaryMetricResults: [
             null as SecondaryMetricResult[] | null,
             {
-                loadSecondaryMetricResults: async () => {
+                loadSecondaryMetricResults: async (_, breakpoint) => {
+                    await breakpoint(10)
+
                     const results = []
+                    const experimentId = values.experimentId
                     for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
                         const secResults = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${i}`
+                            `api/projects/${values.currentTeamId}/experiments/${experimentId}/secondary_results?id=${i}`
                         )
                         results.push(secResults.result)
+                    }
+                    if (values.experimentId != experimentId) {
+                        // experiment has been updated, don't return stale old results
+                        return null
                     }
                     return results
                 },
@@ -658,7 +679,7 @@ export const experimentLogic = kea<experimentLogicType>({
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
-            actions.emptyExperimentResults()
+            actions.loadExperimentResults('new')
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return

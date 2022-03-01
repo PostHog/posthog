@@ -76,6 +76,7 @@ export function Experiment_(): JSX.Element {
         groupTypes,
         aggregationLabel,
         secondaryMetricResults,
+        experimentDataLoading,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -127,7 +128,7 @@ export function Experiment_(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
                   0
               )
             : 0
@@ -559,7 +560,7 @@ export function Experiment_(): JSX.Element {
                         </Button>
                     </Form>
                 </>
-            ) : experimentData ? (
+            ) : !experimentDataLoading && experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width pb">
@@ -713,7 +714,7 @@ export function Experiment_(): JSX.Element {
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
                                     )}
-                                    {(experimentResults || experimentData.secondary_metrics.length > 0) && (
+                                    {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
                                             {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
                                                 !!experimentData?.secondary_metrics.length && (
@@ -826,12 +827,28 @@ export function Experiment_(): JSX.Element {
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experimentData.start_date && (
                                                             <Row justify="space-between" className="mt-05">
-                                                                <div>
-                                                                    <b>
-                                                                        {dayjs().diff(experimentData.start_date, 'day')}
-                                                                    </b>{' '}
-                                                                    days running
-                                                                </div>
+                                                                {experimentData.end_date ? (
+                                                                    <div>
+                                                                        Ran for
+                                                                        <b>
+                                                                            {dayjs(experimentData.end_date).diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days
+                                                                    </div>
+                                                                ) : (
+                                                                    <div>
+                                                                        <b>
+                                                                            {dayjs().diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days running
+                                                                    </div>
+                                                                )}
                                                                 <div>
                                                                     Goal:{' '}
                                                                     <b>
@@ -846,9 +863,15 @@ export function Experiment_(): JSX.Element {
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
                                                         <Row justify="space-between" className="mt-05">
-                                                            <div>
-                                                                <b>{funnelResultsPersonsTotal}</b> participants seen
-                                                            </div>
+                                                            {experimentData.end_date ? (
+                                                                <div>
+                                                                    Saw <b>{funnelResultsPersonsTotal}</b> participants
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                                </div>
+                                                            )}
                                                             <div>
                                                                 Goal:{' '}
                                                                 <b>
