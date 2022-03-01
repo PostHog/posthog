@@ -7,7 +7,7 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterType, InsightType } from '~/types'
+import { FilterLogicalOperator, FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import './TrendTab.scss'
@@ -116,9 +116,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
                                 <PropertyGroupFilters
-                                    propertyFilters={null}
+                                    propertyFilters={filters.properties}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
-                                    onChange={() => {}} // TODO: update when ready to refactor FE to use new backend properties
+                                    onChange={(properties) => {
+                                        setFilters({ properties })
+                                    }}
                                     taxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,
@@ -133,8 +135,15 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 <>
                                     <GlobalFiltersTitle />
                                     <PropertyFilters
-                                        propertyFilters={filters.properties}
-                                        onChange={(properties) => setFilters({ properties })}
+                                        propertyFilters={filters.properties?.values}
+                                        onChange={(properties) =>
+                                            setFilters({
+                                                properties: {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [{ type: FilterLogicalOperator.And, values: properties }],
+                                                },
+                                            })
+                                        }
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,

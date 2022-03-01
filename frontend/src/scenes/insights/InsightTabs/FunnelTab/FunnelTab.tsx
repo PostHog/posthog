@@ -13,7 +13,7 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
+import { FilterLogicalOperator, FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -132,11 +132,22 @@ export function FunnelTab(): JSX.Element {
                 </div>
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
-                    propertyFilters={filters.properties || []}
+                    propertyFilters={filters.properties?.values[0]?.values || []}
                     onChange={(anyProperties) => {
                         setFilters({
-                            properties: anyProperties.filter(isValidPropertyFilter),
+                            properties: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.And,
+                                        values: anyProperties.filter(isValidPropertyFilter),
+                                    },
+                                ],
+                            },
                         })
+                        // setFilters({
+                        //     properties: anyProperties.filter(isValidPropertyFilter),
+                        // })
                     }}
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.EventProperties,
