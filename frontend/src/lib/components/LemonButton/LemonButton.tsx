@@ -8,7 +8,7 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted' | 'primary-alt'
     htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean

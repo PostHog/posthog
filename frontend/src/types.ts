@@ -1441,6 +1441,20 @@ export interface SelectOption {
     label?: string
 }
 
+export enum FilterLogicalOperator {
+    And = 'AND',
+    Or = 'OR',
+}
+export interface PropertyGroupFilter {
+    type?: FilterLogicalOperator
+    values: PropertyGroupFilterValue[]
+}
+
+export interface PropertyGroupFilterValue {
+    type: FilterLogicalOperator
+    values: AnyPropertyFilter[]
+}
+
 export interface SelectOptionWithChildren extends SelectOption {
     children: React.ReactChildren
     ['data-attr']: string
