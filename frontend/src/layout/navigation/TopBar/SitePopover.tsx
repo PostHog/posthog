@@ -13,6 +13,7 @@ import {
     IconExclamation,
     IconBill,
     IconArrowDropDown,
+    IconSettings,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -32,11 +33,12 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { isLicenseExpired } from 'scenes/instance/Licenses'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
-function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
+function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5>{title}</h5>}
+            {title && <h5 className="flex-center">{title}</h5>}
             {children}
         </div>
     )
@@ -55,14 +57,17 @@ function AccountInfo(): JSX.Element {
                     {user?.email}
                 </div>
             </div>
-            <Link
-                to={urls.mySettings()}
-                onClick={closeSitePopover}
-                className="SitePopover__side-link"
-                data-attr="top-menu-item-me"
-            >
-                Manage account
-            </Link>
+            <Tooltip title="Account settings">
+                <Link
+                    to={urls.mySettings()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="top-menu-item-me"
+                    style={{ color: 'var(--muted-alt)' }}
+                >
+                    <IconSettings style={{ fontSize: '1.6em' }} />
+                </Link>
+            </Tooltip>
         </div>
     )
 }
@@ -77,14 +82,17 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Link
-                    to={urls.organizationSettings()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="top-menu-item-org-settings"
-                >
-                    Settings
-                </Link>
+                <Tooltip title="Organization settings">
+                    <Link
+                        to={urls.organizationSettings()}
+                        onClick={closeSitePopover}
+                        className="SitePopover__side-link"
+                        data-attr="top-menu-item-org-settings"
+                        style={{ color: 'var(--muted-alt)' }}
+                    >
+                        <IconSettings style={{ fontSize: '1.6em' }} />
+                    </Link>
+                </Tooltip>
             </>
         </LemonRow>
     )
@@ -291,7 +299,18 @@ export function SitePopover(): JSX.Element {
                         </SitePopoverSection>
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                        <SitePopoverSection title="PostHog status">
+                        <SitePopoverSection
+                            title={
+                                <>
+                                    <div style={{ flexGrow: 1 }}>PostHog instance</div>
+                                    <Tooltip title="Instance settings">
+                                        <Link to={urls.instanceSettings()} style={{ color: 'var(--muted-alt)' }}>
+                                            <IconSettings style={{ fontSize: '1.6em' }} />
+                                        </Link>
+                                    </Tooltip>
+                                </>
+                            }
+                        >
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
