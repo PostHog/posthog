@@ -65,7 +65,7 @@ function AccountInfo(): JSX.Element {
                     data-attr="top-menu-item-me"
                     style={{ color: 'var(--muted-alt)' }}
                 >
-                    <IconSettings style={{ fontSize: '1.6em' }} />
+                    <IconSettings style={{ fontSize: '1.4rem' }} />
                 </Link>
             </Tooltip>
         </div>
@@ -90,7 +90,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                         data-attr="top-menu-item-org-settings"
                         style={{ color: 'var(--muted-alt)' }}
                     >
-                        <IconSettings style={{ fontSize: '1.6em' }} />
+                        <IconSettings style={{ fontSize: '1.4rem' }} />
                     </Link>
                 </Tooltip>
             </>
@@ -303,11 +303,13 @@ export function SitePopover(): JSX.Element {
                             title={
                                 <>
                                     <div style={{ flexGrow: 1 }}>PostHog instance</div>
-                                    <Tooltip title="Instance settings">
-                                        <Link to={urls.instanceSettings()} style={{ color: 'var(--muted-alt)' }}>
-                                            <IconSettings style={{ fontSize: '1.6em' }} />
-                                        </Link>
-                                    </Tooltip>
+                                    {user?.is_staff && (
+                                        <Tooltip title="Instance settings">
+                                            <Link to={urls.instanceSettings()} style={{ color: 'var(--muted-alt)' }}>
+                                                <IconSettings style={{ fontSize: '1.4rem' }} />
+                                            </Link>
+                                        </Tooltip>
+                                    )}
                                 </>
                             }
                         >
