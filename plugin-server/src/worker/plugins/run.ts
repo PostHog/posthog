@@ -6,11 +6,6 @@ import { statusReport } from '../../utils/status-report'
 import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
 
-function captureTimeSpentRunning(teamId: TeamId, timer: Date, func: PluginFunction): void {
-    const timeSpentRunning = new Date().getTime() - timer.getTime()
-    statusReport.addToTimeSpentRunningPlugins(teamId, timeSpentRunning, func)
-}
-
 export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
@@ -32,7 +27,6 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: event.team_id.toString(),
                 })
-                captureTimeSpentRunning(event.team_id, timer, 'onEvent')
             }
         })
     )
@@ -59,7 +53,6 @@ export async function runOnAction(server: Hub, action: Action, event: PluginEven
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: event.team_id.toString(),
                 })
-                captureTimeSpentRunning(event.team_id, timer, 'onAction')
             }
         })
     )
@@ -86,7 +79,6 @@ export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<vo
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: event.team_id.toString(),
                 })
-                captureTimeSpentRunning(event.team_id, timer, 'onSnapshot')
             }
         })
     )
@@ -125,7 +117,6 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: teamId.toString(),
             })
-            captureTimeSpentRunning(event.team_id, timer, 'processEvent')
 
             if (!returnedEvent) {
                 return null
@@ -183,7 +174,6 @@ export async function runPluginTask(
             teamId: teamIdStr,
         })
     }
-    captureTimeSpentRunning(pluginConfig?.team_id || 0, timer, 'pluginTask')
     return response
 }
 
@@ -209,7 +199,6 @@ export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: pluginConfig.team_id.toString(),
                 })
-                captureTimeSpentRunning(pluginConfig.team_id, timer, 'handleAlert')
             }
         })
     )
