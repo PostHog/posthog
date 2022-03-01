@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List
+from typing import List, Optional
 
 import structlog
 from constance import config
@@ -27,9 +27,12 @@ The migration strategy:
     2. For each one, we replace the current engine with the appropriate Replicated by:
         a. creating a new table with the right engine and identical schema
         b. temporarily stopping ingestion to the table
-        c. using `ALTER TABLE MOVE PARTITIONS` to move data to the new table
+        c. using `ALTER TABLE ATTACH/DROP PARTITIONS` to move data to the new table.
         d. rename tables
         e. re-enabling ingestion
+
+We use ATTACH/DROP tables to do the table migration instead of a normal INSERT. This method allows
+moving data without increasing disk usage between identical schemas.
 
 `events` and `session_recording_events` require extra steps as they're also sharded:
 
@@ -41,7 +44,9 @@ Constraints:
 
     1. This migration relies on there being exactly one node when it's run.
     2. For person and events tables, the schema tries to preserve any materialized columns.
-    3. This migration hard depends on 0002_events_sample_by. If it didn't, this could be a normal migration.
+    3. This migration requires there to be no ongoing part merges while it's executing.
+    4. This migration depends on 0002_events_sample_by. If it didn't, this could be a normal migration.
+    5. This migration depends on the person_distinct_id2 async migration to have completed.
 """
 
 
@@ -49,8 +54,8 @@ Constraints:
 class TableMigrationData:
     name: str
     new_table_engine: MergeTreeEngine
-    materialized_view_name: str
-    create_materialized_view: str
+    materialized_view_name: Optional[str]
+    create_materialized_view: Optional[str]
 
     @property
     def renamed_table_name(self):
@@ -82,8 +87,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0003_fill_person_distinct_id2"
 
     def is_required(self):
-        # :TODO: Check whether events table is Distributed
-        return True
+        return "Distributed" not in self.get_current_engine("events")
 
     @cached_property
     def operations(self):
@@ -94,9 +98,8 @@ class Migration(AsyncMigrationDefinition):
             operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
         ]
 
-        # :TODO: Assert no ongoing merges
-        # :TODO: Stop merges while this is ongoing
         return [
+            AsyncMigrationOperation.simple_op(sql="SYSTEM STOP MERGES", rollback="SYSTEM START MERGES"),
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
@@ -106,6 +109,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
+            AsyncMigrationOperation.simple_op(sql="SYSTEM START MERGES", rollback="SYSTEM STOP MERGES",),
         ]
 
     def replicated_table_operations(self, table: TableMigrationData):
@@ -141,6 +145,12 @@ class Migration(AsyncMigrationDefinition):
             for create_table_query in table.extra_tables:
                 yield AsyncMigrationOperation.simple_op(sql=create_table_query)
 
+    def get_current_engine(self, table_name: str):
+        return sync_execute(
+            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},
+        )[0][0]
+
     def get_new_engine(self, table: TableMigrationData):
         """
         Returns new table engine statement for the table.
@@ -148,10 +158,7 @@ class Migration(AsyncMigrationDefinition):
         Note that the engine statement also includes PARTITION BY, ORDER BY, SAMPLE BY and SETTINGS,
         so we use the current table as a base for that and only replace the
         """
-        current_engine = sync_execute(
-            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": table.name},
-        )[0][0]
+        current_engine = self.get_current_engine(table.name)
 
         if "Replicated" in current_engine or "Distributed" in current_engine:
             raise ValueError(
@@ -176,6 +183,15 @@ class Migration(AsyncMigrationDefinition):
         2. Merges and ingestion are stopped on the table
         3. We can't use MOVE PARTITION due to validation errors due to differing table engines
         """
+
+        running_merges = sync_execute(
+            "SELECT count() FROM system.merges WHERE database = %(database)s AND table = %(table)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
+        )[0][0]
+
+        assert (
+            running_merges == 0
+        ), f"No merges should be running on tables while partitions are being moved. table={from_table}"
 
         partitions = sync_execute(
             "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s",
