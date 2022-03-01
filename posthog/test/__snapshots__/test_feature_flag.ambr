@@ -65,15 +65,16 @@
          AND "posthog_featureflagoverride"."user_id" IN
            (SELECT W0."id"
             FROM "posthog_user" W0
-            WHERE W0."distinct_id" IN
-                (SELECT V0."distinct_id"
-                 FROM "posthog_persondistinctid" V0
-                 WHERE V0."person_id" IN
-                     (SELECT U0."person_id"
-                      FROM "posthog_persondistinctid" U0
-                      WHERE (U0."distinct_id" = 'distinct_id'
-                             AND U0."team_id" = 2)
-                      LIMIT 1))
+            WHERE (W0."distinct_id" IN
+                     (SELECT V0."distinct_id"
+                      FROM "posthog_persondistinctid" V0
+                      WHERE V0."person_id" IN
+                          (SELECT U0."person_id"
+                           FROM "posthog_persondistinctid" U0
+                           WHERE (U0."distinct_id" = 'distinct_id'
+                                  AND U0."team_id" = 2)
+                           LIMIT 1))
+                   AND W0."is_active")
             LIMIT 1))
   '
 ---
@@ -135,15 +136,16 @@
          AND "posthog_featureflagoverride"."user_id" IN
            (SELECT W0."id"
             FROM "posthog_user" W0
-            WHERE W0."distinct_id" IN
-                (SELECT V0."distinct_id"
-                 FROM "posthog_persondistinctid" V0
-                 WHERE V0."person_id" IN
-                     (SELECT U0."person_id"
-                      FROM "posthog_persondistinctid" U0
-                      WHERE (U0."distinct_id" = 'distinct_id'
-                             AND U0."team_id" = 2)
-                      LIMIT 1))
+            WHERE (W0."distinct_id" IN
+                     (SELECT V0."distinct_id"
+                      FROM "posthog_persondistinctid" V0
+                      WHERE V0."person_id" IN
+                          (SELECT U0."person_id"
+                           FROM "posthog_persondistinctid" U0
+                           WHERE (U0."distinct_id" = 'distinct_id'
+                                  AND U0."team_id" = 2)
+                           LIMIT 1))
+                   AND W0."is_active")
             LIMIT 1))
   '
 ---
