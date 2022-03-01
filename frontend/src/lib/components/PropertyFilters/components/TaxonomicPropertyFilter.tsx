@@ -100,7 +100,7 @@ export function TaxonomicPropertyFilter({
                         {index === 0 ? (
                             <>
                                 <span className="arrow">&#8627;</span>
-                                <b>where</b>
+                                <span className="text">where</span>
                             </>
                         ) : propertyGroupType ? (
                             <div className="primary-alt">
