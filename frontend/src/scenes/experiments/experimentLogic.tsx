@@ -317,8 +317,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
                 actions.resetNewExperiment()
-                actions.loadExperimentResults(undefined)
-                actions.loadSecondaryMetricResults(undefined)
+                actions.loadExperimentResults(values.experimentId || 'new')
+                actions.loadSecondaryMetricResults(values.experimentId || 'new')
             }
         },
         launchExperiment: async () => {
@@ -376,7 +376,7 @@ export const experimentLogic = kea<experimentLogicType>({
         experimentResults: [
             null as ExperimentResults | null,
             {
-                loadExperimentResults: async (id: 'new' | undefined, breakpoint) => {
+                loadExperimentResults: async (id: 'new' | number, breakpoint) => {
                     await breakpoint(10)
 
                     if (id === 'new') {
@@ -384,11 +384,8 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
 
                     try {
-                        const experimentId = values.experimentId
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${experimentId}/results`
-                        )
-                        if (values.experimentId != experimentId) {
+                        const response = await api.get(`api/projects/${values.currentTeamId}/experiments/${id}/results`)
+                        if (values.experimentId != id) {
                             // experiment has been updated, don't return stale old results
                             return null
                         }
@@ -414,18 +411,17 @@ export const experimentLogic = kea<experimentLogicType>({
         secondaryMetricResults: [
             null as SecondaryMetricResult[] | null,
             {
-                loadSecondaryMetricResults: async (_, breakpoint) => {
+                loadSecondaryMetricResults: async (id: number | 'new', breakpoint) => {
                     await breakpoint(10)
 
                     const results = []
-                    const experimentId = values.experimentId
                     for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
                         const secResults = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${experimentId}/secondary_results?id=${i}`
+                            `api/projects/${values.currentTeamId}/experiments/${id}/secondary_results?id=${i}`
                         )
                         results.push(secResults.result)
                     }
-                    if (values.experimentId != experimentId) {
+                    if (values.experimentId != id) {
                         // experiment has been updated, don't return stale old results
                         return null
                     }
