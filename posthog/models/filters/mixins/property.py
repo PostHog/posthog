@@ -23,7 +23,9 @@ class PropertyMixin(BaseParamMixin):
             loaded_props = _props
 
         # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
+        if (isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props) or isinstance(
+            loaded_props, PropertyGroup
+        ):
             # property_groups is main function from now on
             # TODO: this function will go away at end of migration
             return []
@@ -51,6 +53,9 @@ class PropertyMixin(BaseParamMixin):
                 raise e
             except ValueError as e:
                 raise ValidationError(f"PropertyGroup is unparsable: {e}")
+        # already a PropertyGroup just return
+        elif isinstance(loaded_props, PropertyGroup):
+            return loaded_props
 
         # old properties
         return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
