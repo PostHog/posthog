@@ -74,7 +74,7 @@ class ClickhouseTrendsBreakdown:
             team_id=self.team_id,
             property_group=outer_properties,
             table_name="e",
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 

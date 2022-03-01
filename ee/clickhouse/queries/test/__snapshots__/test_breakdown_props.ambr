@@ -121,3 +121,42 @@
      OFFSET 0)
   '
 ---
+# name: TestBreakdownProps.test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT trim(BOTH '"'
+                 FROM JSONExtractRaw(person_props, '$browser')) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND ((trim(BOTH '"'
+                   FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')) ILIKE '%test%'))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND timestamp >= '2019-12-21 00:00:00'
+       AND timestamp <= '2020-01-04 23:59:59'
+       AND ((has(['test2'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(person_props, '$os')))
+             OR has(['val'], trim(BOTH '"'
+                                  FROM JSONExtractRaw(e.properties, 'key')))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 5
+     OFFSET 0)
+  '
+---

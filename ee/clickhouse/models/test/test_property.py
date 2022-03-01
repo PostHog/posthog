@@ -627,7 +627,7 @@ def test_parse_prop_clauses_defaults(snapshot):
         parse_prop_grouped_clauses(
             team_id=1,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_DIRECT_QUERY,
             allow_denormalized_props=False,
         )
         == snapshot

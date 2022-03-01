@@ -124,12 +124,14 @@
 ---
 # name: test_parse_prop_clauses_defaults.2
   <class 'tuple'> (
-    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s))))',
+    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND trim(BOTH \'"\' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1)s)) ILIKE %(vpersonquery_global_1)s)',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
+      'kpersonquery_global_1': 'email',
       'vglobal_0': <class 'list'> [
         'value',
       ],
+      'vpersonquery_global_1': '%posthog%',
     },
   )
 ---
