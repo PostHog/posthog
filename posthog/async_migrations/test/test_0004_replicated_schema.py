@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 import pytest
@@ -73,11 +74,15 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
 
         for name, engine in table_engines:
-            self.assert_correct_engine(name, engine)
+            self.assert_correct_engine_type(name, engine)
+            assert (name, self.sanitize(engine)) == self.snapshot
 
-    def assert_correct_engine(self, name, engine):
+    def assert_correct_engine_type(self, name, engine):
         valid_engine = any(engine_type in engine for engine_type in ("Replicated", "Distributed", "Kafka"))
         assert valid_engine, f"Unexpected table engine for '{name}': {engine}"
 
     def get_event_table_row_count(self):
         return sync_execute("SELECT count() FROM events")[0][0]
+
+    def sanitize(self, engine):
+        return re.sub(r"/clickhouse/tables/[^_]+", "/clickhouse/tables/", engine)
