@@ -1,0 +1,66 @@
+from datetime import datetime, timedelta
+from uuid import UUID
+
+import pytest
+from django.conf import settings
+
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
+from ee.clickhouse.sql.events import KAFKA_EVENTS_TABLE_SQL
+from ee.clickhouse.sql.groups import KAFKA_GROUPS_TABLE_SQL
+from ee.clickhouse.sql.person import KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL, KAFKA_PERSONS_TABLE_SQL
+from ee.clickhouse.sql.plugin_log_entries import KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL
+from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
+from posthog.async_migrations.runner import start_async_migration
+from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.test.base import BaseTest
+
+MIGRATION_NAME = "0004_replicated_schema"
+
+
+@pytest.mark.ee
+class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
+    def setUp(self):
+        sync_execute(KAFKA_EVENTS_TABLE_SQL())
+        sync_execute(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(KAFKA_GROUPS_TABLE_SQL())
+        sync_execute(KAFKA_PERSONS_TABLE_SQL())
+        sync_execute(KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL())
+        sync_execute(KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL())
+        sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
+
+    def tearDown(self) -> None:
+        sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
+        return super().tearDown()
+
+    def test_migration(self):
+        # :TRICKY: Relies on tables being migrated as unreplicated before.
+        settings.CLICKHOUSE_REPLICATION = True
+
+        setup_async_migrations()
+        migration_successful = start_async_migration(MIGRATION_NAME)
+        self.assertTrue(migration_successful)
+
+        table_engines = sync_execute(
+            """
+            SELECT name, engine_full
+            FROM system.tables
+            WHERE database = %(database)s
+              -- Ignore backup tables
+              AND name NOT LIKE '%%backup_0004%%'
+              -- Ignore materialized views
+              AND engine_full != ''
+              -- Ignore old tables
+              AND name != 'person_distinct_id'
+            ORDER BY name
+            """,
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+
+        for name, engine in table_engines:
+            self.assert_correct_engine(name, engine)
+
+    def assert_correct_engine(self, name, engine):
+        valid_engine = any(engine_type in engine for engine_type in ("Replicated", "Distributed", "Kafka"))
+        assert valid_engine, f"Unexpected table engine for '{name}': {engine}"

@@ -104,12 +104,12 @@ class Migration(AsyncMigrationDefinition):
             CREATE TABLE {table.tmp_table_name} AS {table.name}
             ENGINE = {self.get_new_engine(table)}
             """,
-            rollback=f"DROP TABLE {table.tmp_table_name}",
+            rollback=f"DROP TABLE IF EXISTS {table.tmp_table_name}",
         )
 
         if table.materialized_view_name is not None:
             yield AsyncMigrationOperation.simple_op(
-                sql=f"DROP TABLE {table.materialized_view_name}", rollback=table.create_materialized_view,
+                sql=f"DROP TABLE IF EXISTS {table.materialized_view_name}", rollback=table.create_materialized_view,
             )
 
         yield AsyncMigrationOperation(
@@ -123,7 +123,7 @@ class Migration(AsyncMigrationDefinition):
 
         if table.materialized_view_name is not None:
             yield AsyncMigrationOperation.simple_op(
-                sql=table.create_materialized_view, rollback=f"DROP TABLE {table.materialized_view_name}",
+                sql=table.create_materialized_view, rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
             )
 
         # NOTE: Relies on IF NOT EXISTS on the query
