@@ -30,6 +30,7 @@ def _create_event(**kwargs):
 @pytest.mark.ee
 class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def setUp(self):
+        self.recreate_database()
         sync_execute(KAFKA_EVENTS_TABLE_SQL())
         sync_execute(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(KAFKA_GROUPS_TABLE_SQL())
@@ -38,12 +39,14 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL())
         sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
 
-    def tearDown(self) -> None:
+    def tearDown(self):
+        self.recreate_database()
+
+    def recreate_database(self):
+        settings.CLICKHOUSE_REPLICATION = False
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)
-
-        return super().tearDown()
 
     def test_is_required(self):
         from ee.clickhouse.client import sync_execute

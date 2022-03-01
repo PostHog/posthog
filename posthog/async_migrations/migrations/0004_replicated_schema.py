@@ -63,11 +63,11 @@ class TableMigrationData:
 
     @property
     def backup_table_name(self):
-        return f"{self.name}_backup_0004_replicated_schema4"
+        return f"{self.name}_backup_0004_replicated_schema"
 
     @property
     def tmp_table_name(self):
-        return f"{self.name}_tmp_0004_replicated_schema4"
+        return f"{self.name}_tmp_0004_replicated_schema"
 
 
 @dataclass(frozen=True)
