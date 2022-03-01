@@ -147,7 +147,7 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
     return (
         <div className="SeriesDisplay">
             <div>
-                Paths based on <b>{humanEventTypes.join(', ')}</b>
+                Paths based on <b>{humanEventTypes.join(' and ')}</b>
             </div>
             {filters.start_point && (
                 <div>
