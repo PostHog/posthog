@@ -60,17 +60,20 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
-/* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicType {
-    id: number
+interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
     email: string
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserBasicType extends UserBaseType {
+    id: number
+}
+
 /** Full User model. */
-export interface UserType extends UserBasicType {
+export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
@@ -1420,10 +1423,16 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
+    secondary_metric_results?: SecondaryMetricResult[]
+}
+
+export interface SecondaryMetricResult {
+    name: string
+    result: Record<string, number>
 }
 
 export interface SecondaryExperimentMetric {
-    name?: string
+    name: string
     filters: Partial<FilterType>
 }
 
@@ -1616,8 +1625,6 @@ interface PointsPayload {
 export interface GraphPointPayload {
     points: PointsPayload
     index: number
-    label?: string // Soon to be deprecated with LEGACY_LineGraph
-    day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
     /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
     crossDataset?: GraphDataset[]

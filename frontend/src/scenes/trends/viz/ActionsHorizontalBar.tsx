@@ -97,10 +97,8 @@ export function ActionsHorizontalBar({
             datasets={data}
             labels={data[0].labels}
             insightId={insight.id}
-            totalValue={total}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
-            interval={filtersParam?.interval}
             onClick={
                 !showPersonsModal || filtersParam.formula
                     ? undefined

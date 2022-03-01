@@ -207,6 +207,34 @@
         border-radius: 4px;
         margin-bottom: $default_spacing;
     }
+
+    .ant-collapse-content-box {
+        display: flex;
+        flex-flow: column;
+    }
+
+    .secondary-progress {
+        margin-top: $default_spacing / 2;
+
+        li::before {
+            content: '\2022';
+            display: inline-block;
+            font-weight: 900;
+            margin-right: 4px;
+        }
+    }
+
+    .no-experiment-results {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: $default_spacing;
+        background-color: $bg_side;
+        border: 1px solid $border;
+        width: 100%;
+        min-height: 320px;
+        font-size: 24px;
+    }
 }
 
 .preview-conversion-goal-num {
@@ -238,6 +266,7 @@
     flex: 1;
 }
 
+.experiment-implementation-details,
 .experiment-workflow {
     border-color: $dark-grey;
     .ant-card-head {

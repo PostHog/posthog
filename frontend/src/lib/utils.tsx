@@ -1114,6 +1114,13 @@ export function compactNumber(value: number | null): string {
     return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
 }
 
+export function roundToDecimal(value: number | null, places: number = 2): string {
+    if (value === null) {
+        return '-'
+    }
+    return (Math.round(value * 100) / 100).toFixed(places)
+}
+
 export function sortedKeys(object: Record<string, any>): Record<string, any> {
     const newObject: Record<string, any> = {}
     for (const key of Object.keys(object).sort()) {
