@@ -65,7 +65,6 @@ from posthog.utils import is_valid_regex, relative_date_parse
 # which is parsed and sent to this function ->
 
 
-# TODO: Exclude mode doesn't make sense anymore, since it blindly excludes all person properties?
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
@@ -203,6 +202,9 @@ def parse_prop_clauses(
                 )
                 params.update(filter_params)
         elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
+            # this setting is used to generate the ClickhousePersonQuery SQL.
+            # When using direct mode, there should only be person properties in the entire
+            # property group
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
