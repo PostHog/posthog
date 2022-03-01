@@ -541,7 +541,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test2@posthog.com', 'test3@posthog.com'] as breakdown_value) ARRAY
+                (SELECT ['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -577,7 +577,7 @@
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2022-02-15 00:00:00'))
              AND timestamp <= '2022-03-01 23:59:59'
              AND trim(BOTH '"'
-                      FROM JSONExtractRaw(person_props, 'email')) in (['test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test2@posthog.com', 'test3@posthog.com'])
+                      FROM JSONExtractRaw(person_props, 'email')) in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

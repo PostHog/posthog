@@ -687,6 +687,12 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             distinct_ids=["person3"],
             properties={"email": "test2@posthog.com", "$os": "android", "$browser": "chrome"},
         )
+        # a second person with same properties, just so snapshot passes on different CH versions (indeterminate sorting currently)
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person32"],
+            properties={"email": "test2@posthog.com", "$os": "android", "$browser": "chrome"},
+        )
         Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["person4"],
@@ -710,6 +716,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "person1": [{"event": "sign up", "properties": {"key": "val"}}],
                 "person2": [{"event": "sign up", "properties": {"key": "val"}}],
                 "person3": [{"event": "sign up", "properties": {"key": "val"}}],
+                "person32": [{"event": "sign up", "properties": {"key": "val"}}],
                 "person4": [{"event": "sign up", "properties": {"key": "val"}}],
                 "person5": [{"event": "sign up", "properties": {"key": "val"}}],
                 "person6": [{"event": "sign up", "properties": {"key": "val"}}],
