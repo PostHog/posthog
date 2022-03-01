@@ -23,8 +23,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
@@ -55,8 +55,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -117,8 +117,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
@@ -149,8 +149,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -207,8 +207,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
@@ -239,8 +239,8 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND NOT (trim(BOTH '"'
-                         FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%')) person ON person.id = pdi.person_id
+           AND (NOT (trim(BOTH '"'
+                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target

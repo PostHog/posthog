@@ -118,6 +118,73 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(res, ["test"])
 
     @snapshot_clickhouse_queries
+    def test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "test2", "$os": "test2"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val2"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test3", "$os": "test3"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val3"},
+        )
+
+        entity_params = [
+            {
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0,
+                "properties": [{"key": "$browser", "type": "person", "value": "test", "operator": "icontains"}],
+            }
+        ]
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2020-01-04T13:01:01Z"):
+                filter = Filter(
+                    data={
+                        "insight": "FUNNELS",
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$os", "type": "person", "value": "test2", "operator": "exact"},
+                                {"key": "key", "type": "event", "value": "val", "operator": "exact"},
+                            ],
+                        },
+                        "filter_test_accounts": False,
+                        "events": entity_params,
+                        "actions": [],
+                        "funnel_viz_type": "steps",
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "breakdown": "$browser",
+                        "breakdown_type": "person",
+                        "date_from": "-14d",
+                        "funnel_window_days": 14,
+                    }
+                )
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5))
+                self.assertEqual(res, ["test", "test2"])
+
+    @snapshot_clickhouse_queries
     def test_breakdown_group_props(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
