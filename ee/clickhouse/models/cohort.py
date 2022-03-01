@@ -18,6 +18,7 @@ from ee.clickhouse.sql.cohort import (
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -376,6 +377,17 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
         return []
 
 
-def get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
+
+
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    return [row[0] for row in res]
+
+
+def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
+    cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
+    static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+    return [*cohort_ids, *static_cohort_ids]
