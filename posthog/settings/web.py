@@ -20,6 +20,7 @@ AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",
 ]
+AXES_VERBOSE = False
 
 # Application definition
 
@@ -233,3 +234,6 @@ def add_recorder_js_headers(headers, path, url):
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+
+# Silence axes and constance-related Django checks
+SILENCED_SYSTEM_CHECKS = ["models.W042"]
