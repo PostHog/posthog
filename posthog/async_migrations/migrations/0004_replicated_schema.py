@@ -4,6 +4,7 @@ from functools import cached_property
 from typing import List
 
 import structlog
+from constance import config
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
@@ -93,10 +94,19 @@ class Migration(AsyncMigrationDefinition):
             operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
         ]
 
-        # :TODO: Stop column materialization
         # :TODO: Assert no ongoing merges
         # :TODO: Stop merges while this is ongoing
-        return TABLE_MIGRATION_OPERATIONS
+        return [
+            AsyncMigrationOperation(
+                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            ),
+            *TABLE_MIGRATION_OPERATIONS,
+            AsyncMigrationOperation(
+                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            ),
+        ]
 
     def replicated_table_operations(self, table: TableMigrationData):
         yield AsyncMigrationOperation.simple_op(
