@@ -13,8 +13,7 @@ import { PropertyDefinitionHeader } from 'scenes/data-management/events/Definiti
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
-    const { eventPropertiesCacheMap, eventPropertiesCacheMapLoading, hoveredDefinition } =
-        useValues(eventDefinitionsTableLogic)
+    const { eventPropertiesCacheMap, eventPropertiesCacheMapLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     useEffect(() => {
@@ -87,8 +86,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             },
         },
     ]
-
-    console.log('HOVERED', hoveredDefinition)
 
     return (
         <div className="event-properties-wrapper">
