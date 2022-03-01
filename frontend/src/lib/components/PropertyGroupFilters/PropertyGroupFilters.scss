@@ -1,0 +1,40 @@
+@import '~/vars';
+
+.and-or-filter {
+    font-weight: 500;
+}
+
+.and-or-filter-select {
+    padding-top: $default_spacing / 2;
+    padding-bottom: $default_spacing / 2;
+
+    .condition-text {
+        font-weight: 700;
+        display: flex;
+        width: 40px;
+        height: 40px;
+        margin-right: 12px;
+        justify-content: center;
+        align-items: center;
+        border-radius: 4px;
+        background-color: $light-grey;
+        color: $primary_alt;
+        font-size: 12px;
+        &.selected {
+            background-color: $primary;
+            color: white;
+        }
+    }
+
+    .condition-option {
+        background-color: white;
+        padding: $default_spacing / 2;
+        margin-left: $default_spacing / 2;
+        margin-right: $default_spacing / 2;
+        border-radius: 4px;
+    }
+
+    .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+        background: #e5ebff;
+    }
+}

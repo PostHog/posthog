@@ -1,7 +1,7 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 
 GROUPS_TABLE = "groups"
 
@@ -27,7 +27,7 @@ GROUPS_TABLE_SQL = lambda: (
 ).format(
     table_name=GROUPS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(GROUPS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
