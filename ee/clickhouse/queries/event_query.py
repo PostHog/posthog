@@ -100,7 +100,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return
 
         if any(
-            self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
+            self._should_property_join_persons(prop)
+            for entity in self._filter.entities
+            for prop in entity.property_groups.flat
         ):
             self._should_join_distinct_ids = True
             self._should_join_persons = True

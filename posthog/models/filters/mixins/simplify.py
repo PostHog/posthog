@@ -27,7 +27,7 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
         if getattr(result, "filter_test_accounts", False):
             result = result.with_data(
-                {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
+                {"properties": result.property_groups.flat + team.test_account_filters, "filter_test_accounts": False,}
             )
 
         updated_entities = {}
@@ -35,7 +35,7 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        properties = self._simplify_properties(team, result.properties, **kwargs)  # type: ignore
+        properties = self._simplify_properties(team, result.property_groups.flat, **kwargs)  # type: ignore
         if getattr(result, "aggregation_group_type_index", None) is not None:
             properties.append(self._group_set_property(cast(int, result.aggregation_group_type_index)))  # type: ignore
 
@@ -49,7 +49,7 @@ class SimplifyFilterMixin:
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
 
         entity = EntityClass(entity_params)
-        properties = self._simplify_properties(team, entity.properties, **kwargs)
+        properties = self._simplify_properties(team, entity.property_groups.flat, **kwargs)
         if entity.math == "unique_group":
             properties.append(self._group_set_property(cast(GroupTypeIndex, entity.math_group_type_index)))
 

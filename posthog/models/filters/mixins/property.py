@@ -11,7 +11,7 @@ from posthog.models.property import Property, PropertyGroup
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def properties(self) -> List[Property]:
+    def old_properties(self) -> List[Property]:
         _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
@@ -53,7 +53,7 @@ class PropertyMixin(BaseParamMixin):
                 raise ValidationError(f"PropertyGroup is unparsable: {e}")
 
         # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties)
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
@@ -112,9 +112,6 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def properties_to_dict(self):
-        if self.properties:
-            return {PROPERTIES: [prop.to_dict() for prop in self.properties]}
-
         return (
             {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.values else {}
         )

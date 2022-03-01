@@ -1,5 +1,5 @@
 import json
-from typing import Callable
+from typing import Callable, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -8,6 +8,7 @@ from freezegun.api import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
+from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
 
@@ -15,13 +16,13 @@ from posthog.test.base import BaseTest
 class TestFilter(BaseTest):
     def test_old_style_properties(self):
         filter = Filter(data={"properties": {"$browser__is_not": "IE7", "$OS": "Mac",}})
-        self.assertEqual(filter.properties[0].key, "$browser")
-        self.assertEqual(filter.properties[0].operator, "is_not")
-        self.assertEqual(filter.properties[0].value, "IE7")
-        self.assertEqual(filter.properties[0].type, "event")
-        self.assertEqual(filter.properties[1].key, "$OS")
-        self.assertEqual(filter.properties[1].operator, None)
-        self.assertEqual(filter.properties[1].value, "Mac")
+        self.assertEqual(cast(Property, filter.property_groups.values[0]).key, "$browser")
+        self.assertEqual(cast(Property, filter.property_groups.values[0]).operator, "is_not")
+        self.assertEqual(cast(Property, filter.property_groups.values[0]).value, "IE7")
+        self.assertEqual(cast(Property, filter.property_groups.values[0]).type, "event")
+        self.assertEqual(cast(Property, filter.property_groups.values[1]).key, "$OS")
+        self.assertEqual(cast(Property, filter.property_groups.values[1]).operator, None)
+        self.assertEqual(cast(Property, filter.property_groups.values[1]).value, "Mac")
 
     def test_to_dict(self):
         filter = Filter(
@@ -49,7 +50,12 @@ class TestFilter(BaseTest):
         filter = Filter(data=data, team=self.team)
         self.assertEqual(
             filter.properties_to_dict(),
-            {"properties": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],
+                },
+            },
         )
         self.assertTrue(filter.is_simplified)
 
@@ -58,10 +64,13 @@ class TestFilter(BaseTest):
         self.assertEqual(
             filter.properties_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                    ],
+                }
             },
         )
         self.assertTrue(filter.is_simplified)
@@ -69,10 +78,13 @@ class TestFilter(BaseTest):
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                    ],
+                },
             },
         )
 
@@ -112,7 +124,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             filter = Filter(
                 data={"properties": [{"key": "$current_url", "operator": "not_icontains", "type": "event"}]}
             )
-            self.assertListEqual(filter.properties, [])
+            self.assertListEqual(filter.property_groups.values, [])
 
         def test_numerical_person_properties(self):
             person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"$a_number": 4})
@@ -298,7 +310,9 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 
 def _filter_persons(filter: Filter, team: Team):
-    persons = Person.objects.filter(properties_to_Q(filter.properties, team_id=team.pk, is_direct_query=True))
+    # TODO: confirm what to do here?
+    # Postgres only supports ANDing all properties :shrug:
+    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
@@ -321,20 +335,20 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         matched_person = (
             Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True))
+            .filter(properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True))
             .exists()
         )
         self.assertTrue(matched_person)
 
     def test_group_property_filters_direct(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
-        query_filter = properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True)
+        query_filter = properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True)
 
         self.assertEqual(query_filter, Q(group_properties__some_prop=5))
 
     def test_group_property_filters_used(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
-        self.assertRaises(ValueError, lambda: properties_to_Q(filter.properties, team_id=self.team.pk))
+        self.assertRaises(ValueError, lambda: properties_to_Q(filter.property_groups.flat, team_id=self.team.pk))
 
 
 class TestDateFilterQ(BaseTest):
