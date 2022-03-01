@@ -119,7 +119,7 @@ function summarizePaths(filters: Partial<FilterType>): string {
             humanEventTypes = ['all events']
         }
     }
-    let summary = `Paths based on ${humanEventTypes.join(' and ')}`
+    let summary = `User paths based on ${humanEventTypes.join(' and ')}`
     if (filters.start_point) {
         summary += ` starting at ${filters.start_point}`
     }
