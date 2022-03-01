@@ -4,10 +4,11 @@ from uuid import uuid4
 import pytest
 from django.conf import settings
 
+from conftest import create_clickhouse_tables
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
-from ee.clickhouse.sql.events import KAFKA_EVENTS_TABLE_SQL
+from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, KAFKA_EVENTS_TABLE_SQL
 from ee.clickhouse.sql.groups import KAFKA_GROUPS_TABLE_SQL
 from ee.clickhouse.sql.person import KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL, KAFKA_PERSONS_TABLE_SQL
 from ee.clickhouse.sql.plugin_log_entries import KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -39,7 +40,22 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
     def tearDown(self) -> None:
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
+        create_clickhouse_tables(0)
+
         return super().tearDown()
+
+    def test_is_required(self):
+        from ee.clickhouse.client import sync_execute
+
+        migration = get_async_migration_definition(MIGRATION_NAME)
+
+        self.assertTrue(migration.is_required())
+
+        settings.CLICKHOUSE_REPLICATION = True
+        sync_execute("DROP TABLE events SYNC")
+        sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
+        self.assertFalse(migration.is_required())
 
     def test_migration(self):
         # :TRICKY: Relies on tables being migrated as unreplicated before.

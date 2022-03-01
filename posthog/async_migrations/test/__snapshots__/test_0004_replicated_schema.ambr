@@ -76,6 +76,18 @@
     "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp) ORDER BY (id, event_uuid, distinct_id, team_id) SETTINGS index_granularity = 512",
   )
 ---
+# name: Test0004ReplicatedSchema.test_migration.20
+  '
+  ALTER TABLE events_tmp_0004_replicated_schema4 ATTACH PARTITION 202203
+  FROM events
+  '
+---
+# name: Test0004ReplicatedSchema.test_migration.21
+  '
+  ALTER TABLE events
+  DROP PARTITION 202203
+  '
+---
 # name: Test0004ReplicatedSchema.test_migration.3
   <class 'tuple'> (
     'groups',
