@@ -129,12 +129,12 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         complete_migration(migration_instance)
         return (False, True)
 
-    op = migration_definition.operations[migration_instance.current_operation_index]
-
     error = None
     current_query_id = str(UUIDT())
 
     try:
+        op = migration_definition.operations[migration_instance.current_operation_index]
+
         execute_op(op, current_query_id)
         update_async_migration(
             migration_instance=migration_instance,

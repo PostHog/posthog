@@ -13,5 +13,5 @@ operations = [
         f"ALTER TABLE session_recording_events ON CLUSTER {CLICKHOUSE_CLUSTER} ADD COLUMN IF NOT EXISTS window_id VARCHAR AFTER session_id"
     ),
     migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL),
+    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL()),
 ]
