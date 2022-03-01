@@ -22,7 +22,7 @@ export interface DefinitionPopupLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
-    updateRemoteItem?: (item: Partial<TaxonomicDefinitionTypes>) => void
+    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
@@ -65,7 +65,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     let definition = {
                         ...values.definition,
                         ...values.localDefinition,
-                    } as Partial<TaxonomicDefinitionTypes>
+                    } as TaxonomicDefinitionTypes
                     try {
                         if (values.isAction) {
                             // Action Definitions

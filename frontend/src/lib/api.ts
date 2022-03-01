@@ -10,6 +10,7 @@ import {
     EventType,
     FilterType,
     PluginLogEntry,
+    PropertyDefinition,
     TeamType,
     UserType,
 } from '../types'
@@ -261,6 +262,14 @@ const api = {
             const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
+        determineListEndpoint(
+            filters: Partial<FilterType>,
+            limit: number = 10,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
     },
 
     eventDefinitions: {
@@ -268,21 +277,40 @@ const api = {
             limit: number = EVENT_DEFINITIONS_PER_PAGE,
             offset?: number,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<EventDefinition[]>> {
+        ): Promise<PaginatedResponse<EventDefinition>> {
             const params: Record<string, any> = { limit, offset }
             return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            limit: number = EVENT_DEFINITIONS_PER_PAGE,
+            offset?: number,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { limit, offset }
+            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 
     propertyDefinitions: {
         async list(
-            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
-            teamId: TeamType['id'] = getCurrentTeamId(),
             event_names?: string[],
-            is_event_property?: boolean
-        ): Promise<PaginatedResponse<EventDefinition[]>> {
-            const params: Record<string, any> = { limit, event_names, is_event_property }
+            excluded_properties?: string[],
+            is_event_property?: boolean,
+            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PropertyDefinition>> {
+            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
             return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            event_names?: string[],
+            excluded_properties?: string[],
+            is_event_property?: boolean,
+            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
+            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 

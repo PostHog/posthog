@@ -10,7 +10,7 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 
@@ -35,8 +35,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                console.log('DEFINITION', definition)
-                return <DefinitionHeader definition={definition} />
+                return <EventDefinitionHeader definition={definition} />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },

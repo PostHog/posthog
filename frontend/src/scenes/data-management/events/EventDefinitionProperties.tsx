@@ -3,38 +3,38 @@ import React, { useEffect } from 'react'
 import {
     eventDefinitionsTableLogic,
     PROPERTY_DEFINITIONS_PER_EVENT,
-    PropertyDefinitionWithExample,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { EventDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { DefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { humanFriendlyNumber } from 'lib/utils'
+import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
-    const { eventPropertiesCacheMap, eventPropertiesCacheMapLoading } = useValues(eventDefinitionsTableLogic)
+    const { eventPropertiesCacheMap, eventPropertiesCacheMapLoading, hoveredDefinition } =
+        useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
     }, [])
 
-    const columns: LemonTableColumns<PropertyDefinitionWithExample> = [
+    const columns: LemonTableColumns<PropertyDefinition> = [
         {
             title: 'Property',
             key: 'property',
             className: 'definition-column-name',
-            render: function Render(_, _definition: PropertyDefinitionWithExample) {
-                return <DefinitionHeader definition={_definition} hideIcon />
+            render: function Render(_, _definition: PropertyDefinition) {
+                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon />
             },
         },
         {
             title: 'Type',
             key: 'type',
             className: 'definition-column-type',
-            render: function Render(_, _definition: PropertyDefinitionWithExample) {
+            render: function Render(_, _definition: PropertyDefinition) {
                 return _definition.property_type ? (
                     <div className="definition-pill-value" style={{ textTransform: 'uppercase' }}>
                         {_definition.property_type}
@@ -49,10 +49,10 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                   {
                       title: 'Tags',
                       key: 'tags',
-                      render: function Render(_, _definition: PropertyDefinitionWithExample) {
+                      render: function Render(_, _definition: PropertyDefinition) {
                           return <ObjectTags tags={_definition.tags ?? []} staticOnly />
                       },
-                  } as LemonTableColumn<PropertyDefinitionWithExample, keyof PropertyDefinitionWithExample | undefined>,
+                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
         ...(hasIngestionTaxonomy
@@ -61,14 +61,14 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                       title: '30 day queries',
                       key: 'query_usage_30_day',
                       align: 'right',
-                      render: function Render(_, _definition: PropertyDefinitionWithExample) {
+                      render: function Render(_, _definition: PropertyDefinition) {
                           return _definition.query_usage_30_day ? (
                               humanFriendlyNumber(_definition.query_usage_30_day)
                           ) : (
                               <span className="text-muted">—</span>
                           )
                       },
-                  } as LemonTableColumn<PropertyDefinitionWithExample, keyof PropertyDefinitionWithExample | undefined>,
+                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
         {
@@ -76,7 +76,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             key: 'example',
             align: 'right',
             className: 'definition-example-type',
-            render: function Render(_, _definition: PropertyDefinitionWithExample) {
+            render: function Render(_, _definition: PropertyDefinition) {
                 return _definition.example ? (
                     <div className="definition-pill-value" style={{ fontFamily: 'monospace' }}>
                         {_definition.example}
@@ -87,6 +87,8 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             },
         },
     ]
+
+    console.log('HOVERED', hoveredDefinition)
 
     return (
         <div className="event-properties-wrapper">
@@ -103,7 +105,18 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 emptyState="This event has no properties"
                 nouns={['definition', 'definitions']}
                 pagination={{
+                    controlled: true,
                     pageSize: PROPERTY_DEFINITIONS_PER_EVENT,
+                    onForward: !!eventPropertiesCacheMap?.[definition.id]?.next
+                        ? () => {
+                              loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].next)
+                          }
+                        : undefined,
+                    onBackward: !!eventPropertiesCacheMap?.[definition.id]?.previous
+                        ? () => {
+                              loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].previous)
+                          }
+                        : undefined,
                 }}
                 loading={eventPropertiesCacheMapLoading}
             />
