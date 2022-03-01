@@ -173,7 +173,7 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
-        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.USING_DIRECT_QUERY:
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
@@ -202,7 +202,7 @@ def parse_prop_clauses(
                     )
                 )
                 params.update(filter_params)
-        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.USING_DIRECT_QUERY:
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,

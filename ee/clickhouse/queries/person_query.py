@@ -117,5 +117,5 @@ class ClickhousePersonQuery:
             self._inner_person_properties,
             has_person_id_joined=False,
             group_properties_joined=False,
-            person_properties_mode=PersonPropertiesMode.USING_DIRECT_QUERY,
+            person_properties_mode=PersonPropertiesMode.DIRECT,
         )

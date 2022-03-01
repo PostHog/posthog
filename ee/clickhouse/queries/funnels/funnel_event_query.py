@@ -51,8 +51,6 @@ class FunnelEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        # TODO: use PropertyOptimizer to get outer and inner props,
-        # prop_query only needs to be created using outer props
         prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
 
         self.params.update(prop_params)

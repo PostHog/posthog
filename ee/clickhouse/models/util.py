@@ -13,7 +13,7 @@ class PersonPropertiesMode(Enum):
     # Used when person join handles these filters
     EXCLUDE = auto()
     # Used for generating query on Person table
-    USING_DIRECT_QUERY = auto()
+    DIRECT = auto()
 
 
 def is_json(val):
