@@ -4,11 +4,11 @@ from functools import cached_property
 from typing import List
 
 import structlog
+from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +86,7 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def operations(self):
-        assert CLICKHOUSE_REPLICATION, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
+        assert settings.CLICKHOUSE_REPLICATION, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
         self.validate_number_of_nodes_in_cluster()
 
         TABLE_MIGRATION_OPERATIONS = [
@@ -140,7 +140,7 @@ class Migration(AsyncMigrationDefinition):
         """
         current_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-            {"database": CLICKHOUSE_DATABASE, "name": table.name},
+            {"database": settings.CLICKHOUSE_DATABASE, "name": table.name},
         )[0][0]
 
         if "Replicated" in current_engine or "Distributed" in current_engine:
@@ -169,7 +169,7 @@ class Migration(AsyncMigrationDefinition):
 
         partitions = sync_execute(
             "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s",
-            {"database": CLICKHOUSE_DATABASE, "table": from_table},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
         )
 
         for (partition,) in partitions:
@@ -180,7 +180,7 @@ class Migration(AsyncMigrationDefinition):
 
     def validate_number_of_nodes_in_cluster(self):
         rows = sync_execute(
-            "SELECT count() FROM clusterAllReplicas(%(cluster)s, system, one)", {"cluster": CLICKHOUSE_CLUSTER}
+            "SELECT count() FROM clusterAllReplicas(%(cluster)s, system, one)", {"cluster": settings.CLICKHOUSE_CLUSTER}
         )
         assert (
             rows[0][0] == 1
