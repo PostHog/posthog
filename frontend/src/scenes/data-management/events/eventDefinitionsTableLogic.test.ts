@@ -187,14 +187,14 @@ describe('eventDefinitionsTableLogic', () => {
                         [`api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`]: partial({
                             count: 5,
                         }),
-                        [`api/projects/${MOCK_TEAM_ID}/events?limit=1`]: partial(mockEvent.properties),
+                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
                     }),
                 })
 
             expect(api.get).toBeCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=30`)
             expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`)
-            expect(api.get).toHaveBeenNthCalledWith(3, `api/projects/${MOCK_TEAM_ID}/events?limit=1`)
+            expect(api.get).toHaveBeenNthCalledWith(3, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
 
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(

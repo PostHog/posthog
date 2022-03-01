@@ -3,15 +3,18 @@ import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { combineUrl } from 'kea-router/src/utils'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
     count?: number
+    page?: number
 }
 
 interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
     current?: string
     count?: number
+    page?: number
 }
 
 interface Filters {
@@ -94,6 +97,8 @@ export const eventDefinitionsTableLogic = kea<
                         [url]: {
                             ...response,
                             current: url,
+                            page:
+                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
                         },
                     }
                     return cache.apiCache[url]
@@ -151,6 +156,10 @@ export const eventDefinitionsTableLogic = kea<
                         [url]: {
                             ...response,
                             current: url,
+                            page:
+                                Math.floor(
+                                    (combineUrl(url).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
+                                ) + 1,
                             results: response.results.map((prop: PropertyDefinition) => ({
                                 ...prop,
                                 example: exampleEventProperties?.[prop.name]?.toString(),

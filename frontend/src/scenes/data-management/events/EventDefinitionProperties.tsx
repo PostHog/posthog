@@ -104,6 +104,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 pagination={{
                     controlled: true,
                     pageSize: PROPERTY_DEFINITIONS_PER_EVENT,
+                    currentPage: eventPropertiesCacheMap?.[definition.id]?.page ?? 1,
                     entryCount: eventPropertiesCacheMap?.[definition.id]?.count ?? 0,
                     onForward: !!eventPropertiesCacheMap?.[definition.id]?.next
                         ? () => {

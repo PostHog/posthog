@@ -89,6 +89,8 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
             rowKey="id"
             pagination={{
                 controlled: true,
+                currentPage: eventDefinitions?.page ?? 1,
+                entryCount: eventDefinitions?.count ?? 0,
                 pageSize: EVENT_DEFINITIONS_PER_PAGE,
                 onForward: !!eventDefinitions.next
                     ? () => {
