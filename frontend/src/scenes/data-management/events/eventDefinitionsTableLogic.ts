@@ -3,7 +3,7 @@ import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
-import { combineUrl } from 'kea-router/src/utils'
+import { combineUrl } from 'kea-router'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
