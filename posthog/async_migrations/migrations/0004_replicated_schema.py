@@ -8,7 +8,7 @@ import structlog
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 
 logger = structlog.get_logger(__name__)
 
@@ -87,15 +87,16 @@ class Migration(AsyncMigrationDefinition):
     @cached_property
     def operations(self):
         assert CLICKHOUSE_REPLICATION, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
+        self.validate_number_of_nodes_in_cluster()
 
-        # :TODO: Validate CLICKHOUSE_REPLICATED is set
-        # :TODO: Validate only a single replica (this one)
+        TABLE_MIGRATION_OPERATIONS = [
+            operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
+        ]
+
         # :TODO: Stop column materialization
         # :TODO: Assert no ongoing merges
         # :TODO: Stop merges while this is ongoing
-        return [
-            operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
-        ]
+        return TABLE_MIGRATION_OPERATIONS
 
     def replicated_table_operations(self, table: TableMigrationData):
         yield AsyncMigrationOperation.simple_op(
@@ -176,6 +177,14 @@ class Migration(AsyncMigrationDefinition):
             # :KLUDGE: Partition IDs are special and cannot be passed as arguments
             sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
+
+    def validate_number_of_nodes_in_cluster(self):
+        rows = sync_execute(
+            "SELECT count() FROM clusterAllReplicas(%(cluster)s, system, one)", {"cluster": CLICKHOUSE_CLUSTER}
+        )
+        assert (
+            rows[0][0] == 1
+        ), f"Cluster should only contain one node at the time of this migration, found {rows[0][0]}"
 
     def tables_to_migrate(self):
         from ee.clickhouse.sql.cohort import COHORTPEOPLE_TABLE_ENGINE
