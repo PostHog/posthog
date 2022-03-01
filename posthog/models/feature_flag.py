@@ -317,7 +317,7 @@ def get_overridden_feature_flags(
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id).values_list("person_id")[:1]
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
-    user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
+    user_id = User.objects.filter(is_active=True, distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
     feature_flag_overrides = FeatureFlagOverride.objects.filter(
         user_id__in=Subquery(user_id), team_id=team_id
     ).select_related("feature_flag")

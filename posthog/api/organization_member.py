@@ -71,7 +71,9 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMemberSerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
-    queryset = OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+    queryset = OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX).filter(
+        user__is_active=True
+    )
     lookup_field = "user__uuid"
     ordering = ["level", "-joined_at"]
 
