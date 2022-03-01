@@ -101,4 +101,4 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         return sync_execute("SELECT count() FROM events")[0][0]
 
     def sanitize(self, engine):
-        return re.sub(r"/clickhouse/tables/[^_]+", "/clickhouse/tables/", engine)
+        return re.sub(r"/clickhouse/tables/[^_]+_", "/clickhouse/tables/", engine)

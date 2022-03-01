@@ -1,7 +1,7 @@
 # name: Test0004ReplicatedSchema.test_migration
   <class 'tuple'> (
     'cohortpeople',
-    "ReplicatedCollapsingMergeTree('/clickhouse/tables/_noshard/posthog.cohortpeople', '{replica}-{shard}', sign) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192",
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.cohortpeople', '{replica}-{shard}', sign) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.1
@@ -19,25 +19,25 @@
 # name: Test0004ReplicatedSchema.test_migration.11
   <class 'tuple'> (
     'person',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.person', '{replica}-{shard}', _timestamp) ORDER BY (team_id, id) SETTINGS index_granularity = 8192",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person', '{replica}-{shard}', _timestamp) ORDER BY (team_id, id) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.12
   <class 'tuple'> (
     'person_distinct_id2',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id2', '{replica}-{shard}', version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.13
   <class 'tuple'> (
     'person_static_cohort',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp) ORDER BY (team_id, cohort_id, person_id, id) SETTINGS index_granularity = 8192",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp) ORDER BY (team_id, cohort_id, person_id, id) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.14
   <class 'tuple'> (
     'plugin_log_entries',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp) PARTITION BY plugin_id ORDER BY (team_id, id) SETTINGS index_granularity = 512",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp) PARTITION BY plugin_id ORDER BY (team_id, id) SETTINGS index_granularity = 512",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.15
@@ -49,13 +49,13 @@
 # name: Test0004ReplicatedSchema.test_migration.16
   <class 'tuple'> (
     'sharded_events',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_{shard}/posthog.events', '{replica}', _timestamp) PARTITION BY toYYYYMM(timestamp) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) SAMPLE BY cityHash64(distinct_id) SETTINGS index_granularity = 8192",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp) PARTITION BY toYYYYMM(timestamp) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) SAMPLE BY cityHash64(distinct_id) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.17
   <class 'tuple'> (
     'sharded_session_recording_events',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_{shard}/posthog.session_recording_events', '{replica}', _timestamp) PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid) SETTINGS index_granularity = 512",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.session_recording_events', '{replica}', _timestamp) PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid) SETTINGS index_granularity = 512",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.18
@@ -73,25 +73,13 @@
 # name: Test0004ReplicatedSchema.test_migration.2
   <class 'tuple'> (
     'events_dead_letter_queue',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp) ORDER BY (id, event_uuid, distinct_id, team_id) SETTINGS index_granularity = 512",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp) ORDER BY (id, event_uuid, distinct_id, team_id) SETTINGS index_granularity = 512",
   )
----
-# name: Test0004ReplicatedSchema.test_migration.20
-  '
-  ALTER TABLE events_tmp_0004_replicated_schema4 ATTACH PARTITION 202203
-  FROM events
-  '
----
-# name: Test0004ReplicatedSchema.test_migration.21
-  '
-  ALTER TABLE events
-  DROP PARTITION 202203
-  '
 ---
 # name: Test0004ReplicatedSchema.test_migration.3
   <class 'tuple'> (
     'groups',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/_noshard/posthog.groups', '{replica}-{shard}', _timestamp) ORDER BY (team_id, group_type_index, group_key) SETTINGS index_granularity = 8192",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.groups', '{replica}-{shard}', _timestamp) ORDER BY (team_id, group_type_index, group_key) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.4
