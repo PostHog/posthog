@@ -19,6 +19,8 @@ export async function ingestEvent(
 
     checkAndPause?.()
 
+    server.statsd?.increment('kafka_queue_ingest_event_hit')
+
     // run processEvent on all events that are not $snapshot
     if (!isSnapshot) {
         processedEvent = await runInstrumentedFunction({
