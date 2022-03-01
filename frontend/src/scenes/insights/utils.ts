@@ -98,7 +98,7 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
         .results[0]?.id
 }
 
-export function summarizePaths(filters: Partial<FilterType>): string {
+function summarizePaths(filters: Partial<FilterType>): string {
     // Sync with PathsSummary in InsightDetails
     let humanEventTypes: string[] = []
     if (filters.include_event_types) {
@@ -129,7 +129,7 @@ export function summarizePaths(filters: Partial<FilterType>): string {
     return summary
 }
 
-export function determineSmartInsightName(
+export function summarizeInsightFilters(
     filters: Partial<FilterType>,
     aggregationLabel: groupsModelType['values']['aggregationLabel']
 ): string {

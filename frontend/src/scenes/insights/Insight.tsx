@@ -24,7 +24,7 @@ import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LastModified } from 'lib/components/InsightCard/LastModified'
 import { IconLock } from 'lib/components/icons'
-import { determineSmartInsightName } from './utils'
+import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 
 export const scene: SceneExport = {
@@ -105,7 +105,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={determineSmartInsightName(filters, aggregationLabel)}
+                        placeholder={summarizeInsightFilters(filters, aggregationLabel)}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}

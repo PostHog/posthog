@@ -34,7 +34,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { InsightCard } from 'lib/components/InsightCard'
-import { determineSmartInsightName } from 'scenes/insights/utils'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 
 const { TabPane } = Tabs
@@ -188,7 +188,7 @@ export function SavedInsights(): JSX.Element {
                     <>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                             <Link to={urls.insightView(insight.short_id)} className="row-name">
-                                {name || <i>{determineSmartInsightName(insight.filters, aggregationLabel)}</i>}
+                                {name || <i>{summarizeInsightFilters(insight.filters, aggregationLabel)}</i>}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}

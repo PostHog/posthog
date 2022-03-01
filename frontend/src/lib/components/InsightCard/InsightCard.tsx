@@ -44,7 +44,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { determineSmartInsightName } from 'scenes/insights/utils'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 
 // TODO: Add support for Retention to InsightDetails
@@ -367,7 +367,7 @@ function InsightMeta({
                             </div>
                             <Link to={urls.insightView(short_id)}>
                                 <h4 title={name} data-attr="insight-card-title">
-                                    {name || <i>{determineSmartInsightName(filters, aggregationLabel)}</i>}
+                                    {name || <i>{summarizeInsightFilters(filters, aggregationLabel)}</i>}
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
