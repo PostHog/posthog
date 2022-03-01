@@ -39,7 +39,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         {"id": user.id, "distinct_id": user.distinct_id}
         if user.anonymize_data
         else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-        for user in User.objects.filter(is_active=True).filter(last_login__gte=period_start)
+        for user in User.objects.filter(is_active=True, last_login__gte=period_start)
     ]
     report["teams"] = {}
     report["table_sizes"] = {
