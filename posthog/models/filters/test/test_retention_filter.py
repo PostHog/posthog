@@ -74,7 +74,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
                 "target_entity": {
@@ -85,7 +85,7 @@ class TestFilter(BaseTest):
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
             },
