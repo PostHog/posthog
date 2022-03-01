@@ -187,6 +187,10 @@ export const eventDefinitionsTableLogic = kea<
             },
         ],
     }),
+    selectors: ({ cache }) => ({
+        // Expose for testing
+        apiCache: [() => [], () => cache.apiCache],
+    }),
     urlToAction: ({ actions, values, props }) => ({
         '/events/stats': ({}, searchParams) => {
             if (props.syncWithUrl) {
