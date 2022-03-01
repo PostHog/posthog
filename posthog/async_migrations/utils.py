@@ -125,6 +125,14 @@ def rollback_migration(migration_instance: AsyncMigration):
 
 def complete_migration(migration_instance: AsyncMigration, email: bool = True):
     finished_at = now()
+
+    migration_instance.refresh_from_db()
+
+    needs_update = migration_instance.status != MigrationStatus.CompletedSuccessfully
+
+    if not needs_update:
+        return
+
     update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.CompletedSuccessfully,
