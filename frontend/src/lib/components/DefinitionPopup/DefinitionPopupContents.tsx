@@ -263,7 +263,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     return <></>
 }
 
-function DefinitionEdit({ onCancel, onSave }: { onCancel?: () => void; onSave?: () => void }): JSX.Element {
+function DefinitionEdit(): JSX.Element {
     const {
         definition,
         localDefinition,
@@ -356,10 +356,7 @@ function DefinitionEdit({ onCancel, onSave }: { onCancel?: () => void; onSave?: 
                     )}
                     <div>
                         <Button
-                            onClick={() => {
-                                handleCancel()
-                                onCancel?.()
-                            }}
+                            onClick={handleCancel}
                             className="definition-popup-edit-form-buttons-secondary"
                             style={{ color: 'var(--primary)', marginRight: 8 }}
                             disabled={definitionLoading}
@@ -368,10 +365,7 @@ function DefinitionEdit({ onCancel, onSave }: { onCancel?: () => void; onSave?: 
                         </Button>
                         <Button
                             type="primary"
-                            onClick={(e) => {
-                                handleSave(e)
-                                onSave?.()
-                            }}
+                            onClick={handleSave}
                             className="definition-popup-edit-form-buttons-primary"
                             disabled={definitionLoading || !dirty}
                         >
@@ -387,9 +381,6 @@ function DefinitionEdit({ onCancel, onSave }: { onCancel?: () => void; onSave?: 
 interface BaseDefinitionPopupContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
-    onMouseLeave?: () => void
-    onCancel?: () => void
-    onSave?: () => void
 }
 
 interface ControlledDefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
@@ -406,9 +397,6 @@ export function ControlledDefinitionPopupContents({
     item,
     group,
     popper,
-    onMouseLeave,
-    onCancel,
-    onSave,
 }: ControlledDefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue?.(item)
@@ -417,7 +405,8 @@ export function ControlledDefinitionPopupContents({
         return <></>
     }
 
-    const { state, singularType, isElement, isViewable, definition } = useValues(definitionPopupLogic)
+    const { state, singularType, isElement, isViewable, definition, onMouseLeave, hideView, hideEdit } =
+        useValues(definitionPopupLogic)
     const { setDefinition } = useActions(definitionPopupLogic)
     const icon = group.getIcon?.(definition || item)
 
@@ -481,14 +470,10 @@ export function ControlledDefinitionPopupContents({
                         headerTitle={group.getPopupHeader?.(item)}
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
-                        hideEdit={!isViewable}
-                        hideView={!isViewable}
+                        hideEdit={hideEdit || !isViewable}
+                        hideView={hideView || !isViewable}
                     />
-                    {state === DefinitionPopupState.Edit ? (
-                        <DefinitionEdit onCancel={onCancel} onSave={onSave} />
-                    ) : (
-                        <DefinitionView group={group} />
-                    )}
+                    {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
             </div>
         </>
@@ -499,6 +484,11 @@ interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps 
     referenceEl: HTMLElement | null
     children?: React.ReactNode
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
+    onMouseLeave?: () => void
+    onCancel?: () => void
+    onSave?: () => void
+    hideView?: boolean
+    hideEdit?: boolean
 }
 
 export function DefinitionPopupContents({
@@ -510,6 +500,8 @@ export function DefinitionPopupContents({
     onMouseLeave,
     onCancel,
     onSave,
+    hideView = false,
+    hideEdit = false,
 }: DefinitionPopupContentsProps): JSX.Element {
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
@@ -535,7 +527,18 @@ export function DefinitionPopupContents({
         <>
             <Provider>
                 {ReactDOM.createPortal(
-                    <BindLogic logic={definitionPopupLogic} props={{ type: group.type, updateRemoteItem }}>
+                    <BindLogic
+                        logic={definitionPopupLogic}
+                        props={{
+                            type: group.type,
+                            updateRemoteItem,
+                            onMouseLeave,
+                            onSave,
+                            onCancel,
+                            hideView,
+                            hideEdit,
+                        }}
+                    >
                         <ControlledDefinitionPopupContents
                             item={item}
                             group={group}
@@ -546,9 +549,6 @@ export function DefinitionPopupContents({
                                 setRef: setPopperElement,
                                 ref: popperElement,
                             }}
-                            onMouseLeave={onMouseLeave}
-                            onCancel={onCancel}
-                            onSave={onSave}
                         />
                     </BindLogic>,
                     document.querySelector('body') as HTMLElement

@@ -22,6 +22,9 @@ import {
     eventDefinitionsTableLogic,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
+import clsx from 'clsx'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export enum DefinitionType {
     Event = 'event',
@@ -65,22 +68,32 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
     return <UnverifiedEventStack className="taxonomy-icon taxonomy-icon-muted" />
 }
 
+interface SharedDefinitionHeaderProps {
+    hideIcon?: boolean
+    hideView?: boolean
+    hideEdit?: boolean
+}
+
 function RawDefinitionHeader({
     definition,
     definitionKey,
     group,
     updateRemoteItem,
     hideIcon = false,
+    hideView = false,
+    hideEdit = false,
 }: {
     definition: EventDefinition | PropertyDefinition
     definitionKey: string
     group: TaxonomicFilterGroup
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    hideIcon?: boolean
-}): JSX.Element {
+} & SharedDefinitionHeaderProps): JSX.Element {
     const [referenceEl, setReferenceEl] = useState<HTMLSpanElement | null>(null)
     const { hoveredDefinition } = useValues(eventDefinitionsTableLogic)
     const { setHoveredDefinition } = useActions(eventDefinitionsTableLogic)
+
+    const fullDetailUrl = group.getFullDetailUrl?.(definition)
+    const icon = group.getIcon?.(definition)
 
     const innerContent = (
         <span
@@ -96,19 +109,28 @@ function RawDefinitionHeader({
                 value={definition.name ?? ''}
                 disablePopover
                 disableIcon
-                className="definition-column-name-content-title text-primary"
+                className={clsx('definition-column-name-content-title', fullDetailUrl && 'text-primary')}
+                style={{
+                    cursor: fullDetailUrl ? 'pointer' : 'text',
+                }}
             />
         </span>
     )
+    const linkedInnerContent = fullDetailUrl ? (
+        <Link target="_blank" to={fullDetailUrl} preventClick={!fullDetailUrl}>
+            {innerContent}
+        </Link>
+    ) : (
+        innerContent
+    )
 
-    const icon = group?.getIcon?.(definition)
     return (
         <>
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
             <div className="definition-column-name-content">
                 <div>
                     {hoveredDefinition !== definitionKey ? (
-                        innerContent
+                        linkedInnerContent
                     ) : (
                         <DefinitionPopupContents
                             item={definition}
@@ -121,8 +143,10 @@ function RawDefinitionHeader({
                                 setHoveredDefinition(null)
                             }}
                             updateRemoteItem={updateRemoteItem}
+                            hideView={hideView}
+                            hideEdit={hideEdit}
                         >
-                            {innerContent}
+                            {linkedInnerContent}
                         </DefinitionPopupContents>
                     )}
                 </div>
@@ -137,10 +161,11 @@ function RawDefinitionHeader({
 export function EventDefinitionHeader({
     definition,
     hideIcon = false,
+    hideView = false,
+    hideEdit = false,
 }: {
     definition: EventDefinition
-    hideIcon?: boolean
-}): JSX.Element {
+} & SharedDefinitionHeaderProps): JSX.Element {
     const { setLocalEventDefinition } = useActions(eventDefinitionsTableLogic)
     return (
         <RawDefinitionHeader
@@ -162,6 +187,8 @@ export function EventDefinitionHeader({
             }}
             hideIcon={hideIcon}
             updateRemoteItem={(_definition) => setLocalEventDefinition(_definition as EventDefinition)}
+            hideEdit={hideEdit}
+            hideView={hideView}
         />
     )
 }
@@ -170,11 +197,12 @@ export function PropertyDefinitionHeader({
     definition,
     event,
     hideIcon = false,
+    hideView = false,
+    hideEdit = false,
 }: {
     definition: PropertyDefinition
     event: EventDefinition
-    hideIcon?: boolean
-}): JSX.Element {
+} & SharedDefinitionHeaderProps): JSX.Element {
     const { setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
 
     return (
@@ -189,9 +217,13 @@ export function PropertyDefinitionHeader({
                 getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getPopupHeader: () => 'Property',
                 getIcon: getPropertyDefinitionIcon,
+                getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
+                    urls.eventPropertyStat(propertyDefinition.id),
             }}
             hideIcon={hideIcon}
             updateRemoteItem={(_definition) => setLocalPropertyDefinition(event, _definition as PropertyDefinition)}
+            hideEdit={hideEdit}
+            hideView={hideView}
         />
     )
 }

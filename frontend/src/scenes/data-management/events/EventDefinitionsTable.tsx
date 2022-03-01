@@ -35,7 +35,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} />
+                return <EventDefinitionHeader definition={definition} hideView />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },

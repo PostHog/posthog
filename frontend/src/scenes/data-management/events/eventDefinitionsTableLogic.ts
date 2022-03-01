@@ -121,7 +121,10 @@ export const eventDefinitionsTableLogic = kea<
             {
                 loadPropertiesForEvent: async ({ definition, url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
-                        return values.eventPropertiesCacheMap
+                        return {
+                            ...values.eventPropertiesCacheMap,
+                            [definition.id]: cache.apiCache[url],
+                        }
                     }
 
                     if (!url) {

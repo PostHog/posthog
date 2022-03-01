@@ -26,7 +26,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             key: 'property',
             className: 'definition-column-name',
             render: function Render(_, _definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon />
+                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon hideView />
             },
         },
         {
@@ -104,6 +104,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 pagination={{
                     controlled: true,
                     pageSize: PROPERTY_DEFINITIONS_PER_EVENT,
+                    entryCount: eventPropertiesCacheMap?.[definition.id]?.count ?? 0,
                     onForward: !!eventPropertiesCacheMap?.[definition.id]?.next
                         ? () => {
                               loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].next)
