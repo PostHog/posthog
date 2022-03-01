@@ -42,7 +42,7 @@ moving data without increasing disk usage between identical schemas.
 
 Constraints:
 
-    1. This migration relies on there being exactly one node when it's run.
+    1. This migration relies on there being exactly one ClickHouse node when it's run.
     2. For person and events tables, the schema tries to preserve any materialized columns.
     3. This migration requires there to be no ongoing part merges while it's executing.
     4. This migration depends on 0002_events_sample_by. If it didn't, this could be a normal migration.
