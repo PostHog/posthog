@@ -55,17 +55,6 @@ class PropertyMixin(BaseParamMixin):
         # old properties
         return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
 
-    @cached_property
-    def property_groups_flat(self) -> List[Property]:
-        return list(self._property_groups_flat(self.property_groups))
-
-    def _property_groups_flat(self, prop_group: PropertyGroup):
-        for value in prop_group.values:
-            if isinstance(value, PropertyGroup):
-                yield from self._property_groups_flat(value)
-            else:
-                yield value
-
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
             _properties = []

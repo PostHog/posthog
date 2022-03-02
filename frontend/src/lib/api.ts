@@ -6,9 +6,11 @@ import {
     CohortType,
     DashboardCollaboratorType,
     DashboardType,
+    EventDefinition,
     EventType,
     FilterType,
     PluginLogEntry,
+    PropertyDefinition,
     TeamType,
     UserType,
 } from '../types'
@@ -17,6 +19,10 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
+import {
+    EVENT_DEFINITIONS_PER_PAGE,
+    PROPERTY_DEFINITIONS_PER_EVENT,
+} from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -114,6 +120,14 @@ class ApiRequest {
 
     public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
+    }
+
+    public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('event_definitions')
+    }
+
+    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('property_definitions')
     }
 
     public cohorts(teamId?: TeamType['id']): ApiRequest {
@@ -247,6 +261,56 @@ const api = {
         ): Promise<PaginatedResponse<EventType[]>> {
             const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            filters: Partial<FilterType>,
+            limit: number = 10,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    eventDefinitions: {
+        async list(
+            limit: number = EVENT_DEFINITIONS_PER_PAGE,
+            offset?: number,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<EventDefinition>> {
+            const params: Record<string, any> = { limit, offset }
+            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            limit: number = EVENT_DEFINITIONS_PER_PAGE,
+            offset?: number,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { limit, offset }
+            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    propertyDefinitions: {
+        async list(
+            event_names?: string[],
+            excluded_properties?: string[],
+            is_event_property?: boolean,
+            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PropertyDefinition>> {
+            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
+            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
+        },
+        determineListEndpoint(
+            event_names?: string[],
+            excluded_properties?: string[],
+            is_event_property?: boolean,
+            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
+            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 

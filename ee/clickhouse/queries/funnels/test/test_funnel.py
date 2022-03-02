@@ -1475,3 +1475,120 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_funnel_with_property_groups(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "order": 0},
+                {"id": "$pageview", "order": 1, "properties": {"$current_url": "aloha.com"}},
+                {
+                    "id": "$pageview",
+                    "order": 2,
+                    "properties": {"$current_url": "aloha2.com"},
+                },  # different event to above
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "operator": "icontains", "value": ".com", "type": "person"},
+                            {"key": "age", "operator": "exact", "value": "20", "type": "person"},
+                        ],
+                    },
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "email", "operator": "icontains", "value": ".org", "type": "person"},
+                            {"key": "age", "operator": "exact", "value": "28", "type": "person"},
+                        ],
+                    },
+                ],
+            },
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        people = {}
+        people["stopped_after_signup1"] = _create_person(
+            distinct_ids=["stopped_after_signup1"],
+            team_id=self.team.pk,
+            properties={"email": "test@b.com", "age": "18"},
+        )
+        people["stopped_after_pageview1"] = _create_person(
+            distinct_ids=["stopped_after_pageview1"],
+            team_id=self.team.pk,
+            properties={"email": "test@b.org", "age": "28"},
+        )
+        people["stopped_after_pageview2"] = _create_person(
+            distinct_ids=["stopped_after_pageview2"],
+            team_id=self.team.pk,
+            properties={"email": "test2@b.com", "age": "28"},
+        )
+        people["stopped_after_pageview3"] = _create_person(
+            distinct_ids=["stopped_after_pageview3"],
+            team_id=self.team.pk,
+            properties={"email": "test3@b.com", "age": "28"},
+        )
+        people["stopped_after_pageview4"] = _create_person(
+            distinct_ids=["stopped_after_pageview4"],
+            team_id=self.team.pk,
+            properties={"email": "test4@b.org", "age": "18"},
+        )
+
+        # event
+        journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up"}],
+                "stopped_after_pageview1": [{"event": "user signed up"},],
+                "stopped_after_pageview2": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                ],
+                "stopped_after_pageview3": [
+                    {"event": "user signed up"},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                ],
+                "stopped_after_pageview4": [
+                    # {"event": "user signed up"}, # no signup, so not in funnel
+                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[1]["name"], "$pageview")
+        self.assertEqual(result[2]["name"], "$pageview")
+        self.assertEqual(result[0]["count"], 3)
+        self.assertEqual(result[1]["count"], 2)
+        self.assertEqual(result[2]["count"], 1)
+        # check ordering of people in every step
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1),
+            [
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+            ],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2),
+            [people["stopped_after_pageview2"].uuid, people["stopped_after_pageview3"].uuid,],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 3), [people["stopped_after_pageview3"].uuid,],
+        )

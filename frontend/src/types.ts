@@ -482,6 +482,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    is_identified?: boolean
 }
 
 interface MatchedRecordingEvents {
@@ -885,6 +886,7 @@ export interface FilterType {
     date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
+    event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1369,6 +1371,7 @@ export interface PropertyDefinition {
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
+    example?: string
 }
 
 export interface PersonProperty {
@@ -1423,16 +1426,36 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
+    secondary_metric_results?: SecondaryMetricResult[]
+}
+
+export interface SecondaryMetricResult {
+    name: string
+    result: Record<string, number>
 }
 
 export interface SecondaryExperimentMetric {
-    name?: string
+    name: string
     filters: Partial<FilterType>
 }
 
 export interface SelectOption {
     value: string
     label?: string
+}
+
+export enum FilterLogicalOperator {
+    And = 'AND',
+    Or = 'OR',
+}
+export interface PropertyGroupFilter {
+    type?: FilterLogicalOperator
+    values: PropertyGroupFilterValue[]
+}
+
+export interface PropertyGroupFilterValue {
+    type: FilterLogicalOperator
+    values: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1605,8 +1628,6 @@ interface PointsPayload {
 export interface GraphPointPayload {
     points: PointsPayload
     index: number
-    label?: string // Soon to be deprecated with LEGACY_LineGraph
-    day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
     /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
     crossDataset?: GraphDataset[]

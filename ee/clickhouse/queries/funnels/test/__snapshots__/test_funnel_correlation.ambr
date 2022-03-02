@@ -282,8 +282,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -371,8 +371,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -460,8 +460,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -549,8 +549,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'))))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -735,7 +735,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -823,7 +823,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -911,7 +911,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -999,7 +999,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id

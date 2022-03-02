@@ -67,7 +67,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 def parse_prop_grouped_clauses(
     team_id: int,
-    property_group: PropertyGroup,
+    property_group: Optional[PropertyGroup],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -78,7 +78,7 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(property_group.values) == 0:
+    if not property_group or len(property_group.values) == 0:
         return "", {}
 
     if isinstance(property_group.values[0], PropertyGroup):
@@ -162,17 +162,17 @@ def parse_prop_clauses(
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
 
-                if person_properties_mode == PersonPropertiesMode.EXCLUDE:
+                if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+                else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort, idx, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
-                else:
-                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
-                    params = {**params, **cohort_filter_params}
-                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
-        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
@@ -201,6 +201,20 @@ def parse_prop_clauses(
                     )
                 )
                 params.update(filter_params)
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
+            # this setting is used to generate the ClickhousePersonQuery SQL.
+            # When using direct mode, there should only be person properties in the entire
+            # property group
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend=f"personquery_{prepend}",
+                allow_denormalized_props=True,
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
