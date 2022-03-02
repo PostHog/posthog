@@ -1,5 +1,4 @@
 import inspect
-import logging
 import re
 from functools import wraps
 from typing import Any, Dict, Optional
@@ -21,14 +20,7 @@ def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.team = Team.objects.create(
         organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN_TEAM_1,
-        test_account_filters=[
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-        ],
-    )
-    klass.team2 = Team.objects.create(
-        organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN_TEAM_2,
+        api_token=klass.CONFIG_API_TOKEN,
         test_account_filters=[
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
         ],
@@ -74,7 +66,7 @@ class ErrorResponsesMixin:
         }
 
     def unauthenticated_response(
-        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated",
+        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
     ) -> Dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
@@ -98,8 +90,7 @@ class TestMixin:
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
-    CONFIG_API_TOKEN_TEAM_1: str = "token123team1"
-    CONFIG_API_TOKEN_TEAM_2: str = "token123team2"
+    CONFIG_API_TOKEN: str = "token123"
     CONFIG_AUTO_LOGIN: bool = True
     # Most test cases can run with class data level setup. This means that test data gets set up once per class,
     # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
@@ -109,7 +100,6 @@ class TestMixin:
     # Test data definition stubs
     organization: Organization = None  # type: ignore
     team: Team = None  # type: ignore
-    team2: Team = None  # type: ignore
     user: User = None  # type: ignore
     organization_membership: OrganizationMembership = None  # type: ignore
 
