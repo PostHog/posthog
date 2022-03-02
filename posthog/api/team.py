@@ -70,6 +70,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
             "access_control",
             "has_group_types",
+            "primary_dashboard",
         )
         read_only_fields = (
             "id",
