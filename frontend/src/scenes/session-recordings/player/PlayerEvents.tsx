@@ -74,9 +74,6 @@ function EventDescription({ description }: { description: string }): JSX.Element
     )
 }
 
-
-
-
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
