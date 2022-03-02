@@ -13,13 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.UniqueConstraint(
-                fields=("tag", "dashboard", "insight", "event_definition", "property_definition", "action"),
-                name="unique_tagged_item",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.UniqueConstraint(
                 condition=models.Q(
                     ("insight", None), ("event_definition", None), ("property_definition", None), ("action", None)
                 ),

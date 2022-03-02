@@ -22,9 +22,7 @@ def build_check():
 # Enforces uniqueness on tag_{object_field}. All permutations of null columns must be explicit as Postgres ignores
 # uniqueness across null columns.
 def build_uniqueness_constraint():
-    built_check_list: List[UniqueConstraint] = [
-        UniqueConstraint(fields=("tag",) + RELATED_OBJECTS, name=f"unique_tagged_item"),
-    ]
+    built_check_list: List[UniqueConstraint] = []
     for o_field in RELATED_OBJECTS:
         built_check_list.append(
             UniqueConstraint(
