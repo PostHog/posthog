@@ -14,6 +14,7 @@ import {
     IconBill,
     IconArrowDropDown,
     IconSettings,
+    IconCorporate,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -244,6 +245,30 @@ function AsyncMigrations(): JSX.Element {
     )
 }
 
+function InstanceSettings(): JSX.Element | null {
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { user } = useValues(userLogic)
+
+    if (!user?.is_staff) {
+        return null
+    }
+
+    return (
+        <Link to={urls.instanceSettings()}>
+            <LemonRow
+                icon={<IconCorporate style={{ color: 'var(--primary)' }} />}
+                fullWidth
+                onClick={closeSitePopover}
+                style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 500 }}
+            >
+                <>
+                    <div className="SitePopover__main-info">Instance settings</div>
+                </>
+            </LemonRow>
+        </Link>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -299,24 +324,12 @@ export function SitePopover(): JSX.Element {
                         </SitePopoverSection>
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                        <SitePopoverSection
-                            title={
-                                <>
-                                    <div style={{ flexGrow: 1 }}>PostHog instance</div>
-                                    {user?.is_staff && (
-                                        <Tooltip title="Instance settings">
-                                            <Link to={urls.instanceSettings()} style={{ color: 'var(--muted-alt)' }}>
-                                                <IconSettings style={{ fontSize: '1.4rem' }} />
-                                            </Link>
-                                        </Tooltip>
-                                    )}
-                                </>
-                            }
-                        >
+                        <SitePopoverSection title="PostHog instance">
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                             <AsyncMigrations />
+                            <InstanceSettings />
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection>
