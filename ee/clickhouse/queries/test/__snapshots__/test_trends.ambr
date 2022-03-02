@@ -506,8 +506,8 @@
                                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2022-02-15 00:00:00'
-       AND timestamp <= '2022-03-01 23:59:59'
+       AND timestamp >= '2020-01-01 00:00:00'
+       AND timestamp <= '2020-07-01 23:59:59'
        AND ((NOT (trim(BOTH '"'
                        FROM JSONExtractRaw(person_props, 'email')) ILIKE '%@posthog.com%')
              OR has(['val'], trim(BOTH '"'
@@ -535,9 +535,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2022-03-01 23:59:59') - number * 86400) as day_start
-              FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2022-02-15 00:00:00')) as day_start) as ticks
+             (SELECT toStartOfDay(toDateTime('2020-07-01 23:59:59') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -574,8 +574,8 @@
                              FROM JSONExtractRaw(person_props, 'email')) ILIKE '%@posthog.com%')
                    OR has(['val'], trim(BOTH '"'
                                         FROM JSONExtractRaw(e.properties, 'key')))))
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2022-02-15 00:00:00'))
-             AND timestamp <= '2022-03-01 23:59:59'
+             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+             AND timestamp <= '2020-07-01 23:59:59'
              AND trim(BOTH '"'
                       FROM JSONExtractRaw(person_props, 'email')) in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
@@ -618,8 +618,8 @@
                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2022-02-15 00:00:00'
-       AND timestamp <= '2022-03-01 23:59:59'
+       AND timestamp >= '2020-01-01 00:00:00'
+       AND timestamp <= '2020-07-01 23:59:59'
        AND ((has(['val'], trim(BOTH '"'
                                FROM JSONExtractRaw(e.properties, 'key')))))
      GROUP BY value
@@ -645,9 +645,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2022-03-01 23:59:59') - number * 86400) as day_start
-              FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2022-02-15 00:00:00')) as day_start) as ticks
+             (SELECT toStartOfDay(toDateTime('2020-07-01 23:59:59') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -684,8 +684,8 @@
              AND event = 'sign up'
              AND ((has(['val'], trim(BOTH '"'
                                      FROM JSONExtractRaw(e.properties, 'key')))))
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2022-02-15 00:00:00'))
-             AND timestamp <= '2022-03-01 23:59:59'
+             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+             AND timestamp <= '2020-07-01 23:59:59'
              AND trim(BOTH '"'
                       FROM JSONExtractRaw(person_props, 'email')) in (['test2@posthog.com'])
            GROUP BY day_start,
