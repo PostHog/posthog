@@ -671,6 +671,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
     @snapshot_clickhouse_queries
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
     def test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns(self):
         Person.objects.create(
             team_id=self.team.pk,
@@ -713,20 +714,21 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             create_people=False,
             events_by_person={
-                "person1": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person2": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person3": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person32": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person4": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person5": [{"event": "sign up", "properties": {"key": "val"}}],
-                "person6": [{"event": "sign up", "properties": {"key": "val"}}],
+                "person1": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person2": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person3": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person32": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person4": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person5": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person6": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
             },
         )
 
         response = ClickhouseTrends().run(
             Filter(
                 data={
-                    "date_from": "-14d",
+                    "date_from": "2020-01-01 00:00:00",
+                    "date_to": "2020-07-01 00:00:00",
                     "breakdown": "email",
                     "breakdown_type": "person",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
@@ -771,7 +773,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         response = ClickhouseTrends().run(
             Filter(
                 data={
-                    "date_from": "-14d",
+                    "date_from": "2020-01-01 00:00:00",
+                    "date_to": "2020-07-01 00:00:00",
                     "breakdown": "email",
                     "breakdown_type": "person",
                     # TODO: convert this into property group once entity.properties is gone
