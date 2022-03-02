@@ -68,11 +68,13 @@ class ClickhouseTrendsBreakdown:
         props_to_filter = self.filter.property_groups.combine_properties(
             PropertyOperatorType.AND, self.entity.properties
         )
+
+        outer_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team_id,
-            property_group=props_to_filter,
+            property_group=outer_properties,
             table_name="e",
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 

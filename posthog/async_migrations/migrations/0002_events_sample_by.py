@@ -4,7 +4,6 @@ from constance import config
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.constants import AnalyticsDBMS
@@ -17,6 +16,7 @@ from posthog.settings import (
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
+EVENTS_TABLE = "events"
 EVENTS_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.{EVENTS_TABLE}"
 BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0002_events_sample_by"
 FAILED_EVENTS_TABLE_NAME = f"{EVENTS_TABLE_NAME}_failed"
@@ -73,6 +73,9 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def operations(self):
+        if self._events_table_engine() == "Distributed":
+            # Note: This _should_ be impossible but hard to ensure.
+            raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
 
         create_table_op = [
             AsyncMigrationOperation.simple_op(
@@ -112,7 +115,7 @@ class Migration(AsyncMigrationDefinition):
             default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
             try:
                 execute_op_clickhouse(
-                    "OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
                     query_id,
                     settings={
                         "max_execution_time": default_timeout,
@@ -213,7 +216,15 @@ class Migration(AsyncMigrationDefinition):
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
+                    {"database": CLICKHOUSE_DATABASE},
                 )
             )
         )
+
+    def _events_table_engine(self) -> str:
+        rows = sync_execute(
+            "SELECT engine FROM system.tables WHERE database = %(database)s AND name = 'events'",
+            {"database": CLICKHOUSE_DATABASE},
+        )
+        return rows[0][0]

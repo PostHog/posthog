@@ -20,7 +20,7 @@ from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
+from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -168,7 +168,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             filter = filter.with_data({LIMIT: 100})
 
         raw_result = sync_execute(
-            GET_COHORTPEOPLE_BY_COHORT_ID,
+            GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID,
             {"team_id": team.pk, "cohort_id": cohort.pk, "limit": filter.limit, "offset": filter.offset},
         )
         actor_ids = [row[0] for row in raw_result]

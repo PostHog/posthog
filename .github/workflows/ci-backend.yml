@@ -83,10 +83,10 @@ jobs:
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.8
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
@@ -168,7 +168,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.5']
+                python-version: ['3.8.12']
                 ee: [true]
                 foss: [false]
                 saml: [false]
@@ -178,15 +178,7 @@ jobs:
                 group: [1, 2, 3, 4, 5]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
-                    - python-version: '3.8.5'
-                      ee: false
-                      saml: false
-                      foss: true
-                      name: 'FOSS'
-                      concurrency: 1
-                      group: 1
-                    # :TRICKY: Run FOSS tests in a separate container
-                    - python-version: '3.9.0'
+                    - python-version: '3.8.12'
                       ee: false
                       saml: false
                       foss: true
@@ -194,7 +186,7 @@ jobs:
                       concurrency: 1
                       group: 1
                     # :TRICKY: Run SAML tests in a separate container
-                    - python-version: '3.8.5'
+                    - python-version: '3.8.12'
                       ee: false
                       saml: true
                       foss: false
@@ -242,10 +234,11 @@ jobs:
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
                   docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
-            - name: Set up Python 3.8
+
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests

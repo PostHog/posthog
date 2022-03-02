@@ -75,6 +75,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
     // Insights
     --z-graph-tooltip: #{$z_graph_tooltip};
+    // Taxonomy
+    --taxonomy-icon-muted: #{$taxonomy_icon_muted};
 }
 
 // Text styles
@@ -199,6 +201,10 @@ body strong {
 
 .primary {
     color: $primary;
+}
+
+.primary-alt {
+    color: $primary_alt;
 }
 
 .secondary {
@@ -368,6 +374,13 @@ code.code {
     border-radius: 4px;
 }
 
+.border-top {
+    border-top: 1px solid $border;
+}
+
+.border-bottom {
+    border-bottom: 1px solid $border;
+}
 // Vendor-specific adjustments
 
 input::-ms-clear {

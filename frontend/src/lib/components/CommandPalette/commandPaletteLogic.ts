@@ -33,6 +33,7 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
@@ -506,6 +507,13 @@ export const commandPaletteLogic = kea<
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
                             push(urls.organizationSettings())
+                        },
+                    },
+                    {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
                         },
                     },
                     {

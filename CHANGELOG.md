@@ -1,38 +1,55 @@
 # Changelog
 
-### 1.32.0 - Monday 31 January 2022
-- Redesigned Persons & Groups pages.
-- Short link sharing.
-- Improved insight experience.
-- Funnels vertical breakdown.
-- Significant performance improvements to the Actions page. When viewing an action, we'll now show you the most recent events (~6 months ago) without constant polling. This should make it easy and faster to debug actions.
-- When your users are in multiple tabs, we'll now properly separate recordings so you can see what users were doing on each tab. Previously this could lead with a botched experience when playing back recordings.
-- To improve query performance, the "All time" filter will now only consider events from 2015 onwards. We realized some instances had events with incorrect timestamps (frequently UNIX epoch [Jan 1, 1970]), which would lead to performance issues and hard to parse graphs.
-- Fixed a bug when if a user joined an organization with private projects, they would get a broken experience (from being assigned to a project to which they don't have access).
-- Improved performance and increase execution size for complex retention queries.
-- Newly design Preflight page to update with our latest brand.
-- Fixed a bug in which a lot of failing requests would be made when opening a shared dashboard unauthenticated.
-- Fixed a bug in which filtering insights by "Yesterday" and "Daily" would lead to two data points instead of one.
-- Plus 330+ improvements & fixes. More details on [the Array blog post](https://posthog.com/blog/the-posthog-array-1-32-0).
+### 1.33.0 - Monday 28 February 2022
 
+-   New: Experimentation. PostHog now offers a full end-to-end A/B testing suite!
+-   New: Dashboard permissions. PostHog now lets you select different edit permissions for each dashboard.
+-   New: Altinity Cloud support. Altinity is an expert in Clickhouse and data infrastructure and it can help large organizations to deploy, manage and scale their PostHog instance.
+-   New: Instance configuration UI. Some settings are now configurable directly on the UI, instead of you having to rely on environment variables (e.g. email settings).
+-   Improved: Short robust permalinks.
+-   Improved: Smarter events and property filters.
+-   Improved: Redesigned share dashboard modal.
+-   Improved: A new async migration (`person_distinct_id2`) will speed up queries >70% for projects with 10M+ unique users.
+-   New: Insight legends.
+-   Improved: Automatic API documentation.
+-   Improved: Performance of Events page.
+-   Plus 290+ improvements & fixes.
+
+### 1.32.0 - Monday 31 January 2022
+
+-   Redesigned Persons & Groups pages.
+-   Short link sharing.
+-   Improved insight experience.
+-   Funnels vertical breakdown.
+-   Significant performance improvements to the Actions page. When viewing an action, we'll now show you the most recent events (~6 months ago) without constant polling. This should make it easy and faster to debug actions.
+-   When your users are in multiple tabs, we'll now properly separate recordings so you can see what users were doing on each tab. Previously this could lead with a botched experience when playing back recordings.
+-   To improve query performance, the "All time" filter will now only consider events from 2015 onwards. We realized some instances had events with incorrect timestamps (frequently UNIX epoch [Jan 1, 1970]), which would lead to performance issues and hard to parse graphs.
+-   Fixed a bug when if a user joined an organization with private projects, they would get a broken experience (from being assigned to a project to which they don't have access).
+-   Improved performance and increase execution size for complex retention queries.
+-   Newly design Preflight page to update with our latest brand.
+-   Fixed a bug in which a lot of failing requests would be made when opening a shared dashboard unauthenticated.
+-   Fixed a bug in which filtering insights by "Yesterday" and "Daily" would lead to two data points instead of one.
+-   Plus 330+ improvements & fixes. More details on [the Array blog post](https://posthog.com/blog/the-posthog-array-1-32-0).
 
 ### 1.31.1 - Friday 17 December 2021
-- Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
+
+-   Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
 
 ### 1.31.0 - Wednesday 15 December 2021
-- **Postgres-based deployment no longer supported in this version.**
-- Introducing Group Analytics! Group Analytics enable you to analyze groups, which aggregate events within PostHog.
-- Correlation Analysis just got better! Aside from significantly improving the UI & UX, we've introduced a details option for advanced users.
-- Creating and navigating insights will now be a lot faster and smoother.
-- Improved breakdown in funnels. We have a new vertical layout to display funnels broken down by a property (e.g. conversion by browser) that will make it even easier to compare conversion across multiple dimensions.
-- Searching events & properties is now significantly faster. We've changed the way these properties are shown and we now list them by popularity within your team. Create those insights faster!
-- Following our [lemonade redesign](https://posthog.com/blog/the-posthog-array-1-30-0#fresh-new-look-and-feel) we now have a ton more UI improvements. In particular tables got a pretty sleek facelift.
-- We've improved the layout configuration for dashboards so they'll be more responsive and look better on very small or very large screens.
-- Pushed significant improvements to the recordings list load time.
-- Introducing a new funnel query builder! We now group advanced options separately, so funnel definition is clearer.
-- Fixed a bug in Feature Flags when a 0% release was sometimes considered as a 100% release.
-- Fixed a bug where private project names were shown to members who shouldn't have access.
-- Plus 350+ improvements & fixes.
+
+-   **Postgres-based deployment no longer supported in this version.**
+-   Introducing Group Analytics! Group Analytics enable you to analyze groups, which aggregate events within PostHog.
+-   Correlation Analysis just got better! Aside from significantly improving the UI & UX, we've introduced a details option for advanced users.
+-   Creating and navigating insights will now be a lot faster and smoother.
+-   Improved breakdown in funnels. We have a new vertical layout to display funnels broken down by a property (e.g. conversion by browser) that will make it even easier to compare conversion across multiple dimensions.
+-   Searching events & properties is now significantly faster. We've changed the way these properties are shown and we now list them by popularity within your team. Create those insights faster!
+-   Following our [lemonade redesign](https://posthog.com/blog/the-posthog-array-1-30-0#fresh-new-look-and-feel) we now have a ton more UI improvements. In particular tables got a pretty sleek facelift.
+-   We've improved the layout configuration for dashboards so they'll be more responsive and look better on very small or very large screens.
+-   Pushed significant improvements to the recordings list load time.
+-   Introducing a new funnel query builder! We now group advanced options separately, so funnel definition is clearer.
+-   Fixed a bug in Feature Flags when a 0% release was sometimes considered as a 100% release.
+-   Fixed a bug where private project names were shown to members who shouldn't have access.
+-   Plus 350+ improvements & fixes.
 
 ### 1.30.0 - Wednesday 17 November 2021
 
