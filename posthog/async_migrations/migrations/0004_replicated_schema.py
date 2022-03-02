@@ -89,11 +89,21 @@ class Migration(AsyncMigrationDefinition):
     def is_required(self):
         return "Distributed" not in self.get_current_engine("events")
 
+    def precheck(self):
+        if not settings.CLICKHOUSE_REPLICATION:
+            return False, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
+
+        number_of_nodes = self.get_number_of_nodes_in_cluster()
+        if number_of_nodes > 1:
+            return (
+                False,
+                f"ClickHouse cluster should only contain one node at the time of this migration, found {number_of_nodes}",
+            )
+
+        return True, None
+
     @cached_property
     def operations(self):
-        assert settings.CLICKHOUSE_REPLICATION, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
-        self.validate_number_of_nodes_in_cluster()
-
         TABLE_MIGRATION_OPERATIONS = [
             operation for table in self.tables_to_migrate() for operation in self.replicated_table_operations(table)
         ]
@@ -204,13 +214,10 @@ class Migration(AsyncMigrationDefinition):
             sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
 
-    def validate_number_of_nodes_in_cluster(self):
-        rows = sync_execute(
+    def get_number_of_nodes_in_cluster(self):
+        return sync_execute(
             "SELECT count() FROM clusterAllReplicas(%(cluster)s, system, one)", {"cluster": settings.CLICKHOUSE_CLUSTER}
-        )
-        assert (
-            rows[0][0] == 1
-        ), f"Cluster should only contain one node at the time of this migration, found {rows[0][0]}"
+        )[0][0]
 
     def tables_to_migrate(self):
         from ee.clickhouse.sql.cohort import COHORTPEOPLE_TABLE_ENGINE
