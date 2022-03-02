@@ -1,0 +1,1 @@
+from posthog.conftest import *
