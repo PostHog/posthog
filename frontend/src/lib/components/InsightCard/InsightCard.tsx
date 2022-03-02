@@ -1,10 +1,16 @@
-import { Alert } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
-import { UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import {
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
+    InsightErrorState,
+    InsightTimeoutState,
+    UNNAMED_INSIGHT_NAME,
+} from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -22,7 +28,7 @@ import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
 import { LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
-import { ObjectTags } from '../ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import { LastModified } from './LastModified'
 import './InsightCard.scss'
@@ -32,6 +38,7 @@ import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -106,10 +113,12 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     insight: InsightModel
     /** Whether the insight is loading. */
     loading?: boolean
-    /** Whether loading the insight resulted in an error. */
-    apiError?: boolean
+    /** Whether an error occurred on the server. */
+    apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
+    /** Whether loading timed out. */
+    timedOut?: boolean
     showResizeHandles?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
@@ -162,16 +171,17 @@ function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
-    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
-        insight.filters.insight || InsightType.TRENDS
-    )
-
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
 
     useEffect(() => {
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
+
+    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
+        insight.filters.insight || InsightType.TRENDS
+    )
+    const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
     const transitionStyles = primaryHeight
@@ -219,11 +229,9 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            compact
+                                            compact={showDetailsButtonLabel}
                                         >
-                                            {primaryWidth &&
-                                                primaryWidth > 480 &&
-                                                `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                            {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
                                     <More
@@ -361,7 +369,7 @@ function InsightMeta({
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
-                            {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+                            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
@@ -375,11 +383,24 @@ function InsightMeta({
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiError' | 'style'> {
+interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    tooFewFunnelSteps?: boolean
+    invalidFunnelExclusion?: boolean
+    empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizProps): JSX.Element {
+function InsightViz({
+    insight,
+    loading,
+    setAreDetailsShown,
+    style,
+    apiErrored,
+    timedOut,
+    empty,
+    tooFewFunnelSteps,
+    invalidFunnelExclusion,
+}: InsightVizProps): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
     const displayedType = getDisplayedType(filters)
@@ -397,15 +418,27 @@ function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizP
                     : undefined
             }
         >
-            {loading && <Loading />}
-            <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
-                <VizComponent
-                    dashboardItemId={short_id}
-                    cachedResults={cachedResults}
-                    filters={filters}
-                    showPersonsModal={false}
-                />
-            </Alert.ErrorBoundary>
+            {loading && !timedOut && <Loading />}
+            {tooFewFunnelSteps ? (
+                <FunnelSingleStepState actionable={false} />
+            ) : invalidFunnelExclusion ? (
+                <FunnelInvalidExclusionState />
+            ) : empty ? (
+                <InsightEmptyState />
+            ) : timedOut ? (
+                <InsightTimeoutState isLoading={!!loading} />
+            ) : apiErrored && !loading ? (
+                <InsightErrorState excludeDetail />
+            ) : (
+                !apiErrored && (
+                    <VizComponent
+                        dashboardItemId={short_id}
+                        cachedResults={cachedResults}
+                        filters={filters}
+                        showPersonsModal={false}
+                    />
+                )
+            )}
         </div>
     )
 }
@@ -414,7 +447,8 @@ function InsightCardInternal(
     {
         insight,
         loading,
-        apiError,
+        apiErrored,
+        timedOut,
         highlighted,
         showResizeHandles,
         updateColor,
@@ -437,6 +471,32 @@ function InsightCardInternal(
         filters,
         cachedResults,
         doNotLoad: true,
+    }
+
+    const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+
+    let tooFewFunnelSteps = false
+    let invalidFunnelExclusion = false
+    let empty = false
+    if (filters.insight === InsightType.FUNNELS) {
+        if (!areFiltersValid) {
+            tooFewFunnelSteps = true
+        } else if (!areExclusionFiltersValid) {
+            invalidFunnelExclusion = true
+        }
+        if (!isValidFunnel) {
+            empty = true
+        }
+    }
+    if (insightLoading) {
+        loading = true
+    }
+    if (showErrorMessage) {
+        apiErrored = true
+    }
+    if (showTimeoutMessage) {
+        timedOut = true
     }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
@@ -466,7 +526,11 @@ function InsightCardInternal(
                 <InsightViz
                     insight={insight}
                     loading={loading}
-                    apiError={apiError}
+                    apiErrored={apiErrored}
+                    timedOut={timedOut}
+                    empty={empty}
+                    tooFewFunnelSteps={tooFewFunnelSteps}
+                    invalidFunnelExclusion={invalidFunnelExclusion}
                     style={
                         metaPrimaryHeight
                             ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }

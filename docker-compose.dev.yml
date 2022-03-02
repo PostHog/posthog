@@ -16,7 +16,7 @@ services:
     clickhouse:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
         # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:22.1
+        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-22.1}
         depends_on:
             - kafka
             - zookeeper

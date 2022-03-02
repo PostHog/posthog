@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
 
@@ -40,15 +41,22 @@ class Dashboard(models.Model):
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices
+        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
+
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    )
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
+    )
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:
         return (
             self.restriction_level
-            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_COLLABORATION)
+            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
             else self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -97,5 +105,5 @@ class Dashboard(models.Model):
             "is_shared": self.is_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
-            "tags_count": len(self.tags),
+            "tags_count": self.tagged_items.count(),
         }

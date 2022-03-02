@@ -403,6 +403,93 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[1]["data"]), 1)
         self.assertEqual(response[1]["breakdown_value"], "second url")
 
+    @snapshot_clickhouse_queries
+    def test_breakdown_filtering_with_properties_in_new_format(self):
+        with freeze_time("2020-01-03T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Windows"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Chrome", "$os": "Mac"},
+            )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla1",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$current_url": "second url", "$browser": "Chrome", "$os": "Windows"},
+            )
+
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$current_url",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "$os", "value": "Mac"}],
+                            },
+                        ],
+                        "properties": {
+                            "type": "OR",
+                            "values": [{"key": "$browser", "value": "Firefox"}, {"key": "$os", "value": "Windows"}],
+                        },
+                    }
+                ),
+                self.team,
+            )
+
+        response = sorted(response, key=lambda x: x["label"])
+        self.assertEqual(response[0]["label"], "sign up - second url")
+
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "second url")
+
+        # AND filter properties with disjoint set means results should be empty
+        with freeze_time("2020-01-05T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$current_url",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "$os", "value": "Mac"}],
+                            },
+                        ],
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"key": "$browser", "value": "Firefox"}, {"key": "$os", "value": "Windows"}],
+                        },
+                    }
+                ),
+                self.team,
+            )
+
+        response = sorted(response, key=lambda x: x["label"])
+        self.assertEqual(response, [])
+
     @test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
@@ -582,6 +669,145 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
+    def test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns(self):
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"email": "test@posthog.com", "$os": "ios", "$browser": "chrome"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "test@gmail.com", "$os": "ios", "$browser": "safari"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"email": "test2@posthog.com", "$os": "android", "$browser": "chrome"},
+        )
+        # a second person with same properties, just so snapshot passes on different CH versions (indeterminate sorting currently)
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person32"],
+            properties={"email": "test2@posthog.com", "$os": "android", "$browser": "chrome"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person4"],
+            properties={"email": "test3@posthog.com", "$os": "android", "$browser": "safari"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person5"],
+            properties={"email": "test4@posthog.com", "$os": "android", "$browser": "safari"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["person6"],
+            properties={"email": "test5@posthog.com", "$os": "android", "$browser": "safari"},
+        )
+
+        journeys_for(
+            team=self.team,
+            create_people=False,
+            events_by_person={
+                "person1": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person2": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person3": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person32": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person4": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person5": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+                "person6": [{"event": "sign up", "properties": {"key": "val"}, "timestamp": datetime(2020, 5, 1, 0)}],
+            },
+        )
+
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01 00:00:00",
+                    "date_to": "2020-07-01 00:00:00",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "value": "@posthog.com",
+                                        "operator": "not_icontains",
+                                        "type": "person",
+                                    },
+                                    {"key": "key", "value": "val"},
+                                ],
+                            },
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {"key": "$os", "value": "android", "operator": "exact", "type": "person"},
+                                    {"key": "$browser", "value": "safari", "operator": "exact", "type": "person"},
+                                ],
+                            },
+                        ],
+                    },
+                }
+            ),
+            self.team,
+        )
+        response = sorted(response, key=lambda item: item["breakdown_value"])
+        self.assertEqual(len(response), 5)
+        # person1 shouldn't be selected because it doesn't match the filter
+        self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
+        self.assertEqual(response[1]["breakdown_value"], "test3@posthog.com")
+        self.assertEqual(response[2]["breakdown_value"], "test4@posthog.com")
+        self.assertEqual(response[3]["breakdown_value"], "test5@posthog.com")
+        self.assertEqual(response[4]["breakdown_value"], "test@gmail.com")
+
+        # now have more strict filters with entity props
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01 00:00:00",
+                    "date_to": "2020-07-01 00:00:00",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    # TODO: convert this into property group once entity.properties is gone
+                    "events": [
+                        {
+                            "id": "sign up",
+                            "name": "sign up",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {"key": "key", "value": "val"},
+                                {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "$os", "value": "android", "operator": "exact", "type": "person"},
+                                    {"key": "$browser", "value": "chrome", "operator": "exact", "type": "person"},
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
 
     def _create_active_user_events(self):
         p0 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})

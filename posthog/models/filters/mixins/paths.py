@@ -186,7 +186,7 @@ class PathReplacementMixin(BaseParamMixin):
         path_replacements = self._data.get(PATH_REPLACEMENTS)
         if not path_replacements:
             return False
-        if path_replacements == True:
+        if path_replacements is True:
             return True
 
         if isinstance(path_replacements, str) and path_replacements.lower() == "true":

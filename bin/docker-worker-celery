@@ -78,7 +78,7 @@ echo
 echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
 echo
 
-python manage.py migrate --check
+./bin/migrate-check
 
 SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}
 

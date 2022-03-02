@@ -1,5 +1,9 @@
-# pip-compile requirements.in
-
+# In order to add, delete or modify a dependency, please update
+# the reference here and then run:
+#
+# - `pip-compile --rebuild requirements.in`
+# - `pip-compile --rebuild requirements-dev.in`
+#
 django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 asgiref==3.3.2
@@ -10,7 +14,7 @@ clickhouse-driver==0.2.1
 clickhouse-pool==0.5.3
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==3.2.5
+Django==3.2.12
 django-axes==5.9.0
 django-constance==2.8.0
 django-cors-headers==3.5.0

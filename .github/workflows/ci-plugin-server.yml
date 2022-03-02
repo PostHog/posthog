@@ -76,10 +76,10 @@ jobs:
             - name: Start Kafka, ClickHouse, Zookeeper
               run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -157,10 +157,10 @@ jobs:
             - name: Start Kafka, ClickHouse, Zookeeper
               run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -239,10 +239,10 @@ jobs:
             - name: Start Kafka, ClickHouse, Zookeeper
               run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -321,10 +321,10 @@ jobs:
             - name: Start Kafka, ClickHouse, Zookeeper
               run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |

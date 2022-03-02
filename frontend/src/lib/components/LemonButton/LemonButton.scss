@@ -70,6 +70,13 @@
     }
 }
 
+.LemonButton--primary-alt {
+    color: var(--primary-alt);
+    .LemonRow__icon {
+        color: var(--primary-alt);
+    }
+}
+
 .LemonRow--outlined.LemonButton {
     &:not(:disabled):hover,
     &.LemonButton--active,
@@ -83,7 +90,8 @@
     position: relative;
     .side-button {
         position: absolute;
-        top: 0.5rem;
-        right: 0.5rem;
+        top: 1.25rem;
+        right: 1.25rem;
+        transform: translate(50%, -50%);
     }
 }

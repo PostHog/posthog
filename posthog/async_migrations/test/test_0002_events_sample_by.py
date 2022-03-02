@@ -47,20 +47,20 @@ class Test0002EventsSampleBy(BaseTest):
         ENGINE = ReplacingMergeTree(_timestamp)
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-        SETTINGS index_granularity = 8192               
+        SETTINGS index_granularity = 8192
         """
         )
         execute_query(KAFKA_EVENTS_TABLE_SQL())
-        execute_query(EVENTS_TABLE_MV_SQL)
+        execute_query(EVENTS_TABLE_MV_SQL())
 
         execute_query(
             f"""
-            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp) 
-            VALUES 
-                ('event1', '{str(uuid4())}', now()) 
-                ('event2', '{str(uuid4())}', now()) 
-                ('event3', '{str(uuid4())}', now()) 
-                ('event4', '{str(uuid4())}', now()) 
+            INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid, timestamp)
+            VALUES
+                ('event1', '{str(uuid4())}', now())
+                ('event2', '{str(uuid4())}', now())
+                ('event3', '{str(uuid4())}', now())
+                ('event4', '{str(uuid4())}', now())
                 ('event5', '{str(uuid4())}', '2019-01-01')
             """
         )
@@ -99,7 +99,7 @@ class Test0002EventsSampleBy(BaseTest):
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.current_operation_index, 9)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        self.assertEqual(len(errors), 0)
+        self.assertEqual(errors.count(), 0)
 
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")

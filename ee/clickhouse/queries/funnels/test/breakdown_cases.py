@@ -16,7 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
-@dataclass
+@dataclass(frozen=True)
 class FunnelStepResult:
     name: str
     count: int

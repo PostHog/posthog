@@ -17,7 +17,9 @@ class PostHogConfig(AppConfig):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
-        if settings.DEBUG:
+        if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
+            posthoganalytics.disabled = True
+        elif settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_features once on launch, in case plans changed
@@ -31,13 +33,10 @@ class PostHogConfig(AppConfig):
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
 
-                if SELF_CAPTURE:
-                    posthoganalytics.api_key = get_self_capture_api_token(None)
-                else:
-                    posthoganalytics.disabled = True
-
-        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
-            posthoganalytics.disabled = True
+            if SELF_CAPTURE:
+                posthoganalytics.api_key = get_self_capture_api_token(None)
+            else:
+                posthoganalytics.disabled = True
 
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:

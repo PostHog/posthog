@@ -81,7 +81,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def _create_session_recording_event(
         self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
     ):
-        if team_id == None:
+        if team_id is None:
             team_id = self.team.pk
         create_session_recording_event(
             uuid=uuid4(),
@@ -2782,7 +2782,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording(self):
         # User with 2 matching paths with recordings
@@ -2855,7 +2854,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             }
         )
         _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
-        self.assertEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
         self.assertCountEqual(
@@ -2886,7 +2885,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual([], matched_recordings[1])
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_no_window_or_session_id(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2925,7 +2923,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_start_and_end(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2990,7 +2987,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_for_dropoff(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])

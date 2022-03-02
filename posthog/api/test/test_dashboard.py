@@ -16,16 +16,14 @@ class TestDashboard(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_retrieve_dashboard(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
-        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
-        self.assertEqual(response_data["tags"], ["deprecated"])
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
@@ -56,12 +54,7 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {
-                "name": "dashboard new name",
-                "creation_mode": "duplicate",
-                "tags": ["official", "engineering"],
-                "description": "Internal system metrics.",
-            },
+            {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -70,7 +63,6 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
         self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(response_data["tags"], ["official", "engineering"])
         self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
         self.assertEqual(
             response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -78,7 +70,6 @@ class TestDashboard(APIBaseTest):
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
-        self.assertEqual(dashboard.tags, ["official", "engineering"])
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
@@ -164,10 +155,10 @@ class TestDashboard(APIBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
             # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
-            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item
+            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item, Posthog org tags
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -503,26 +494,6 @@ class TestDashboard(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
         self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
-
-    def test_retrieve_dashboard_different_project_with_access(self):
-        team2 = Team.objects.create(organization=self.organization)
-        # Regression, make sure we grab the right dashboard
-        Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
-
-        dashboard = Dashboard.objects.create(team=self.team, name="correct dashboard", created_by=self.user)
-
-        response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "object_exists_in_other_project",
-                "type": "validation_error",
-                "extra": {"project_id": self.team.pk},
-                "detail": "Dashboard exists in a different project.",
-            },
-        )
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))

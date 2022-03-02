@@ -160,12 +160,12 @@ function SystemStatus(): JSX.Element {
                     {systemStatus ? 'All systems operational' : 'Potential system issue'}
                 </div>
                 <Link
-                    to={urls.systemStatus()}
+                    to={urls.instanceStatus()}
                     onClick={closeSitePopover}
                     className="SitePopover__side-link"
                     data-attr="system-status-badge"
                 >
-                    System status
+                    Instance status
                 </Link>
             </>
         </LemonRow>
@@ -204,6 +204,33 @@ function Version(): JSX.Element {
                         Release notes
                     </Link>
                 )}
+            </>
+        </LemonRow>
+    )
+}
+
+function AsyncMigrations(): JSX.Element {
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { asyncMigrationsOk } = useValues(navigationLogic)
+
+    return (
+        <LemonRow
+            status={asyncMigrationsOk ? 'success' : 'warning'}
+            icon={asyncMigrationsOk ? <IconCheckmark /> : <IconUpdate />}
+            fullWidth
+        >
+            <>
+                <div className="SitePopover__main-info">
+                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Pending async migrations'}
+                </div>
+                <Link
+                    to={urls.asyncMigrations()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="async-migrations-status-badge"
+                >
+                    Manage
+                </Link>
             </>
         </LemonRow>
     )
@@ -268,6 +295,7 @@ export function SitePopover(): JSX.Element {
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
+                            <AsyncMigrations />
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection>

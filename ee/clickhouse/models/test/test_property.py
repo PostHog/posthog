@@ -1,10 +1,11 @@
 import inspect
 from datetime import datetime
-from typing import List, Literal, Union
+from typing import List, Literal, Union, cast
 from uuid import UUID, uuid4
 
 import pytest
 from freezegun.api import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -18,6 +19,7 @@ from ee.clickhouse.models.property import (
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import PropertyOperatorType
@@ -44,7 +46,9 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, **kwargs) -> List:
-        query, params = parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=True, **kwargs)
+        query, params = parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -360,33 +364,52 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     def test_parse_groups(self):
 
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1", "attr_2": "val_2"},
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_1", "attr_2": "val_2"},
         )
 
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_2"},
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_2"},
         )
 
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr_1": "val_3"},
         )
 
         filter = Filter(
             data={
-                "property_groups": {
+                "properties": {
                     "type": "OR",
-                    "groups": [
+                    "values": [
                         {
                             "type": "AND",
-                            "groups": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                            "values": [{"key": "attr_1", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "OR", "groups": [{"key": "attr", "value": "val_2"}],},
+                        {"type": "OR", "values": [{"key": "attr_1", "value": "val_2"}],},
                     ],
                 }
             }
         )
 
         self.assertEqual(len(self._run_query(filter)), 2)
+
+    def test_parse_groups_invalid_type(self):
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
+                        },
+                        {"type": "XOR", "values": [{"key": "attr", "value": "val_2"}],},
+                    ],
+                }
+            }
+        )
+        with self.assertRaises(ValidationError):
+            self._run_query(filter)
 
     @snapshot_clickhouse_queries
     def test_parse_groups_persons(self):
@@ -411,11 +434,11 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(
             data={
-                "property_groups": {
+                "properties": {
                     "type": "OR",
-                    "groups": [
-                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
-                        {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
+                    "values": [
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
                     ],
                 }
             }
@@ -428,8 +451,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
+        outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
-            filter.property_groups, allow_denormalized_props=True, person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            team_id=self.team.pk,
+            property_group=outer_properties,
+            allow_denormalized_props=True,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         joins = ""
         if join_person_tables:
@@ -492,6 +519,46 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 0)
 
+    def test_prop_person_groups_denormalized(self):
+        _filter = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event", "operator": None},
+                            {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
+                            {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                        ],
+                    },
+                ],
+            }
+        }
+
+        filter = Filter(data=_filter)
+
+        _create_person(distinct_ids=["some_id_1"], team_id=self.team.pk, properties={})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_1", properties={"event_prop2": "foo2"})
+
+        _create_person(distinct_ids=["some_id_2"], team_id=self.team.pk, properties={"person_prop2": "efg2"})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_2")
+
+        _create_person(distinct_ids=["some_id_3"], team_id=self.team.pk, properties={"person_prop": "efg"})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id_3", properties={"event_prop": "foo"})
+
+        materialize("events", "event_prop")
+        materialize("events", "event_prop2")
+        materialize("person", "person_prop")
+        materialize("person", "person_prop2")
+        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 3)
+
     def test_prop_event_denormalized_ints(self):
         _create_event(
             event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 0},
@@ -543,32 +610,39 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_grouped_clauses(filter.property_groups, allow_denormalized_props=False) == snapshot
+    assert (
+        parse_prop_grouped_clauses(property_group=filter.property_groups, allow_denormalized_props=False, team_id=1)
+        == snapshot
+    )
     assert (
         parse_prop_grouped_clauses(
-            filter.property_groups,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            allow_denormalized_props=False,
+            team_id=1,
+        )
+        == snapshot
+    )
+    assert (
+        parse_prop_grouped_clauses(
+            team_id=1,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
         )
         == snapshot
     )
-    assert (
-        parse_prop_grouped_clauses(
-            filter.property_groups, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
-        )
-        == snapshot
-    )
 
 
+@pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
-        data={
-            "property_groups": {"type": "OR", "groups": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}
-        }
+        data={"properties": {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}}
     )
     assert (
         parse_prop_grouped_clauses(
-            filter.property_groups,
+            team_id=1,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=True,
         )
@@ -958,3 +1032,74 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
     assert uuids == expected
+
+
+def test_combine_group_properties():
+    propertyA = Property(key="a", operator="exact", value=["a", "b", "c"])
+    propertyB = Property(key="b", operator="exact", value=["d", "e", "f"])
+    propertyC = Property(key="c", operator="exact", value=["g", "h", "i"])
+    propertyD = Property(key="d", operator="exact", value=["j", "k", "l"])
+
+    property_group = PropertyGroup(PropertyOperatorType.OR, [propertyA, propertyB])
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.AND, [propertyC, propertyD])
+    assert combined_group.to_dict() == {
+        "type": "AND",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+                    {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+                ],
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+                    {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+                ],
+            },
+        ],
+    }
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.OR, [propertyC, propertyD])
+    assert combined_group.to_dict() == {
+        "type": "OR",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+                    {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+                ],
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+                    {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+                ],
+            },
+        ],
+    }
+
+    combined_group = property_group.combine_properties(PropertyOperatorType.OR, [])
+    assert combined_group.to_dict() == {
+        "type": "OR",
+        "values": [
+            {"key": "a", "operator": "exact", "value": ["a", "b", "c"], "type": "event"},
+            {"key": "b", "operator": "exact", "value": ["d", "e", "f"], "type": "event"},
+        ],
+    }
+
+    combined_group = PropertyGroup(PropertyOperatorType.AND, cast(List[Property], [])).combine_properties(
+        PropertyOperatorType.OR, [propertyC, propertyD]
+    )
+    assert combined_group.to_dict() == {
+        "type": "AND",
+        "values": [
+            {"key": "c", "operator": "exact", "value": ["g", "h", "i"], "type": "event"},
+            {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
+        ],
+    }

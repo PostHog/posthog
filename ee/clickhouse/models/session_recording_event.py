@@ -42,9 +42,9 @@ def create_session_recording_event(
     }
     if len(snapshot_data_json) <= MAX_KAFKA_MESSAGE_LENGTH:
         p = ClickhouseProducer()
-        p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL, topic=KAFKA_SESSION_RECORDING_EVENTS, data=data)
+        p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL(), topic=KAFKA_SESSION_RECORDING_EVENTS, data=data)
     elif len(snapshot_data_json) <= MAX_INSERT_LENGTH:
-        sync_execute(INSERT_SESSION_RECORDING_EVENT_SQL, data, settings={"max_query_size": MAX_INSERT_LENGTH})
+        sync_execute(INSERT_SESSION_RECORDING_EVENT_SQL(), data, settings={"max_query_size": MAX_INSERT_LENGTH})
     else:
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 

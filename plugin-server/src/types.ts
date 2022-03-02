@@ -24,6 +24,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
+import { PromiseManager } from './worker/vm/promise-manager'
 
 export enum LogLevel {
     None = 'none',
@@ -108,6 +109,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
+    MAX_PENDING_PROMISES_PER_WORKER: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -138,6 +140,7 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
+    promiseManager: PromiseManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -215,7 +218,7 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-
+export type PluginPublicJobPayload = Record<string, string>
 export interface Plugin {
     id: number
     organization_id: string
@@ -237,6 +240,8 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    public_jobs?: Record<string, PluginPublicJobPayload>
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -300,6 +305,13 @@ export enum PluginLogEntryType {
     Info = 'INFO',
     Warn = 'WARN',
     Error = 'ERROR',
+}
+
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
 }
 
 export interface PluginLogEntry {
@@ -371,6 +383,7 @@ export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    vmResponseVariable: string
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {

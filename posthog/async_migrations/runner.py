@@ -129,12 +129,12 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         complete_migration(migration_instance)
         return (False, True)
 
-    op = migration_definition.operations[migration_instance.current_operation_index]
-
     error = None
     current_query_id = str(UUIDT())
 
     try:
+        op = migration_definition.operations[migration_instance.current_operation_index]
+
         execute_op(op, current_query_id)
         update_async_migration(
             migration_instance=migration_instance,
@@ -201,12 +201,6 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
             return
 
     update_async_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
-
-
-def is_current_operation_resumable(migration_instance: AsyncMigration):
-    migration_definition = get_async_migration_definition(migration_instance.name)
-    index = migration_instance.current_operation_index
-    return migration_definition.operations[index].resumable
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):

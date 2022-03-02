@@ -1,4 +1,4 @@
-import { AnnotationScope } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -46,19 +46,17 @@ export enum DashboardRestrictionLevel {
 export enum DashboardPrivilegeLevel {
     CanView = 21,
     CanEdit = 37,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _ProjectAdmin = 888,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _Owner = 999,
 }
 
-export const rawPrivilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel.CanView]: 'can view',
     [DashboardPrivilegeLevel.CanEdit]: 'can edit',
-}
-
-export function privilegeLevelToName(privilegeLevel: DashboardPrivilegeLevel | 'owner' | 'project-admin'): string {
-    return privilegeLevel === 'owner'
-        ? 'owner'
-        : privilegeLevel === 'project-admin'
-        ? rawPrivilegeLevelToName[DashboardPrivilegeLevel.CanEdit]
-        : rawPrivilegeLevelToName[privilegeLevel]
+    [DashboardPrivilegeLevel._Owner]: 'owner',
+    [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
@@ -95,30 +93,48 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205 `control`, `test`
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
-    EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
-    WEB_PERFORMANCE: 'hackathon-apm', //owner @pauldambra
-    NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
+    WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
+    NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics',
+    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
+    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
+}
+
+/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
+export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
+export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
+    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
+    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
+    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
+    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
+    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
+    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
+    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
+    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
+    [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.SAML]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

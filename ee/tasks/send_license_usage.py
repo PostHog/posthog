@@ -12,7 +12,7 @@ from posthog.tasks.status_report import get_instance_licenses
 
 def send_license_usage():
     license = License.objects.first_valid()
-    user = User.objects.first()
+    user = User.objects.filter(is_active=True).first()
     if not license:
         return
     try:

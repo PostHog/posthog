@@ -48,17 +48,22 @@ def get_breakdown_prop_values(
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-
+    column_optimizer = column_optimizer or ColumnOptimizer(filter, team_id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
+
+    props_to_filter = filter.property_groups.combine_properties(PropertyOperatorType.AND, entity.properties)
+    outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        PropertyGroup(type=PropertyOperatorType.AND, groups=filter.properties + entity.properties),
+        team_id=team_id,
+        property_group=outer_properties,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_mode=PersonPropertiesMode.EXCLUDE,
+        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
+    entity_params, entity_format_params = get_entity_filtering_params(entity=entity, team_id=team_id, table_name="e")
 
     value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
 
@@ -127,15 +132,13 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         filter=filter, team_id=team_id, table="all_events."
     )
 
-    props_to_filter = [*filter.properties]
+    props_to_filter = filter.property_groups
 
     if entity and isinstance(entity, Entity):
-        props_to_filter = [*props_to_filter, *entity.properties]
+        props_to_filter = props_to_filter.combine_properties(PropertyOperatorType.AND, entity.properties)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        PropertyGroup(type=PropertyOperatorType.AND, groups=props_to_filter),
-        prepend="all_cohort_",
-        table_name="all_events",
+        team_id=team_id, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value

@@ -259,6 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
+            "switched_team": getattr(request, "switched_team", False),
             **posthog_app_context,
         }
 
@@ -281,10 +282,13 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
 
     # Get the current user's team (or first team in the instance) to set self capture configs
     team: Optional[Team] = None
-    try:
+    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
         team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.only("api_token").first()
+    else:
+        try:
+            team = Team.objects.only("api_token").first()
+        except Exception:
+            pass
 
     if team:
         return team.api_token
@@ -599,7 +603,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
-    
+
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
@@ -807,7 +811,7 @@ def should_refresh(request: Request) -> bool:
     key = "refresh"
     return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
         key, False
-    ) == True
+    ) is True
 
 
 def str_to_bool(value: Any) -> bool:

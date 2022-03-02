@@ -1,6 +1,6 @@
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs, now } from 'lib/dayjs'
-import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import React, { useEffect, useState } from 'react'
 import { dateMapping, isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -41,13 +41,23 @@ export function PropertyFilterDatePicker({
     const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
 
     const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
-    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
+    const [datePickerValue, setDatePickerValue] = useState(dayJSMightParse(value) ? dayjs(value) : undefined)
     const [includeTimeInFilter, setIncludeTimeInFilter] = useState(!!value && !valueIsYYYYMMDD)
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
     useEffect(() => {
         setDateFormat(includeTimeInFilter ? dateAndTimeFormat : onlyDateFormat)
     }, [includeTimeInFilter])
+
+    const onQuickChoice = (selectedRelativeRange: unknown): void => {
+        const matchedMapping = dateMapping[String(selectedRelativeRange)]
+        const formattedForDateFilter =
+            matchedMapping?.getFormattedDate && matchedMapping?.getFormattedDate(now(), dateFormat)
+        // returns `${earliest date} - ${latest date}
+        const fromDate = formattedForDateFilter?.split(' - ')[0]
+        setDatePickerValue(dayjs(fromDate))
+        setValue(fromDate)
+    }
 
     return (
         <DatePicker
@@ -61,10 +71,11 @@ export function PropertyFilterDatePicker({
             showTime={includeTimeInFilter}
             showNow={false}
             showToday={false}
-            value={datePickerStartingValue}
+            value={datePickerValue}
             onFocus={() => setDatePickerOpen(true)}
             onBlur={() => setDatePickerOpen(false)}
             onOk={(selectedDate) => {
+                setDatePickerValue(selectedDate)
                 setValue(selectedDate.format(dateFormat))
                 setDatePickerOpen(false)
             }}
@@ -75,6 +86,7 @@ export function PropertyFilterDatePicker({
                 if (includeTimeInFilter) {
                     return // we wait for a click on OK
                 }
+                setDatePickerValue(selectedDate)
                 setValue(selectedDate.format(dateFormat))
                 setDatePickerOpen(false)
             }}
@@ -95,12 +107,7 @@ export function PropertyFilterDatePicker({
                     <Select
                         bordered={true}
                         style={{ width: '100%', paddingBottom: '1rem' }}
-                        onSelect={(selectedRelativeRange) => {
-                            const matchedMapping = dateMapping[String(selectedRelativeRange)]
-                            const formattedForDateFilter =
-                                matchedMapping?.getFormattedDate && matchedMapping?.getFormattedDate(now(), dateFormat)
-                            setValue(formattedForDateFilter?.split(' - ')[0])
-                        }}
+                        onSelect={onQuickChoice}
                         placeholder={'e.g. 7 days ago'}
                     >
                         {[

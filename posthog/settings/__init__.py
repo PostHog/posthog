@@ -117,6 +117,3 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # Lastly, cloud settings override and modify all
 from posthog.settings.cloud import *
-
-# TODO: Temporary
-EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)

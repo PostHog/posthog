@@ -10,8 +10,9 @@ asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
-attrs==19.3.0
+attrs==21.4.0
     # via
+    #   -c requirements.txt
     #   black
     #   flake8-bugbear
     #   pytest
@@ -57,8 +58,6 @@ flake8-bugbear==20.1.4
     # via -r requirements-dev.in
 flake8-colors==0.1.6
     # via -r requirements-dev.in
-flake8-commas==2.0.0
-    # via -r requirements-dev.in
 flake8-comprehensions==3.2.2
     # via -r requirements-dev.in
 flake8-import-order==0.18.1
@@ -72,7 +71,6 @@ flake8==3.9.2
     #   -r requirements-dev.in
     #   flake8-bugbear
     #   flake8-colors
-    #   flake8-commas
     #   flake8-comprehensions
     #   flake8-print
 freezegun==0.3.15
@@ -213,8 +211,10 @@ typing-extensions==4.0.1
     #   django-stubs
     #   djangorestframework-stubs
     #   mypy
-uritemplate==3.0.1
-    # via coreapi
+uritemplate==4.1.1
+    # via
+    #   -c requirements.txt
+    #   coreapi
 urllib3==1.26.5
     # via
     #   -c requirements.txt

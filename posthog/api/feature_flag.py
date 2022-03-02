@@ -110,7 +110,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             )
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
-        instance = super().create(validated_data)
+        instance: FeatureFlag = super().create(validated_data)
+        instance.update_cohorts()
 
         report_user_action(
             request.user, "feature flag created", instance.get_analytics_metadata(),
@@ -125,6 +126,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
+        instance.update_cohorts()
 
         report_user_action(
             request.user, "feature flag updated", instance.get_analytics_metadata(),
@@ -139,6 +141,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+
+    If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
 
     queryset = FeatureFlag.objects.all()

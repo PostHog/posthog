@@ -49,7 +49,7 @@ export function InsightContainer(
         insightProps,
         lastRefresh,
         canEditInsight,
-        isLoading,
+        insightLoading,
         activeView,
         loadedView,
         filters,
@@ -63,7 +63,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || isLoading) {
+        if (activeView !== loadedView || insightLoading) {
             return (
                 <>
                     {
@@ -78,12 +78,12 @@ export function InsightContainer(
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelSingleStepState />
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !isLoading) {
+            if (!isValidFunnel && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -93,7 +93,7 @@ export function InsightContainer(
             return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={insightLoading} />
         }
 
         return null

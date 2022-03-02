@@ -4,13 +4,19 @@ from constance import config
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from posthog.settings import (
+    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    CLICKHOUSE_CLUSTER,
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_REPLICATION,
+)
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
+EVENTS_TABLE = "events"
 EVENTS_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.{EVENTS_TABLE}"
 BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0002_events_sample_by"
 FAILED_EVENTS_TABLE_NAME = f"{EVENTS_TABLE_NAME}_failed"
@@ -41,11 +47,10 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
         INSERT INTO {TEMPORARY_TABLE_NAME}
         SELECT *
         FROM {EVENTS_TABLE}
-        WHERE 
+        WHERE
             toYYYYMM(timestamp) >= {partition_gte} {lt_expression}
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-        resumable=True,
         timeout_seconds=2 * 24 * 60 * 60,  # two days
     )
     return op
@@ -60,7 +65,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0001_events_sample_by"
 
     posthog_min_version = "1.30.0"
-    posthog_max_version = "1.32.0"
+    posthog_max_version = "1.33.9"
 
     service_version_requirements = [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
@@ -68,6 +73,9 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def operations(self):
+        if self._events_table_engine() == "Distributed":
+            # Note: This _should_ be impossible but hard to ensure.
+            raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
 
         create_table_op = [
             AsyncMigrationOperation.simple_op(
@@ -77,10 +85,9 @@ class Migration(AsyncMigrationDefinition):
                 ENGINE = ReplacingMergeTree(_timestamp)
                 PARTITION BY toYYYYMM(timestamp)
                 ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-                SAMPLE BY cityHash64(distinct_id) 
+                SAMPLE BY cityHash64(distinct_id)
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-                resumable=True,
             )
         ]
 
@@ -94,7 +101,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                resumable=True,
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -104,6 +110,21 @@ class Migration(AsyncMigrationDefinition):
         ]
 
         last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
+
+        def optimize_table_fn(query_id):
+            default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
+            try:
+                execute_op_clickhouse(
+                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                    query_id,
+                    settings={
+                        "max_execution_time": default_timeout,
+                        "send_timeout": default_timeout,
+                        "receive_timeout": default_timeout,
+                    },
+                )
+            except:  # TODO: we should only pass the timeout one here
+                pass
 
         post_insert_ops = [
             AsyncMigrationOperation.simple_op(
@@ -123,20 +144,14 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
-                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                rollback="",
-                resumable=True,
-            ),
-            AsyncMigrationOperation.simple_op(
-                database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             ),
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                resumable=True,
             ),
+            AsyncMigrationOperation(fn=optimize_table_fn),
         ]
 
         _operations = create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
@@ -162,11 +177,11 @@ class Migration(AsyncMigrationDefinition):
         events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
-        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
+        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM
             (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-        JOIN 
+        JOIN
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
-        ON event_table_size.jc=free_space.jc 
+        ON event_table_size.jc=free_space.jc
         """
         )
         event_size_to_free_space_ratio = result[0][0]
@@ -177,9 +192,9 @@ class Migration(AsyncMigrationDefinition):
         else:
             result = sync_execute(
                 f"""
-            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM 
+            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM
                 (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-            JOIN 
+            JOIN
                 (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
             ON event_table_size.jc=free_space.jc
             """
@@ -201,7 +216,15 @@ class Migration(AsyncMigrationDefinition):
             sorted(
                 row[0]
                 for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}' AND database='{CLICKHOUSE_DATABASE}'"
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
+                    {"database": CLICKHOUSE_DATABASE},
                 )
             )
         )
+
+    def _events_table_engine(self) -> str:
+        rows = sync_execute(
+            "SELECT engine FROM system.tables WHERE database = %(database)s AND name = 'events'",
+            {"database": CLICKHOUSE_DATABASE},
+        )
+        return rows[0][0]

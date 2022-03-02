@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { CohortType, EventDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -28,6 +28,9 @@ export interface TaxonomicFilterGroup {
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
+    /** If present, will be used instead of "endpoint" until the user presses "expand results". */
+    scopedEndpoint?: string
+    expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
@@ -38,6 +41,7 @@ export interface TaxonomicFilterGroup {
     getPopupHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
+    getFullDetailUrl?: (instance: any) => string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -61,9 +65,10 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 }
 
 export interface ListStorage {
-    results: (EventDefinition | CohortType)[]
+    results: TaxonomicDefinitionTypes[]
     searchQuery?: string // Query used for the results currently in state
     count: number
+    expandedCount?: number
     queryChanged?: boolean
     first?: boolean
 }
@@ -77,3 +82,5 @@ export type ListFuse = Fuse<{
     name: string
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty

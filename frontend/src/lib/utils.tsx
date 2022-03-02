@@ -174,7 +174,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
     setTimeout(
         () =>
             toast.error(
-                <div>
+                <div className="click-outside-block">
                     <h1>
                         <ExclamationCircleOutlined /> {title || 'Something went wrong'}
                     </h1>
@@ -1112,6 +1112,13 @@ export function compactNumber(value: number | null): string {
         value /= 1000
     }
     return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
+}
+
+export function roundToDecimal(value: number | null, places: number = 2): string {
+    if (value === null) {
+        return '-'
+    }
+    return (Math.round(value * 100) / 100).toFixed(places)
 }
 
 export function sortedKeys(object: Record<string, any>): Record<string, any> {

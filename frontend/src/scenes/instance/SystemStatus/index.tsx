@@ -2,7 +2,7 @@ import './index.scss'
 
 import React from 'react'
 import { Alert, Tabs } from 'antd'
-import { systemStatusLogic, TabName } from './systemStatusLogic'
+import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -10,6 +10,9 @@ import { IconOpenInNew } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
+import { InstanceConfigTab } from './InstanceConfigTab'
+import { userLogic } from 'scenes/userLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -20,12 +23,26 @@ export function SystemStatus(): JSX.Element {
     const { tab, error, systemStatus } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div className="system-status-scene">
             <PageHeader
-                title="System Status"
-                caption="Here you can find all the critical runtime details about your PostHog installation."
+                title="Instance status & settings"
+                caption={
+                    <>
+                        Here you can find all the critical runtime details and settings of your PostHog instance. You
+                        have access to this because you're a <b>staff user</b>.{' '}
+                        <a
+                            target="_blank"
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                            href="https://posthog.com/docs/self-host/configure/instance-settings?utm_medium=in-product&utm_campaign=instance_status"
+                        >
+                            Learn more <IconOpenInNew style={{ marginLeft: 4 }} />
+                        </a>
+                        .
+                    </>
+                }
             />
             {error && (
                 <Alert
@@ -66,18 +83,33 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            {systemStatus?.internal_metrics.clickhouse ? (
-                <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverviewTab />
-                    </Tabs.TabPane>
-                    <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
+            <Tabs
+                tabPosition="top"
+                animated={false}
+                activeKey={tab}
+                onTabClick={(key) => setTab(key as InstanceStatusTabName)}
+            >
+                <Tabs.TabPane tab="System overview" key="overview">
+                    <OverviewTab />
+                </Tabs.TabPane>
+                {!systemStatus?.internal_metrics.clickhouse && (
+                    <Tabs.TabPane tab="Internal metrics" key="metrics">
                         <InternalMetricsTab />
                     </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverviewTab />
-            )}
+                )}
+                {user?.is_staff && (
+                    <Tabs.TabPane
+                        tab={
+                            <>
+                                Settings <LemonTag type="warning">Beta</LemonTag>
+                            </>
+                        }
+                        key="settings"
+                    >
+                        <InstanceConfigTab />
+                    </Tabs.TabPane>
+                )}
+            </Tabs>
         </div>
     )
 }

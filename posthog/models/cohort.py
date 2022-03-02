@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 import structlog
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Case, Q, When
@@ -11,11 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.models.utils import UUIDT, sane_repr
+from posthog.models.utils import sane_repr
 
-from .action import Action
-from .event import Event
-from .filters import Filter
 from .person import Person
 
 logger = structlog.get_logger(__name__)
@@ -109,7 +105,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, new_version: int, batch_size=50000, pg_batch_size=1000):
+    def calculate_people(self, new_version: int, batch_size=10000, pg_batch_size=1000):
         if self.is_static:
             return
         try:
@@ -118,11 +114,20 @@ class Cohort(models.Model):
             cursor = 0
             persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
             while persons:
-                to_insert = [CohortPeople(person_id=p.pk, cohort_id=self.pk, version=new_version) for p in persons]
+                # TODO: Insert from a subquery instead of pulling retrieving
+                # then sending large lists of data backwards and forwards.
+                to_insert = [
+                    CohortPeople(person_id=person_id, cohort_id=self.pk, version=new_version)
+                    #  Just pull out the person id as we don't need anything
+                    #  else.
+                    for person_id in persons.values_list("id", flat=True)
+                ]
+                #  TODO: make sure this bulk_create doesn't actually return anything
                 CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
+                time.sleep(5)
 
         except Exception as err:
             # Clear the pending version people if there's an error
@@ -132,34 +137,49 @@ class Cohort(models.Model):
 
     def calculate_people_ch(self, pending_version):
         from ee.clickhouse.models.cohort import recalculate_cohortpeople
+        from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
+
+        logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        start_time = time.monotonic()
 
         try:
-            start_time = time.time()
-
-            logger.info(
-                "cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version
-            )
-
             count = recalculate_cohortpeople(self)
-            self.calculate_people(new_version=pending_version)
 
-            # Update filter to match pending version if still valid
-            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                version=pending_version, count=count
-            )
-            self.refresh_from_db()
+            # only precalculate if used in feature flag
+            ids = get_cohort_ids_in_feature_flags()
+
+            if self.pk in ids:
+                self.calculate_people(new_version=pending_version)
+                # Update filter to match pending version if still valid
+                Cohort.objects.filter(pk=self.pk).filter(
+                    Q(version__lt=pending_version) | Q(version__isnull=True)
+                ).update(version=pending_version, count=count)
+                self.refresh_from_db()
+            else:
+                self.count = count
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-            logger.info(
-                "cohort_calculation_completed", id=self.pk, version=pending_version, duration=(time.time() - start_time)
-            )
-        except Exception as e:
+        except Exception:
             self.errors_calculating = F("errors_calculating") + 1
-            raise e
+            logger.warning(
+                "cohort_calculation_failed",
+                id=self.pk,
+                current_version=self.version,
+                new_version=pending_version,
+                exc_info=True,
+            )
+            raise
         finally:
             self.is_calculating = False
             self.save()
+
+        logger.info(
+            "cohort_calculation_completed",
+            id=self.pk,
+            version=pending_version,
+            duration=(time.monotonic() - start_time),
+        )
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -237,38 +257,6 @@ class Cohort(models.Model):
 
         uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)
-
-    def _postgres_persons_query(self):
-        return Person.objects.filter(self._people_filter(), team=self.team)
-
-    def _people_filter(self, extra_filter=None):
-        from posthog.queries.base import properties_to_Q
-
-        filters = Q()
-        for group in self.groups:
-            if group.get("action_id"):
-                action = Action.objects.get(pk=group["action_id"], team_id=self.team_id)
-                events = (
-                    Event.objects.filter_by_action(action)
-                    .filter(
-                        team_id=self.team_id,
-                        **(
-                            {"timestamp__gt": timezone.now() - relativedelta(days=int(group["days"]))}
-                            if group.get("days")
-                            else {}
-                        ),
-                        **(extra_filter if extra_filter else {}),
-                    )
-                    .order_by("distinct_id")
-                    .distinct("distinct_id")
-                    .values("distinct_id")
-                )
-
-                filters |= Q(persondistinctid__distinct_id__in=events)
-            elif group.get("properties"):
-                filter = Filter(data=group)
-                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_direct_query=True))
-        return filters
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

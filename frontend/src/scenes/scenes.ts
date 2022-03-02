@@ -117,22 +117,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.ProjectHomepage]: {
+        projectBased: true,
+        name: 'Homepage',
+    },
     [Scene.ProjectSettings]: {
         projectBased: true,
         hideDemoWarnings: true,
         name: 'Project settings',
     },
-    [Scene.Personalization]: {
-        projectBased: true,
-        plain: true,
-    },
     [Scene.Ingestion]: {
         projectBased: true,
         plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        projectBased: true,
-        hideDemoWarnings: true,
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -172,6 +168,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
+        name: 'Instance status & settings',
     },
     [Scene.Licenses]: {
         instanceLevel: true,
@@ -218,7 +215,9 @@ export const routes: Record<string, Scene> = {
     [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
+    [urls.eventStat(':id')]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
+    [urls.eventPropertyStat(':id')]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
@@ -233,6 +232,7 @@ export const routes: Record<string, Scene> = {
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
@@ -241,8 +241,9 @@ export const routes: Record<string, Scene> = {
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.instanceLicenses()]: Scene.Licenses,
-    [urls.systemStatus()]: Scene.SystemStatus,
-    [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.instanceStatus()]: Scene.SystemStatus,
+    [urls.instanceSettings()]: Scene.SystemStatus,
+    [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
@@ -254,8 +255,6 @@ export const routes: Record<string, Scene> = {
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
-    [urls.onboardingSetup()]: Scene.OnboardingSetup,
 }

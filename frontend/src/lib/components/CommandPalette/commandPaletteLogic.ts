@@ -33,6 +33,7 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
@@ -509,6 +510,13 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
                         icon: ProjectOutlined,
                         display: 'Go to Project settings',
                         executor: () => {
@@ -533,10 +541,10 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System status page',
+                        display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push(urls.systemStatus())
+                            push(urls.instanceStatus())
                         },
                     },
                     {

@@ -2,6 +2,7 @@
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
+// Sync the paths with AutoProjectMiddleware!
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
@@ -11,7 +12,9 @@ export const urls = {
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/events/actions',
     eventStats: () => '/events/stats',
+    eventStat: (id: string | number) => `/events/stats/${id}`,
     eventPropertyStats: () => '/events/properties',
+    eventPropertyStat: (id: string | number) => `/events/properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
@@ -38,6 +41,7 @@ export const urls = {
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
+    projectHomepage: () => '/home',
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
@@ -50,16 +54,15 @@ export const urls = {
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
-    personalization: () => '/personalization',
     ingestion: () => '/ingestion',
-    onboardingSetup: () => '/setup',
     // Cloud only
     organizationBilling: () => '/organization/billing',
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
-    systemStatusPage: (page: string) => `/instance/status/${page}`,
+    instanceStatus: () => '/instance/status',
+    instanceSettings: () => '/instance/settings',
+    instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',
     deadLetterQueue: () => '/instance/dead_letter_queue',
 }

@@ -79,7 +79,7 @@ export function DashboardItems(): JSX.Element {
                         key={item.short_id}
                         insight={item}
                         loading={isRefreshing(item.short_id)}
-                        apiError={refreshStatus[item.short_id]?.error || false}
+                        apiErrored={refreshStatus[item.short_id]?.error || false}
                         highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         showResizeHandles={dashboardMode === DashboardMode.Edit}
                         updateColor={(color) => updateItemColor(item.id, color)}

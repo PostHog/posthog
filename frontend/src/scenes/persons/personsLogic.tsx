@@ -186,13 +186,17 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             router.actions.push(urls.cohort(cohort.id))
         },
     }),
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values, actions, props }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
-                        url = `api/person/?${toParams(values.listFilters)}`
+                        if (props.cohort) {
+                            url = `api/cohort/${props.cohort}/persons`
+                        } else {
+                            url = `api/person/?${toParams(values.listFilters)}`
+                        }
                     }
                     return await api.get(url)
                 },
@@ -265,7 +269,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
             }
         },
-        '/person/*': ({ _: personDistinctId }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
                     if (values.showSessionRecordings) {
@@ -276,9 +280,13 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
+                if (rawPersonDistinctId) {
+                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
+                    const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
 
-                if (personDistinctId && (!values.person || !values.person.distinct_ids.includes(personDistinctId))) {
-                    actions.loadPerson(personDistinctId) // underscore contains the wildcard
+                    if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
+                        actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
+                    }
                 }
             }
         },

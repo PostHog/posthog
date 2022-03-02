@@ -58,11 +58,14 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
 
-        if not validated_data["value"]:
+        if validated_data["value"] is None:
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
         target_type = settings.CONFIG[instance.key][2]
-        new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
+        if target_type == "bool" and isinstance(validated_data["value"], bool):
+            new_value_parsed = validated_data["value"]
+        else:
+            new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
 
         if instance.key == "RECORDINGS_TTL_WEEKS":
 
@@ -75,7 +78,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
             from ee.clickhouse.client import sync_execute
             from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
-            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
         setattr(config, instance.key, new_value_parsed)
         instance.value = new_value_parsed

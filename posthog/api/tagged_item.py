@@ -2,8 +2,8 @@ from django.db.models import Prefetch, Q
 from rest_framework import serializers, viewsets
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Tag, TaggedItem
+from posthog.models.tag import tagify
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -20,17 +20,18 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
         )
 
-    def _attempt_set_tags(self, tags, obj):
+    def _attempt_set_tags(self, tags, obj, force_create=False):
 
-        if not self._is_licensed() and tags is not None:
-            raise EnterpriseFeatureException()
+        if not force_create and not self._is_licensed() and tags is not None:
+            # Silently fail on updating tags so that entire request isn't blocked
+            return
 
         if not obj or tags is None:
             # If the object hasn't been created yet, this method will be called again on the create method.
             return
 
         # Normalize and dedupe tags
-        deduped_tags = list(set([t.strip().lower() for t in tags]))
+        deduped_tags = list(set([tagify(t) for t in tags]))
         tagged_item_objects = []
 
         # Create tags

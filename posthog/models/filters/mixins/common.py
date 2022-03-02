@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, Union, get_args
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -19,7 +19,6 @@ from posthog.constants import (
     COMPARE,
     DATE_FROM,
     DATE_TO,
-    DEPRECATED_DISPLAY_TYPES,
     DISPLAY,
     DISPLAY_TYPES,
     EVENTS,
@@ -70,7 +69,7 @@ class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
     def filter_test_accounts(self) -> bool:
         setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
-        if setting == True or setting == "true":
+        if setting is True or setting == "true":
             return True
         return False
 
@@ -390,4 +389,9 @@ class EntityMathMixin(BaseParamMixin):
 class IncludeRecordingsMixin(BaseParamMixin):
     @cached_property
     def include_recordings(self) -> bool:
-        return self._data.get("include_recordings") == "true"
+        include_recordings = self._data.get("include_recordings")
+        return include_recordings is True or include_recordings == "true"
+
+    @include_dict
+    def include_recordings_to_dict(self):
+        return {"include_recordings": self.include_recordings} if self.include_recordings else {}

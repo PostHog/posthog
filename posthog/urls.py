@@ -115,11 +115,13 @@ urlpatterns = [
 
 if settings.TEST:
 
+    # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.models import Event
+        from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
 
-        Event.objects.all().delete()
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

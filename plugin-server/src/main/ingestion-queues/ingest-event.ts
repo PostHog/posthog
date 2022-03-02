@@ -19,6 +19,8 @@ export async function ingestEvent(
 
     checkAndPause?.()
 
+    server.statsd?.increment('kafka_queue_ingest_event_hit')
+
     // run processEvent on all events that are not $snapshot
     if (!isSnapshot) {
         processedEvent = await runInstrumentedFunction({
@@ -54,6 +56,8 @@ export async function ingestEvent(
             }),
         ])
 
+        server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
+
         if (actionMatches.length > 0) {
             const promises = []
             for (const actionMatch of actionMatches) {
@@ -69,6 +73,9 @@ export async function ingestEvent(
             }
             await Promise.all(promises)
         }
+    } else {
+        // processEvent might not return an event. This is expected and plugins, e.g. downsample plugin uses it.
+        server.statsd?.increment('kafka_queue.dropped_event')
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)

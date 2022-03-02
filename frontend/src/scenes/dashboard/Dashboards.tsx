@@ -8,7 +8,7 @@ import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, Shar
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -78,13 +78,13 @@ export function Dashboards(): JSX.Element {
             },
             sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
-        ...(hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
                   {
                       title: 'Tags',
                       dataIndex: 'tags' as keyof DashboardType,
                       render: function Render(tags: DashboardType['tags']) {
-                          return <ObjectTags tags={tags} staticOnly />
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
                       },
                   } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
               ]

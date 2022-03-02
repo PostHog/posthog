@@ -31,56 +31,15 @@
 # name: TestEventQuery.test_account_filters.2
   '
   
-  SELECT DISTINCT p.id
-  FROM
-    (SELECT *
-     FROM person
-     JOIN
-       (SELECT id,
-               max(_timestamp) as _timestamp,
-               max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id) as person_max ON person.id = person_max.id
-     AND person._timestamp = person_max._timestamp
-     WHERE team_id = 2
-       AND person_max.is_deleted = 0 ) AS p
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  SELECT e.timestamp as timestamp,
+         e.properties as properties
+  FROM events e
   WHERE team_id = 2
-    AND (pdi.distinct_id IN
-           (SELECT distinct_id
-            FROM
-              (SELECT distinct_id,
-                      argMax(person_id, version) as person_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-               GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0)
-            WHERE person_id IN
-                (select id
-                 from
-                   (SELECT *
-                    FROM person
-                    JOIN
-                      (SELECT id,
-                              max(_timestamp) as _timestamp,
-                              max(is_deleted) as is_deleted
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id) as person_max ON person.id = person_max.id
-                    AND person._timestamp = person_max._timestamp
-                    WHERE team_id = 2
-                      AND person_max.is_deleted = 0
-                      AND (has(['Jane'], trim(BOTH '"'
-                                              FROM JSONExtractRaw(properties, 'name')))) )) ))
-  ORDER BY _timestamp ASC
-  LIMIT 50000
+    AND event = 'event_name'
+    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
+    AND timestamp <= '2021-01-21 23:59:59'
+    AND (has(['Jane'], trim(BOTH '"'
+                            FROM JSONExtractRaw(e.properties, 'name'))))
   '
 ---
 # name: TestEventQuery.test_account_filters.3
@@ -135,8 +94,8 @@
                       AND (has(['Jane'], trim(BOTH '"'
                                               FROM JSONExtractRaw(properties, 'name')))) )) ))
   ORDER BY _timestamp ASC
-  LIMIT 50000
-  OFFSET 50000
+  LIMIT 10000
+  OFFSET 10000
   '
 ---
 # name: TestEventQuery.test_account_filters.4
@@ -150,7 +109,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-01-14 00:00:00'))
     AND timestamp <= '2021-01-21 23:59:59'
     AND (has(['Jane'], trim(BOTH '"'
-                            FROM JSONExtractRaw(properties, 'name'))))
+                            FROM JSONExtractRaw(e.properties, 'name'))))
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -187,23 +146,23 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND pdi.person_id IN
-      (select id
-       from
-         (SELECT *
-          FROM person
-          JOIN
-            (SELECT id,
-                    max(_timestamp) as _timestamp,
-                    max(is_deleted) as is_deleted
-             FROM person
-             WHERE team_id = 2
-             GROUP BY id) as person_max ON person.id = person_max.id
-          AND person._timestamp = person_max._timestamp
-          WHERE team_id = 2
-            AND person_max.is_deleted = 0
-            AND (has(['test'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(properties, 'name')))) ))
+    AND (pdi.person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], trim(BOTH '"'
+                                         FROM JSONExtractRaw(properties, 'name')))) )))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -216,8 +175,8 @@
     AND event = 'user signed up'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-14 23:59:59'
-    AND (has(['hi'], mat_test_prop))
-    AND (has(['hi'], mat_test_prop))
+    AND ((has(['hi'], mat_test_prop))
+         AND (has(['hi'], mat_test_prop)))
   '
 ---
 # name: TestEventQuery.test_element
@@ -267,23 +226,23 @@
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND pdi.person_id IN
-      (select id
-       from
-         (SELECT *
-          FROM person
-          JOIN
-            (SELECT id,
-                    max(_timestamp) as _timestamp,
-                    max(is_deleted) as is_deleted
-             FROM person
-             WHERE team_id = 2
-             GROUP BY id) as person_max ON person.id = person_max.id
-          AND person._timestamp = person_max._timestamp
-          WHERE team_id = 2
-            AND person_max.is_deleted = 0
-            AND (has(['test'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(properties, 'name')))) ))
+    AND (pdi.person_id IN
+           (select id
+            from
+              (SELECT *
+               FROM person
+               JOIN
+                 (SELECT id,
+                         max(_timestamp) as _timestamp,
+                         max(is_deleted) as is_deleted
+                  FROM person
+                  WHERE team_id = 2
+                  GROUP BY id) as person_max ON person.id = person_max.id
+               AND person._timestamp = person_max._timestamp
+               WHERE team_id = 2
+                 AND person_max.is_deleted = 0
+                 AND (has(['test'], trim(BOTH '"'
+                                         FROM JSONExtractRaw(properties, 'name')))) )))
   '
 ---
 # name: TestEventQuery.test_event_properties_filter
@@ -297,7 +256,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
     AND (has(['test_val'], trim(BOTH '"'
-                                FROM JSONExtractRaw(properties, 'some_key'))))
+                                FROM JSONExtractRaw(e.properties, 'some_key'))))
   '
 ---
 # name: TestEventQuery.test_event_properties_filter.1
@@ -310,7 +269,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
     AND (has(['test_val'], trim(BOTH '"'
-                                FROM JSONExtractRaw(properties, 'some_key'))))
+                                FROM JSONExtractRaw(e.properties, 'some_key'))))
   '
 ---
 # name: TestEventQuery.test_groups_filters
@@ -337,9 +296,9 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-12 23:59:59'
     AND (has(['finance'], trim(BOTH '"'
-                               FROM JSONExtractRaw(group_properties_0, 'industry'))))
-    AND (has(['value'], trim(BOTH '"'
-                             FROM JSONExtractRaw(group_properties_1, 'another'))))
+                               FROM JSONExtractRaw(group_properties_0, 'industry')))
+         AND has(['value'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(group_properties_1, 'another'))))
   '
 ---
 # name: TestEventQuery.test_groups_filters_mixed
@@ -361,8 +320,8 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['test'], trim(BOTH '"'
-                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = pdi.person_id
+     AND (has(['test'], trim(BOTH '"'
+                             FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'))))) person ON person.id = pdi.person_id
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -401,7 +360,7 @@
     AND event = 'viewed'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2021-05-01 00:00:00'))
     AND timestamp <= '2021-05-07 23:59:59'
-    AND (person_id IN
+    AND (pdi.person_id IN
            (SELECT person_id
             FROM person_static_cohort
             WHERE cohort_id = 2

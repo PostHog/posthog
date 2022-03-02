@@ -49,7 +49,7 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.AllowIP",
+    "posthog.middleware.AllowIPMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -62,9 +62,10 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.CSVNeverCacheMiddleware",
+    "posthog.middleware.CsvNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
+    "posthog.middleware.AutoProjectMiddleware",
 ]
 
 if STATSD_HOST is not None:
@@ -204,11 +205,14 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer",],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],

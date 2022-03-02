@@ -136,7 +136,7 @@
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
              AND timestamp <= '2012-01-15 23:59:59'
              AND (has(['val'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(properties, 'key')))) )
+                                    FROM JSONExtractRaw(e.properties, 'key')))) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -171,7 +171,7 @@
        AND timestamp >= '2012-01-14 00:00:00'
        AND timestamp <= '2012-01-14 23:59:59'
        AND (has(['val'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'key')))) )
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -404,7 +404,7 @@
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
        AND (has(['val'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'key')))) )
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -522,7 +522,7 @@
        AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
        AND timestamp <= '2012-01-14 23:59:59'
        AND (has(['val'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'key')))) )
+                              FROM JSONExtractRaw(e.properties, 'key')))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -570,8 +570,8 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0)) )
+       AND (NOT has([''], $group_0)
+            AND NOT has([''], $group_0)) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

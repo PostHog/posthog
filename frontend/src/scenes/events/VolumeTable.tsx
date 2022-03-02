@@ -1,16 +1,16 @@
 import { Button, Input } from 'antd'
-import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -44,10 +44,10 @@ export function VolumeTable({
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
-    const { user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
 
-    const hasTaxonomyFeatures = user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
+    const hasTaxonomyFeatures = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -62,7 +62,7 @@ export function VolumeTable({
                                     value={record.eventOrProp.name}
                                 />
                             </span>
-                            {hasTaxonomyFeatures ? (
+                            {hasAvailableFeature(AvailableFeature.TAGGING) ? (
                                 <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
                             ) : null}
                         </div>

@@ -3,6 +3,7 @@ from typing import Counter, List, Set, Union, cast
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import box_value, extract_tables_and_properties
+from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -24,6 +25,7 @@ class ColumnOptimizer:
     def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team_id: int):
         self.filter = filter
         self.team_id = team_id
+        self.property_optimizer = PropertyOptimizer()
 
     @cached_property
     def event_columns_to_query(self) -> Set[ColumnName]:
@@ -57,12 +59,12 @@ class ColumnOptimizer:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
 
-        if has_element_type_property(self.filter.properties):
+        if has_element_type_property(self.filter.property_groups.flat):
             return True
 
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            if has_element_type_property(entity.properties):
+            if has_element_type_property(entity.property_groups.flat):
                 return True
 
             # :TRICKY: Action definition may contain elements_chain usage
@@ -77,7 +79,7 @@ class ColumnOptimizer:
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.properties)
+        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -103,7 +105,7 @@ class ColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
-            counter += extract_tables_and_properties(entity.properties)
+            counter += extract_tables_and_properties(entity.property_groups.flat)
 
             # Math properties are also implicitly used.
             #

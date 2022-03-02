@@ -19,11 +19,13 @@ from rest_framework import exceptions
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
+    format_cohort_subquery,
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import (
@@ -64,7 +66,8 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_grouped_clauses(
-    property_group: PropertyGroup,
+    team_id: int,
+    property_group: Optional[PropertyGroup],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -75,15 +78,16 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(property_group.groups) == 0:
+    if not property_group or len(property_group.values) == 0:
         return "", {}
 
-    if isinstance(property_group.groups[0], PropertyGroup):
+    if isinstance(property_group.values[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        for idx, group in enumerate(property_group.groups):
+        for idx, group in enumerate(property_group.values):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
+                    team_id=team_id,
                     property_group=group,
                     prepend=f"{prepend}_{idx}",
                     table_name=table_name,
@@ -97,10 +101,12 @@ def parse_prop_grouped_clauses(
                 group_clauses.append(clause)
                 final_params.update(params)
 
+        # purge empty returns
+        group_clauses = [clause for clause in group_clauses if clause]
         _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], property_group.groups),
+            filters=cast(List[Property], property_group.values),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -109,6 +115,7 @@ def parse_prop_grouped_clauses(
             person_id_joined_alias=person_id_joined_alias,
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
+            team_id=team_id,
         )
 
     if not _final:
@@ -129,6 +136,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 
 def parse_prop_clauses(
+    team_id: int,
     filters: List[Property],
     prepend: str = "global",
     table_name: str = "",
@@ -153,10 +161,18 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-                person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
-                params = {**params, **cohort_filter_params}
-                final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
-        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
+
+                if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+                else:
+                    person_id_query, cohort_filter_params = format_cohort_subquery(
+                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                    )
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {person_id_query}")
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
@@ -178,13 +194,27 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
                         table_name=table_name,
                         property_operator=property_operator,
                     )
                 )
                 params.update(filter_params)
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
+            # this setting is used to generate the ClickhousePersonQuery SQL.
+            # When using direct mode, there should only be person properties in the entire
+            # property group
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend=f"personquery_{prepend}",
+                allow_denormalized_props=True,
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
@@ -238,9 +268,8 @@ def parse_prop_clauses(
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
@@ -504,7 +533,7 @@ def get_property_string_expr(
     """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    table_string = f"{table_alias}." if table_alias != None else ""
+    table_string = f"{table_alias}." if table_alias is not None else ""
 
     if allow_denormalized_props and property_name in materialized_columns:
         return f"{table_string}{materialized_columns[property_name]}", True
