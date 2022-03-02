@@ -20,7 +20,8 @@ export function TaxonomicFilter({
     taxonomicGroupTypes,
     optionsFromProp,
     eventNames,
-    style,
+    height,
+    width,
     popperEnabled = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -56,9 +57,9 @@ export function TaxonomicFilter({
                 className={clsx(
                     'taxonomic-filter',
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
-                    !style?.width && 'force-minimum-width'
+                    !width && 'force-minimum-width'
                 )}
-                style={style}
+                style={{ height: `${height}px`, width: `${width}px`, display: 'flex', flexDirection: 'column' }}
             >
                 <div style={{ position: 'relative' }}>
                     <Input

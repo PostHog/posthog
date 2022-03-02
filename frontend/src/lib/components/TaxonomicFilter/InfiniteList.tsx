@@ -367,7 +367,10 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
     }
 
     return (
-        <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`}>
+        <div
+            className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}
+            style={{ flexGrow: 1 }}
+        >
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty

@@ -114,7 +114,8 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                             {({ height, width }: { height: number; width: number }) => {
                                 return (
                                     <TaxonomicFilter
-                                        style={{ height, width }}
+                                        height={height}
+                                        width={width}
                                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                         value={undefined}
                                         onChange={(_, value) => value && selectColumn(String(value))}
