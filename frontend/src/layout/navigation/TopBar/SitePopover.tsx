@@ -58,16 +58,14 @@ function AccountInfo(): JSX.Element {
                     {user?.email}
                 </div>
             </div>
-            <Tooltip title="Account settings">
-                <Link
+            <Tooltip title="Account settings" placement="left">
+                <LemonButton
                     to={urls.mySettings()}
                     onClick={closeSitePopover}
-                    className="SitePopover__side-link"
                     data-attr="top-menu-item-me"
-                    style={{ color: 'var(--muted-alt)' }}
-                >
-                    <IconSettings style={{ fontSize: '1.4rem' }} />
-                </Link>
+                    type="stealth"
+                    icon={<IconSettings style={{ fontSize: '1.4rem' }} />}
+                />
             </Tooltip>
         </div>
     )
@@ -83,16 +81,14 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Tooltip title="Organization settings">
-                    <Link
+                <Tooltip title="Organization settings" placement="left">
+                    <LemonButton
                         to={urls.organizationSettings()}
                         onClick={closeSitePopover}
-                        className="SitePopover__side-link"
                         data-attr="top-menu-item-org-settings"
-                        style={{ color: 'var(--muted-alt)' }}
-                    >
-                        <IconSettings style={{ fontSize: '1.4rem' }} />
-                    </Link>
+                        type="stealth"
+                        icon={<IconSettings />}
+                    />
                 </Tooltip>
             </>
         </LemonRow>
@@ -255,16 +251,13 @@ function InstanceSettings(): JSX.Element | null {
 
     return (
         <Link to={urls.instanceSettings()}>
-            <LemonRow
+            <LemonButton
                 icon={<IconCorporate style={{ color: 'var(--primary)' }} />}
-                fullWidth
                 onClick={closeSitePopover}
-                style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 500 }}
+                fullWidth
             >
-                <>
-                    <div className="SitePopover__main-info">Instance settings</div>
-                </>
-            </LemonRow>
+                Instance settings
+            </LemonButton>
         </Link>
     )
 }
