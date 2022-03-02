@@ -30,7 +30,7 @@ export function Console(): JSX.Element | null {
         try {
             splitTrace = [...trace[0].matchAll(/(.*):([0-9]+):[0-9]+/g)][0]
         } catch (e) {}
-        let path = false
+        let path = ''
         try {
             path = new URL(splitTrace[1]).pathname.split('/').slice(-1)[0]
         } catch (e) {}
