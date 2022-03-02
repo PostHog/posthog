@@ -378,3 +378,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+    def test_csv_export(self):
+        _create_person(
+            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+        _create_person(team=self.team, distinct_ids=["4"], properties={"$browser": "whatever", "$os": "Windows"})
+
+        response = self.client.get("/api/person.csv")
+        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+
+        response = self.client.get(
+            "/api/person.csv?properties=%s" % json.dumps([{"key": "$os", "value": "Windows", "type": "person"}])
+        )
+        self.assertEqual(len(response.content.splitlines()), 2)
+
+    def test_pagination_limit(self):
+        for index in range(0, 20):
+            _create_person(
+                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
+            )
+        response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(len(response["results"]), 10)

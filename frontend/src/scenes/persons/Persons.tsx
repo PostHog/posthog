@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Row } from 'antd'
+import { Button, Popconfirm, Row } from 'antd'
 import { ExportOutlined } from '@ant-design/icons'
 import { PersonLogicProps, personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { toParams } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -32,14 +33,35 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                 <Row align="middle" justify="space-between" className="mb" style={{ gap: '0.75rem' }}>
                     <PersonsSearch autoFocus={!cohort} />
                     <div>
-                        <Button
-                            type="default"
-                            icon={<ExportOutlined />}
-                            href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                            style={{ marginLeft: 8 }}
+                        <Popconfirm
+                            title={
+                                <>
+                                    Exporting by csv is limited to 10,000 users.
+                                    <br />
+                                    To return more, please use{' '}
+                                    <a href="https://posthog.com/docs/api/persons">the API</a>. Do you want to export by
+                                    CSV?
+                                </>
+                            }
+                            onConfirm={() => {
+                                window.location.href = '/api/person.csv?' + toParams(listFilters)
+                            }}
                         >
-                            Export
-                        </Button>
+                            <Button
+                                type="default"
+                                icon={<ExportOutlined />}
+                                href={'/api/person.csv?' + toParams(listFilters)}
+                                style={{ marginLeft: 8 }}
+                            >
+                                {listFilters.properties && listFilters.properties.length > 0 ? (
+                                    <>
+                                        Export (<strong>{listFilters.properties.length}</strong> filter)
+                                    </>
+                                ) : (
+                                    'Export'
+                                )}
+                            </Button>
+                        </Popconfirm>
                     </div>
                 </Row>
                 <PropertyFilters
