@@ -7,7 +7,7 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterLogicalOperator, FilterType, InsightType } from '~/types'
+import { FilterType, InsightType, PropertyGroupFilter } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import './TrendTab.scss'
@@ -17,7 +17,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup, isPropertyGroup } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
@@ -114,9 +114,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
+                            {filters.properties && isPropertyGroup(filters.properties) ? (
                                 <PropertyGroupFilters
-                                    propertyFilters={filters.properties}
+                                    propertyFilters={filters.properties as PropertyGroupFilter}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                                     onChange={(properties) => {
                                         setFilters({ properties })
@@ -135,15 +135,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 <>
                                     <GlobalFiltersTitle />
                                     <PropertyFilters
-                                        propertyFilters={filters.properties?.values}
-                                        onChange={(properties) =>
-                                            setFilters({
-                                                properties: {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [{ type: FilterLogicalOperator.And, values: properties }],
-                                                },
-                                            })
-                                        }
+                                        propertyFilters={filters.properties}
+                                        onChange={(properties) => {
+                                            const convertedProperties = convertPropertiesToPropertyGroup(properties)
+                                            setFilters({ properties: convertedProperties })
+                                        }}
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,

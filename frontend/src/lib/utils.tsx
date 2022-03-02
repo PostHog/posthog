@@ -13,6 +13,9 @@ import {
     ActionType,
     PropertyFilterValue,
     PropertyType,
+    PropertyGroupFilter,
+    PropertyFilter,
+    FilterLogicalOperator,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -1323,6 +1326,20 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
+}
+
+export function isPropertyGroup(properties: PropertyGroupFilter | PropertyFilter[]): properties is PropertyGroupFilter {
+    // console.log('properties', properties.values)
+    return (properties as PropertyGroupFilter).type !== undefined
+}
+
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | PropertyFilter[]
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

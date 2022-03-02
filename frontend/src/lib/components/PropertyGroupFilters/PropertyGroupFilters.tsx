@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { PropertyGroupFilter, FilterLogicalOperator, PropertyFilter, PropertyGroupFilterValue } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
@@ -11,9 +11,6 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconDelete, IconPlus } from '../icons'
 import { LemonButton } from '../LemonButton'
 
-export function isAndOrFilter(property?: PropertyFilter[] | PropertyGroupFilter): property is PropertyGroupFilter {
-    return (property as PropertyGroupFilter).values !== undefined
-}
 interface PropertyGroupFilters {
     propertyFilters?: PropertyGroupFilter | null
     onChange: (filters: PropertyGroupFilter) => void

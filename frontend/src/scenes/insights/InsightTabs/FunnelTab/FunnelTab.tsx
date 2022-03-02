@@ -145,9 +145,6 @@ export function FunnelTab(): JSX.Element {
                                 ],
                             },
                         })
-                        // setFilters({
-                        //     properties: anyProperties.filter(isValidPropertyFilter),
-                        // })
                     }}
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.EventProperties,
