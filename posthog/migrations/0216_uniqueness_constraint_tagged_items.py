@@ -4,38 +4,67 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('posthog', '0215_add_tags_back'),
+        ("posthog", "0215_add_tags_back"),
     ]
 
     operations = [
-        migrations.AlterUniqueTogether(
-            name='taggeditem',
-            unique_together=set(),
+        migrations.AlterUniqueTogether(name="taggeditem", unique_together=set(),),
+        migrations.AddConstraint(
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                fields=("tag", "dashboard", "insight", "event_definition", "property_definition", "action"),
+                name="unique_tagged_item",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(fields=('tag', 'dashboard', 'insight', 'event_definition', 'property_definition', 'action'), name='unique_tagged_item'),
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(
+                    ("insight", None), ("event_definition", None), ("property_definition", None), ("action", None)
+                ),
+                fields=("tag", "dashboard"),
+                name="unique_dashboard_tagged_item",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(condition=models.Q(('insight', None), ('event_definition', None), ('property_definition', None), ('action', None)), fields=('tag', 'dashboard'), name='unique_dashboard_tagged_item'),
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(
+                    ("dashboard", None), ("event_definition", None), ("property_definition", None), ("action", None)
+                ),
+                fields=("tag", "insight"),
+                name="unique_insight_tagged_item",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(condition=models.Q(('dashboard', None), ('event_definition', None), ('property_definition', None), ('action', None)), fields=('tag', 'insight'), name='unique_insight_tagged_item'),
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(
+                    ("dashboard", None), ("insight", None), ("property_definition", None), ("action", None)
+                ),
+                fields=("tag", "event_definition"),
+                name="unique_event_definition_tagged_item",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(condition=models.Q(('dashboard', None), ('insight', None), ('property_definition', None), ('action', None)), fields=('tag', 'event_definition'), name='unique_event_definition_tagged_item'),
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(
+                    ("dashboard", None), ("insight", None), ("event_definition", None), ("action", None)
+                ),
+                fields=("tag", "property_definition"),
+                name="unique_property_definition_tagged_item",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(condition=models.Q(('dashboard', None), ('insight', None), ('event_definition', None), ('action', None)), fields=('tag', 'property_definition'), name='unique_property_definition_tagged_item'),
-        ),
-        migrations.AddConstraint(
-            model_name='taggeditem',
-            constraint=models.UniqueConstraint(condition=models.Q(('dashboard', None), ('insight', None), ('event_definition', None), ('property_definition', None)), fields=('tag', 'action'), name='unique_action_tagged_item'),
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(
+                    ("dashboard", None), ("insight", None), ("event_definition", None), ("property_definition", None)
+                ),
+                fields=("tag", "action"),
+                name="unique_action_tagged_item",
+            ),
         ),
     ]

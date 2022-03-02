@@ -27,10 +27,13 @@ def build_uniqueness_constraint():
     ]
     for o_field in RELATED_OBJECTS:
         built_check_list.append(
-            UniqueConstraint(fields=["tag", o_field], name=f"unique_{o_field}_tagged_item", condition=Q(
-                *[(_o_field, None) for _o_field in RELATED_OBJECTS if _o_field != o_field],
-                _connector="AND"
-            )),
+            UniqueConstraint(
+                fields=["tag", o_field],
+                name=f"unique_{o_field}_tagged_item",
+                condition=Q(
+                    *[(_o_field, None) for _o_field in RELATED_OBJECTS if _o_field != o_field], _connector="AND"
+                ),
+            ),
         )
     return built_check_list
 
@@ -74,7 +77,7 @@ class TaggedItem(UUIDModel):
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
             *build_uniqueness_constraint(),
-            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",)
+            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",),
         ]
 
     def clean(self):
