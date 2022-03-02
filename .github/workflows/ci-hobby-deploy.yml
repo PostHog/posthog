@@ -1,0 +1,40 @@
+name: e2e - hobby ingestion test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - docker-compose.hobby.yml 
+      - bin/deploy-hobby 
+      - .github/workflows/ci-hobby-deploy.yaml
+
+env:
+    POSTHOG_API_ADDRESS: '127.0.0.1'
+    POSTHOG_EVENTS_ADDRESS: '127.0.0.1'
+    SKIP_SOURCE_IP_ADDRESS_CHECK: 'true'
+
+jobs:
+  test-compose:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout master 
+        uses: actions/checkout@v2
+
+      - name: Borrow k6 tests from charts-clickhouse
+        uses: actions/checkout@v2
+        with:
+            repository: 'posthog/charts-clickhouse' 
+            path: 'ci/'
+
+      - name: Execute the hobby script 
+        run: printf "n\n127.0.0.0.1\n\n" | ./bin/deploy-hobby 
+
+      - name: Setup PostHog for the ingestion test
+        run: ./ci/setup_ingestion_test.sh
+
+      - name: Run ingestion test using k6
+        uses: k6io/action@v0.2.0
+        with:
+          filename: ci/k6/ingestion-test.js
