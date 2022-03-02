@@ -37,7 +37,7 @@ jobs:
             printf "n\n$POSTHOG_API_ADDRESS\n\n" | ../bin/deploy-hobby 
 
       - name: Setup PostHog for the ingestion test
-        run: charts-clickhouse/ci/setup_ingestion_test.sh
+        run: docker-compose -f tmp/docker-compose.yml run web python manage.py setup_dev --no-data 
 
       - name: Run ingestion test using k6
         uses: k6io/action@v0.2.0
