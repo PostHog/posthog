@@ -2,21 +2,37 @@ from typing import List, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import UUIDModel
 
 RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action")
 
 
+# Checks that exactly one object field is populated
 def build_check():
     built_check_list: List[Union[Q, Q]] = []
-    # Only one object field can be populated
     for o_field in RELATED_OBJECTS:
         built_check_list.append(
             Q(*[(f"{_o_field}__isnull", _o_field != o_field) for _o_field in RELATED_OBJECTS], _connector="AND")
         )
     return Q(*built_check_list, _connector="OR")
+
+
+# Enforces uniqueness on tag_{object_field}. All permutations of null columns must be explicit as Postgres ignores
+# uniqueness across null columns.
+def build_uniqueness_constraint():
+    built_check_list: List[UniqueConstraint] = [
+        UniqueConstraint(fields=("tag",) + RELATED_OBJECTS, name=f"unique_tagged_item"),
+    ]
+    for o_field in RELATED_OBJECTS:
+        built_check_list.append(
+            UniqueConstraint(fields=["tag", o_field], name=f"unique_{o_field}_tagged_item", condition=Q(
+                *[(_o_field, None) for _o_field in RELATED_OBJECTS if _o_field != o_field],
+                _connector="AND"
+            )),
+        )
+    return built_check_list
 
 
 class TaggedItem(UUIDModel):
@@ -56,8 +72,10 @@ class TaggedItem(UUIDModel):
 
     class Meta:
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
-        unique_together = ("tag",) + RELATED_OBJECTS
-        constraints = [models.CheckConstraint(check=build_check(), name="exactly_one_related_object",)]
+        constraints = [
+            *build_uniqueness_constraint(),
+            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",)
+        ]
 
     def clean(self):
         super().clean()
