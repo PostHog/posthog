@@ -12,7 +12,7 @@ import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { statusReport } from '../utils/status-report'
-import { delay, determineNodeEnv, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -159,6 +159,11 @@ export async function startPluginsServer(
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                // wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                if (process.env.NODE_ENV === NodeEnv.Production) {
+                    await delay(30 * 1000)
+                }
+
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await scheduleControl?.reloadSchedule()
