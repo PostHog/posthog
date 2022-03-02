@@ -16,9 +16,9 @@ import { disablePlugin, setPluginCapabilities, setPluginMetrics } from '../../ut
 import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
-const MAX_SETUP_RETRIES = 10
+const MAX_SETUP_RETRIES = 5
 const INITIALIZATION_RETRY_MULTIPLIER = 2
-const INITIALIZATION_RETRY_BASE_MS = 3000
+const INITIALIZATION_RETRY_BASE_MS = 5000
 
 export class LazyPluginVM {
     initialize?: (hub: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo: string) => Promise<void>
