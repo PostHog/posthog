@@ -31,7 +31,7 @@ import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
 
 enum ListTooltip {
@@ -398,7 +398,7 @@ export function InfiniteList(): JSX.Element {
                                         updateRemoteItem,
                                     }}
                                 >
-                                    <DefinitionPopupContents
+                                    <ControlledDefinitionPopupContents
                                         item={selectedItem}
                                         group={group}
                                         popper={{

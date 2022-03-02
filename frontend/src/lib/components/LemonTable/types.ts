@@ -69,4 +69,6 @@ export interface ExpandableConfig<T extends Record<string, any>> {
     rowExpandable?: (record: T) => boolean | number
     /** Called when row is expanded */
     onRowExpand?: (record: T) => void
+    /** Disable indentation */
+    noIndent?: boolean
 }
