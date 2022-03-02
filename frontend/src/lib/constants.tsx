@@ -101,7 +101,6 @@ export const FEATURE_FLAGS = {
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
@@ -116,6 +115,8 @@ export const FEATURE_FLAGS = {
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
+    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
+    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

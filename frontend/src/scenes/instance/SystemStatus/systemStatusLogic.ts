@@ -254,7 +254,6 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
     urlToAction: ({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
             const currentTab = tab && ['metrics', 'settings'].includes(tab) ? tab : 'overview'
-            console.log(currentTab)
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

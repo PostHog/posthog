@@ -1,7 +1,6 @@
 from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER
-
-from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
 SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
@@ -18,7 +17,7 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER {cluster}
 Order By (team_id, cohort_id, person_id)
 {storage_policy}
 """.format(
-    cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
+    cluster=CLICKHOUSE_CLUSTER, engine=CollapsingMergeTree("cohortpeople", ver="sign"), storage_policy="",
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
