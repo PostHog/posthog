@@ -26,7 +26,7 @@ class Insight(models.Model):
     """
 
     dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
+        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
     )
     dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -53,7 +53,7 @@ class Insight(models.Model):
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
@@ -65,7 +65,10 @@ class Insight(models.Model):
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[]
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    )
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields

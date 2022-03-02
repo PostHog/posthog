@@ -247,27 +247,18 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    @patch("posthoganalytics.feature_enabled")
-    def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
+    def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
         Note: This feature is currently behind a feature flag.
         """
 
         response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "Jane",
-                "email": "hedgehog75@posthog.com",
-                "password": "notsecure",
-                "redirect_url": "/ingestion",
-            },
+            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure",},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user: User = User.objects.order_by("-pk").get()
-
-        mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
 
         self.assertEqual(
             response.json(),
@@ -277,20 +268,15 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/personalization",
+                "redirect_url": "/ingestion",
             },
         )
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.items.count(), 1)
-        self.assertEqual(dashboard.name, "Web Analytics")
-        self.assertEqual(
-            dashboard.items.all()[0].description, "Shows a conversion funnel from sign up to watching a movie."
-        )
-
-        # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
-        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
+        self.assertEqual(dashboard.items.count(), 6)
+        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee

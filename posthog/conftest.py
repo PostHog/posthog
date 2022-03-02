@@ -7,7 +7,6 @@ from ee.clickhouse.sql.dead_letter_queue import (
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
-from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -75,12 +74,12 @@ def reset_clickhouse_tables():
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
-        TRUNCATE_EVENTS_TABLE_SQL,
+        TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
+        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -89,14 +88,6 @@ def reset_clickhouse_tables():
     ]
 
     for item in TABLES_TO_CREATE_DROP:
-        sync_execute(item)
-
-
-def run_additional_setup_ops():
-
-    ADDITIONAL_OPS = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
-
-    for item in ADDITIONAL_OPS:
         sync_execute(item)
 
 
@@ -121,7 +112,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)
-    run_additional_setup_ops()
 
     yield
 

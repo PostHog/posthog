@@ -1,4 +1,24 @@
-import { EventDefinition } from '~/types'
+import { EventDefinition, EventType, PropertyDefinition } from '~/types'
+
+export const mockEvent: EventType = {
+    id: 'my_id',
+    properties: {
+        $os: 'Mac OS X',
+        $device_type: 'Desktop',
+    },
+    event: 'event1',
+    timestamp: '2022-02-24T09:19:56.920000+00:00',
+    person: {
+        is_identified: true,
+        distinct_ids: ['abcde'],
+        properties: {
+            email: 'alex@posthog.com',
+        },
+    },
+    elements: [],
+    elements_chain: '',
+    elements_hash: null,
+}
 
 export const mockEventDefinitions: EventDefinition[] = [
     'event1',
@@ -30,6 +50,22 @@ export const mockEventPropertyDefinition = {
     is_event_property: true,
     property_type: undefined,
 }
+
+export const mockEventPropertyDefinitions: PropertyDefinition[] = [
+    'prop1',
+    'purchase_value',
+    '$click',
+    '$browser',
+    'browser_no_dollar_not_on_event',
+    'is_admin',
+    ...Array(50),
+].map((name, index) => ({
+    ...mockEventPropertyDefinition,
+    id: `uuid-${index}-foobar`,
+    name: name || `misc-${index}-generated`,
+    description: `${name || 'name generation'} is the best!`,
+    is_event_property: (name || '').includes('$'),
+}))
 
 export const mockPersonProperty = {
     name: '$browser_version',

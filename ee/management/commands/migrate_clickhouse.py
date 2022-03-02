@@ -54,7 +54,7 @@ class Command(BaseCommand):
             for migration_name, operations in migrations:
                 print(f"Migration would get applied: {migration_name}")
                 for op in operations:
-                    sql = getattr(op, "_sql")
+                    sql = getattr(op, "_sql", None)
                     if options["print_sql"] and sql is not None:
                         print(indent("\n\n".join(sql), "    "))
             if len(migrations) == 0:

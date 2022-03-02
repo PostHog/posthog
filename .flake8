@@ -30,7 +30,6 @@ ignore=
     C901, # function complexity
     E203, # whitespace before ‘:’
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’
-    E266, # too many leading ‘#’ for block comment
     E302, # expected 2 blank lines, found 0
     E402, # module level import not at top of file
     E501, # line too long
@@ -49,11 +48,7 @@ ignore=
     I101, # Imported names are in the wrong order
     I201, # Missing newline between import groups.
     I202, # Additional newline in a group of imports
-    W291, # trailing whitespace
-    W293, # blank line contains whitespace
-    W391, # blank line at end of file
     W503, # line break before binary operator
-    W601, # .has_key() is deprecated, use ‘in’
 
 exclude =
     .git,

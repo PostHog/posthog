@@ -60,17 +60,20 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
-/* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicType {
-    id: number
+interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
     email: string
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserBasicType extends UserBaseType {
+    id: number
+}
+
 /** Full User model. */
-export interface UserType extends UserBasicType {
+export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
@@ -116,9 +119,6 @@ interface OrganizationMetadata {
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
-    personalization: PersonalizationData
-    setup: SetupState
-    setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -482,6 +482,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    is_identified?: boolean
 }
 
 interface MatchedRecordingEvents {
@@ -688,7 +689,7 @@ export interface InsightModel {
     dive_dashboard?: number
     result: any | null
     updated_at: string
-    tags: string[]
+    tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
@@ -713,7 +714,7 @@ export interface DashboardType {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    tags: string[]
+    tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
 }
@@ -885,6 +886,7 @@ export interface FilterType {
     date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
+    event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1000,25 +1002,6 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
-
-export type PersonalizationData = Record<string, string | string[] | null>
-
-interface EnabledSetupState {
-    is_active: true // Whether the onbarding setup is currently active
-    current_section: number
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
-    has_invited_team_members: boolean
-}
-
-interface DisabledSetupState {
-    is_active: false
-    current_section: null
-}
-
-export type SetupState = EnabledSetupState | DisabledSetupState
-
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1388,6 +1371,7 @@ export interface PropertyDefinition {
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
+    example?: string
 }
 
 export interface PersonProperty {
@@ -1442,16 +1426,36 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
+    secondary_metric_results?: SecondaryMetricResult[]
+}
+
+export interface SecondaryMetricResult {
+    name: string
+    result: Record<string, number>
 }
 
 export interface SecondaryExperimentMetric {
-    name?: string
+    name: string
     filters: Partial<FilterType>
 }
 
 export interface SelectOption {
     value: string
     label?: string
+}
+
+export enum FilterLogicalOperator {
+    And = 'AND',
+    Or = 'OR',
+}
+export interface PropertyGroupFilter {
+    type?: FilterLogicalOperator
+    values: PropertyGroupFilterValue[]
+}
+
+export interface PropertyGroupFilterValue {
+    type: FilterLogicalOperator
+    values: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1624,8 +1628,6 @@ interface PointsPayload {
 export interface GraphPointPayload {
     points: PointsPayload
     index: number
-    label?: string // Soon to be deprecated with LEGACY_LineGraph
-    day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
     /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
     crossDataset?: GraphDataset[]
