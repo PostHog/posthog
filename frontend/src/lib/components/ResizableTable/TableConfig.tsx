@@ -118,7 +118,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                         value={undefined}
                                         onChange={(_, value) => value && selectColumn(String(value))}
-                                        infiniteListProps={{ popperPlacement: 'left', popperAlwaysOpen: false }}
+                                        popperEnabled={false}
                                     />
                                 )
                             }}

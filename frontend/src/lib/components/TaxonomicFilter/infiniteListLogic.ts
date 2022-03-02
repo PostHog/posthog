@@ -19,7 +19,7 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
  by default the pop-up starts open for the first item in the list
  this can be used with actions.setIndex to allow a caller to override that
  */
-export const NO_OPEN_POPUP = -1
+export const NO_ITEM_SELECTED = -1
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {

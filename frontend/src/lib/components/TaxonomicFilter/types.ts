@@ -19,6 +19,7 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     style?: CSSProperties
     infiniteListProps?: InfiniteListProps
+    popperEnabled?: boolean
 }
 
 export type TaxonomicFilterValue = string | number

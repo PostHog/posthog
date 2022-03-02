@@ -3,14 +3,14 @@ import { Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { InfiniteList, InfiniteListProps } from 'lib/components/TaxonomicFilter/InfiniteList'
+import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import clsx from 'clsx'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
-    infinitelistProps?: InfiniteListProps
+    popperEnabled?: boolean
 }
 
 function CategoryPill({
@@ -49,7 +49,7 @@ function CategoryPill({
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
-    infinitelistProps,
+    popperEnabled = true,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
@@ -60,7 +60,7 @@ export function InfiniteSelectResults({
                 logic={infiniteListLogic}
                 props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
             >
-                <InfiniteList {...infinitelistProps} />
+                <InfiniteList popperEnabled={popperEnabled} />
             </BindLogic>
         )
     }
@@ -95,7 +95,7 @@ export function InfiniteSelectResults({
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
-                            <InfiniteList {...infinitelistProps} />
+                            <InfiniteList popperEnabled={popperEnabled} />
                         </BindLogic>
                     </div>
                 )

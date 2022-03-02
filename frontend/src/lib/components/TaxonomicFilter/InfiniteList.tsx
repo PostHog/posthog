@@ -11,7 +11,7 @@ import {
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
 import { BindLogic, Provider, useActions, useValues } from 'kea'
-import { infiniteListLogic, NO_OPEN_POPUP } from './infiniteListLogic'
+import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
@@ -251,11 +251,10 @@ const selectedItemHasPopup = (
 }
 
 export interface InfiniteListProps {
-    popperPlacement?: 'left' | 'right'
-    popperAlwaysOpen?: boolean
+    popperEnabled?: boolean
 }
 
-export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = true }: InfiniteListProps): JSX.Element {
+export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -276,11 +275,12 @@ export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = tru
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
+    // if the popper is not enabled then don't start with a row selected
     useEffect(() => {
-        if (popperAlwaysOpen === false) {
-            setIndex(NO_OPEN_POPUP)
+        if (!popperEnabled) {
+            setIndex(NO_ITEM_SELECTED)
         }
-    }, [popperAlwaysOpen])
+    }, [popperEnabled])
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
@@ -290,7 +290,7 @@ export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = tru
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
     const { styles, attributes, forceUpdate } = usePopper(referenceElement, popperElement, {
-        placement: popperPlacement,
+        placement: 'right',
         modifiers: [
             {
                 name: 'offset',
@@ -320,8 +320,9 @@ export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = tru
                 rowIndex === index && mouseInteractionsEnabled && 'hover',
                 isSelected && 'selected'
             ),
-            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_OPEN_POPUP)),
-            onMouseLeave: () => (mouseInteractionsEnabled && !popperAlwaysOpen ? setIndex(NO_OPEN_POPUP) : null),
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
+            // if the popper is not enabled then don't leave the row selected when the mouse leaves it
+            onMouseLeave: () => (mouseInteractionsEnabled && !popperEnabled ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
         }
@@ -402,7 +403,8 @@ export function InfiniteList({ popperPlacement = 'right', popperAlwaysOpen = tru
             {isActiveTab &&
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
-            tooltipDesiredState(referenceElement) !== ListTooltip.None ? (
+            tooltipDesiredState(referenceElement) !== ListTooltip.None &&
+            popperEnabled ? (
                 <Provider>
                     {ReactDOM.createPortal(
                         selectedItem && group ? (

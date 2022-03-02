@@ -21,7 +21,7 @@ export function TaxonomicFilter({
     optionsFromProp,
     eventNames,
     style,
-    infiniteListProps,
+    popperEnabled = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -131,7 +131,7 @@ export function TaxonomicFilter({
                 <InfiniteSelectResults
                     focusInput={focusInput}
                     taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    infinitelistProps={infiniteListProps}
+                    popperEnabled={popperEnabled}
                 />
             </div>
         </BindLogic>
