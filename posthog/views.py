@@ -50,7 +50,7 @@ def login_required(view):
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
-            user = User.objects.first()
+            user = User.objects.filter(is_active=True).first()
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return base_handler(request, *args, **kwargs)
 

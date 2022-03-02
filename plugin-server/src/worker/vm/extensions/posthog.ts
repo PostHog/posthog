@@ -51,6 +51,7 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                     },
                 ],
             })
+            server.statsd?.increment('vm_posthog_extension_capture_called')
         }
     } else {
         // Sending event to our Redis>Postgres pipeline
