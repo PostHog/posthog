@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, cast
 from unittest.case import skip
 from uuid import uuid4
@@ -159,7 +160,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"},
         )
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
 
@@ -1477,8 +1478,11 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[1]["count"], 1)
 
     @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
     def test_funnel_with_property_groups(self):
         filters = {
+            "date_from": "2020-01-01 00:00:00",
+            "date_to": "2020-07-01 00:00:00",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1, "properties": {"$current_url": "aloha.com"}},
@@ -1544,22 +1548,46 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         # event
         journeys_for(
             {
-                "stopped_after_signup1": [{"event": "user signed up"}],
-                "stopped_after_pageview1": [{"event": "user signed up"},],
+                "stopped_after_signup1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)}],
+                "stopped_after_pageview1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},],
                 "stopped_after_pageview2": [
-                    {"event": "user signed up"},
-                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                    {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
                 ],
                 "stopped_after_pageview3": [
-                    {"event": "user signed up"},
-                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
-                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 3, 0),
+                    },
                 ],
                 "stopped_after_pageview4": [
                     # {"event": "user signed up"}, # no signup, so not in funnel
-                    {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
-                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
-                    {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 3, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 4, 0),
+                    },
                 ],
             },
             self.team,

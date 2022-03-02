@@ -39,6 +39,7 @@ from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseSti
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import (
@@ -63,6 +64,8 @@ from posthog.utils import convert_property_value, format_query_params_absolute_u
 class PersonCursorPagination(CursorPagination):
     ordering = "-id"
     page_size = 100
+    page_size_query_param = "limit"
+    max_page_size = 1000
 
 
 def get_person_name(person: Person) -> str:
@@ -180,6 +183,35 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
+    CSV_EXPORT_LIMIT = 10000
+
+    def paginate_queryset(self, queryset):
+        if self.request.accepted_renderer.format == "csv" or not self.paginator:
+            return None
+        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+
+    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        try:
+            person = Person.objects.get(team=self.team, pk=pk)
+            delete_person(
+                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            )
+            person.delete()
+            return response.Response(status=204)
+        except Person.DoesNotExist:
+            raise NotFound(detail="Person not found.")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "created_at", "properties", "uuid")
+
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            return queryset[0 : self.CSV_EXPORT_LIMIT]
+
+        return queryset
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
@@ -276,29 +308,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url)}
-
-    def paginate_queryset(self, queryset):
-        if self.request.accepted_renderer.format == "csv" or not self.paginator:
-            return None
-        return self.paginator.paginate_queryset(queryset, self.request, view=self)
-
-    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
-        try:
-            person = Person.objects.get(team=self.team, pk=pk)
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
-            )
-            person.delete()
-            return response.Response(status=204)
-        except Person.DoesNotExist:
-            raise NotFound(detail="Person not found.")
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-
-        return queryset
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:

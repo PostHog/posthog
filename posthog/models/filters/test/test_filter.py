@@ -67,8 +67,16 @@ class TestFilter(BaseTest):
                 "properties": {
                     "type": "AND",
                     "values": [
-                        {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
                     ],
                 }
             },
@@ -81,10 +89,18 @@ class TestFilter(BaseTest):
                 "properties": {
                     "type": "AND",
                     "values": [
-                        {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
                     ],
-                },
+                }
             },
         )
 
