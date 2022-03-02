@@ -380,7 +380,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
     )
 }
 
-const DebugPerfData = (): JSX.Element => {
+const DebugPerfData = (): JSX.Element | null => {
     const { currentEvent } = useValues(webPerformanceLogic)
     return currentEvent ? (
         <Collapse>
@@ -388,9 +388,7 @@ const DebugPerfData = (): JSX.Element => {
                 <pre>{JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)}</pre>
             </Collapse.Panel>
         </Collapse>
-    ) : (
-        <></>
-    )
+    ) : null
 }
 
 export const WebPerformance = (): JSX.Element => {
