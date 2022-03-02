@@ -59,6 +59,8 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
+                        # Make sure we rerun if and db dependencies change
+                        - docker-compose.dev.yml
 
     backend-code-quality:
         needs: changes
