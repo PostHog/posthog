@@ -10,6 +10,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from freezegun import freeze_time
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.models import Organization, Team, User
@@ -112,8 +113,15 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+        self.freezer = freeze_time("2021-01-14 12:31:01")
+        self.freezer.start()
+
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+    def tearDown(self):
+        if self.freezer:
+            self.freezer.stop()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used

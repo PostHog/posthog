@@ -79,9 +79,6 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
-        - name: Set system time
-          shell: bash
-          run: date --set="2021-05-01 00:00:00"
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
