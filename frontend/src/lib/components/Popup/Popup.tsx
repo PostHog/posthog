@@ -24,8 +24,6 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
-    /** The width to be set on the popover. Must be a valid CSS width */
-    width?: string
     className?: string
 }
 
@@ -46,7 +44,6 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
-    width,
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -78,17 +75,6 @@ export function Popup({
                       enabled: true,
                       fn: ({ state }) => {
                           state.styles.popper.width = `${state.rects.reference.width}px`
-                      },
-                      phase: 'beforeWrite',
-                      requires: ['computeStyles'],
-                  }
-                : {},
-            !!width
-                ? {
-                      name: 'width',
-                      enabled: true,
-                      fn: ({ state }) => {
-                          state.styles.popper.width = width
                       },
                       phase: 'beforeWrite',
                       requires: ['computeStyles'],
