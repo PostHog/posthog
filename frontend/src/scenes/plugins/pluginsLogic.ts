@@ -34,6 +34,17 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
+async function loadPaginatedResults(url: string | null, maxIterations: number = 10): Promise<any[]> {
+    let results: any[] = []
+    let i = 0
+    while (url && ++i <= maxIterations) {
+        const { results: partialResults, next } = await api.get(url)
+        results = results.concat(partialResults)
+        url = next
+    }
+    return results
+}
+
 export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
     path: ['scenes', 'plugins', 'pluginsLogic'],
     actions: {
@@ -83,7 +94,8 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/organizations/@current/plugins')
+                    const results = await loadPaginatedResults('api/organizations/@current/plugins')
+                    console.log(results)
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
@@ -147,7 +159,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const { results } = await api.get('api/plugin_config')
+                    const results = await loadPaginatedResults('api/plugin_config')
 
                     for (const pluginConfig of results as PluginConfigType[]) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
