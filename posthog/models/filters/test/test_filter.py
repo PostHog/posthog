@@ -324,6 +324,46 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
     return TestPropertiesToQ
 
 
+def _filter_persons(filter: Filter, team: Team):
+    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
+    persons = persons.filter(team_id=team.pk)
+    return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
+
+
+def _create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return str(person.uuid)
+
+
+class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person)):  # type: ignore
+    def test_person_cohort_properties(self):
+        person1_distinct_id = "person1"
+        person1 = Person.objects.create(
+            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 1}
+        )
+        cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 1}}], name="cohort1")
+        cohort1.people.add(person1)
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+
+        matched_person = (
+            Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+            .filter(properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True))
+            .exists()
+        )
+        self.assertTrue(matched_person)
+
+    def test_group_property_filters_direct(self):
+        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
+        query_filter = properties_to_Q(filter.properties, team_id=self.team.pk, is_direct_query=True)
+
+        self.assertEqual(query_filter, Q(group_properties__some_prop=5))
+
+    def test_group_property_filters_used(self):
+        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
+        self.assertRaises(ValueError, lambda: properties_to_Q(filter.properties, team_id=self.team.pk))
+
+
 class TestDateFilterQ(BaseTest):
     def test_filter_by_all(self):
         filter = Filter(
