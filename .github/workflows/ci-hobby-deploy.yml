@@ -29,7 +29,7 @@ jobs:
             path: 'ci/'
 
       - name: Execute the hobby script 
-        run: printf "n\n127.0.0.0.1\n\n" | ./bin/deploy-hobby 
+        run: printf "n\n$POSTHOG_API_ADDRESS\n\n" | ./bin/deploy-hobby 
 
       - name: Setup PostHog for the ingestion test
         run: ./ci/setup_ingestion_test.sh
