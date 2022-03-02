@@ -6,7 +6,7 @@ on:
     paths:
       - docker-compose.hobby.yml 
       - bin/deploy-hobby 
-      - .github/workflows/ci-hobby-deploy.yaml
+      - .github/workflows/ci-hobby-deploy.yml
 
 env:
     POSTHOG_API_ADDRESS: '127.0.0.1'
