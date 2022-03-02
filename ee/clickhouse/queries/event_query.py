@@ -2,13 +2,8 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import (
-    format_cohort_subquery,
-    format_person_query,
-    format_precalculated_cohort_query,
-    is_precalculated_query,
-)
-from ee.clickhouse.models.property import parse_prop_clauses, parse_prop_grouped_clauses
+from ee.clickhouse.models.cohort import format_cohort_subquery, is_precalculated_query
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
@@ -100,7 +95,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         # :KLUDGE: The following is mostly making sure if cohorts are included as well.
         #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
-        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups_flat):
+        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
@@ -166,13 +161,15 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
+        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+
         return parse_prop_grouped_clauses(
             team_id=self._team_id,
-            property_group=prop_group,
+            property_group=outer_properties,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
