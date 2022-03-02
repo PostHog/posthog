@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v2
         with:
             repository: 'posthog/charts-clickhouse' 
-            path: 'ci/'
+            path: 'charts-clickhouse/'
 
       - name: Create temp directory
         run: mkdir tmp
@@ -37,9 +37,9 @@ jobs:
             printf "n\n$POSTHOG_API_ADDRESS\n\n" | ../bin/deploy-hobby 
 
       - name: Setup PostHog for the ingestion test
-        run: ci/setup_ingestion_test.sh
+        run: charts-clickhouse/ci/setup_ingestion_test.sh
 
       - name: Run ingestion test using k6
         uses: k6io/action@v0.2.0
         with:
-          filename: ci/k6/ingestion-test.js
+          filename: charts-clickhouse/ci/k6/ingestion-test.js
