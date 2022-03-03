@@ -648,7 +648,7 @@ export function PropertyKeyInfo({
         return (
             <Typography.Text
                 ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400, ...style }}
+                style={{ color: 'inherit', maxWidth: '100%', ...style }}
                 title={value}
                 className={className}
             >
