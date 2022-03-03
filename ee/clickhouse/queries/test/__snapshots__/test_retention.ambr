@@ -208,7 +208,7 @@
            FROM groups
            WHERE team_id = 2
              AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -241,7 +241,7 @@
            FROM groups
            WHERE team_id = 2
              AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -300,7 +300,7 @@
            FROM groups
            WHERE team_id = 2
              AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -332,7 +332,7 @@
            FROM groups
            WHERE team_id = 2
              AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
