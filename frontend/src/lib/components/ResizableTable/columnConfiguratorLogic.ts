@@ -21,6 +21,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnCon
             {
                 selectColumn: (state, { column }) => Array.from(new Set([...state, column])),
                 unselectColumn: (state, { column }) => state.filter((c) => c !== column),
+                resetColumns: (_, { columns }) => columns,
             },
         ],
     }),

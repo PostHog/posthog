@@ -30,9 +30,14 @@ describe('the column configurator lets the user change which columns should be v
     })
 
     it('sets selected columns to those provided on reset', async () => {
+        const defaultColumns = ['1', '2']
         await expectLogic(logic, () => {
-            logic.actions.resetColumns(['1', '2'])
-        }).toDispatchActions([tableConfigLogic.actionCreators.setSelectedColumns(['1', '2'])])
+            logic.actions.resetColumns(defaultColumns)
+        })
+            .toDispatchActions([tableConfigLogic.actionCreators.setSelectedColumns(defaultColumns)])
+            .toMatchValues({
+                selectedColumns: defaultColumns,
+            })
     })
 
     it('can not duplicate columns', async () => {
