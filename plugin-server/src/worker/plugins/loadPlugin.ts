@@ -47,12 +47,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             const jsPath = path.resolve(pluginPath, config['main'] || 'index.js')
             const indexJs = fs.readFileSync(jsPath).toString()
 
-            void pluginConfig.vm?.initialize!(
-                server,
-                pluginConfig,
-                indexJs,
-                `local ${pluginDigest(plugin)} from "${pluginPath}"!`
-            )
+            void pluginConfig.vm?.initialize!(indexJs, `local ${pluginDigest(plugin)} from "${pluginPath}"!`)
             return true
         } else if (plugin.archive) {
             let config: PluginJsonConfig = {}
@@ -71,14 +66,14 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
             const indexJs = await getFileFromArchive(archive, config['main'] || 'index.js')
 
             if (indexJs) {
-                void pluginConfig.vm?.initialize!(server, pluginConfig, indexJs, pluginDigest(plugin))
+                void pluginConfig.vm?.initialize!(indexJs, pluginDigest(plugin))
                 return true
             } else {
                 pluginConfig.vm?.failInitialization!()
                 await processError(server, pluginConfig, `Could not load index.js for ${pluginDigest(plugin)}!`)
             }
         } else if (plugin.plugin_type === 'source' && plugin.source) {
-            void pluginConfig.vm?.initialize!(server, pluginConfig, plugin.source, pluginDigest(plugin))
+            void pluginConfig.vm?.initialize!(plugin.source, pluginDigest(plugin))
             return true
         } else {
             pluginConfig.vm?.failInitialization!()

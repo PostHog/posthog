@@ -25,11 +25,6 @@ const mockConfig = {
 }
 
 describe('LazyPluginVM', () => {
-    const createVM = () => {
-        const lazyVm = new LazyPluginVM()
-        lazyVm.ready = true
-        return lazyVm
-    }
     const baseDb = {
         queuePluginLogEntry: jest.fn(),
         batchInsertPostgresLogs: jest.fn(),
@@ -42,7 +37,14 @@ describe('LazyPluginVM', () => {
     }
 
     const mockServer: any = { db }
-    const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, mockConfig as any, '', 'some plugin')
+
+    const createVM = () => {
+        const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)
+        lazyVm.ready = true
+        return lazyVm
+    }
+
+    const initializeVm = (vm: LazyPluginVM) => vm.initialize!('', 'some plugin')
 
     const mockVM = {
         vm: 'vm',
@@ -134,7 +136,7 @@ describe('LazyPluginVM', () => {
                 throw retryError
             })
 
-            await vm.initialize!(mockServer, mockFailureConfig as any, 'some log info', 'failure plugin')
+            await vm.initialize!('some log info', 'failure plugin')
 
             // try to initialize the vm 11 times (1 try + 10 retries)
             await vm.resolveInternalVm
@@ -184,7 +186,7 @@ describe('LazyPluginVM', () => {
                 throw retryError
             })
 
-            await vm.initialize!(mockServer, mockFailureConfig as any, 'some log info', 'failure plugin')
+            await vm.initialize!('some log info', 'failure plugin')
             await vm.resolveInternalVm
 
             // retry mechanism is called based on the error
