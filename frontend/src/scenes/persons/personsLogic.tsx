@@ -35,7 +35,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         if (!props.cohort && !props.syncWithUrl) {
             throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
         }
-        return props.cohort ? `cohort_${props.cohort}` : props.urlId ? `scene_${props.urlId}` : 'scene'
+        return props.cohort ? `cohort_${props.cohort}` : 'scene'
     },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
