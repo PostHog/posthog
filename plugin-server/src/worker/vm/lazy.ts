@@ -166,9 +166,9 @@ export class LazyPluginVM {
                         resolve(null)
                     }
                 }
-                this.failInitialization = () => {
-                    resolve(null)
-                }
+            }
+            this.failInitialization = () => {
+                resolve(null)
             }
         })
     }
