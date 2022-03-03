@@ -199,7 +199,6 @@ export function summarizeInsightFilters(
             break
         default:
             const localFilters = toLocalFilters(filters)
-            console.log(localFilters)
             switch (insightType) {
                 case InsightType.LIFECYCLE:
                     summary = `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
