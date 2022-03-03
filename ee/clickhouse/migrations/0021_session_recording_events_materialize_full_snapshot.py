@@ -10,7 +10,7 @@ def create_has_full_snapshot_materialized_column(database):
         sync_execute(
             f"""
             ALTER TABLE sharded_session_recording_events
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             ADD COLUMN IF NOT EXISTS
             has_full_snapshot BOOLEAN MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')
         """
@@ -18,7 +18,7 @@ def create_has_full_snapshot_materialized_column(database):
         sync_execute(
             f"""
             ALTER TABLE session_recording_events
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             ADD COLUMN IF NOT EXISTS
             has_full_snapshot BOOLEAN
         """
@@ -27,7 +27,7 @@ def create_has_full_snapshot_materialized_column(database):
         sync_execute(
             f"""
             ALTER TABLE session_recording_events
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             ADD COLUMN IF NOT EXISTS
             has_full_snapshot BOOLEAN MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')
         """
