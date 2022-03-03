@@ -1,5 +1,6 @@
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
-import { extractObjectDiffKeys, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { CohortType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
+import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -100,5 +101,216 @@ describe('extractObjectDiffKeys()', () => {
         it(`expect ${JSON.stringify(expected)} for ${testName}`, () => {
             expect(extractObjectDiffKeys(oldFilter, newFilter, prefix)).toEqual(expected)
         })
+    })
+})
+
+describe('summarizeInsightFilters()', () => {
+    const aggregationLabel = (groupTypeIndex: number | null | undefined): { singular: string; plural: string } =>
+        groupTypeIndex != undefined
+            ? {
+                  singular: 'organization',
+                  plural: 'organizations',
+              }
+            : { singular: 'user', plural: 'users' }
+    const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
+        1: {
+            id: 1,
+            name: 'Poles',
+            groups: [],
+        },
+    }
+    const mathDefinitions: Record<string, MathDefinition> = {
+        ...BASE_MATH_DEFINITIONS,
+        'unique_group::0': {
+            shortName: 'organizations',
+        } as unknown as MathDefinition,
+        ...PROPERTY_MATH_DEFINITIONS,
+    }
+
+    it('summarizes a Trends insight with five different series', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            math: 'dau',
+                            order: 0,
+                        },
+                        {
+                            id: '$rageclick',
+                            name: '$rageclick',
+                            math: 'monthly_active',
+                            order: 1,
+                        },
+                        {
+                            id: 'purchase',
+                            name: 'purchase',
+                            math: 'sum',
+                            math_property: 'price',
+                            order: 3,
+                        },
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            math: 'unique_group',
+                            math_group_type_index: 0,
+                            order: 4,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'Random action',
+                            math: 'total',
+                            order: 2,
+                        },
+                    ],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual(
+            'Pageview users & Rageclick MAUs & Random action count & purchase sum on property price & Pageview organizations'
+        )
+    })
+
+    it('summarizes a Trends insight with event property breakdown', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            math: 'dau',
+                            order: 0,
+                        },
+                    ],
+                    breakdown_type: 'event',
+                    breakdown: '$browser',
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual("Pageview users, broken down by event's Browser")
+    })
+
+    it('summarizes a Trends insight with cohort breakdown', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            math: 'dau',
+                            order: 0,
+                        },
+                    ],
+                    breakdown_type: 'cohort',
+                    breakdown: ['all', 1],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('Pageview users, broken down by cohorts: all users, Poles')
+    })
+
+    it('summarizes a Trends insight with a formula', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            math: 'dau',
+                            order: 0,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'Random action',
+                            math: 'total',
+                            order: 2,
+                        },
+                    ],
+                    formula: '(A + B) / 100',
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('(A + B) / 100 on A. Pageview users & B. Random action count')
+    })
+
+    it('summarizes a user-based Funnels insight with 3 steps', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.FUNNELS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                        },
+                        {
+                            id: 'random_event',
+                            name: 'random_event',
+                            order: 1,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'Random action',
+                            order: 2,
+                        },
+                    ],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('Pageview → random_event → Random action user conversion')
+    })
+
+    it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.FUNNELS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                        },
+                        {
+                            id: 'random_event',
+                            name: 'random_event',
+                            order: 1,
+                        },
+                    ],
+                    aggregation_group_type_index: 0,
+                    breakdown_type: 'person',
+                    breakdown: 'some_prop',
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual("Pageview → random_event organization conversion, broken down by person's some_prop")
     })
 })
