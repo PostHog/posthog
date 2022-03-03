@@ -431,7 +431,7 @@ def prop_filter_json_extract(
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
+            " {property_operator} {left} > %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
             ),
             params,
@@ -439,7 +439,7 @@ def prop_filter_json_extract(
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
+            " {property_operator} {left} < %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
             ),
             params,
@@ -538,7 +538,7 @@ def get_property_string_expr(
     if allow_denormalized_props and property_name in materialized_columns:
         return f"{table_string}{materialized_columns[property_name]}", True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
+    return f"JSONExtractString({table_string}{column}, {var})", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
