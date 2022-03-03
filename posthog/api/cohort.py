@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
@@ -26,7 +28,15 @@ from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS, LIMIT
+from posthog.constants import (
+    CSV_EXPORT_LIMIT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_STICKINESS,
+    INSIGHT_TRENDS,
+    LIMIT,
+    OFFSET,
+)
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
 from posthog.models.cohort import CohortPeople, get_and_update_pending_version
@@ -158,13 +168,20 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.prefetch_related("created_by").order_by("-created_at")
 
-    @action(methods=["GET"], detail=True)
+    @action(
+        methods=["GET"],
+        detail=True,
+        renderer_classes=[*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer],
+    )
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
         filter = Filter(request=request, team=self.team)
 
-        if not filter.limit:
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+        elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
         raw_result = sync_execute(

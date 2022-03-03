@@ -43,6 +43,7 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import (
+    CSV_EXPORT_LIMIT,
     FUNNEL_CORRELATION_PERSON_LIMIT,
     FUNNEL_CORRELATION_PERSON_OFFSET,
     INSIGHT_FUNNELS,
@@ -183,7 +184,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
-    CSV_EXPORT_LIMIT = 10000
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -209,7 +209,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            return queryset[0 : self.CSV_EXPORT_LIMIT]
+            return queryset[0:CSV_EXPORT_LIMIT]
 
         return queryset
 

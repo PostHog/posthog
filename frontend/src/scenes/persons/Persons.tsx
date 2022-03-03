@@ -25,6 +25,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const personsLogicProps: PersonLogicProps = { cohort: cohort?.id, syncWithUrl: !cohort }
     const { loadPersons, setListFilters } = useActions(personsLogic(personsLogicProps))
     const { persons, listFilters, personsLoading } = useValues(personsLogic(personsLogicProps))
+    const personHref = cohort?.id ? `/api/cohort/${cohort.id}/persons.csv?` : '/api/person.csv?' + toParams(listFilters)
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
@@ -44,13 +45,13 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                                 </>
                             }
                             onConfirm={() => {
-                                window.location.href = '/api/person.csv?' + toParams(listFilters)
+                                window.location.href = personHref
                             }}
                         >
                             <Button
                                 type="default"
                                 icon={<ExportOutlined />}
-                                href={'/api/person.csv?' + toParams(listFilters)}
+                                href={personHref}
                                 style={{ marginLeft: 8 }}
                             >
                                 {listFilters.properties && listFilters.properties.length > 0 ? (
