@@ -9,7 +9,7 @@ import {
     FunnelVizType,
     StepOrderValue,
 } from '~/types'
-import { capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -240,7 +240,7 @@ export function summarizeInsightFilters(
                 default:
                     // Trends are the default type
                     summary = localFilters
-                        .map((localFilter) => {
+                        .map((localFilter, localFilterIndex) => {
                             const mathDefinition =
                                 mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
                             const mathSummary =
@@ -250,11 +250,18 @@ export function summarizeInsightFilters(
                                           localFilter.math_property
                                       }`
                                     : mathDefinition.shortName
-                            return `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
+                            let series = `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
+                            if (filters.formula) {
+                                series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
+                            }
+                            return series
                         })
                         .join(' & ')
                     if (filters.breakdown_type) {
                         summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsIdMapped)}`
+                    }
+                    if (filters.formula) {
+                        summary = `${filters.formula} on ${summary}`
                     }
                     break
             }
