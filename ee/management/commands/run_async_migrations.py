@@ -60,7 +60,9 @@ class Command(BaseCommand):
             print("List of async migrations to be applied:")
 
             for migration in necessary_migrations:
-                print(f"- {migration.name}")
+                print(
+                    f"- {migration.name} - Available on Posthog versions {migration.posthog_min_version} - {migration.posthog_max_version}"
+                )
 
             print()
             if options["check"]:

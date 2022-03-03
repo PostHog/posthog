@@ -64,7 +64,7 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0001_events_sample_by"
 
-    posthog_min_version = "1.30.0"
+    posthog_min_version = "1.33.0"
     posthog_max_version = "1.33.9"
 
     service_version_requirements = [
