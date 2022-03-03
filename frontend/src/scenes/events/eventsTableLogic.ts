@@ -313,12 +313,14 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps, 
             }
 
             let apiResponse = null
+            let usedSecondFetch = false
 
             try {
                 apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
 
                 if (apiResponse.results.length === 0) {
                     apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                    usedSecondFetch = true
                 }
             } catch (error) {
                 actions.fetchOrPollFailure(error as ApiError)
@@ -328,7 +330,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps, 
             breakpoint()
             actions.fetchEventsSuccess({
                 events: apiResponse.results,
-                hasNext: !!apiResponse.next,
+                hasNext: !!apiResponse.next || !usedSecondFetch,
+                // if we find less than limit events in first fetch, we shouldn't assume there are no more events
+                // and instead allow re-fetching
                 isNext: !!nextParams,
             })
 

@@ -51,6 +51,7 @@ export const urls = {
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
+    projectHomepage: () => '/home',
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',

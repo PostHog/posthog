@@ -28,6 +28,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FeatureFlagHistory]: () => import('./feature-flags/FeatureFlagHistory'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
+    [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.ProjectSettings]: () => import('./project/Settings'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),

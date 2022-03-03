@@ -74,13 +74,13 @@
             min-height: 24px;
             margin-bottom: 4px;
 
-            svg {
+            svg.taxonomy-icon {
                 margin-right: 8px;
                 width: 28px;
 
                 &.taxonomy-icon-muted {
                     path {
-                        fill: var(--primary-alt);
+                        fill: var(--taxonomy-icon-muted);
                     }
                 }
 

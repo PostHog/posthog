@@ -74,8 +74,10 @@ function TableRowRaw<T extends Record<string, any>>({
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className="LemonTable__expansion">
-                    <td />
-                    <td colSpan={columns.length}>{expandable.expandedRowRender(record, recordIndex)}</td>
+                    {!expandable.noIndent && <td />}
+                    <td colSpan={columns.length + Number(!!expandable.noIndent)}>
+                        {expandable.expandedRowRender(record, recordIndex)}
+                    </td>
                 </tr>
             )}
         </>

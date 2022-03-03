@@ -1,6 +1,6 @@
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs, now } from 'lib/dayjs'
-import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import React, { useEffect, useState } from 'react'
 import { dateMapping, isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'

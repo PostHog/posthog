@@ -147,7 +147,14 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset({"name": "Gentle Antelope"}, response_data)
+        self.assertDictContainsSubset(
+            {
+                "name": "Gentle Antelope",
+                "effective_restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+                "effective_privilege_level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
+            response_data,
+        )
 
     def test_cannot_edit_restricted_dashboard_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)

@@ -22,6 +22,7 @@ import { dayjs } from 'lib/dayjs'
 
 const DEFAULT_DURATION = 14
 const BASIC_TRENDS_INSIGHT = {
+    name: '',
     filters: {
         insight: InsightType.TRENDS,
         events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
@@ -29,6 +30,7 @@ const BASIC_TRENDS_INSIGHT = {
 }
 
 const BASIC_FUNNELS_INSIGHT = {
+    name: '',
     filters: {
         insight: InsightType.FUNNELS,
         events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],

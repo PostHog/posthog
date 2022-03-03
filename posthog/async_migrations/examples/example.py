@@ -38,16 +38,16 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
-            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
         ),
         AsyncMigrationOperation.simple_op(
@@ -71,24 +71,24 @@ class Migration(AsyncMigrationDefinition):
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup,
                     {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE}
-                ON CLUSTER {CLICKHOUSE_CLUSTER}
+                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             """,
             rollback=f"""
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
                     {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {CLICKHOUSE_DATABASE}.person_distinct_id,
-                ON CLUSTER {CLICKHOUSE_CLUSTER}
+                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             """,
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
-            rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
-            rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
         ),
         AsyncMigrationOperation(fn=example_fn, rollback_fn=example_rollback_fn),
     ]

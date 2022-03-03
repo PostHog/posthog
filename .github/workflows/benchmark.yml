@@ -68,10 +68,10 @@ jobs:
                   repository: PostHog/benchmark-results
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Set up Python 3.8
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-benchmark-tests
