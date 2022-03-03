@@ -1350,12 +1350,12 @@ export function convertPropertyGroupToProperties(
     properties: PropertyGroupFilter | AnyPropertyFilter[]
 ): AnyPropertyFilter[] {
     if (isPropertyGroup(properties)) {
-        return flattenProperties(properties)
+        return flattenPropertyGroup(properties)
     }
     return properties
 }
 
-export function flattenProperties(properties: PropertyGroupFilter): AnyPropertyFilter[] {
+export function flattenPropertyGroup(properties: PropertyGroupFilter): AnyPropertyFilter[] {
     const flattenedProps: AnyPropertyFilter[] = []
     for (let i = 0; i < properties.values.length; i++) {
         properties.values[i].values.forEach((val) => flattenedProps.push(val))

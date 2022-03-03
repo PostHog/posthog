@@ -1,16 +1,14 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-import { FilterType, RetentionType } from '~/types'
+import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconOpenInNew } from 'lib/components/icons'
-import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,6 +17,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '../BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -157,20 +157,24 @@ export function RetentionTab(): JSX.Element {
                     </Row>
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                    <GlobalFiltersTitle unit="actions/events" />
-                    <PropertyFilters
-                        propertyFilters={filters.properties}
-                        onChange={(properties) => setFilters({ properties })}
-                        pageKey="insight-retention"
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                        ]}
-                        eventNames={allEventNames}
-                    />
+                    {filters.properties && (
+                        <PropertyGroupFilters
+                            propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                            style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
+                            onChange={(properties: PropertyGroupFilter) => {
+                                setFilters({ properties })
+                            }}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                            pageKey="insight-retention"
+                            eventNames={allEventNames}
+                        />
+                    )}
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&

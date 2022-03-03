@@ -30,7 +30,7 @@ import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
-import { isPropertyGroup } from 'lib/utils'
+import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -99,12 +99,8 @@ function flattenProperties(properties: PropertyFilter[]): string[] {
 
 function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
     if (isPropertyGroup(properties)) {
-        for (let i = 0; i < properties.values.length; i++) {
-            if (properties.values[i].values.some((prop) => prop.group_type_index !== undefined)) {
-                return true
-            }
-        }
-        return false
+        const flattenedProperties = flattenPropertyGroup(properties)
+        return flattenedProperties.some((prop) => prop.group_type_index != undefined)
     }
     return !!properties && properties.some((property) => property.group_type_index != undefined)
 }

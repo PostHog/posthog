@@ -9,7 +9,6 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
@@ -122,14 +121,6 @@ export function FunnelTab(): JSX.Element {
             <Col xs={24} md={8} xl={24}>
                 <hr />
                 <div className="mt" />
-                <div className="flex-center">
-                    <div style={{ flexGrow: 1 }}>
-                        <GlobalFiltersTitle unit="steps" />
-                    </div>
-                    <div style={{ marginBottom: '0.5rem' }}>
-                        <TestAccountFilter filters={filters} onChange={setFilters} />
-                    </div>
-                </div>
                 {filters.properties && (
                     <PropertyGroupFilters
                         propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
@@ -148,6 +139,11 @@ export function FunnelTab(): JSX.Element {
                         eventNames={allEventNames}
                     />
                 )}
+                <div className="flex-center">
+                    <div style={{ marginBottom: '0.5rem' }}>
+                        <TestAccountFilter filters={filters} onChange={setFilters} />
+                    </div>
+                </div>
 
                 {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
