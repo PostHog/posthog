@@ -7,7 +7,6 @@ from ee.clickhouse.sql.dead_letter_queue import (
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
-from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -92,14 +91,6 @@ def reset_clickhouse_tables():
         sync_execute(item)
 
 
-def run_additional_setup_ops():
-
-    ADDITIONAL_OPS = [COMMENT_DISTINCT_ID_COLUMN_SQL()]
-
-    for item in ADDITIONAL_OPS:
-        sync_execute(item)
-
-
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
@@ -121,7 +112,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)
-    run_additional_setup_ops()
 
     yield
 

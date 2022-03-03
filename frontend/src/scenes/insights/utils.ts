@@ -22,6 +22,7 @@ import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -93,6 +94,16 @@ export function findInsightFromMountedLogic(
             ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
         if (insight) {
             return insight
+        }
+    } else {
+        const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
+        for (const dashModelId of Object.keys(dashboards || {})) {
+            const insight = dashboardLogic
+                .findMounted({ id: dashModelId })
+                ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+            if (insight) {
+                return insight
+            }
         }
     }
 

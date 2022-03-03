@@ -75,6 +75,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
     // Insights
     --z-graph-tooltip: #{$z_graph_tooltip};
+    // Taxonomy
+    --taxonomy-icon-muted: #{$taxonomy_icon_muted};
 }
 
 // Text styles

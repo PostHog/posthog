@@ -482,6 +482,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    is_identified?: boolean
 }
 
 interface MatchedRecordingEvents {
@@ -885,6 +886,7 @@ export interface FilterType {
     date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
+    event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1369,6 +1371,7 @@ export interface PropertyDefinition {
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
+    example?: string
 }
 
 export interface PersonProperty {
