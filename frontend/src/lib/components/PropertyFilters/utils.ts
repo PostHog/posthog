@@ -1,26 +1,9 @@
-import {
-    PropertyGroupFilter,
-    AnyPropertyFilter,
-    EventDefinition,
-    PropertyFilter,
-    PropertyOperator,
-    FilterLogicalOperator,
-} from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { flattenPropertyGroup } from 'lib/utils'
 
 export function parseProperties(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
 ): AnyPropertyFilter[] {
-    // New property group filters
-    if (
-        input &&
-        !Array.isArray(input) &&
-        (input.type === FilterLogicalOperator.And || input.type === FilterLogicalOperator.Or)
-    ) {
-        return flattenPropertyGroup(input as PropertyGroupFilter)
-    }
-
     if (Array.isArray(input) || !input) {
         return input || []
     }

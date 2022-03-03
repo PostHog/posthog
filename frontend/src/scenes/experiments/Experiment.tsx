@@ -389,8 +389,14 @@ export function Experiment_(): JSX.Element {
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
-                                                                ? funnelsFilters.properties
-                                                                : trendsFilters.properties
+                                                                ? funnelsFilters.properties &&
+                                                                  convertPropertyGroupToProperties(
+                                                                      funnelsFilters.properties
+                                                                  )
+                                                                : trendsFilters.properties &&
+                                                                  convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({

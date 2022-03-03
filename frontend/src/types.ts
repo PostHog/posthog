@@ -1004,7 +1004,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
     type: EntityType
 }
 
