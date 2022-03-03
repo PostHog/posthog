@@ -9,8 +9,9 @@ on:
       - .github/workflows/ci-hobby-deploy.yml
 
 env:
-    POSTHOG_EVENT_ENDPOINT: 'https://127.0.0.1'
-    POSTHOG_API_ENDPOINT: 'https://127.0.0.1'
+    POSTHOG_API_HOST: "localhost"
+    POSTHOG_EVENT_ENDPOINT: 'https://localhost'
+    POSTHOG_API_ENDPOINT: 'https://localhost'
     SKIP_SOURCE_IP_ADDRESS_CHECK: 'true'
 
 jobs:
@@ -35,6 +36,10 @@ jobs:
         run: |
             cd tmp
             printf "n\n$POSTHOG_API_ADDRESS\n\n" | ../bin/deploy-hobby 
+
+      - name: Test health endpoint
+        run: |
+            curl -kv https://localhost/_health
 
       - name: Setup PostHog for the ingestion test
         run: docker-compose -f tmp/docker-compose.yml run web python manage.py setup_dev --no-data 
