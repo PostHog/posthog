@@ -139,7 +139,7 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
             humanEventTypes.push('custom events')
             matchCount++
         }
-        if (matchCount === 0 || matchCount === 3) {
+        if (matchCount === 0 || Object.keys(PathType).length) {
             humanEventTypes = ['all events']
         }
     }

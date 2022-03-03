@@ -1,5 +1,15 @@
-import { EntityFilter, ActionFilter, FilterType, InsightModel, InsightShortId, InsightType, PathType } from '~/types'
-import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
+import {
+    EntityFilter,
+    ActionFilter,
+    FilterType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    PathType,
+    FunnelVizType,
+    StepOrderValue,
+} from '~/types'
+import { capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -9,6 +19,9 @@ import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './ActionFilter/entityFilterLogic'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { retentionOptions } from 'scenes/retention/retentionTableLogic'
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -115,7 +128,7 @@ function summarizePaths(filters: Partial<FilterType>): string {
             humanEventTypes.push('custom events')
             matchCount++
         }
-        if (matchCount === 0 || matchCount === 3) {
+        if (matchCount === 0 || matchCount === Object.keys(PathType).length) {
             humanEventTypes = ['all events']
         }
     }
@@ -129,31 +142,122 @@ function summarizePaths(filters: Partial<FilterType>): string {
     return summary
 }
 
+function summarizeBreakdown(
+    filters: Partial<FilterType>,
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsIdMapped: cohortsModelType['values']['cohortsIdMapped']
+): string | null {
+    const { breakdown_type, breakdown, breakdown_group_type_index } = filters
+    if (breakdown) {
+        if (breakdown_type === 'cohort') {
+            const cohortIds = breakdown as (number | string)[]
+            return `cohorts: ${cohortIds
+                .map(
+                    (cohortId) =>
+                        cohortId &&
+                        (cohortId === 'all'
+                            ? 'all users'
+                            : cohortId in cohortsIdMapped
+                            ? cohortsIdMapped[cohortId].name
+                            : `ID ${cohortId}`)
+                )
+                .join(', ')}`
+        } else {
+            const noun =
+                breakdown_type !== 'group' ? breakdown_type : aggregationLabel(breakdown_group_type_index).singular
+            return `${noun}'s ${
+                (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
+            }`
+        }
+    }
+    return null
+}
+
 export function summarizeInsightFilters(
     filters: Partial<FilterType>,
-    aggregationLabel: groupsModelType['values']['aggregationLabel']
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsIdMapped: cohortsModelType['values']['cohortsIdMapped'],
+    mathDefinitions: mathsLogicType<MathDefinition>['values']['mathDefinitions']
 ): string {
     const insightType = filters.insight
-    if (insightType === InsightType.RETENTION) {
-        const areTargetAndReturningIdentical =
-            filters.returning_entity?.id === filters.target_entity?.id &&
-            filters.returning_entity?.type === filters.target_entity?.type
-        return (
-            `Retention of ${aggregationLabel(filters.aggregation_group_type_index).plural}` +
-            ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
-            ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and coming back with ` +
-            (areTargetAndReturningIdentical
-                ? 'the same event'
-                : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
-        )
-    } else if (insightType === InsightType.PATHS) {
-        return summarizePaths(filters)
-    } else {
-        const localFilters = toLocalFilters(filters)
-        console.log(localFilters)
-        if (insightType === InsightType.LIFECYCLE) {
-            return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
-        }
-        return 'Foo'
+    let summary: string
+    switch (insightType) {
+        case InsightType.RETENTION:
+            const areTargetAndReturningIdentical =
+                filters.returning_entity?.id === filters.target_entity?.id &&
+                filters.returning_entity?.type === filters.target_entity?.type
+            summary =
+                `Retention of ${aggregationLabel(filters.aggregation_group_type_index).plural}` +
+                ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
+                ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+                (areTargetAndReturningIdentical
+                    ? 'the same event'
+                    : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
+            break
+        case InsightType.PATHS:
+            summary = summarizePaths(filters)
+            break
+        default:
+            const localFilters = toLocalFilters(filters)
+            console.log(localFilters)
+            switch (insightType) {
+                case InsightType.LIFECYCLE:
+                    summary = `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
+                    break
+                case InsightType.FUNNELS:
+                    const linkSymbol =
+                        filters.funnel_order_type === StepOrderValue.STRICT
+                            ? '⇉'
+                            : filters.funnel_order_type === StepOrderValue.UNORDERED
+                            ? '&'
+                            : '→'
+                    summary = `${localFilters
+                        .map((filter) => getDisplayNameFromEntityFilter(filter))
+                        .join(` ${linkSymbol} `)} ${
+                        aggregationLabel(filters.aggregation_group_type_index).singular
+                    } conversion`
+                    if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                        summary += ' time'
+                    } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
+                        summary += ' trend'
+                    }
+                    if (filters.breakdown_type) {
+                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsIdMapped)}`
+                    }
+                    break
+                case InsightType.STICKINESS:
+                    summary = capitalizeFirstLetter(
+                        localFilters
+                            .map((localFilter) => {
+                                const actor = aggregationLabel(
+                                    localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null
+                                ).singular
+                                return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
+                            })
+                            .join(' & ')
+                    )
+                    break
+                default:
+                    // Trends are the default type
+                    summary = localFilters
+                        .map((localFilter) => {
+                            const mathDefinition =
+                                mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
+                            const mathSummary =
+                                mathDefinition.onProperty && localFilter.math_property
+                                    ? `${mathDefinition.shortName} on property ${
+                                          keyMapping.event[localFilter.math_property]?.label ||
+                                          localFilter.math_property
+                                      }`
+                                    : mathDefinition.shortName
+                            return `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
+                        })
+                        .join(' & ')
+                    if (filters.breakdown_type) {
+                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsIdMapped)}`
+                    }
+                    break
+            }
     }
+    return summary
 }

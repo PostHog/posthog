@@ -7,6 +7,8 @@ import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 
 export interface MathDefinition {
     name: string
+    /** Lowercase name variant for definitions where the full names is too verbose for summaries. */
+    shortName: string
     description: string | JSX.Element
     onProperty: boolean
     type: 'property' | 'event'
@@ -49,6 +51,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
             (groupOptions): Record<string, MathDefinition> => ({
                 total: {
                     name: 'Total count',
+                    shortName: 'count',
                     description: (
                         <>
                             Total event count. Total number of times the event was performed by any user.
@@ -62,6 +65,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 dau: {
                     name: 'Unique users',
+                    shortName: 'users',
                     description: (
                         <>
                             Number of unique users who performed the event in the specified period.
@@ -78,6 +82,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 weekly_active: {
                     name: 'Weekly active',
+                    shortName: 'WAUs',
                     description: (
                         <>
                             Users active in the past week (7 days).
@@ -91,6 +96,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 monthly_active: {
                     name: 'Monthly active',
+                    shortName: 'MAUs',
                     description: (
                         <>
                             Users active in the past month (30 days).
@@ -105,6 +111,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 ...groupOptions,
                 avg: {
                     name: 'Average',
+                    shortName: 'average',
                     description: (
                         <>
                             Average of a property value within an event or action.
@@ -119,6 +126,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 sum: {
                     name: 'Sum',
+                    shortName: 'sum',
                     description: (
                         <>
                             Sum of property values within an event or action.
@@ -133,6 +141,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 min: {
                     name: 'Minimum',
+                    shortName: 'minimum',
                     description: (
                         <>
                             Event property minimum.
@@ -147,6 +156,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 max: {
                     name: 'Maximum',
+                    shortName: 'maximum',
                     description: (
                         <>
                             Event property maximum.
@@ -161,6 +171,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 median: {
                     name: 'Median',
+                    shortName: 'median',
                     description: (
                         <>
                             Event property median (50th percentile).
@@ -175,6 +186,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 p90: {
                     name: '90th percentile',
+                    shortName: '90th percentile',
                     description: (
                         <>
                             Event property 90th percentile.
@@ -189,6 +201,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 p95: {
                     name: '95th percentile',
+                    shortName: '95th percentile',
                     description: (
                         <>
                             Event property 95th percentile.
@@ -203,6 +216,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                 },
                 p99: {
                     name: '99th percentile',
+                    shortName: '99th percentile',
                     description: (
                         <>
                             Event property 90th percentile.
@@ -225,6 +239,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                         apiValueToMathType('unique_group', groupType.group_type_index),
                         {
                             name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                            shortName: aggregationLabel(groupType.group_type_index).plural,
                             description: (
                                 <>
                                     Number of unique {aggregationLabel(groupType.group_type_index).plural} who performed
@@ -239,7 +254,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                             ),
                             onProperty: false,
                             type: EVENT_MATH_TYPE,
-                        },
+                        } as MathDefinition,
                     ])
                 ),
         ],

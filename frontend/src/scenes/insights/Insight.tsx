@@ -26,6 +26,8 @@ import { LastModified } from 'lib/components/InsightCard/LastModified'
 import { IconLock } from 'lib/components/icons'
 import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -54,6 +56,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsIdMapped } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = activeView === InsightType.FUNNELS
@@ -105,7 +109,12 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summarizeInsightFilters(filters, aggregationLabel)}
+                        placeholder={summarizeInsightFilters(
+                            filters,
+                            aggregationLabel,
+                            cohortsIdMapped,
+                            mathDefinitions
+                        )}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}

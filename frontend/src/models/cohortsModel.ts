@@ -58,6 +58,11 @@ export const cohortsModel = kea<cohortsModelType>({
 
     selectors: {
         cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
+        cohortsIdMapped: [
+            (s) => [s.cohorts],
+            (cohorts): Record<CohortType['id'], CohortType> =>
+                Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort] as [CohortType['id'], CohortType])),
+        ],
     },
 
     listeners: ({ actions }) => ({
