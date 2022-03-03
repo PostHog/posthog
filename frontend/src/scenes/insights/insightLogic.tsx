@@ -25,7 +25,7 @@ import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/in
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -36,6 +36,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/browser'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -638,7 +641,16 @@ export const insightLogic = kea<insightLogicType>({
             }
             const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
-                { ...values.insight, saved: true }
+                {
+                    ...values.insight,
+                    derived_name: summarizeInsightFilters(
+                        values.insight.filters || {},
+                        groupsModel.values.aggregationLabel,
+                        cohortsModel.values.cohortsIdMapped,
+                        mathsLogic.values.mathDefinitions
+                    ).slice(0, 400),
+                    saved: true,
+                } as InsightModel
             )
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
