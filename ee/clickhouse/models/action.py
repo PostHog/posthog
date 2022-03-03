@@ -119,7 +119,9 @@ def get_action_tables_and_properties(action: Action) -> Counter[PropertyIdentifi
     for action_step in action.steps.all():
         if action_step.url:
             result[("$current_url", "event", None)] += 1
-        result += extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
+        result += extract_tables_and_properties(
+            Filter(data={"properties": action_step.properties or []}).property_groups.flat
+        )
 
     return result
 

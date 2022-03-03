@@ -32,7 +32,7 @@ class TestStickinessFilter(BaseTest):
                         "math": None,
                         "math_property": None,
                         "math_group_type_index": None,
-                        "properties": [],
+                        "properties": {},
                     }
                 ],
                 "insight": "TRENDS",
