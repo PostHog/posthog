@@ -49,7 +49,12 @@ class TestFilter(BaseTest):
         filter = Filter(data=data, team=self.team)
         self.assertEqual(
             filter.properties_to_dict(),
-            {"properties": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],
+                }
+            },
         )
         self.assertTrue(filter.is_simplified)
 
@@ -58,10 +63,21 @@ class TestFilter(BaseTest):
         self.assertEqual(
             filter.properties_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
+                    ],
+                }
             },
         )
         self.assertTrue(filter.is_simplified)
@@ -69,10 +85,21 @@ class TestFilter(BaseTest):
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),
             {
-                "properties": [
-                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                ]
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"}],
+                        },
+                    ],
+                }
             },
         )
 
@@ -298,7 +325,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 
 def _filter_persons(filter: Filter, team: Team):
-    persons = Person.objects.filter(properties_to_Q(filter.properties, team_id=team.pk, is_direct_query=True))
+    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 

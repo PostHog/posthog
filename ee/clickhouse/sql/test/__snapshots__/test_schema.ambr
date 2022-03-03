@@ -216,10 +216,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog\nTO posthog_test.groups\nAS SELECT\ngroup_type_index,\ngroup_key,\ncreated_at,\nteam_id,\ngroup_properties,\n_timestamp,\n_offset\nFROM posthog_test.kafka_groups\n]
+# name: test_create_table_query[\nCREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'\nTO posthog_test.groups\nAS SELECT\ngroup_type_index,\ngroup_key,\ncreated_at,\nteam_id,\ngroup_properties,\n_timestamp,\n_offset\nFROM posthog_test.kafka_groups\n]
   '
   
-  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
   group_type_index,
@@ -326,10 +326,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
   '
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
       cohort_id Int64,
@@ -801,16 +801,16 @@
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
+# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
   '
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
       cohort_id Int64,
       team_id Int64,
       sign Int8
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id)
   
   
@@ -843,7 +843,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
@@ -876,7 +876,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
   
   SETTINGS index_granularity=512
@@ -897,7 +897,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.groups', '{replica}-{shard}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -918,7 +918,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person', '{replica}-{shard}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', _timestamp)
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -938,7 +938,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -959,7 +959,7 @@
   , _offset UInt64
   
   , _partition UInt64
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
   
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
@@ -979,7 +979,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -1003,7 +1003,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY plugin_id ORDER BY (team_id, id)
   
   SETTINGS index_granularity=512
@@ -1030,7 +1030,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.session_recording_events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   

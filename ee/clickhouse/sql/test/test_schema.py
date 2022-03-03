@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from ee.clickhouse.sql.cohort import *
@@ -70,3 +72,10 @@ def test_create_kafka_events_with_disabled_protobuf(snapshot, settings):
     settings.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = True
 
     assert KAFKA_EVENTS_TABLE_SQL() == snapshot
+
+
+@pytest.fixture(autouse=True)
+def mock_uuid4(mocker):
+    mock_uuid4 = mocker.patch("uuid.uuid4")
+    mock_uuid4.return_value = uuid.UUID("77f1df52-4b43-11e9-910f-b8ca3a9b9f3e")
+    yield mock_uuid4

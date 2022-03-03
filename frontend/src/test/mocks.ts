@@ -1,4 +1,24 @@
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, EventType, PropertyDefinition } from '~/types'
+
+export const mockEvent: EventType = {
+    id: 'my_id',
+    properties: {
+        $os: 'Mac OS X',
+        $device_type: 'Desktop',
+    },
+    event: 'event1',
+    timestamp: '2022-02-24T09:19:56.920000+00:00',
+    person: {
+        is_identified: true,
+        distinct_ids: ['abcde'],
+        properties: {
+            email: 'alex@posthog.com',
+        },
+    },
+    elements: [],
+    elements_chain: '',
+    elements_hash: null,
+}
 
 export const mockEventDefinitions: EventDefinition[] = [
     'event1',
