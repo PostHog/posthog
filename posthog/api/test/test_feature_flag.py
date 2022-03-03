@@ -336,7 +336,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(len(historical_flags), 1)
         self.assertEqual(historical_flags[0].state, response.json())
         self.assertEqual(historical_flags[0].action, "update")
-        self.assertEqual(historical_flags[0].created_by_email, self.user.email)
+        self.assertEqual(historical_flags[0].created_by, self.user)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
@@ -410,7 +410,6 @@ class TestFeatureFlag(APIBaseTest):
                 HistoryListItem(
                     email="history.hog@posthog.com",
                     name="history hog",
-                    user_id=-1,
                     action="FeatureFlag_imported",
                     detail={"id": str(instance.pk), "key": ""},
                     created_at="2021-08-25T22:09:14.252000+00:00",
@@ -460,7 +459,6 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "email": "person_acting_and_then_viewing_history@posthog.com",
                 "name": "",
-                "user_id": new_user.id,
                 "action": "FeatureFlag_filters_changed",
                 "detail": {
                     "id": str(flag_id),
@@ -473,7 +471,6 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "email": "person_acting_and_then_viewing_history@posthog.com",
                 "name": "",
-                "user_id": new_user.id,
                 "action": "FeatureFlag_rollout_percentage_changed",
                 "detail": {"id": str(flag_id), "key": "alpha-feature", "from": None, "to": 74},
                 "created_at": "2021-08-26T22:12:14.252000+00:00",
@@ -481,7 +478,6 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "email": "person_acting_and_then_viewing_history@posthog.com",
                 "name": "",
-                "user_id": new_user.id,
                 "action": "FeatureFlag_created",
                 "detail": {"id": str(flag_id), "key": "alpha-feature"},
                 "created_at": "2021-08-25T22:09:14.252000+00:00",

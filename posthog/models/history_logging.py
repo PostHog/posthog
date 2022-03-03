@@ -4,7 +4,7 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from rest_framework import serializers
 
-from posthog.models import HistoricalVersion
+from posthog.models import HistoricalVersion, User
 
 
 class HistoryListItemSerializer(serializers.Serializer):
@@ -20,7 +20,6 @@ class HistoryListItemSerializer(serializers.Serializer):
 class HistoryListItem:
     email: Optional[str]
     name: Optional[str]
-    user_id: int
     action: str
     detail: Dict[str, Union[int, str, Dict]]
     created_at: str
@@ -59,9 +58,7 @@ def load_history(history_type: str, team_id: int, item_id: int, instance, serial
             name="FeatureFlag",
             action="update",
             item_id=item_id,
-            created_by_name="history hog",
-            created_by_email="history.hog@posthog.com",
-            created_by_id=0,
+            created_by=_get_history_hog(),
             team_id=team_id,
         )
         imported_version.save()
@@ -69,6 +66,10 @@ def load_history(history_type: str, team_id: int, item_id: int, instance, serial
         versions.append(imported_version)
 
     return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
+
+
+def _get_history_hog():
+    return User.objects.get_or_create(first_name="history hog", email="history.hog@posthog.com")[0]
 
 
 def compute_history(
@@ -90,13 +91,16 @@ def compute_history(
     """
     history: List[HistoryListItem] = []
 
-    for (current, previous) in version_pairs:
+    for pair in version_pairs:
+        current: HistoricalVersion
+        previous: Optional[HistoricalVersion]
+        (current, previous) = pair
+
         if current.action == "create":
             history.append(
                 HistoryListItem(
-                    email=current.created_by_email,
-                    name=current.created_by_name,
-                    user_id=current.created_by_id,
+                    email=safely_read_email(current),
+                    name=safely_read_first_name(current),
                     action=f"{history_type}_created",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
@@ -105,9 +109,8 @@ def compute_history(
         elif current.action == "delete":
             history.append(
                 HistoryListItem(
-                    email=current.created_by_email,
-                    name=current.created_by_name,
-                    user_id=current.created_by_id,
+                    email=safely_read_email(current),
+                    name=safely_read_first_name(current),
                     action=f"{history_type}_deleted",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
@@ -118,9 +121,8 @@ def compute_history(
                 if current_key not in previous.state:
                     history.append(
                         HistoryListItem(
-                            email=current.created_by_email,
-                            name=current.created_by_name,
-                            user_id=current.created_by_id,
+                            email=safely_read_email(current),
+                            name=safely_read_first_name(current),
                             action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
@@ -133,9 +135,8 @@ def compute_history(
                 elif current.state[current_key] != previous.state[current_key]:
                     history.append(
                         HistoryListItem(
-                            email=current.created_by_email,
-                            name=current.created_by_name,
-                            user_id=current.created_by_id,
+                            email=safely_read_email(current),
+                            name=safely_read_first_name(current),
                             action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
@@ -151,9 +152,8 @@ def compute_history(
                 if previous_key not in current.state:
                     history.append(
                         HistoryListItem(
-                            email=current.created_by_email,
-                            name=current.created_by_name,
-                            user_id=current.created_by_id,
+                            email=safely_read_email(current),
+                            name=safely_read_first_name(current),
                             action=f"{history_type}_{previous_key}_deleted",
                             detail={
                                 "id": current.item_id,
@@ -168,7 +168,6 @@ def compute_history(
                 HistoryListItem(
                     email="history.hog@posthog.com",
                     name="history hog",
-                    user_id=-1,
                     action=f"{history_type}_imported",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
@@ -176,3 +175,17 @@ def compute_history(
             )
 
     return history
+
+
+def safely_read_email(version: Optional[HistoricalVersion]) -> Optional[str]:
+    if version and version.created_by:
+        return version.created_by.email
+
+    return None
+
+
+def safely_read_first_name(version: Optional[HistoricalVersion]) -> str:
+    if version and version.created_by:
+        return version.created_by.first_name
+
+    return "unknown user"

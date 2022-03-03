@@ -40,10 +40,7 @@ class AnalyticsDestroyModelMixin:
             """
             team_id = self.team_id  # type:ignore
             HistoricalVersion.save_deletion(
-                instance=instance,
-                item_id=kwargs["pk"],
-                team_id=team_id,
-                user={"first_name": request.user.first_name, "email": request.user.email, "id": request.user.id},
+                instance=instance, item_id=kwargs["pk"], team_id=team_id, user=request.user,
             )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)

@@ -65,14 +65,7 @@ class HistoricalVersion(UUIDModel):
     # to avoid an integer version field for ordering revisions
     versioned_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
-    # created_by_X does not use a foreign key
-    # so that deletion of users does not erase history
-
-    # user that caused the change
-    created_by_email = models.EmailField(null=False)
-    # max length from User model
-    created_by_name = models.CharField(max_length=150, null=False)
-    created_by_id = models.PositiveIntegerField(null=False)
+    created_by = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
 
     # team or organization that contains the change
     team_id = models.PositiveIntegerField(null=True)
@@ -85,22 +78,18 @@ class HistoricalVersion(UUIDModel):
             name=serializer.instance.__class__.__name__,
             item_id=serializer.instance.id,
             action=action,
-            created_by_name=serializer.context["request"].user.first_name,
-            created_by_email=serializer.context["request"].user.email,
-            created_by_id=serializer.context["request"].user.id,
+            created_by=serializer.context["request"].user,
             team_id=serializer.context["team_id"],
         ).save()
 
     @staticmethod
-    def save_deletion(instance, item_id: int, team_id: int, user: Dict) -> None:
+    def save_deletion(instance, item_id: int, team_id: int, user) -> None:
         version = HistoricalVersion(
             state=instance,
             name=instance.__class__.__name__,
             action="delete",
             item_id=item_id,
-            created_by_name=user["first_name"],
-            created_by_email=user["email"],
-            created_by_id=user["id"],
+            created_by=user,
             team_id=team_id,
         )
         version.save()
