@@ -12,28 +12,24 @@ RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definit
 # Checks that exactly one object field is populated
 def build_check():
     built_check_list: List[Union[Q, Q]] = []
-    for o_field in RELATED_OBJECTS:
+    for field in RELATED_OBJECTS:
         built_check_list.append(
-            Q(*[(f"{_o_field}__isnull", _o_field != o_field) for _o_field in RELATED_OBJECTS], _connector="AND")
+            Q(*[(f"{other_field}__isnull", other_field != field) for other_field in RELATED_OBJECTS], _connector="AND")
         )
     return Q(*built_check_list, _connector="OR")
 
 
 # Enforces uniqueness on tag_{object_field}. All permutations of null columns must be explicit as Postgres ignores
 # uniqueness across null columns.
-def build_uniqueness_constraint():
-    built_check_list: List[UniqueConstraint] = []
-    for o_field in RELATED_OBJECTS:
-        built_check_list.append(
-            UniqueConstraint(
-                fields=["tag", o_field],
-                name=f"unique_{o_field}_tagged_item",
-                condition=Q(
-                    *[(_o_field, None) for _o_field in RELATED_OBJECTS if _o_field != o_field], _connector="AND"
-                ),
-            ),
-        )
-    return built_check_list
+def build_partial_uniqueness_constraint(field: str):
+    return UniqueConstraint(
+        fields=["tag", field],
+        name=f"unique_{field}_tagged_item",
+        condition=Q(
+            *[(f"{other_field}__isnull", True) for other_field in RELATED_OBJECTS if other_field != field],
+            _connector="AND",
+        ),
+    )
 
 
 class TaggedItem(UUIDModel):
@@ -72,9 +68,10 @@ class TaggedItem(UUIDModel):
     )
 
     class Meta:
+        unique_together = ("tag",) + RELATED_OBJECTS
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
-            *build_uniqueness_constraint(),
+            *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
             models.CheckConstraint(check=build_check(), name="exactly_one_related_object",),
         ]
 
