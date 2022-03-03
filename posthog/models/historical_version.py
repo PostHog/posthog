@@ -5,6 +5,8 @@ from typing import Dict
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.utils import UUIDModel
+
 
 def as_deletion_state(metadata: Dict) -> Dict:
     """
@@ -17,7 +19,7 @@ def as_deletion_state(metadata: Dict) -> Dict:
     return state
 
 
-class HistoricalVersion(models.Model):
+class HistoricalVersion(UUIDModel):
     """
     We don't store foreign key references cos the referenced model will change or be deleted.
     The history log should hold the state at the time it is written not the time it is read
@@ -69,7 +71,7 @@ class HistoricalVersion(models.Model):
 
     # team or organization that contains the change
     team_id = models.PositiveIntegerField(null=True)
-    organization_id = models.UUIDField(primary_key=False, null=True)
+    organization_id = models.UUIDField(null=True)
 
     @staticmethod
     def save_version(serializer, action: str) -> None:
