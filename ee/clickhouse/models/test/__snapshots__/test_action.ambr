@@ -1,0 +1,14 @@
+# name: TestActionFormat.test_double
+  '
+  
+  SELECT events.uuid,
+         events.distinct_id
+  FROM events
+  WHERE ((event = 'insight viewed'
+          AND (has(['RETENTION'], JSONExtractString(properties, 'insight'))))
+         OR (event = 'insight viewed'
+             AND (JSONExtractString(properties, 'filters_count') > '1')))
+    AND events.team_id = 2
+  ORDER BY events.timestamp DESC
+  '
+---

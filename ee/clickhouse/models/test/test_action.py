@@ -5,7 +5,7 @@ from uuid import uuid4
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import filter_event, format_action_filter
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.person import Person
@@ -152,6 +152,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
+    @snapshot_clickhouse_queries
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues
         _create_event(
@@ -159,12 +160,12 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
         )
-        step2 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
