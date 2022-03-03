@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+    , has_full_snapshot Int8 materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
