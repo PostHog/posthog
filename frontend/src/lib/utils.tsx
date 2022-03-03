@@ -445,7 +445,7 @@ export function isOperatorDate(operator: string): boolean {
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohortsIdMapped: Record<CohortType['id'], CohortType>,
+    cohortsIdMapped: Partial<Record<CohortType['id'], CohortType>>,
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
