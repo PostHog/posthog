@@ -39,13 +39,13 @@ jobs:
 
       - name: Test health endpoint
         run: |
-            curl -kv https://localhost/_health
+            curl -kv https://$POSTHOG_API_HOST/_health
 
       - name: Setup PostHog for the ingestion test
         run: docker-compose -f tmp/docker-compose.yml run web python manage.py setup_dev --no-data 
 
       - name: Run ingestion test using k6
-        uses: k6io/action@v0.2.0
+        uses: grafana/k6-action@v0.2.0
         with:
           filename: charts-clickhouse/ci/k6/ingestion-test.js
           flags: --insecure-skip-tls-verify
