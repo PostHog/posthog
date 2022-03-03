@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from django.conf import settings
 
-from conftest import create_clickhouse_tables
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.sql.dead_letter_queue import KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL
@@ -16,6 +15,7 @@ from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_E
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
