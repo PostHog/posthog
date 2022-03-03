@@ -1282,12 +1282,17 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
+export enum DashboardLocation {
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
+    ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    Dashboard = 'dashboard', // When on the standard dashboard page
+}
+
 export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
-    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 // Reserved hotkeys globally available

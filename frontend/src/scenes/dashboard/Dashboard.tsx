@@ -8,7 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardMode } from '~/types'
+import { DashboardLocation, DashboardMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -21,7 +21,11 @@ import { DashboardHeader } from './DashboardHeader'
 interface Props {
     id?: string
     shareToken?: string
-    internal?: boolean
+    location?: DashboardLocation
+}
+
+interface DashboardViewProps {
+    location?: DashboardLocation
 }
 
 export const scene: SceneExport = {
@@ -30,15 +34,15 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
 }
 
-export function Dashboard({ id, shareToken, internal }: Props = {}): JSX.Element {
+export function Dashboard({ id, shareToken, location }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
-            <DashboardView />
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken }}>
+            <DashboardView location={location} />
         </BindLogic>
     )
 }
 
-function DashboardView(): JSX.Element {
+function DashboardView({ location }: DashboardViewProps = { location: DashboardLocation.Dashboard }): JSX.Element {
     const {
         dashboard,
         canEditDashboard,
@@ -56,7 +60,7 @@ function DashboardView(): JSX.Element {
     }, [])
 
     useKeyboardHotkeys(
-        dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
+        location === DashboardLocation.Public || location === DashboardLocation.InternalMetrics
             ? {}
             : {
                   e: {
@@ -94,7 +98,9 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
+            {location !== DashboardLocation.Public && location !== DashboardLocation.InternalMetrics && (
+                <DashboardHeader />
+            )}
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
@@ -104,12 +110,12 @@ function DashboardView(): JSX.Element {
                     <div className="dashboard-items-actions">
                         <div
                             className="left-item"
-                            style={dashboardMode === DashboardMode.Public ? { textAlign: 'right' } : undefined}
+                            style={location === DashboardLocation.Public ? { textAlign: 'right' } : undefined}
                         >
-                            {dashboardMode === DashboardMode.Public ? <LastRefreshText /> : <DashboardReloadAction />}
+                            {location === DashboardLocation.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
-                        {dashboardMode !== DashboardMode.Public && (
+                        {location !== DashboardLocation.Public && (
                             <div
                                 className="right-item"
                                 style={{

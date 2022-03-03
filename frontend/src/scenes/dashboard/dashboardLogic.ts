@@ -21,6 +21,7 @@ import {
     FilterType,
     InsightShortId,
     InsightType,
+    DashboardLocation,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -44,7 +45,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export interface DashboardLogicProps {
     id?: number
     shareToken?: string
-    internal?: boolean
+    location?: DashboardLocation
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
@@ -508,16 +509,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (props.id) {
                 // When the scene is initially loaded, the dashboard ID is undefined
                 actions.loadDashboardItems({
-                    refresh: props.internal,
+                    refresh: props.location === DashboardLocation.InternalMetrics,
                     dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
                 })
             }
 
             if (props.shareToken) {
-                actions.setDashboardMode(
-                    props.internal ? DashboardMode.Internal : DashboardMode.Public,
-                    DashboardEventSource.Browser
-                )
                 dashboardsModel.actions.loadSharedDashboard(props.shareToken)
             }
         },
