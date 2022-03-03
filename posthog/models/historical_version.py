@@ -1,22 +1,24 @@
-import copy
-from datetime import datetime
+import datetime
+import json
 from typing import Dict
 
 from django.db import models
 from django.utils import timezone
 
+from posthog.models import FeatureFlag
 from posthog.models.utils import UUIDModel
 
 
-def as_deletion_state(metadata: Dict) -> Dict:
-    """
-    Deletion state is being saved without access to a DRF serializer
-    So replace datetime field with a string or it can't be serialized to JSON
-    """
-    state = copy.deepcopy(metadata)
-    if state["created_at"] and isinstance(state["created_at"], datetime):
-        state["created_at"] = state["created_at"].isoformat()
-    return state
+class HistoricalVersionJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, models.base.ModelState):
+            return None
+        if isinstance(obj, FeatureFlag):
+            return obj.__dict__
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+
+        return json.JSONEncoder.default(self, obj)
 
 
 class HistoricalVersion(UUIDModel):
@@ -47,7 +49,7 @@ class HistoricalVersion(UUIDModel):
         ]
 
     # JSON of the historical item
-    state = models.JSONField(null=False)
+    state = models.JSONField(null=False, encoder=HistoricalVersionJSONEncoder)
     # e.g. FeatureFlags - in practice this will be the name of a model class
     name = models.fields.CharField(max_length=79, null=False)
 
@@ -90,20 +92,9 @@ class HistoricalVersion(UUIDModel):
         ).save()
 
     @staticmethod
-    def save_deletion(instance, item_id: int, team_id: int, metadata: Dict, user: Dict) -> None:
-        """
-        When deleting in AnalyticsDestroyModelMixin we can't inject a serializer instance.
-        And django rest framework doesn't provide the serializer in its destroy hook.
-
-        Instead, we capture a dictionary of metadata (which is a subset of the instance state)
-
-        This means we don't capture all object state on deletion.
-        In most cases this will be fine and the previous HistoricalVersion will contain any state needed
-        """
-        state = as_deletion_state(metadata)
-
+    def save_deletion(instance, item_id: int, team_id: int, user: Dict) -> None:
         version = HistoricalVersion(
-            state=state,
+            state=instance,
             name=instance.__class__.__name__,
             action="delete",
             item_id=item_id,

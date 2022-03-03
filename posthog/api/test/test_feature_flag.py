@@ -8,7 +8,6 @@ from rest_framework import status
 from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.historical_version import as_deletion_state
 from posthog.models.history_logging import HistoryListItem
 from posthog.test.base import APIBaseTest
 
@@ -339,10 +338,11 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(historical_flags[0].action, "update")
         self.assertEqual(historical_flags[0].created_by_email, self.user.email)
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
         self.client.force_login(new_user)
 
         with patch("posthog.mixins.report_user_action") as mock_capture:
@@ -369,11 +369,22 @@ class TestFeatureFlag(APIBaseTest):
 
         historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
         self.assertEqual(len(historical_flags), 1)
+        self.maxDiff = None
         self.assertEqual(
             historical_flags[0].state,
-            as_deletion_state(
-                instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
-            ),
+            {
+                "id": None,
+                "key": "potato",
+                "name": "",
+                "_state": None,
+                "active": True,
+                "deleted": False,
+                "filters": {},
+                "team_id": self.team.id,
+                "created_at": "2021-08-25T22:09:14.252000+00:00",
+                "created_by_id": self.user.id,
+                "rollout_percentage": None,
+            },
         )
         self.assertEqual(historical_flags[0].action, "delete")
 

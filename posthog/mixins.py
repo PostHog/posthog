@@ -43,7 +43,6 @@ class AnalyticsDestroyModelMixin:
                 instance=instance,
                 item_id=kwargs["pk"],
                 team_id=team_id,
-                metadata=metadata,
                 user={"first_name": request.user.first_name, "email": request.user.email, "id": request.user.id},
             )
 
