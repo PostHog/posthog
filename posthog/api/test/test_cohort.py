@@ -193,6 +193,22 @@ email@example.org,
         self.assertEqual(response["results"][0]["name"], "whatever")
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
+    def test_csv_export(self):
+        person1 = Person.objects.create(
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        person3 = Person.objects.create(
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons.csv")
+        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
