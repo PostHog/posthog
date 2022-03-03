@@ -1,16 +1,15 @@
-import http from 'http'
-
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { HTTP_SERVER_PORT } from '../src/main/services/http-server'
+import { createHttpServer } from '../src/main/services/http-server'
 import { LogLevel } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/db/sql')
+jest.mock('../src/main/services/http-server')
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('http server', () => {
-    test('_ready', async () => {
+    test('server starts on plugin server startup', async () => {
         const testCode = `
             async function processEvent (event) {
                 return event
@@ -28,10 +27,7 @@ describe('http server', () => {
             makePiscina
         )
 
-        http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
-            const { statusCode } = res
-            expect(statusCode).toEqual(200)
-        })
+        expect(createHttpServer).toHaveBeenCalled()
 
         await pluginsServer.stop()
     })
