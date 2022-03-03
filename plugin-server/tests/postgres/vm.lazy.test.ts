@@ -177,7 +177,7 @@ describe('LazyPluginVM', () => {
 
             // plugin gets disabled
             expect(disablePlugin).toHaveBeenCalledTimes(1)
-            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 35)
+            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 39)
         })
 
         it('vm init will retry on error and load plugin successfully on a retry', async () => {
