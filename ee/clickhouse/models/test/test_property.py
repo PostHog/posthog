@@ -591,12 +591,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
-        self.assertEqual(string_expr, ("mat_some_mat_prop", True))
+        self.assertEqual(string_expr, ('"mat_some_mat_prop"', True))
 
         string_expr = get_property_string_expr(
             "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(string_expr, ("e.mat_some_mat_prop", True))
+        self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
 
 @pytest.mark.django_db
