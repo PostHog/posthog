@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+DEAD_LETTER_QUEUE_TABLE_ENGINE = lambda: ReplacingMergeTree(DEAD_LETTER_QUEUE_TABLE, ver="_timestamp")
 DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
     DEAD_LETTER_QUEUE_TABLE_BASE_SQL
     + """ORDER BY (id, event_uuid, distinct_id, team_id)
@@ -41,7 +42,7 @@ SETTINGS index_granularity=512
     table_name=DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=ReplacingMergeTree(DEAD_LETTER_QUEUE_TABLE, ver="_timestamp"),
+    engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
