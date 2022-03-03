@@ -138,7 +138,7 @@ describe('LazyPluginVM', () => {
 
             // try to initialize the vm 11 times (1 try + 10 retries)
             await vm.resolveInternalVm
-            for (let i = 0; i < VM_INIT_MAX_RETRIES; ++i) {
+            for (let i = 0; i < VM_INIT_MAX_RETRIES + 1; ++i) {
                 jest.runOnlyPendingTimers()
                 await vm.resolveInternalVm
 
@@ -178,7 +178,7 @@ describe('LazyPluginVM', () => {
             // retry mechanism is called based on the error
             expect((status.warn as any).mock.calls).toEqual([
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 3 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 5 s.'],
             ])
 
             // do not fail on the second try
