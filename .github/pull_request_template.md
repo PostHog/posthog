@@ -1,6 +1,10 @@
+## Problem
+
+*Please describe or link to an issue about the problem you're solving*
+
 ## Changes
 
-*Please describe. If this affects the frontend, include screenshots.*
+*If this affects the frontend, include screenshots of your solution.*
 
 <!-- If this is based on a reference design, include a link to the relevant Figma frame! -->
 
