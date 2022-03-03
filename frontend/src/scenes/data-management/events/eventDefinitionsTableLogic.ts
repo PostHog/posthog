@@ -22,11 +22,25 @@ interface Filters {
     properties: AnyPropertyFilter[]
 }
 
-export const EVENT_DEFINITIONS_PER_PAGE = 100
+export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
 export function createDefinitionKey(event: EventDefinition, property?: PropertyDefinition): string {
     return `${event.id}-${property?.id ?? 'event'}`
+}
+
+function normalizePropertyDefinitionEndpointUrl(url: string | null): string | null {
+    if (!url) {
+        return null
+    }
+    const params = combineUrl(url).searchParams
+    return api.propertyDefinitions.determineListEndpoint(
+        params.event_names,
+        params.excluded_properties,
+        params.is_event_property,
+        params.limit,
+        params.offset
+    )
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -51,8 +65,10 @@ export const eventDefinitionsTableLogic = kea<
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Filters) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
+        setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
+        setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
     },
     reducers: {
         filters: [
@@ -70,8 +86,20 @@ export const eventDefinitionsTableLogic = kea<
                 setHoveredDefinition: (_, { definitionKey }) => definitionKey,
             },
         ],
+        openedDefinitionId: [
+            null as string | null,
+            {
+                setOpenedDefinition: (_, { id }) => id,
+            },
+        ],
+        eventDefinitionPropertiesLoading: [
+            [] as string[],
+            {
+                setEventDefinitionPropertiesLoading: (_, { ids }) => ids ?? [],
+            },
+        ],
     },
-    loaders: ({ values, cache }) => ({
+    loaders: ({ values, cache, actions }) => ({
         eventDefinitions: [
             {
                 count: 0,
@@ -135,6 +163,9 @@ export const eventDefinitionsTableLogic = kea<
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint([definition.name], keyMappingKeys, true)
                     }
+                    actions.setEventDefinitionPropertiesLoading(
+                        Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
+                    )
                     const response = await api.get(url)
                     breakpoint()
 
@@ -154,7 +185,9 @@ export const eventDefinitionsTableLogic = kea<
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
                         [url]: {
-                            ...response,
+                            count: response.count,
+                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
+                            next: normalizePropertyDefinitionEndpointUrl(response.next),
                             current: url,
                             page:
                                 Math.floor(
@@ -167,6 +200,9 @@ export const eventDefinitionsTableLogic = kea<
                         },
                     }
 
+                    actions.setEventDefinitionPropertiesLoading(
+                        values.eventDefinitionPropertiesLoading.filter((loadingId) => loadingId != definition.id)
+                    )
                     return {
                         ...values.eventPropertiesCacheMap,
                         [definition.id]: cache.apiCache[url],
@@ -206,6 +242,16 @@ export const eventDefinitionsTableLogic = kea<
                 actions.setFilters(searchParams as Filters)
                 if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                     actions.loadEventDefinitions()
+                }
+            }
+        },
+        '/events/stats/:id': ({ id }) => {
+            if (props.syncWithUrl) {
+                if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                    actions.loadEventDefinitions()
+                }
+                if (id) {
+                    actions.setOpenedDefinition(id)
                 }
             }
         },
