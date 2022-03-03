@@ -48,3 +48,4 @@ jobs:
         uses: k6io/action@v0.2.0
         with:
           filename: charts-clickhouse/ci/k6/ingestion-test.js
+          flags: --insecure-skip-tls-verify
