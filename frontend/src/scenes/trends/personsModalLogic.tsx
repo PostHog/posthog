@@ -3,7 +3,14 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
+import {
+    convertPropertyGroupToProperties,
+    errorToast,
+    fromParamsGivenUrl,
+    isGroupType,
+    pluralize,
+    toParams,
+} from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -78,14 +85,15 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 
     // If breakdown type is cohort, we use breakdown_value
     // If breakdown type is event, we just set another filter
+    const flattenedPropertyGroup = params.properties && convertPropertyGroupToProperties(params.properties)
     if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [
-            ...(params.properties || []),
+            ...(flattenedPropertyGroup || []),
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
     if (action?.properties) {
-        params.properties = [...(params.properties || []), ...action.properties]
+        params.properties = [...(flattenedPropertyGroup || []), ...action.properties]
     }
 
     return toParams({ ...params, ...restParams })

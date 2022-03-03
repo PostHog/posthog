@@ -19,12 +19,9 @@ export function toLocalFilters(filters: FilterType): LocalFilter[] {
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
-    localFilters.forEach((filter) => {
-        if (filter.properties) {
-            filter.properties = convertPropertyGroupToProperties(filter.properties)
-        }
-    })
-    return localFilters
+    return localFilters.map((filter) =>
+        filter.properties ? { ...filter, properties: convertPropertyGroupToProperties(filter.properties) } : filter
+    )
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {

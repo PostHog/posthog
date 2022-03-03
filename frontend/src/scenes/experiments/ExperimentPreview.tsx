@@ -4,11 +4,11 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
-import { ActionFilter, Experiment, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
 
 interface ExperimentPreviewProps {
     experiment: Partial<Experiment> | null
@@ -54,6 +54,9 @@ export function ExperimentPreview({
 
     const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
+
+    const experimentProperties =
+        experiment?.filters?.properties && convertPropertyGroupToProperties(experiment.filters.properties)
 
     return (
         <Row>
@@ -189,9 +192,9 @@ export function ExperimentPreview({
                         <Col span={12}>
                             <div className="card-secondary">Participants</div>
                             <div>
-                                {!!experiment?.filters?.properties?.length ? (
+                                {!!experimentProperties?.length ? (
                                     <div>
-                                        {experiment?.filters.properties.map((item: PropertyFilter) => {
+                                        {experimentProperties?.map((item: AnyPropertyFilter) => {
                                             return <PropertyFilterButton key={item.key} item={item} />
                                         })}
                                     </div>
@@ -270,7 +273,7 @@ export function ExperimentPreview({
                                                 />
                                             </b>
                                         </Row>
-                                        {event.properties?.map((prop: PropertyFilter) => (
+                                        {event.properties?.map((prop: AnyPropertyFilter) => (
                                             <PropertyFilterButton key={prop.key} item={prop} />
                                         ))}
                                     </Col>

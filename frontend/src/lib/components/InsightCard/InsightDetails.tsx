@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PathType, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, FilterType, InsightModel, InsightType, PathType } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow, LemonSpacer } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
@@ -21,7 +21,7 @@ function CompactPropertyFiltersDisplay({
     properties,
     embedded,
 }: {
-    properties: PropertyFilter[]
+    properties: AnyPropertyFilter[]
     embedded?: boolean
 }): JSX.Element {
     return (
@@ -42,7 +42,7 @@ function CompactPropertyFiltersDisplay({
                             <>
                                 {subFilter.type || 'event'}'s
                                 <span className="SeriesDisplay__raw-name">
-                                    <PropertyKeyInfo value={subFilter.key} />
+                                    {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
                                 </span>
                                 {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
                             </>
@@ -158,6 +158,8 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
 
+    const properties = filters.properties && convertPropertyGroupToProperties(filters.properties)
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     const localFilters = toLocalFilters(filters)
@@ -203,11 +205,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
             </section>
             <h5>Filters</h5>
             <section>
-                {filters.properties?.length ? (
-                    <CompactPropertyFiltersDisplay properties={filters.properties} />
-                ) : (
-                    <i>None</i>
-                )}
+                {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
             </section>
             <div className="InsightDetails__footer">
                 <div>
