@@ -536,7 +536,7 @@ def get_property_string_expr(
     table_string = f"{table_alias}." if table_alias is not None else ""
 
     if allow_denormalized_props and property_name in materialized_columns:
-        return f"{table_string}{materialized_columns[property_name]}", True
+        return f'{table_string}"{materialized_columns[property_name]}"', True
 
     return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
 
