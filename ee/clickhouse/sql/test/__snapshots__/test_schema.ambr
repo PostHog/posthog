@@ -216,10 +216,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog\nTO posthog_test.groups\nAS SELECT\ngroup_type_index,\ngroup_key,\ncreated_at,\nteam_id,\ngroup_properties,\n_timestamp,\n_offset\nFROM posthog_test.kafka_groups\n]
+# name: test_create_table_query[\nCREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'\nTO posthog_test.groups\nAS SELECT\ngroup_type_index,\ngroup_key,\ncreated_at,\nteam_id,\ngroup_properties,\n_timestamp,\n_offset\nFROM posthog_test.kafka_groups\n]
   '
   
-  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
   group_type_index,
@@ -326,10 +326,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
   '
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
       cohort_id Int64,
@@ -801,10 +801,10 @@
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
+# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
   '
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
       cohort_id Int64,
