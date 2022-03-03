@@ -52,9 +52,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                         ...newState,
                         values: newState.values.filter((_, idx: number) => idx !== filterGroup),
                     }
-                    if (removedFilterGroupState.values.length <= 1) {
-                        return { values: removedFilterGroupState.values }
-                    }
                     return removedFilterGroupState
                 },
                 setOuterPropertyGroupsType: (state, { type }) => {

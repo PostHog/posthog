@@ -10,10 +10,8 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { FilterLogicalOperator, FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
+import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +24,8 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -130,31 +130,24 @@ export function FunnelTab(): JSX.Element {
                         <TestAccountFilter filters={filters} onChange={setFilters} />
                     </div>
                 </div>
-                <PropertyFilters
-                    pageKey={`EditFunnel-property`}
-                    propertyFilters={filters.properties?.values[0]?.values || []}
-                    onChange={(anyProperties) => {
-                        setFilters({
-                            properties: {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        type: FilterLogicalOperator.And,
-                                        values: anyProperties.filter(isValidPropertyFilter),
-                                    },
-                                ],
-                            },
-                        })
-                    }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                    eventNames={allEventNames}
-                />
+                {filters.properties && (
+                    <PropertyGroupFilters
+                        propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                        style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
+                        onChange={(properties: PropertyGroupFilter) => {
+                            setFilters({ properties })
+                        }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        pageKey="EditFunnel-property"
+                        eventNames={allEventNames}
+                    />
+                )}
 
                 {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>

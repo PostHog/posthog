@@ -14,8 +14,8 @@ import {
     PropertyFilterValue,
     PropertyType,
     PropertyGroupFilter,
-    PropertyFilter,
     FilterLogicalOperator,
+    AnyPropertyFilter,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -1328,18 +1328,39 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
 
-export function isPropertyGroup(properties: PropertyGroupFilter | PropertyFilter[]): properties is PropertyGroupFilter {
-    // console.log('properties', properties.values)
-    return (properties as PropertyGroupFilter).type !== undefined
+export function isPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): properties is PropertyGroupFilter {
+    if (properties) {
+        return (properties as PropertyGroupFilter).type !== undefined
+    }
+    return false
 }
 
 export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | PropertyFilter[]
+    properties: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
         return properties
     }
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+}
+
+export function convertPropertyGroupToProperties(
+    properties: PropertyGroupFilter | AnyPropertyFilter[]
+): AnyPropertyFilter[] {
+    if (isPropertyGroup(properties)) {
+        return flattenProperties(properties)
+    }
+    return properties
+}
+
+export function flattenProperties(properties: PropertyGroupFilter): AnyPropertyFilter[] {
+    const flattenedProps: AnyPropertyFilter[] = []
+    for (let i = 0; i < properties.values.length; i++) {
+        properties.values[i].values.forEach((val) => flattenedProps.push(val))
+    }
+    return flattenedProps
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

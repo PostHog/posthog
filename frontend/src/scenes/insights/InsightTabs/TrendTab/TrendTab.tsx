@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterType, InsightType, PropertyGroupFilter } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import './TrendTab.scss'
@@ -17,7 +16,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet, convertPropertiesToPropertyGroup, isPropertyGroup } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
@@ -114,9 +113,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            {filters.properties && isPropertyGroup(filters.properties) ? (
+                            {filters.properties && (
                                 <PropertyGroupFilters
-                                    propertyFilters={filters.properties as PropertyGroupFilter}
+                                    propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
                                     style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                                     onChange={(properties) => {
                                         setFilters({ properties })
@@ -131,26 +130,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     pageKey="trends-filters"
                                     eventNames={allEventNames}
                                 />
-                            ) : (
-                                <>
-                                    <GlobalFiltersTitle />
-                                    <PropertyFilters
-                                        propertyFilters={filters.properties}
-                                        onChange={(properties) => {
-                                            const convertedProperties = convertPropertiesToPropertyGroup(properties)
-                                            setFilters({ properties: convertedProperties })
-                                        }}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            ...groupsTaxonomicTypes,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        pageKey="trends-filters"
-                                        eventNames={allEventNames}
-                                    />
-                                </>
                             )}
 
                             <TestAccountFilter filters={filters} onChange={setFilters} />

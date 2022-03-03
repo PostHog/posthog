@@ -41,7 +41,7 @@ export function PropertyGroupFilters({
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        setFilters(propertyFilters ?? { values: [] })
+        setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
     }, [propertyFilters])
 
     return (
@@ -56,7 +56,7 @@ export function PropertyGroupFilters({
                             style={{ borderBottom: '1px solid var(--border)' }}
                         >
                             <GlobalFiltersTitle orFiltering={true} />
-                            {filtersWithNew.type && (
+                            {filtersWithNew.type && filtersWithNew.values.length > 2 && (
                                 <AndOrFilterSelect
                                     value={filtersWithNew.type}
                                     onChange={(value) => setOuterPropertyGroupsType(value)}

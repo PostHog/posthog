@@ -6,7 +6,7 @@ import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, convertPropertiesToPropertyGroup } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
@@ -168,7 +168,7 @@ export function EventsTable({
                                 className="ph-no-capture"
                                 property={param}
                                 value={event.properties[param] as string}
-                                filters={{ properties }}
+                                filters={{ properties: convertPropertiesToPropertyGroup(properties) }}
                             />
                         )
                     }
@@ -188,7 +188,7 @@ export function EventsTable({
                             <FilterPropertyLink
                                 property="$lib"
                                 value={event.properties['$lib'] as string}
-                                filters={{ properties }}
+                                filters={{ properties: convertPropertiesToPropertyGroup(properties) }}
                             />
                         )
                     }
