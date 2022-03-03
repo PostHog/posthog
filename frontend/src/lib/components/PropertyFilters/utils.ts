@@ -34,10 +34,6 @@ export function parseProperties(
     })
 }
 
-export function parsePropertyGroups(groups: PropertyGroupFilter): PropertyGroupFilter {
-    return groups || { values: [] }
-}
-
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */
 export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is PropertyFilter {
     return (
