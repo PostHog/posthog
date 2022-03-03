@@ -1449,7 +1449,7 @@ export enum FilterLogicalOperator {
     Or = 'OR',
 }
 export interface PropertyGroupFilter {
-    type?: FilterLogicalOperator
+    type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
 }
 

@@ -1343,7 +1343,10 @@ export function convertPropertiesToPropertyGroup(
     if (isPropertyGroup(properties)) {
         return properties
     }
-    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    if (properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
 }
 
 export function convertPropertyGroupToProperties(

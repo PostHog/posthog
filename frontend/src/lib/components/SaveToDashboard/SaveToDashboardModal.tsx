@@ -51,12 +51,17 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
             <form onSubmit={(e) => void save(e)}>
                 <label>Dashboard</label>
                 <Select
+                    data-attr="add-to-dashboard-select"
                     value={dashboardId}
                     onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
                     style={{ width: '100%' }}
                 >
-                    {nameSortedDashboards.map((dashboard) => (
-                        <Select.Option key={dashboard.id} value={dashboard.id}>
+                    {nameSortedDashboards.map((dashboard, idx) => (
+                        <Select.Option
+                            data-attr={`add-to-dashboard-option-${idx}`}
+                            key={dashboard.id}
+                            value={dashboard.id}
+                        >
                             {dashboard.name}
                         </Select.Option>
                     ))}

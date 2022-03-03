@@ -113,7 +113,12 @@ export function PropertyGroupFilters({
                 </div>
             )}
             <div>
-                <LemonButton className="mb" type="secondary" onClick={() => addFilterGroup()}>
+                <LemonButton
+                    data-attr={`${pageKey}-add-filter-group`}
+                    className="mb"
+                    type="secondary"
+                    onClick={() => addFilterGroup()}
+                >
                     <IconPlus /> Add filter group
                 </LemonButton>
             </div>
