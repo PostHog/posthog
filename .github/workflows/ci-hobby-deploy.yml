@@ -9,8 +9,8 @@ on:
       - .github/workflows/ci-hobby-deploy.yml
 
 env:
-    POSTHOG_EVENT_ENDPOINT: 'http://127.0.0.1:8080'
-    POSTHOG_API_ENDPOINT: 'http://127.0.0.1:8080'
+    POSTHOG_EVENT_ENDPOINT: 'http://127.0.0.1:8000'
+    POSTHOG_API_ENDPOINT: 'http://127.0.0.1:8000'
     SKIP_SOURCE_IP_ADDRESS_CHECK: 'true'
 
 jobs:
