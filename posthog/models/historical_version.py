@@ -63,6 +63,9 @@ class HistoricalVersion(UUIDModel):
     # to avoid an integer version field for ordering revisions
     versioned_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
+    # created_by_X does not use a foreign key
+    # so that deletion of users does not erase history
+
     # user that caused the change
     created_by_email = models.EmailField(null=False)
     # max length from User model
