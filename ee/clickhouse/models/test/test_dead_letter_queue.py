@@ -3,7 +3,6 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from kafka import KafkaProducer
-from semantic_version.base import SimpleSpec
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
@@ -12,7 +11,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
-from posthog.version_requirement import get_clickhouse_version
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
     {"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token",},}
@@ -46,17 +44,10 @@ def reset_tables():
     sync_execute("TRUNCATE TABLE events_dead_letter_queue")
 
     # We can't truncate a table using Kafka engine but reading from it will delete all the rows
-    truncate_kafka_table_query = "SELECT * FROM kafka_events_dead_letter_queue"
-
     # Note: ClickHouse version >= 21.12 do not allow direct select for Kafka/RabbitMQ/FileLog engine tables.
     #       We can pass `stream_like_engine_allow_direct_select` to override this behavior.
     #       Once we drop support for ClickHouse < 21.12 we can remove this if.
-    version_range = SimpleSpec(">=21.12")
-    current_version = get_clickhouse_version()
-    if current_version in version_range:
-        truncate_kafka_table_query += " SETTINGS stream_like_engine_allow_direct_select = 1"
-
-    sync_execute(truncate_kafka_table_query)
+    sync_execute("SELECT * FROM kafka_events_dead_letter_queue", settings={"stream_like_engine_allow_direct_select": 1})
 
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
