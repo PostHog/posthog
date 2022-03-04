@@ -11,8 +11,7 @@ import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { statusReport } from '../utils/status-report'
-import { delay, determineNodeEnv, getPiscinaStats, NodeEnv,stalenessCheck } from '../utils/utils'
+import { delay, determineNodeEnv, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -35,6 +34,8 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina
 ): Promise<ServerInstance> {
+    const timer = new Date()
+
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -80,7 +81,6 @@ export async function startPluginsServer(
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
         pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
-        statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
@@ -255,6 +255,7 @@ export async function startPluginsServer(
         // start http server used for the healthcheck
         httpServer = createHttpServer(hub, serverConfig)
 
+        hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
 
         hub.lastActivity = new Date().valueOf()

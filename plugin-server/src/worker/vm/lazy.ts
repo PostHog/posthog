@@ -21,19 +21,23 @@ export const INITIALIZATION_RETRY_MULTIPLIER = 2
 export const INITIALIZATION_RETRY_BASE_MS = 5000
 
 export class LazyPluginVM {
-    initialize?: (hub: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo: string) => Promise<void>
+    initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
     ready: boolean
     vmResponseVariable: string | null
+    pluginConfig: PluginConfig
+    hub: Hub
 
-    constructor() {
+    constructor(hub: Hub, pluginConfig: PluginConfig) {
         this.totalInitAttemptsCounter = 0
         this.initRetryTimeout = null
         this.ready = false
         this.vmResponseVariable = null
+        this.pluginConfig = pluginConfig
+        this.hub = hub
         this.initVm()
     }
 
@@ -103,18 +107,18 @@ export class LazyPluginVM {
     private initVm() {
         this.totalInitAttemptsCounter++
         this.resolveInternalVm = new Promise((resolve) => {
-            this.initialize = async (hub: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo = '') => {
+            this.initialize = async (indexJs: string, logInfo = '') => {
                 const createLogEntry = async (message: string, logType = PluginLogEntryType.Info): Promise<void> => {
-                    await hub.db.queuePluginLogEntry({
-                        pluginConfig,
+                    await this.hub.db.queuePluginLogEntry({
                         message,
+                        pluginConfig: this.pluginConfig,
                         source: PluginLogEntrySource.System,
                         type: logType,
-                        instanceId: hub.instanceId,
+                        instanceId: this.hub.instanceId,
                     })
                 }
                 try {
-                    const vm = createPluginConfigVM(hub, pluginConfig, indexJs)
+                    const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
                     const shouldSetupNow =
                         (!this.ready && // harmless check used to skip setup in tests
@@ -125,15 +129,15 @@ export class LazyPluginVM {
                         await vm.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
                         this.ready = true
                     }
-                    await createLogEntry(`Plugin loaded (instance ID ${hub.instanceId}).`)
+                    await createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    void clearError(hub, pluginConfig)
-                    await this.inferPluginCapabilities(hub, pluginConfig, vm)
+                    void clearError(this.hub, this.pluginConfig)
+                    await this.inferPluginCapabilities(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
                     await createLogEntry(error.message, PluginLogEntryType.Error)
-                    void processError(hub, pluginConfig, error)
+                    void processError(this.hub, this.pluginConfig, error)
                     if (this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
                         const nextRetryMs =
                             INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
@@ -141,12 +145,12 @@ export class LazyPluginVM {
                         const nextRetrySeconds = `${nextRetryMs / 1000} s`
                         status.warn('⚠️', `Failed to load ${logInfo}. Retrying in ${nextRetrySeconds}.`)
                         await createLogEntry(
-                            `Plugin failed to load (instance ID ${hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
+                            `Plugin failed to load (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
                             PluginLogEntryType.Error
                         )
                         this.initRetryTimeout = setTimeout(() => {
                             this.initVm()
-                            void this.initialize?.(hub, pluginConfig, indexJs, logInfo)
+                            void this.initialize?.(indexJs, logInfo)
                         }, nextRetryMs)
                         resolve(null)
                     } else {
@@ -155,10 +159,10 @@ export class LazyPluginVM {
                         } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
                         status.warn('⚠️', `Failed to load ${logInfo}. ${failureContextMessage}`)
                         await createLogEntry(
-                            `Plugin failed to load (instance ID ${hub.instanceId}). ${failureContextMessage}`,
+                            `Plugin failed to load (instance ID ${this.hub.instanceId}). ${failureContextMessage}`,
                             PluginLogEntryType.Error
                         )
-                        void disablePlugin(hub, pluginConfig.id)
+                        void disablePlugin(this.hub, this.pluginConfig.id)
                         resolve(null)
                     }
                 }
@@ -177,13 +181,9 @@ export class LazyPluginVM {
         this.ready = true
     }
 
-    private async inferPluginCapabilities(
-        hub: Hub,
-        pluginConfig: PluginConfig,
-        vm: PluginConfigVMResponse
-    ): Promise<void> {
-        if (!pluginConfig.plugin) {
-            throw new Error(`'PluginConfig missing plugin: ${pluginConfig}`)
+    private async inferPluginCapabilities(vm: PluginConfigVMResponse): Promise<void> {
+        if (!this.pluginConfig.plugin) {
+            throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
         }
 
         const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
@@ -215,10 +215,10 @@ export class LazyPluginVM {
             }
         }
 
-        const prevCapabilities = pluginConfig.plugin.capabilities
+        const prevCapabilities = this.pluginConfig.plugin.capabilities
         if (!equal(prevCapabilities, capabilities)) {
-            await setPluginCapabilities(hub, pluginConfig, capabilities)
-            pluginConfig.plugin.capabilities = capabilities
+            await setPluginCapabilities(this.hub, this.pluginConfig, capabilities)
+            this.pluginConfig.plugin.capabilities = capabilities
         }
     }
 }

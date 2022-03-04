@@ -1,6 +1,10 @@
+## Problem
+
+*Who are we building for, what are their needs, why is this important?*
+
 ## Changes
 
-*Please describe. If this affects the frontend, include screenshots.*
+*If this affects the frontend, include screenshots of your solution.*
 
 <!-- If this is based on a reference design, include a link to the relevant Figma frame! -->
 
