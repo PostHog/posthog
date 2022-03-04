@@ -143,9 +143,18 @@ class Migration(AsyncMigrationDefinition):
             fn=lambda _: self.move_partitions(table.name, table.tmp_table_name),
             rollback_fn=lambda _: self.move_partitions(table.tmp_table_name, table.name),
         )
-        yield AsyncMigrationOperation.simple_op(
-            sql=f"RENAME TABLE {table.name} TO {table.backup_table_name}, {table.tmp_table_name} TO {table.renamed_table_name}",
-            rollback=f"RENAME TABLE {table.backup_table_name} TO {table.name}, {table.renamed_table_name} TO {table.tmp_table_name}",
+
+        yield AsyncMigrationOperation(
+            fn=lambda _: self.rename_tables(
+                table.name, table.tmp_table_name, table.renamed_table_name, table.backup_table_name
+            ),
+            rollback_fn=lambda _: self.rename_tables(
+                table.backup_table_name,
+                table.renamed_table_name,
+                table.tmp_table_name,
+                table.name,
+                skip_if_backup_exists=True,
+            ),
         )
 
         if table.materialized_view_name is not None:
@@ -158,11 +167,13 @@ class Migration(AsyncMigrationDefinition):
             for create_table_query in table.extra_tables:
                 yield AsyncMigrationOperation.simple_op(sql=create_table_query)
 
-    def get_current_engine(self, table_name: str):
-        return sync_execute(
+    def get_current_engine(self, table_name: str) -> Optional[str]:
+        result = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},
-        )[0][0]
+        )
+
+        return result[0][0] if len(result) > 0 else None
 
     def get_new_engine(self, table: TableMigrationData):
         """
@@ -216,6 +227,25 @@ class Migration(AsyncMigrationDefinition):
             # :KLUDGE: Partition IDs are special and cannot be passed as arguments
             sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
+
+    def rename_tables(
+        self, data_table_name, tmp_table_name, new_main_table_name, backup_table_name, skip_if_backup_exists=False
+    ):
+        # :KLUDGE: Due to how async migrations rollback works, we need to check whether backup table exists even if the rename failed
+        #   in the first place
+        if skip_if_backup_exists and self.get_current_engine(backup_table_name) is not None:
+            logger.info(
+                "Backup table already exists, skipping renaming.",
+                data_table_name=data_table_name,
+                new_table_name=tmp_table_name,
+                new_main_table_name=new_main_table_name,
+                backup_table_name=backup_table_name,
+            )
+            return
+
+        return sync_execute(
+            f"RENAME TABLE {data_table_name} TO {backup_table_name}, {tmp_table_name} TO {new_main_table_name}"
+        )
 
     def get_number_of_nodes_in_cluster(self):
         return sync_execute(
