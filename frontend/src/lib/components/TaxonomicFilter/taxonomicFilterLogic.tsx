@@ -25,7 +25,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ActionStack, CohortIcon, PropertyIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 
 const eventTaxonomicGroupProps = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -50,7 +49,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
-        actions: [columnConfiguratorLogic, ['save']],
     },
     actions: () => ({
         moveUp: true,
@@ -362,10 +360,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
     },
     listeners: ({ actions, values, props }) => ({
-        save: () => {
-            // implemented as a listener not on reducer so that the change is reflected in the infinite list data
-            actions.setSearchQuery('')
-        },
         selectItem: ({ group, value, item }) => {
             if (item && value) {
                 props.onChange?.(group, value, item)
