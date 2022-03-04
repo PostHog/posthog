@@ -13,6 +13,19 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="""
+                DELETE FROM "posthog_taggeditem" T1
+                    USING   "posthog_taggeditem" T2
+                WHERE
+                    (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.insight_id  = T2.insight_id) OR
+                    (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.dashboard_id  = T2.dashboard_id) OR
+                    (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.event_definition_id  = T2.event_definition_id) OR
+                    (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.property_definition_id  = T2.property_definition_id) OR
+                    (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.action_id  = T2.action_id);
+            """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        migrations.RunSQL(
+            sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_dashboard_tagged_item" ON "posthog_taggeditem" ("tag_id", "dashboard_id")
                 WHERE "dashboard_id" is NOT NULL
             """,
