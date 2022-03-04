@@ -49,16 +49,22 @@ export const groupsModel = kea<groupsModelType>({
         ],
         aggregationLabel: [
             (s) => [s.groupTypes],
-            (groupTypes) => (groupTypeIndex: number | null | undefined) => {
-                if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
-                    const groupType = groupTypes[groupTypeIndex]
-                    return {
-                        singular: groupType.name_plural || groupType.group_type,
-                        plural: groupType.name_plural || `${groupType.group_type}(s)`,
+            (groupTypes) =>
+                (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false) => {
+                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
+                        const groupType = groupTypes[groupTypeIndex]
+                        return {
+                            singular: groupType.name_plural || groupType.group_type,
+                            plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                        }
                     }
-                }
-                return { singular: 'person', plural: 'people' }
-            },
+                    return deferToUserWording
+                        ? {
+                              singular: 'user',
+                              plural: 'users',
+                          }
+                        : { singular: 'person', plural: 'persons' }
+                },
         ],
     },
     events: ({ actions }) => ({
