@@ -161,7 +161,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             const { apiURL, temporaryToken } = toolbarLogic.values
             const { selectedActionId } = values
 
-            let response
+            let response: ActionType
             if (selectedActionId && selectedActionId !== 'new') {
                 response = await api.update(
                     `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
