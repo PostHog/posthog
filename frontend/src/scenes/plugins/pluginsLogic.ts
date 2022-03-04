@@ -25,6 +25,8 @@ export enum PluginSection {
     Disabled = 'disabled',
 }
 
+const PAGINATION_DEFAULT_MAX_PAGES = 10
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -34,10 +36,16 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-async function loadPaginatedResults(url: string | null, maxIterations: number = 10): Promise<any[]> {
+async function loadPaginatedResults(
+    url: string | null,
+    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
+): Promise<any[]> {
     let results: any[] = []
-    let i = 0
-    while (url && ++i <= maxIterations) {
+    for (let i = 0; i <= maxIterations; ++i) {
+        if (!url) {
+            break
+        }
+
         const { results: partialResults, next } = await api.get(url)
         results = results.concat(partialResults)
         url = next
@@ -95,7 +103,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {
                 loadPlugins: async () => {
                     const results = await loadPaginatedResults('api/organizations/@current/plugins')
-                    console.log(results)
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
