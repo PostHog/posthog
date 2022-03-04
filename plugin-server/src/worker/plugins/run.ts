@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Alert, Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
-import { statusReport } from '../../utils/status-report'
 import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
 
