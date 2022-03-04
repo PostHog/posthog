@@ -54,12 +54,9 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
-    const style = {}
-    if (height) {
-        style['height'] = `${height}px`
-    }
-    if (width) {
-        style['width'] = `${width}px`
+    const style = {
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
     }
 
     return (
