@@ -11,7 +11,7 @@ from posthog.models.property import Property, PropertyGroup
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def properties(self) -> List[Property]:
+    def old_properties(self) -> List[Property]:
         _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
@@ -23,7 +23,9 @@ class PropertyMixin(BaseParamMixin):
             loaded_props = _props
 
         # if grouped properties
-        if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
+        if (isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props) or isinstance(
+            loaded_props, PropertyGroup
+        ):
             # property_groups is main function from now on
             # TODO: this function will go away at end of migration
             return []
@@ -51,9 +53,12 @@ class PropertyMixin(BaseParamMixin):
                 raise e
             except ValueError as e:
                 raise ValidationError(f"PropertyGroup is unparsable: {e}")
+        # already a PropertyGroup just return
+        elif isinstance(loaded_props, PropertyGroup):
+            return loaded_props
 
         # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties)
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
@@ -112,9 +117,6 @@ class PropertyMixin(BaseParamMixin):
 
     @include_dict
     def properties_to_dict(self):
-        if self.properties:
-            return {PROPERTIES: [prop.to_dict() for prop in self.properties]}
-
         return (
             {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.values else {}
         )

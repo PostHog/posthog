@@ -53,7 +53,7 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              e.properties as properties
+                              e."properties" as "properties"
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -636,7 +636,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['$browser'], [pmat_$browser])) as prop
+            arrayJoin(arrayZip(['$browser'], ["pmat_$browser"])) as prop
      FROM funnel_actors
      JOIN
        (SELECT id,
@@ -735,7 +735,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Positive'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -823,7 +823,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Positive'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -911,7 +911,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Negative'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -999,7 +999,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Negative'], argMax(person.pmat_$browser, _timestamp)))) person ON person.id = funnel_actors.actor_id
+     AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -1057,7 +1057,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_1 as aggregation_target
+                              e."$group_1" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1162,7 +1162,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_1 as aggregation_target
+                              e."$group_1" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1267,7 +1267,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1362,7 +1362,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1454,7 +1454,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1546,7 +1546,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1638,7 +1638,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -1730,7 +1730,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target,
+                              e."$group_0" as aggregation_target,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -1746,7 +1746,7 @@
                           FROM groups
                           WHERE team_id = 2
                             AND group_type_index = 0
-                          GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1835,7 +1835,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target,
+                              e."$group_0" as aggregation_target,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -1851,7 +1851,7 @@
                           FROM groups
                           WHERE team_id = 2
                             AND group_type_index = 0
-                          GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1937,7 +1937,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target,
+                              e."$group_0" as aggregation_target,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -1953,7 +1953,7 @@
                           FROM groups
                           WHERE team_id = 2
                             AND group_type_index = 0
-                          GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2039,7 +2039,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2136,7 +2136,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2226,7 +2226,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2316,7 +2316,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2406,7 +2406,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2496,7 +2496,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2595,7 +2595,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2692,7 +2692,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2782,7 +2782,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2872,7 +2872,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -2962,7 +2962,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -3052,7 +3052,7 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.$group_0 as aggregation_target
+                              e."$group_0" as aggregation_target
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,

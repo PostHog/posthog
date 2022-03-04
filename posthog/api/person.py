@@ -143,7 +143,7 @@ class PersonFilter(filters.FilterSet):
 
         return queryset.filter(
             properties_to_Q(
-                [prop for prop in filter.properties if prop.type == "person"],
+                [prop for prop in filter.property_groups.flat if prop.type == "person"],
                 team_id=self.team_id,
                 is_direct_query=True,
             )

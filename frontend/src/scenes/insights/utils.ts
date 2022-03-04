@@ -5,6 +5,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -76,6 +77,16 @@ export function findInsightFromMountedLogic(
             ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
         if (insight) {
             return insight
+        }
+    } else {
+        const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
+        for (const dashModelId of Object.keys(dashboards || {})) {
+            const insight = dashboardLogic
+                .findMounted({ id: dashModelId })
+                ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+            if (insight) {
+                return insight
+            }
         }
     }
 
