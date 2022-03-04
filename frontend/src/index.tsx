@@ -9,6 +9,7 @@ import { App } from 'scenes/App'
 import { initKea } from './initKea'
 
 import { loadPostHogJS } from './loadPostHogJS'
+import { ErrorBoundary } from './layout/ErrorBoundary'
 
 loadPostHogJS()
 initKea()
@@ -26,7 +27,9 @@ if (typeof window !== 'undefined') {
 function renderApp(): void {
     ReactDOM.render(
         <Provider store={getContext().store}>
-            <App />
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
         </Provider>,
         document.getElementById('root')
     )
