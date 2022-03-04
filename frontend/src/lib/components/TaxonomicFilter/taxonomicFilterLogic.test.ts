@@ -14,6 +14,7 @@ import { AppContext } from '~/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsModel } from '~/models/actionsModel'
+import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 
 jest.mock('lib/api')
 
@@ -39,6 +40,7 @@ describe('taxonomicFilterLogic', () => {
         teamLogic.mount()
         actionsModel.mount()
         groupsModel.mount()
+        columnConfiguratorLogic({ selectedColumns: [] }).mount()
     })
 
     const setupLogic = (clearSearchOnSelection?: boolean): void => {
@@ -71,6 +73,15 @@ describe('taxonomicFilterLogic', () => {
                 logic.actions.selectItem({} as TaxonomicFilterGroup, '' as TaxonomicFilterValue, null)
             }).toMatchValues({
                 searchQuery: 'tomato',
+            })
+        })
+
+        it('clears the search query when the column configurator saves', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('tomato')
+                columnConfiguratorLogic.actions.save()
+            }).toMatchValues({
+                searchQuery: '',
             })
         })
     })
