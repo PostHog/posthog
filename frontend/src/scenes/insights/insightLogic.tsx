@@ -66,7 +66,18 @@ export const insightLogic = kea<insightLogicType>({
     path: (key) => ['scenes', 'insights', 'insightLogic', key],
 
     connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            groupsModel,
+            ['aggregationLabel'],
+            cohortsModel,
+            ['cohortsById'],
+            mathsLogic,
+            ['mathDefinitions'],
+        ],
         logic: [eventUsageLogic, dashboardsModel],
     },
 
@@ -645,9 +656,9 @@ export const insightLogic = kea<insightLogicType>({
                     ...values.insight,
                     derived_name: summarizeInsightFilters(
                         values.insight.filters || {},
-                        groupsModel.values.aggregationLabel,
-                        cohortsModel.values.cohortsIdMapped,
-                        mathsLogic.values.mathDefinitions
+                        values.aggregationLabel,
+                        values.cohortsById,
+                        values.mathDefinitions
                     ).slice(0, 400),
                     saved: true,
                 } as InsightModel
