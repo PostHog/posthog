@@ -102,9 +102,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await loadPaginatedResults('api/organizations/@current/plugins')
+                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
-                    for (const plugin of results as PluginType[]) {
+                    for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
                     return plugins
@@ -166,9 +166,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const results = await loadPaginatedResults('api/plugin_config')
+                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
 
-                    for (const pluginConfig of results as PluginConfigType[]) {
+                    for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
                     }
 
