@@ -58,7 +58,7 @@ export function InfiniteSelectResults({
         return (
             <BindLogic
                 logic={infiniteListLogic}
-                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
+                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0], popperEnabled }}
             >
                 <InfiniteList popperEnabled={popperEnabled} />
             </BindLogic>
@@ -93,7 +93,7 @@ export function InfiniteSelectResults({
                     <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
                         <BindLogic
                             logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
+                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType, popperEnabled }}
                         >
                             <InfiniteList popperEnabled={popperEnabled} />
                         </BindLogic>

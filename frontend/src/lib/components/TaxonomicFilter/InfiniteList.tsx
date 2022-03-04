@@ -260,8 +260,6 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const logic = infiniteListLogic({ popperEnabled, ...taxonomicFilterLogic.props, listGroupType: activeTab })
-
     const {
         isLoading,
         results,
@@ -274,8 +272,8 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
         totalResultCount,
         totalListCount,
         expandedCount,
-    } = useValues(logic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(logic)
+    } = useValues(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
