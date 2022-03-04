@@ -90,9 +90,6 @@ class Migration(AsyncMigrationDefinition):
         return "Distributed" not in self.get_current_engine("events")
 
     def precheck(self):
-        if not settings.TEST:
-            return False, "Replicated schema migration is not yet ready"
-
         if not settings.CLICKHOUSE_REPLICATION:
             return False, "CLICKHOUSE_REPLICATION env var needs to be set for this migration"
 
