@@ -167,7 +167,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -357,7 +357,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -545,7 +545,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -733,7 +733,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -921,7 +921,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -1013,7 +1013,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1108,7 +1108,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1203,7 +1203,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 1
-                    GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
+                    GROUP BY group_key) groups_1 ON group_1 == groups_1.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1307,8 +1307,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
+                        e."mat_session_id" as $session_id,
+                        e."mat_window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1432,8 +1432,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
+                        e."mat_session_id" as $session_id,
+                        e."mat_window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1557,8 +1557,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
+                        e."mat_session_id" as $session_id,
+                        e."mat_window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'
@@ -1688,8 +1688,8 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
+                        e."mat_session_id" as $session_id,
+                        e."mat_window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                            FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
                                                                                                                                        FROM trim(BOTH '"'

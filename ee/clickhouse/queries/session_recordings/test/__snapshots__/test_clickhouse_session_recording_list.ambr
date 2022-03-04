@@ -12,7 +12,7 @@
             event,
             team_id,
             timestamp ,
-            "$session_id" as session_id
+            "mat_session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -68,7 +68,7 @@
             event,
             team_id,
             timestamp ,
-            "$session_id" as session_id
+            "mat_session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -207,7 +207,7 @@
             event,
             team_id,
             timestamp ,
-            "$session_id" as session_id
+            "mat_session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -263,7 +263,7 @@
             event,
             team_id,
             timestamp ,
-            "$session_id" as session_id
+            "mat_session_id" as session_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
