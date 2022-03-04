@@ -33,11 +33,9 @@ describe('the column configurator lets the user change which columns should be v
         const defaultColumns = ['1', '2']
         await expectLogic(logic, () => {
             logic.actions.resetColumns(defaultColumns)
+        }).toMatchValues({
+            selectedColumns: defaultColumns,
         })
-            .toDispatchActions([tableConfigLogic.actionCreators.setSelectedColumns(defaultColumns)])
-            .toMatchValues({
-                selectedColumns: defaultColumns,
-            })
     })
 
     it('can not duplicate columns', async () => {

@@ -29,8 +29,5 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnCon
         save: () => {
             tableConfigLogic.actions.setSelectedColumns(values.selectedColumns)
         },
-        resetColumns: ({ columns }) => {
-            tableConfigLogic.actions.setSelectedColumns(columns)
-        },
     }),
 })
