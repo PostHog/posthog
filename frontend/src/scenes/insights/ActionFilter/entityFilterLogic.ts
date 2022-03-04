@@ -10,7 +10,7 @@ export type LocalFilter = ActionFilter & {
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
-export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
+export function toLocalFilters(filters: FilterType): LocalFilter[] {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),

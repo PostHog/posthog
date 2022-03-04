@@ -13,7 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
     IconArrowDropDown,
@@ -34,10 +34,6 @@ import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { InsightCard } from 'lib/components/InsightCard'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 const { TabPane } = Tabs
 
@@ -162,9 +158,6 @@ export function SavedInsights(): JSX.Element {
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
 
     const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
@@ -192,16 +185,7 @@ export function SavedInsights(): JSX.Element {
                     <>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                             <Link to={urls.insightView(insight.short_id)} className="row-name">
-                                {name || (
-                                    <i>
-                                        {summarizeInsightFilters(
-                                            insight.filters,
-                                            aggregationLabel,
-                                            cohortsById,
-                                            mathDefinitions
-                                        )}
-                                    </i>
-                                )}
+                                {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}

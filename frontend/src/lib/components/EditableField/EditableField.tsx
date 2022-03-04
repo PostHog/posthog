@@ -25,7 +25,6 @@ interface EditableFieldProps {
     /** Controlled mode. */
     mode?: 'view' | 'edit'
     className?: string
-    style?: React.CSSProperties
     'data-attr'?: string
     saveButtonText?: string
     /** Extra information shown next to the field. */
@@ -49,7 +48,6 @@ export function EditableField({
     paywall = false,
     mode,
     className,
-    style,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
     notice,
@@ -99,7 +97,6 @@ export function EditableField({
                 className
             )}
             data-attr={dataAttr}
-            style={style}
         >
             <Tooltip
                 placement="right"

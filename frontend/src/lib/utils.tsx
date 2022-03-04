@@ -13,7 +13,6 @@ import {
     ActionType,
     PropertyFilterValue,
     PropertyType,
-    CohortType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -445,15 +444,13 @@ export function isOperatorDate(operator: string): boolean {
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
+    cohorts: Record<string, any>[],
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? value in cohortsById
-            ? cohortsById[value]
-            : value
+        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`

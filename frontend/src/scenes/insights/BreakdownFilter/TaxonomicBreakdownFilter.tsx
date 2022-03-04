@@ -33,7 +33,7 @@ export function BreakdownFilter({
     useMultiBreakdown = false,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
-    const { cohortsById } = useValues(cohortsModel)
+    const { cohorts } = useValues(cohortsModel)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -88,7 +88,9 @@ export function BreakdownFilter({
               >
                   {isPersonEventOrGroup(t) && <PropertyKeyInfo value={t} />}
                   {isAllCohort(t) && <PropertyKeyInfo value={'All Users'} />}
-                  {isCohort(t) && <PropertyKeyInfo value={cohortsById[t]?.name || `Cohort ${t}`} />}
+                  {isCohort(t) && (
+                      <PropertyKeyInfo value={cohorts.filter((c) => c.id == t)[0]?.name || `Cohort ${t}`} />
+                  )}
               </Tag>
           ))
 

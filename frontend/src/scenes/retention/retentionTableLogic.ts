@@ -28,8 +28,8 @@ const dateOptionToTimeIntervalMap = {
 }
 
 export const retentionOptions = {
-    [RETENTION_FIRST_TIME]: 'for the first time',
-    [RETENTION_RECURRING]: 'recurringly',
+    [`${RETENTION_FIRST_TIME}`]: 'First Time',
+    [`${RETENTION_RECURRING}`]: 'Recurring',
 }
 
 export const retentionOptionDescriptions = {
