@@ -16,8 +16,7 @@ services:
     clickhouse:
         #
         # Custom ClickHouse image for ARM64 architecture.
-        #
-        # See http://posthog.com/handbook/engineering/build-clickhouse-image-for-arm64
+        # See the `docker/clickhouse-builder` folder for more info.
         #
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
