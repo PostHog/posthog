@@ -8,7 +8,7 @@ import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateF
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
 
 interface ExperimentPreviewProps {
     experiment: Partial<Experiment> | null
@@ -55,8 +55,11 @@ export function ExperimentPreview({
     const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
-    const experimentProperties =
-        experiment?.filters?.properties && convertPropertyGroupToProperties(experiment.filters.properties)
+    const experimentProperties = experiment?.filters?.properties
+        ? isPropertyGroup(experiment.filters.properties)
+            ? convertPropertyGroupToProperties(experiment.filters.properties)
+            : experiment.filters.properties
+        : null
 
     return (
         <Row>

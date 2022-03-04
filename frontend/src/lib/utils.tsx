@@ -27,6 +27,7 @@ import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
+import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1360,7 +1361,7 @@ export function convertPropertyGroupToProperties(properties: PropertyGroupFilter
 export function flattenPropertyGroup(properties: PropertyGroupFilter): PropertyFilter[] {
     const flattenedProps: PropertyFilter[] = []
     for (let i = 0; i < properties.values.length; i++) {
-        properties.values[i].values.forEach((val) => flattenedProps.push(val))
+        properties.values[i].values.forEach((val) => isValidPropertyFilter(val) && flattenedProps.push(val))
     }
     return flattenedProps
 }

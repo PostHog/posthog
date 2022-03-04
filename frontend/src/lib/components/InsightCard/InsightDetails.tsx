@@ -1,19 +1,20 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { AnyPropertyFilter, FilterType, InsightModel, InsightType, PathType } from '~/types'
+import { FilterType, InsightModel, InsightType, PathType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow, LemonSpacer } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
 import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
+import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
 
@@ -21,7 +22,7 @@ function CompactPropertyFiltersDisplay({
     properties,
     embedded,
 }: {
-    properties: AnyPropertyFilter[]
+    properties: PropertyFilter[]
     embedded?: boolean
 }): JSX.Element {
     return (
@@ -158,7 +159,10 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
 
-    const properties = filters.properties && convertPropertyGroupToProperties(filters.properties)
+    const properties =
+        filters.properties && isPropertyGroup(filters.properties)
+            ? convertPropertyGroupToProperties(filters.properties)
+            : filters.properties?.filter(isValidPropertyFilter)
 
     const { featureFlags } = useValues(featureFlagLogic)
 

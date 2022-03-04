@@ -7,7 +7,7 @@ import { getChartColors } from 'lib/colors'
 import { webPerformanceLogicType } from './webPerformanceLogicType'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { router } from 'kea-router'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import { convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
 
 const eventApiProps: Partial<FilterType> = {
     properties: [
@@ -332,7 +332,9 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
         pageViewEvents: {
             loadEvents: async () => {
                 const flattenedPropertyGroup =
-                    eventApiProps.properties && convertPropertyGroupToProperties(eventApiProps.properties)
+                    eventApiProps.properties && isPropertyGroup(eventApiProps.properties)
+                        ? convertPropertyGroupToProperties(eventApiProps.properties)
+                        : eventApiProps.properties
                 const combinedProperties = [...(flattenedPropertyGroup || []), ...values.properties]
                 const loadResult = await api.events.list({ properties: combinedProperties }, 10)
                 return loadResult?.results || []

@@ -1006,7 +1006,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties?: AnyPropertyFilter[]
+    properties?: PropertyFilter[]
     type: EntityType
 }
 
@@ -1455,7 +1455,7 @@ export interface PropertyGroupFilter {
 
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
-    values: PropertyFilter[]
+    values: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {

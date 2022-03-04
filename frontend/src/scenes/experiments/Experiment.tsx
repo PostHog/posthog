@@ -35,7 +35,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
@@ -390,13 +390,17 @@ export function Experiment_(): JSX.Element {
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? funnelsFilters.properties &&
-                                                                  convertPropertyGroupToProperties(
-                                                                      funnelsFilters.properties
-                                                                  )
+                                                                  isPropertyGroup(funnelsFilters.properties)
+                                                                    ? convertPropertyGroupToProperties(
+                                                                          funnelsFilters.properties
+                                                                      )
+                                                                    : funnelsFilters.properties
                                                                 : trendsFilters.properties &&
-                                                                  convertPropertyGroupToProperties(
+                                                                  isPropertyGroup(trendsFilters.properties)
+                                                                ? convertPropertyGroupToProperties(
                                                                       trendsFilters.properties
                                                                   )
+                                                                : trendsFilters.properties
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({
