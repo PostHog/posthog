@@ -18,6 +18,4 @@ class TestAsyncMigrationsNotRequired(BaseTest):
     def test_async_migrations_not_required_on_fresh_instances(self):
 
         for name, migration in ALL_ASYNC_MIGRATIONS.items():
-            expected_is_required = name == "0004_replicated_schema"
-
-            self.assertEqual(migration.is_required(), expected_is_required)
+            self.assertFalse(migration.is_required())
