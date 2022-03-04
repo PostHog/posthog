@@ -18,7 +18,6 @@ export function PrimaryDashboardModal(): JSX.Element {
     const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
-    console.log(visible)
     return (
         <LemonModal
             visible={visible}

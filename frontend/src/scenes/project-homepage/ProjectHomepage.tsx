@@ -58,7 +58,6 @@ export function ProjectHomepage(): JSX.Element {
                                 <Button
                                     data-attr="project-home-new-insight"
                                     onClick={() => {
-                                        console.log(showPrimaryDashboardModal)
                                         showPrimaryDashboardModal()
                                     }}
                                 >
