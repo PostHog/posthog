@@ -27,7 +27,9 @@ function TableRowRaw<T extends Record<string, any>>({
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
     const isRowExpanded =
-        expandable?.isRowExpanded?.(record) === -1 ? isRowExpandedLocal : !!expandable?.isRowExpanded?.(record)
+        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record)
 
     return (
         <>
