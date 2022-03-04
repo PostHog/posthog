@@ -49,7 +49,6 @@
         "format": "yarn format:python && yarn format:js",
         "storybook": "start-storybook -s .storybook/public -p 6006",
         "build-storybook": "build-storybook -s .storybook/public",
-        "arm64:build:clickhouse": "./docker/clickhouse-builder/build.sh",
         "arm64:ch-dev:start": "concurrently -n DOCKER,ESBUILD,TYPEGEN -c red,blue,green \"docker-compose -f docker-compose.arm64.yml pull && CH_WEB_SCRIPT=./ee/bin/docker-ch-dev-backend docker-compose -f docker-compose.arm64.yml up\" \"yarn run start-http --host 0.0.0.0\" \"yarn run typegen:watch\"",
         "arm64:ch-dev:clear": "docker compose -f docker-compose.arm64.yml stop && docker compose -f docker-compose.arm64.yml rm -v && docker compose -f docker-compose.arm64.yml down",
         "arm64:services": "yarn arm64:services:stop && yarn arm64:services:clean && yarn arm64:services:start",

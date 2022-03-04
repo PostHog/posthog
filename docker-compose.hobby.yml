@@ -16,7 +16,7 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        image: yandex/clickhouse-server:21.6.5
+        image: yandex/clickhouse-server:21.11.11.1
         restart: on-failure
         depends_on:
             - kafka

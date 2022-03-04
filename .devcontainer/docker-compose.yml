@@ -49,9 +49,7 @@ services:
             - '6379:6379'
 
     clickhouse:
-        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
-        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:21.6.5
+        image: yandex/clickhouse-server:21.11.11.1
         ports:
             - '8123:8123'
             - '9000:9000'

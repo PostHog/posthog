@@ -1,9 +1,20 @@
-## Clickhouse on ARM64 (Apple Silicon)
+## ClickHouse on ARM64
 
-This package compiles ClickHouse from scratch to work on an Apple Silicon mac, [with protobuf support](https://github.com/ClickHouse/ClickHouse/issues/28018).
+This package creates a ClickHouse image for ARM64 (Apple M1). Please use this image only for local development.
 
-To build, run `./build.sh` and then use the generated `clickhouse-dev-arm64:latest` image however you please.
+### Build
+If you are not @harry or @guido you'll likely not need to build the image yourself as the infrastructure team
+is responsible to take care of it and add it to DockerHub.
 
-NB! It takes over an hour to build ClickHouse on a M1 mac. Make sure to give **at least 8GB of RAM** to Docker for the build. It'll fail otherwise. Set it back to 2GB after. You may also need to increase your docker volume size. The default 60GB wasn't enough for me, though I had a lot of other stuff in there as well.
+In the `clickhouse-builder/assets` directory, run:
 
-The built image is currently around 30GB.
+```shell
+CLICKHOUSE_VERSION="v21.11.11.1-stable"
+docker build \
+    -t "posthog/clickhouse:$CLICKHOUSE_VERSION" \
+    --build-arg CLICKHOUSE_TAG="$CLICKHOUSE_VERSION" \
+    -f arm64.compile.Dockerfile \
+    .
+```
+
+Note: build time is ~90min, image size ~2GB
