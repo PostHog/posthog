@@ -9,6 +9,7 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
+from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -92,6 +93,9 @@ class TeamSerializer(serializers.ModelSerializer):
         return GroupTypeMapping.objects.filter(team=team).exists()
 
     def validate(self, attrs: Any) -> Any:
+        if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
+            raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private
             # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
