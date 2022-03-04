@@ -98,9 +98,10 @@ function DashboardView({ location }: DashboardViewProps = { location: DashboardL
 
     return (
         <div className="dashboard">
-            {location !== DashboardLocation.Public && location !== DashboardLocation.InternalMetrics && (
-                <DashboardHeader />
-            )}
+            {location !== DashboardLocation.ProjectHomepage &&
+                location !== DashboardLocation.Public &&
+                location !== DashboardLocation.InternalMetrics && <DashboardHeader />}
+
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
