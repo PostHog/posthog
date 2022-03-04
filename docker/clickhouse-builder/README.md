@@ -1,22 +1,26 @@
 ## ClickHouse on ARM64
 
-This package build and creates a ClickHouse image for ARM64 (Apple M1) directly from the source code. Please use this image only for local development.
+The majority of the PostHog development team use the new Apple MacBook laptops with M1/ARM64. As an official image for this architecture doesn't exist yet (see [#22222](https://github.com/ClickHouse/ClickHouse/issues/22222)) we need to build it ourself directly from the source code. Please use this image only for local development.
+
+Note: If you are not `@harry` or `@guido` you'll likely not need to build the image as the infrastructure team is responsible to take care of it and push the image to to DockerHub (so that you can directly pull it and use it).
 
 ### Build
-If you are not `@harry` or `@guido` you'll likely **not need to build the image yourself** as the infrastructure team is responsible to take care of it and push the image to to DockerHub (so that you can directly pull it and use it).
+From the PostHog repo run:
+1. `cd docker/clickhouse-builder/assets`
+1.  ```shell
+    CLICKHOUSE_VERSION="v21.11.11.1-stable"
+    docker build \
+        -t "posthog/clickhouse-server:$CLICKHOUSE_VERSION" \
+        --build-arg CLICKHOUSE_TAG="$CLICKHOUSE_VERSION" \
+        -f arm64.compile.Dockerfile \
+        .
+    ```
 
-In the `clickhouse-builder/assets` directory, run:
-
-```shell
-CLICKHOUSE_VERSION="v21.11.11.1-stable"
-docker build \
-    -t "posthog/clickhouse:$CLICKHOUSE_VERSION" \
-    --build-arg CLICKHOUSE_TAG="$CLICKHOUSE_VERSION" \
-    -f arm64.compile.Dockerfile \
-    .
-```
-
-Note: build time is ~90min, image size ~2GB
+Note: build time is ~90min, image size ~1.8GB
 
 ### Publish
-Once the build is complete, please spin up the stack locally and run the test suite. After you've verified all the tests are passing, you can push the image to our DockerHub repo [posthog/clickhouse](https://hub.docker.com/repository/docker/posthog/clickhouse) by running:
+Once the build process is completed, please spin up the stack locally and run the test suite. After you've verified all the tests are passing, you can push the image to our DockerHub repo posthog/clickhouse by running:
+```shell
+CLICKHOUSE_VERSION="21.11.11.1"
+docker image push "posthog/clickhouse-server:$CLICKHOUSE_VERSION"
+```

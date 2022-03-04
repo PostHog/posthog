@@ -12,7 +12,11 @@ services:
         container_name: posthog_redis
         image: redis:6-alpine
     clickhouse:
-        image: yandex/clickhouse-server:21.11.11.1
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
         depends_on:
             - kafka
             - zookeeper

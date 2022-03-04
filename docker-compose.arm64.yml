@@ -14,9 +14,15 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
+        #
         # Custom ClickHouse image for ARM64 architecture.
-        # See `docker/clickhouse-builder` for more info
-        image: posthog/clickhouse:v21.11.11.1-stable
+        #
+        # See http://posthog.com/handbook/engineering/build-clickhouse-image-for-arm64
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: posthog/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
         depends_on:
             - kafka
             - zookeeper
