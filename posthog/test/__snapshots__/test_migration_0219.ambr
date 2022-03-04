@@ -1,6 +1,5 @@
 # name: TagsTestCase.test_tags_migrated
   '
-
   SELECT c.relname,
          CASE
              WHEN c.relispartition THEN 'p'
