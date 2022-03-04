@@ -65,7 +65,7 @@ export enum TaxonomicFilterGroupType {
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
-    mouseInteractionsDisabled?: boolean
+    popperEnabled?: boolean
 }
 
 export interface ListStorage {

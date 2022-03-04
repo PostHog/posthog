@@ -1,6 +1,6 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -260,6 +260,8 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const logic = infiniteListLogic({ popperEnabled, ...taxonomicFilterLogic.props, listGroupType: activeTab })
+
     const {
         isLoading,
         results,
@@ -272,15 +274,8 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
         totalResultCount,
         totalListCount,
         expandedCount,
-    } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
-
-    // if the popper is not enabled then don't start with a row selected
-    useEffect(() => {
-        if (!popperEnabled) {
-            setIndex(NO_ITEM_SELECTED)
-        }
-    }, [popperEnabled])
+    } = useValues(logic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(logic)
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
