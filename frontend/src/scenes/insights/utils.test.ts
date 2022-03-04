@@ -1,6 +1,7 @@
-import { CohortType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { CohortType, Entity, EntityFilter, FilterType, InsightType, PathType } from '~/types'
 import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
 import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -312,5 +313,150 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual("Pageview → random_event organization conversion, broken down by person's some_prop")
+    })
+
+    it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.RETENTION,
+                    target_entity: {
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        type: 'event',
+                    },
+                    returning_entity: {
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        type: 'event',
+                    },
+                    retention_type: RETENTION_FIRST_TIME,
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('Retention of users based on doing Autocapture for the first time and returning with the same event')
+    })
+
+    it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.RETENTION,
+                    target_entity: {
+                        id: 'purchase',
+                        name: 'purchase',
+                        type: 'event',
+                    },
+                    returning_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'event',
+                    },
+                    retention_type: RETENTION_RECURRING,
+                    aggregation_group_type_index: 0,
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('Retention of organizations based on doing purchase recurringly and returning with Pageview')
+    })
+
+    it('summarizes a Paths insight based on all events', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.PATHS,
+                    include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.PATHS,
+                    include_event_types: [],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on pageviews with start and end points', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.PATHS,
+                    include_event_types: [PathType.PageView],
+                    start_point: '/landing-page',
+                    end_point: '/basket',
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
+    })
+
+    it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.STICKINESS,
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'event',
+                            order: 1,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'Random action',
+                            type: 'action',
+                            order: 0,
+                            math: 'unique_group',
+                            math_group_type_index: 0,
+                        },
+                    ],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
+    })
+
+    it('summarizes a Lifecycle insight', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.LIFECYCLE,
+                    events: [
+                        {
+                            id: '$rageclick',
+                            name: '$rageclick',
+                            type: 'event',
+                            order: 1,
+                        },
+                    ],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('User lifecycle based on Rageclick')
     })
 })
