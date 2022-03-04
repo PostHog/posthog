@@ -3,7 +3,6 @@ import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { errorToast } from 'lib/utils'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { toast } from 'react-toastify'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -283,7 +282,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: ``,
                 description: '',
                 tags: [],
                 filters: newInsightFilters,

@@ -13,7 +13,6 @@ import {
 } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
@@ -142,7 +141,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: '',
                 description: '',
                 tags: [],
                 filters: newInsightFilters,
