@@ -237,7 +237,7 @@ export const eventDefinitionsTableLogic = kea<
         apiCache: [() => [], () => cache.apiCache],
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/events/stats': ({}, searchParams) => {
+        '/events/stats': (_, searchParams) => {
             if (props.syncWithUrl) {
                 actions.setFilters(searchParams as Filters)
                 if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {

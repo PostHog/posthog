@@ -22,12 +22,12 @@ function TableRowRaw<T extends Record<string, any>>({
     onRow,
     expandable,
 }: TableRowProps<T>): JSX.Element {
-    const [_isRowExpanded, setIsRowExpanded] = useState(false)
+    const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
     const isRowExpanded =
-        expandable?.isRowExpanded?.(record) === -1 ? _isRowExpanded : !!expandable?.isRowExpanded?.(record)
+        expandable?.isRowExpanded?.(record) === -1 ? isRowExpandedLocal : !!expandable?.isRowExpanded?.(record)
 
     return (
         <>
@@ -39,8 +39,11 @@ function TableRowRaw<T extends Record<string, any>>({
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => {
                                     setIsRowExpanded(!isRowExpanded)
-                                    !isRowExpanded && expandable.onRowExpand?.(record)
-                                    isRowExpanded && expandable?.onRowCollapse?.(record)
+                                    if (isRowExpanded) {
+                                        expandable?.onRowCollapse?.(record)
+                                    } else {
+                                        expandable?.onRowExpand?.(record)
+                                    }
                                 }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}
