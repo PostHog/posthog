@@ -23,6 +23,7 @@ export function TaxonomicFilter({
     height,
     width,
     popperEnabled = true,
+    clearSearchOnSelection = false,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -41,6 +42,7 @@ export function TaxonomicFilter({
         taxonomicGroupTypes,
         optionsFromProp,
         eventNames,
+        clearSearchOnSelection,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -75,7 +77,7 @@ export function TaxonomicFilter({
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
                         prefix={
-                            <IconMagnifier className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`} />
+                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
                         }
                         value={searchQuery}
                         ref={(ref) => (searchInputRef.current = ref)}

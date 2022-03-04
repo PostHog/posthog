@@ -70,12 +70,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         }),
     }),
 
-    reducers: ({ selectors }) => ({
+    reducers: ({ selectors, props }) => ({
         searchQuery: [
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
-                selectItem: () => '',
+                selectItem: (state) => (props.clearSearchOnSelection === false ? state : ''),
             },
         ],
         activeTab: [

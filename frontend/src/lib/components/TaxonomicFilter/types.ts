@@ -18,12 +18,14 @@ export interface TaxonomicFilterProps {
     height?: number
     width?: number
     popperEnabled?: boolean
+    clearSearchOnSelection?: boolean
 }
 
 export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
+    clearSearchOnSelection?: boolean
 }
 
 export interface TaxonomicFilterGroup {
