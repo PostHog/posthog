@@ -2,20 +2,14 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import (
-    format_cohort_subquery,
-    format_person_query,
-    format_precalculated_cohort_query,
-    is_precalculated_query,
-)
-from ee.clickhouse.models.property import parse_prop_clauses, parse_prop_grouped_clauses
+from ee.clickhouse.models.cohort import format_cohort_subquery, is_precalculated_query
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
-from posthog.constants import PropertyOperatorType
 from posthog.models import Cohort, Filter, Property
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
@@ -100,13 +94,15 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         # :KLUDGE: The following is mostly making sure if cohorts are included as well.
         #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
-        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups_flat):
+        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
 
         if any(
-            self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
+            self._should_property_join_persons(prop)
+            for entity in self._filter.entities
+            for prop in entity.property_groups.flat
         ):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
@@ -166,45 +162,14 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if not prop_group:
             return "", {}
 
+        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+
         return parse_prop_grouped_clauses(
             team_id=self._team_id,
-            property_group=prop_group,
+            property_group=outer_properties,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-
-    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-        final = []
-        params: Dict[str, Any] = {}
-
-        for idx, prop in enumerate(filters):
-            if prop.type == "cohort":
-                person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
-                params = {**params, **cohort_filter_params}
-                final.append(f"AND {person_id_query}")
-            else:
-                filter_query, filter_params = parse_prop_grouped_clauses(
-                    team_id=self._team_id,
-                    property_group=PropertyGroup(type=PropertyOperatorType.AND, values=[prop]),
-                    prepend=f"global_{idx}",
-                    allow_denormalized_props=True,
-                    person_properties_mode=PersonPropertiesMode.EXCLUDE,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
-        return " ".join(final), params
-
-    def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
-        try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
-        except Cohort.DoesNotExist:
-            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
-
-        person_id_query, cohort_filter_params = format_cohort_subquery(
-            cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        )
-
-        return person_id_query, cohort_filter_params

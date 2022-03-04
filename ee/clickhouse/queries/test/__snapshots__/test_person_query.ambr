@@ -16,7 +16,29 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_1)s
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s)
+          
+  '
+---
+# name: test_person_query_with_and_and_or_property_groups
+  '
+  
+              SELECT id, argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s)) ILIKE %(vpersonquery_global_0_1)s))
+          
+  '
+---
+# name: test_person_query_with_anded_property_groups
+  '
+  
+              SELECT id
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s  AND has(%(vpersonquery_global_1)s, trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1)s)))  AND has(%(vpersonquery_global_2)s, trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_2)s))))
           
   '
 ---
@@ -38,7 +60,29 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s)
+          
+  '
+---
+# name: test_person_query_with_entity_filters_and_property_group_filters
+  '
+  
+              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s)) ILIKE %(vpersonquery_global_0_1)s))
+          
+  '
+---
+# name: test_person_query_with_entity_filters_and_property_group_filters.1
+  '
+  
+              SELECT id, argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = %(team_id)s
+              GROUP BY id
+              HAVING max(is_deleted) = 0 AND (((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_0_1)s)) ILIKE %(vpersonquery_global_0_0_1)s))AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1_1)s)) ILIKE %(vpersonquery_global_1_1)s))
           
   '
 ---
@@ -49,7 +93,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s)
           
   '
 ---
@@ -60,7 +104,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s)
           
   '
 ---
@@ -71,7 +115,7 @@
               FROM person
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0   AND argMax(person.pmat_email, _timestamp) ILIKE %(vpersonquery_0)s
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s)
           
   '
 ---

@@ -26,7 +26,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         "$group_key",
         "$group_set",
     ]
-    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
+    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)],
 )
 
 
@@ -89,6 +89,10 @@ class PropertyDefinitionViewSet(
         if event_names:
             event_names = json.loads(event_names)
 
+        excluded_properties = self.request.GET.get("excluded_properties", None)
+        if excluded_properties:
+            excluded_properties = json.loads(excluded_properties)
+
         event_property_filter = ""
         if event_names and len(event_names) > 0:
             event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
@@ -106,14 +110,14 @@ class PropertyDefinitionViewSet(
             "event_names": tuple(event_names or []),
             "names": names,
             "team_id": self.team_id,
-            "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
+            "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
             **search_kwargs,
         }
 
         if use_entreprise_taxonomy:
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
             property_definition_fields = ", ".join(
-                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
+                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"],  # type: ignore
             )
 
             return EnterprisePropertyDefinition.objects.raw(
@@ -127,11 +131,11 @@ class PropertyDefinitionViewSet(
                             """,
                 params=params,
             ).prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
             )
 
         property_definition_fields = ", ".join(
-            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
+            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")],  # type: ignore
         )
 
         return PropertyDefinition.objects.raw(
@@ -169,7 +173,7 @@ class PropertyDefinitionViewSet(
                     return enterprise_property
                 non_enterprise_property = PropertyDefinition.objects.get(id=id)
                 new_enterprise_property = EnterprisePropertyDefinition(
-                    propertydefinition_ptr_id=non_enterprise_property.id, description=""
+                    propertydefinition_ptr_id=non_enterprise_property.id, description="",
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()

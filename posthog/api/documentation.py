@@ -24,8 +24,10 @@ class PropertySerializer(serializers.Serializer):
     value = ValueField(
         help_text='Value of your filter. Can be an array. For example `test@example.com` or `https://example.com/test/`. Can be an array, like `["test@example.com","ok@example.com"]`'
     )
-    operator = serializers.ChoiceField(choices=[None, *get_args(OperatorType)], required=False, default="exact")
-    type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False)
+    operator = serializers.ChoiceField(
+        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact", allow_null=True
+    )
+    type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False, allow_blank=True)
 
 
 class PropertiesSerializer(serializers.Serializer):
@@ -67,7 +69,8 @@ def custom_postprocessing_hook(result, generator, request, public):
             match = re.search(r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/", path)
             if match:
                 definition["tags"].append(match.group("one"))
-                all_tags.append(match.group("one"))
+            for tag in definition["tags"]:
+                all_tags.append(tag)
             definition["operationId"] = (
                 definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
             )
@@ -89,8 +92,5 @@ def custom_postprocessing_hook(result, generator, request, public):
         **result,
         "info": {"title": "PostHog API", "version": None, "description": "",},
         "paths": paths,
-        "x-tagGroups": [
-            {"name": "Analytics", "tags": ["analytics", "AML", "Customers Timeline"]},
-            {"name": "All endpoints", "tags": sorted(list(set(all_tags)))},
-        ],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(list(set(all_tags)))},],
     }

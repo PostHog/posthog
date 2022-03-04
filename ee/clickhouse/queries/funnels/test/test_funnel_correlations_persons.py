@@ -46,7 +46,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
     )
 
 
-class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
+class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 

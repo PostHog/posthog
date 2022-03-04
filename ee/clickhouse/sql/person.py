@@ -1,21 +1,16 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import (
-    COLLAPSING_MERGE_TREE,
-    KAFKA_COLUMNS,
-    REPLACING_MERGE_TREE,
-    STORAGE_POLICY,
-    kafka_engine,
-    table_engine,
+TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS person_distinct_id2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
-
-TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
-
-DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
-
-TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
-TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id2 ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
@@ -26,12 +21,13 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    is_deleted Boolean DEFAULT 0
+    is_identified Int8,
+    is_deleted Int8 DEFAULT 0
     {extra_fields}
 ) ENGINE = {engine}
 """
 
+PERSONS_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp")
 PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
@@ -40,7 +36,7 @@ PERSONS_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=PERSONS_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -115,7 +111,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
+    engine=CollapsingMergeTree(PERSONS_DISTINCT_ID_TABLE, ver="_sign"),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
@@ -166,12 +162,13 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     team_id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    is_deleted Boolean,
+    is_deleted Int8,
     version Int64 DEFAULT 1
     {extra_fields}
 ) ENGINE = {engine}
 """
 
+PERSON_DISTINCT_ID2_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version")
 PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     PERSON_DISTINCT_ID2_TABLE_BASE_SQL
     + """
@@ -181,7 +178,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", REPLACING_MERGE_TREE, sharded=False),
+    engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
@@ -227,6 +224,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+PERSON_STATIC_COHORT_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_STATIC_COHORT_TABLE, ver="_timestamp")
 PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
     PERSON_STATIC_COHORT_BASE_SQL
     + """Order By (team_id, cohort_id, person_id, id)
@@ -235,13 +233,13 @@ PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=PERSON_STATIC_COHORT_TABLE_ENGINE(),
     storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
 
 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+    f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 
 INSERT_PERSON_STATIC_COHORT = (
@@ -376,7 +374,7 @@ GROUP BY actor_id
 """
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda: f"ALTER TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+    lambda: f"ALTER TABLE person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}' COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 

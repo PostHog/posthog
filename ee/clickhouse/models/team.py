@@ -27,6 +27,6 @@ def delete_teams_data(team_ids: List[int]):
     )
     for table in TABLES_TO_DELETE_FROM:
         sync_execute(
-            f"ALTER TABLE {table} ON CLUSTER {CLICKHOUSE_CLUSTER} DELETE WHERE team_id IN %(team_ids)s",
+            f"ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' DELETE WHERE team_id IN %(team_ids)s",
             {"team_ids": team_ids},
         )

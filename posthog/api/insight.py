@@ -282,7 +282,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     @extend_schema(
         request=TrendSerializer,
         methods=["POST"],
-        tags=["analytics"],
+        tags=["trend"],
         operation_id="Trends",
         responses=TrendResultsSerializer,
     )
@@ -337,7 +337,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             description="Note, if funnel_viz_type is set the response will be different.",
         ),
         methods=["POST"],
-        tags=["analytics"],
+        tags=["funnel"],
         operation_id="Funnels",
     )
     @action(methods=["GET", "POST"], detail=False)

@@ -78,7 +78,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
             from ee.clickhouse.client import sync_execute
             from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
-            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL, {"weeks": new_value_parsed})
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
         setattr(config, instance.key, new_value_parsed)
         instance.value = new_value_parsed

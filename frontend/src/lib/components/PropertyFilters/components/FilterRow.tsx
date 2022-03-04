@@ -2,16 +2,18 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
-import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
+import { IconDelete } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { CloseButton } from 'lib/components/CloseButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -27,6 +29,7 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
+    orFiltering?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -42,6 +45,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    orFiltering,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -57,25 +61,36 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <Row
             align="middle"
-            className={clsx('property-filter-row', !disablePopover && 'wrap-filters')}
+            className={clsx(
+                'property-filter-row',
+                !disablePopover && 'wrap-filters',
+                orFiltering && index !== 0 && 'mt-05'
+            )}
             data-attr={'property-filter-' + index}
             wrap={false}
         >
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            onClick={() => onRemove(index)}
-                            style={{
-                                cursor: 'pointer',
-                                float: 'none',
-                                paddingLeft: 8,
-                                alignSelf: 'flex-start',
-                                paddingTop: 4,
-                            }}
-                        />
-                    )}
+                    {!!Object.keys(filters[index]).length &&
+                        (orFiltering ? (
+                            <LemonButton
+                                icon={<IconDelete />}
+                                type="primary-alt"
+                                onClick={() => onRemove(index)}
+                                compact
+                            />
+                        ) : (
+                            <CloseButton
+                                onClick={() => onRemove(index)}
+                                style={{
+                                    cursor: 'pointer',
+                                    float: 'none',
+                                    paddingLeft: 8,
+                                    paddingTop: 4,
+                                }}
+                            />
+                        ))}
                 </>
             ) : (
                 <>
@@ -117,10 +132,15 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
-                                            style={{ padding: '0 12px' }}
-                                            icon={<PlusCircleOutlined />}
+                                            style={{
+                                                color: 'var(--primary)',
+                                                border: 'none',
+                                                boxShadow: 'none',
+                                                background: 'none',
+                                                padding: '0 12px',
+                                            }}
+                                            icon={<PlusOutlined />}
                                             type="default"
-                                            shape="round"
                                         >
                                             {label}
                                         </Button>
