@@ -250,11 +250,7 @@ const selectedItemHasPopup = (
     )
 }
 
-export interface InfiniteListProps {
-    popperEnabled?: boolean
-}
-
-export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.Element {
+export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -272,6 +268,7 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
         totalResultCount,
         totalListCount,
         expandedCount,
+        showPopper,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
@@ -315,7 +312,7 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
             ),
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
             // if the popper is not enabled then don't leave the row selected when the mouse leaves it
-            onMouseLeave: () => (mouseInteractionsEnabled && !popperEnabled ? setIndex(NO_ITEM_SELECTED) : null),
+            onMouseLeave: () => (mouseInteractionsEnabled && !showPopper ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
         }
@@ -400,7 +397,7 @@ export function InfiniteList({ popperEnabled = true }: InfiniteListProps): JSX.E
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None &&
-            popperEnabled ? (
+            showPopper ? (
                 <Provider>
                     {ReactDOM.createPortal(
                         selectedItem && group ? (

@@ -60,7 +60,7 @@ export function InfiniteSelectResults({
                 logic={infiniteListLogic}
                 props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0], popperEnabled }}
             >
-                <InfiniteList popperEnabled={popperEnabled} />
+                <InfiniteList />
             </BindLogic>
         )
     }
@@ -95,7 +95,7 @@ export function InfiniteSelectResults({
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType, popperEnabled }}
                         >
-                            <InfiniteList popperEnabled={popperEnabled} />
+                            <InfiniteList />
                         </BindLogic>
                     </div>
                 )

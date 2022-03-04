@@ -64,7 +64,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
     props: {} as InfiniteListLogicProps,
 
-    key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}-withPopper:${props.popperEnabled}`,
+    key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
         values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
@@ -91,6 +91,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
             },
         ],
+        showPopper: [props.popperEnabled !== false, {}],
         limit: [
             100,
             {
