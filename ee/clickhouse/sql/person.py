@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    is_deleted Boolean DEFAULT 0
+    is_identified Int8,
+    is_deleted Int8 DEFAULT 0
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     team_id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    is_deleted Boolean,
+    is_deleted Int8,
     version Int64 DEFAULT 1
     {extra_fields}
 ) ENGINE = {engine}
