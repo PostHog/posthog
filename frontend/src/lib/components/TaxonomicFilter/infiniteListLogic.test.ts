@@ -8,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 
 jest.mock('lib/api')
 
@@ -47,7 +46,6 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
-        columnConfiguratorLogic({ selectedColumns: [] }).mount()
     })
 
     const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {
