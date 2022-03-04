@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
@@ -58,6 +58,10 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     else:
         entities_list.extend(trend_entity)
     return entities_list
+
+
+def handle_compare_threading(filter, func: Callable, team: Team, entities_dict: Dict, index: int, **kwargs) -> None:
+    entities_dict[index] = handle_compare(filter, func, team, **kwargs)
 
 
 TIME_IN_SECONDS: Dict[str, Any] = {

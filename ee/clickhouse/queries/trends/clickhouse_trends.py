@@ -1,4 +1,5 @@
 import copy
+import threading
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -16,7 +17,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.base import handle_compare
+from posthog.queries.base import handle_compare, handle_compare_threading
 from posthog.utils import relative_date_parse
 
 
@@ -63,15 +64,34 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)
 
-        result = []
+        jobs = []
+        result_dict = dict()
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     continue
-            entities_list = handle_compare(filter, self._run_query, team, entity=entity)
-            result.extend(entities_list)
+            thread = threading.Thread(
+                target=handle_compare_threading,
+                args=(filter, self._run_query, team),
+                kwargs={"entity": entity, "entities_dict": result_dict, "index": entity.index + 1},
+            )
+            jobs.append(thread)
+
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
+
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
+
+        # ensure correct ordering
+        result = []
+        for sublist in sorted(result_dict.items(), key=lambda item: item[0]):
+            for item in sublist[1]:
+                result.append(item)
 
         return result
 
