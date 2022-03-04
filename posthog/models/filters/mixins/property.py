@@ -11,7 +11,7 @@ from posthog.models.property import Property, PropertyGroup
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def properties(self) -> List[Property]:
+    def old_properties(self) -> List[Property]:
         _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
@@ -58,7 +58,7 @@ class PropertyMixin(BaseParamMixin):
             return loaded_props
 
         # old properties
-        return PropertyGroup(type=PropertyOperatorType.AND, values=self.properties)
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties)
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):

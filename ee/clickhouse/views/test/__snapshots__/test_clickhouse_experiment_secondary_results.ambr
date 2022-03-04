@@ -142,7 +142,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e.properties as properties
+                           e."properties" as "properties"
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
