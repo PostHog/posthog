@@ -49,8 +49,7 @@ SETTINGS index_granularity=512
 # We also set kafka_max_block_size to ensure that we allow skipping all broken messages in a block
 # while ClickHouse doesn't update kafka_skip_broken_messages to be a boolean
 KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
-    DEAD_LETTER_QUEUE_TABLE_BASE_SQL 
-    + "SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505"
+    DEAD_LETTER_QUEUE_TABLE_BASE_SQL + "SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505"
 ).format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
