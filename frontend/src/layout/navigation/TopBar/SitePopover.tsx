@@ -13,6 +13,8 @@ import {
     IconExclamation,
     IconBill,
     IconArrowDropDown,
+    IconSettings,
+    IconCorporate,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -32,11 +34,12 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { isLicenseExpired } from 'scenes/instance/Licenses'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
-function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
+function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5>{title}</h5>}
+            {title && <h5 className="flex-center">{title}</h5>}
             {children}
         </div>
     )
@@ -55,14 +58,15 @@ function AccountInfo(): JSX.Element {
                     {user?.email}
                 </div>
             </div>
-            <Link
-                to={urls.mySettings()}
-                onClick={closeSitePopover}
-                className="SitePopover__side-link"
-                data-attr="top-menu-item-me"
-            >
-                Manage account
-            </Link>
+            <Tooltip title="Account settings" placement="left">
+                <LemonButton
+                    to={urls.mySettings()}
+                    onClick={closeSitePopover}
+                    data-attr="top-menu-item-me"
+                    type="stealth"
+                    icon={<IconSettings style={{ fontSize: '1.4rem' }} />}
+                />
+            </Tooltip>
         </div>
     )
 }
@@ -77,14 +81,15 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Link
-                    to={urls.organizationSettings()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="top-menu-item-org-settings"
-                >
-                    Settings
-                </Link>
+                <Tooltip title="Organization settings" placement="left">
+                    <LemonButton
+                        to={urls.organizationSettings()}
+                        onClick={closeSitePopover}
+                        data-attr="top-menu-item-org-settings"
+                        type="stealth"
+                        icon={<IconSettings />}
+                    />
+                </Tooltip>
             </>
         </LemonRow>
     )
@@ -209,6 +214,54 @@ function Version(): JSX.Element {
     )
 }
 
+function AsyncMigrations(): JSX.Element {
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { asyncMigrationsOk } = useValues(navigationLogic)
+
+    return (
+        <LemonRow
+            status={asyncMigrationsOk ? 'success' : 'warning'}
+            icon={asyncMigrationsOk ? <IconCheckmark /> : <IconUpdate />}
+            fullWidth
+        >
+            <>
+                <div className="SitePopover__main-info">
+                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Pending async migrations'}
+                </div>
+                <Link
+                    to={urls.asyncMigrations()}
+                    onClick={closeSitePopover}
+                    className="SitePopover__side-link"
+                    data-attr="async-migrations-status-badge"
+                >
+                    Manage
+                </Link>
+            </>
+        </LemonRow>
+    )
+}
+
+function InstanceSettings(): JSX.Element | null {
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { user } = useValues(userLogic)
+
+    if (!user?.is_staff) {
+        return null
+    }
+
+    return (
+        <Link to={urls.instanceSettings()}>
+            <LemonButton
+                icon={<IconCorporate style={{ color: 'var(--primary)' }} />}
+                onClick={closeSitePopover}
+                fullWidth
+            >
+                Instance settings
+            </LemonButton>
+        </Link>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -264,10 +317,12 @@ export function SitePopover(): JSX.Element {
                         </SitePopoverSection>
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                        <SitePopoverSection title="PostHog status">
+                        <SitePopoverSection title="PostHog instance">
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
+                            <AsyncMigrations />
+                            <InstanceSettings />
                         </SitePopoverSection>
                     )}
                     <SitePopoverSection>

@@ -48,14 +48,18 @@ def get_breakdown_prop_values(
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-
+    column_optimizer = column_optimizer or ColumnOptimizer(filter, team_id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
+
+    props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
+    outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id,
-        property_group=filter.property_groups.combine_properties(PropertyOperatorType.AND, entity.properties),
+        property_group=outer_properties,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_mode=PersonPropertiesMode.EXCLUDE,
+        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         allow_denormalized_props=True,
     )
 
@@ -131,7 +135,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     props_to_filter = filter.property_groups
 
     if entity and isinstance(entity, Entity):
-        props_to_filter = props_to_filter.combine_properties(PropertyOperatorType.AND, entity.properties)
+        props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",

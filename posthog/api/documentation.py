@@ -25,7 +25,7 @@ class PropertySerializer(serializers.Serializer):
         help_text='Value of your filter. Can be an array. For example `test@example.com` or `https://example.com/test/`. Can be an array, like `["test@example.com","ok@example.com"]`'
     )
     operator = serializers.ChoiceField(
-        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact"
+        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact", allow_null=True
     )
     type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False, allow_blank=True)
 

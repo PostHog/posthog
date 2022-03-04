@@ -4,9 +4,9 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { useActions, useValues } from 'kea'
+import { BindLogic, Provider, useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { CSSProperties, useEffect } from 'react'
+import React, { CSSProperties, useEffect, useState } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { LockOutlined } from '@ant-design/icons'
@@ -21,6 +21,8 @@ import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
+import { usePopper } from 'react-popper'
+import ReactDOM from 'react-dom'
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -376,9 +378,12 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
-interface DefinitionPopupContentsProps {
+interface BaseDefinitionPopupContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
+}
+
+interface ControlledDefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
     popper: {
         styles: CSSProperties
         attributes?: Record<string, any>
@@ -388,15 +393,20 @@ interface DefinitionPopupContentsProps {
     }
 }
 
-export function DefinitionPopupContents({ item, group, popper }: DefinitionPopupContentsProps): JSX.Element {
+export function ControlledDefinitionPopupContents({
+    item,
+    group,
+    popper,
+}: ControlledDefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
-    const value = group.getValue(item)
+    const value = group.getValue?.(item)
 
     if (!value || !item) {
         return <></>
     }
 
-    const { state, singularType, isElement, isViewable, definition } = useValues(definitionPopupLogic)
+    const { state, singularType, isElement, isViewable, definition, onMouseLeave, hideView, hideEdit } =
+        useValues(definitionPopupLogic)
     const { setDefinition } = useActions(definitionPopupLogic)
     const icon = group.getIcon?.(definition || item)
 
@@ -441,6 +451,11 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
                     zIndex: 1063,
                 }}
                 {...popper.attributes}
+                onMouseLeave={() => {
+                    if (state !== DefinitionPopupState.Edit) {
+                        onMouseLeave?.()
+                    }
+                }}
             >
                 <DefinitionPopup.Wrapper>
                     <DefinitionPopup.Header
@@ -452,15 +467,94 @@ export function DefinitionPopupContents({ item, group, popper }: DefinitionPopup
                                 disableIcon={!!icon}
                             />
                         }
-                        headerTitle={group.getPopupHeader(item)}
+                        headerTitle={group.getPopupHeader?.(item)}
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
-                        hideEdit={!isViewable}
-                        hideView={!isViewable}
+                        hideEdit={hideEdit || !isViewable}
+                        hideView={hideView || !isViewable}
                     />
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
             </div>
+        </>
+    )
+}
+
+interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
+    referenceEl: HTMLElement | null
+    children?: React.ReactNode
+    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
+    onMouseLeave?: () => void
+    onCancel?: () => void
+    onSave?: () => void
+    hideView?: boolean
+    hideEdit?: boolean
+}
+
+export function DefinitionPopupContents({
+    item,
+    group,
+    referenceEl,
+    children,
+    updateRemoteItem,
+    onMouseLeave,
+    onCancel,
+    onSave,
+    hideView = false,
+    hideEdit = false,
+}: DefinitionPopupContentsProps): JSX.Element {
+    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
+
+    const { styles, attributes, forceUpdate } = usePopper(referenceEl, popperElement, {
+        placement: 'right',
+        modifiers: [
+            {
+                name: 'offset',
+                options: {
+                    offset: [0, 10],
+                },
+            },
+            {
+                name: 'preventOverflow',
+                options: {
+                    padding: 10,
+                },
+            },
+        ],
+    })
+
+    return (
+        <>
+            <Provider>
+                {ReactDOM.createPortal(
+                    <BindLogic
+                        logic={definitionPopupLogic}
+                        props={{
+                            type: group.type,
+                            updateRemoteItem,
+                            onMouseLeave,
+                            onSave,
+                            onCancel,
+                            hideView,
+                            hideEdit,
+                        }}
+                    >
+                        <ControlledDefinitionPopupContents
+                            item={item}
+                            group={group}
+                            popper={{
+                                styles: styles.popper,
+                                attributes: attributes.popper,
+                                forceUpdate,
+                                setRef: setPopperElement,
+                                ref: popperElement,
+                            }}
+                        />
+                    </BindLogic>,
+                    document.querySelector('body') as HTMLElement
+                )}
+            </Provider>
+            {children}
         </>
     )
 }

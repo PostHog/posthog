@@ -10,8 +10,8 @@ from django.utils import timezone
 class PersonPropertiesMode(Enum):
     USING_SUBQUERY = auto()
     USING_PERSON_PROPERTIES_COLUMN = auto()
-    # Used when person join handles these filters
-    EXCLUDE = auto()
+    # Used for generating query on Person table
+    DIRECT = auto()
 
 
 def is_json(val):

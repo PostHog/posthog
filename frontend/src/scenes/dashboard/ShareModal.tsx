@@ -192,7 +192,7 @@ function CollaboratorRow({
 }): JSX.Element {
     const { user, level } = collaborator
 
-    const wasInvited = typeof level === 'number'
+    const wasInvited = level <= DashboardPrivilegeLevel.CanEdit // Higher levels come from implicit privileges
     const privilegeLevelName = privilegeLevelToName[level]
 
     return (

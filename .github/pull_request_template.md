@@ -2,6 +2,8 @@
 
 *Please describe. If this affects the frontend, include screenshots.*
 
+<!-- If this is based on a reference design, include a link to the relevant Figma frame! -->
+
 *Stay up-to-date with our [coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
 
 ## How did you test this code?

@@ -96,27 +96,24 @@ export function TaxonomicFilter({
                                 onClose?.()
                             }
                         }}
+                        suffix={
+                            <Tooltip
+                                title={
+                                    <>
+                                        You can easily navigate between tabs with your keyboard.{' '}
+                                        <div>
+                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                        </div>
+                                        <div>
+                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                        </div>
+                                    </>
+                                }
+                            >
+                                <IconKeyboard style={{ fontSize: '1.2em' }} className="text-muted-alt cursor-pointer" />
+                            </Tooltip>
+                        }
                     />
-                    <span
-                        className="text-muted-alt cursor-pointer"
-                        style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
-                    >
-                        <Tooltip
-                            title={
-                                <>
-                                    You can easily navigate between tabs with your keyboard.{' '}
-                                    <div>
-                                        Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
-                                    </div>
-                                    <div>
-                                        Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
-                                    </div>
-                                </>
-                            }
-                        >
-                            <IconKeyboard />
-                        </Tooltip>
-                    </span>
                 </div>
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>

@@ -99,7 +99,8 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
     params: Dict[str, Any] = {}
 
     query_parts = []
-    for idx, prop in enumerate(filter.properties):
+    # Cohorts don't yet support OR filters
+    for idx, prop in enumerate(filter.property_groups.flat):
         if prop.type == "cohort":
             try:
                 prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
@@ -365,7 +366,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
             # :TRICKY: cohort groups will only contain 1 level deep properties which means we can use _property_groups_flat to return
             # TODO: Update this when cohort groups use property_groups
             filter = Filter(data=group, team=team)
-            group_filters.append(filter.property_groups_flat)
+            group_filters.append(filter.property_groups.flat)
 
     if len(group_filters) > 1:
         # :TODO: Support or properties
