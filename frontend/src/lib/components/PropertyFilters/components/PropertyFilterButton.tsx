@@ -18,10 +18,10 @@ export interface PropertyFilterButtonProps {
 }
 
 export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
-    const { cohortsIdMapped } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
-    return <>{formatPropertyLabel(item, cohortsIdMapped, keyMapping, (s) => formatForDisplay(item.key, s))}</>
+    return <>{formatPropertyLabel(item, cohortsById, keyMapping, (s) => formatForDisplay(item.key, s))}</>
 }
 
 export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {

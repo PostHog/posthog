@@ -445,14 +445,14 @@ export function isOperatorDate(operator: string): boolean {
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohortsIdMapped: Partial<Record<CohortType['id'], CohortType>>,
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? value in cohortsIdMapped
-            ? cohortsIdMapped[value]
+        ? value in cohortsById
+            ? cohortsById[value]
             : value
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)

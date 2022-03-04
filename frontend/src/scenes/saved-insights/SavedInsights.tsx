@@ -163,7 +163,7 @@ export function SavedInsights(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
     const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsIdMapped } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
     const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
@@ -197,7 +197,7 @@ export function SavedInsights(): JSX.Element {
                                         {summarizeInsightFilters(
                                             insight.filters,
                                             aggregationLabel,
-                                            cohortsIdMapped,
+                                            cohortsById,
                                             mathDefinitions
                                         )}
                                     </i>

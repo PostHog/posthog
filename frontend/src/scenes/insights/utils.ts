@@ -148,7 +148,7 @@ export function humanizePathsEventTypes(filters: Partial<FilterType>): string[] 
 export function summarizeBreakdown(
     filters: Partial<FilterType>,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsIdMapped: cohortsModelType['values']['cohortsIdMapped']
+    cohortsById: cohortsModelType['values']['cohortsById']
 ): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
     if (breakdown) {
@@ -160,8 +160,8 @@ export function summarizeBreakdown(
                         cohortId &&
                         (cohortId === 'all'
                             ? 'all users'
-                            : cohortId in cohortsIdMapped
-                            ? cohortsIdMapped[cohortId].name
+                            : cohortId in cohortsById
+                            ? cohortsById[cohortId].name
                             : `ID ${cohortId}`)
                 )
                 .join(', ')}`
@@ -179,7 +179,7 @@ export function summarizeBreakdown(
 export function summarizeInsightFilters(
     filters: Partial<FilterType>,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsIdMapped: cohortsModelType['values']['cohortsIdMapped'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType<MathDefinition>['values']['mathDefinitions']
 ): string {
     const insightType = filters.insight
@@ -231,7 +231,7 @@ export function summarizeInsightFilters(
                         summary += ' trend'
                     }
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsIdMapped)}`
+                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
                     }
                     break
                 case InsightType.STICKINESS:
@@ -267,7 +267,7 @@ export function summarizeInsightFilters(
                         })
                         .join(' & ')
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsIdMapped)}`
+                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
                     }
                     if (filters.formula) {
                         summary = `${filters.formula} on ${summary}`

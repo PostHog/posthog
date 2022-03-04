@@ -172,7 +172,7 @@ function InsightMeta({
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsIdMapped } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
@@ -376,7 +376,7 @@ function InsightMeta({
                                             {summarizeInsightFilters(
                                                 filters,
                                                 aggregationLabel,
-                                                cohortsIdMapped,
+                                                cohortsById,
                                                 mathDefinitions
                                             )}
                                         </i>

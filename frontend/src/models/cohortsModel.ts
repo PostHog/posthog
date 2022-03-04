@@ -58,7 +58,7 @@ export const cohortsModel = kea<cohortsModelType>({
 
     selectors: {
         cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
-        cohortsIdMapped: [
+        cohortsById: [
             (s) => [s.cohorts],
             (cohorts) =>
                 Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])) as Partial<

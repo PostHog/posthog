@@ -56,7 +56,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsIdMapped } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
     // Whether to display the control tab on the side instead of on top
@@ -109,12 +109,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summarizeInsightFilters(
-                            filters,
-                            aggregationLabel,
-                            cohortsIdMapped,
-                            mathDefinitions
-                        )}
+                        placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}
