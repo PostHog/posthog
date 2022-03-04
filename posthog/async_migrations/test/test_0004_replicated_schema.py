@@ -93,9 +93,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
 
         for name, engine in table_engines:
-            engine_without_settings = engine.split(" SETTINGS")[0]
-            self.assert_correct_engine_type(name, engine_without_settings)
-            assert (name, self.sanitize(engine_without_settings)) == self.snapshot
+            self.assert_correct_engine_type(name, engine)
+            assert (name, self.sanitize(engine)) == self.snapshot
 
     def assert_correct_engine_type(self, name, engine):
         valid_engine = any(engine_type in engine for engine_type in ("Replicated", "Distributed", "Kafka"))
