@@ -534,17 +534,17 @@
         FROM numbers(dateDiff('day', toDateTime('2020-01-01 00:00:00'), toDateTime('2020-01-12 23:59:59')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-        UNION ALL SELECT count(DISTINCT $group_0) as data,
+        UNION ALL SELECT count(DISTINCT group_0) as data,
                          toDateTime(toStartOfDay(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.$group_0 as $group_0
+                  e.group_0 as group_0
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
              AND timestamp <= '2020-01-12 23:59:59'
-             AND (NOT has([''], "$group_0")) )
+             AND (NOT has([''], "group_0")) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -553,17 +553,17 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
-  SELECT $group_0 AS actor_id
+  SELECT group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0
+            e.group_0 as group_0
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
-       AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0")) )
+       AND (NOT has([''], "group_0")
+            AND NOT has([''], "group_0")) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
