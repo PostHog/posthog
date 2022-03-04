@@ -7,6 +7,7 @@ from posthog.models.event_definition import EventDefinition
 
 class EnterpriseEventDefinition(EventDefinition):
     owner = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL, related_name="event_definitions")
+    custom_name: models.TextField = models.TextField(blank=True, null=True, default="")
     description: models.TextField = models.TextField(blank=True, null=True, default="")
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL, blank=True)
