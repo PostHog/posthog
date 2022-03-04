@@ -1,12 +1,14 @@
 import React from 'react'
+import './PrimaryDashboardModal.scss'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonTable } from 'lib/components/LemonTable'
 import { DashboardType } from '~/types'
-import { Skeleton, Typography } from 'antd'
+import { Row, Skeleton } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
+import clsx from 'clsx'
+import { HomeIcon } from 'lib/components/icons'
 
 export interface ShareModalProps {
     visible: boolean
@@ -20,6 +22,7 @@ export function PrimaryDashboardModal(): JSX.Element {
 
     return (
         <LemonModal
+            className="primary-dashboard-modal"
             visible={visible}
             onCancel={() => {
                 closePrimaryDashboardModal()
@@ -42,46 +45,45 @@ export function PrimaryDashboardModal(): JSX.Element {
             {dashboardsLoading ? (
                 <Skeleton active />
             ) : (
-                <LemonTable
-                    embedded
-                    showHeader={false}
-                    rowKey="id"
-                    columns={[
-                        {
-                            key: 'dashboard',
-                            render: function Render(_, dashboard: DashboardType) {
-                                return (
-                                    <div key={dashboard.id}>
-                                        <strong>{dashboard.name}</strong>
-                                        <p className="text-small text-muted-alt">{dashboard.description}</p>
-                                    </div>
-                                )
-                            },
-                        },
-                        {
-                            width: 0,
-                            key: 'setDefault',
-                            render: function Render(_, dashboard: DashboardType) {
-                                if (dashboard.id === primaryDashboardId) {
-                                    return <Typography.Text>Default</Typography.Text>
-                                }
-                                return (
-                                    <LemonButton
-                                        type="default"
-                                        fullWidth
-                                        onClick={() => {
-                                            setPrimaryDashboard(dashboard.id)
-                                            closePrimaryDashboardModal()
-                                        }}
-                                    >
-                                        Set as default
-                                    </LemonButton>
-                                )
-                            },
-                        },
-                    ]}
-                    dataSource={nameSortedDashboards}
-                />
+                <div className="dashboard-list">
+                    {nameSortedDashboards.map((dashboard: DashboardType) => {
+                        const isPrimary = dashboard.id === primaryDashboardId
+                        return (
+                            <Row
+                                key={dashboard.id}
+                                onClick={() => {
+                                    if (!isPrimary) {
+                                        setPrimaryDashboard(dashboard.id)
+                                        closePrimaryDashboardModal()
+                                    }
+                                }}
+                                className={clsx({
+                                    'dashboard-row': true,
+                                    'primary-dashboard-row': isPrimary,
+                                })}
+                            >
+                                <div key={dashboard.id} className="dashboard-label-container">
+                                    <strong>{dashboard.name}</strong>
+                                    {dashboard.description && (
+                                        <p className="text-small text-muted-alt dashboard-description">
+                                            {dashboard.description}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    {isPrimary ? (
+                                        <div className="default-indicator">
+                                            <HomeIcon className="mr-05" style={{ width: 18 }} />
+                                            <span>Default</span>
+                                        </div>
+                                    ) : (
+                                        <strong className="set-default-text">Set as default</strong>
+                                    )}
+                                </div>
+                            </Row>
+                        )
+                    })}
+                </div>
             )}
         </LemonModal>
     )

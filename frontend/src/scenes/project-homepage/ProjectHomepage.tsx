@@ -54,8 +54,13 @@ export function ProjectHomepage(): JSX.Element {
             {currentTeam?.primary_dashboard ? (
                 <div>
                     <div>
-                        <Row style={{ justifyContent: 'space-between' }}>
-                            <Typography.Title level={4}>{dashboard?.name}</Typography.Title>
+                        <Row className="dashboard-header">
+                            <div className="dashboard-title-container">
+                                <HomeIcon className="mr-05" style={{ width: 18 }} />
+                                <Typography.Title className="dashboard-name" level={4}>
+                                    {dashboard?.name}
+                                </Typography.Title>
+                            </div>
                             <Button
                                 data-attr="project-home-new-insight"
                                 onClick={() => {

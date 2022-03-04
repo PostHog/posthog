@@ -1,6 +1,18 @@
 @import '~/vars';
 
 .project-homepage {
+    .dashboard-header {
+        justify-content: 'space-between';
+        align-items: center;
+        .dashboard-title-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            .dashboard-name {
+                margin: 0;
+            }
+        }
+    }
     .empty-state-container {
         background-color: $bg_side;
         width: 100%;
