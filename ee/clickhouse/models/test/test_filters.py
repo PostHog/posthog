@@ -215,7 +215,10 @@ class TestFilters(PGTestFilters):
                         "custom_name": None,
                         "order": None,
                         "name": "$pageview",
-                        "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},],
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},],
+                        },
                     }
                 ],
             },
@@ -237,7 +240,10 @@ class TestFilters(PGTestFilters):
                         "custom_name": None,
                         "order": None,
                         "name": "$pageview",
-                        "properties": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"},],
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"key": "$group_2", "operator": "is_not", "value": "", "type": "event"},],
+                        },
                     }
                 ],
             },

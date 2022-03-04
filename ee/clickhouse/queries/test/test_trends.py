@@ -777,17 +777,24 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                     "date_to": "2020-07-01 00:00:00",
                     "breakdown": "email",
                     "breakdown_type": "person",
-                    # TODO: convert this into property group once entity.properties is gone
                     "events": [
                         {
                             "id": "sign up",
                             "name": "sign up",
                             "type": "events",
                             "order": 0,
-                            "properties": [
-                                {"key": "key", "value": "val"},
-                                {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"},
-                            ],
+                            "properties": {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "key", "value": "val"},
+                                    {
+                                        "key": "email",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                        "type": "person",
+                                    },
+                                ],
+                            },
                         }
                     ],
                     "properties": {
