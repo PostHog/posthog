@@ -68,4 +68,4 @@ class TestInsightEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"tags": ["a", "b", "a"]})
 
-        self.assertListEqual(response.json()["tags"], ["a", "b"])
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

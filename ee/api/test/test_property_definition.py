@@ -187,4 +187,4 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(response.json()["tags"], ["a", "b"])
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

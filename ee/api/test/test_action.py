@@ -80,4 +80,4 @@ class TestActionApi(APIBaseTest):
             f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(response.json()["tags"], ["a", "b"])
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

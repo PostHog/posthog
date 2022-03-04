@@ -241,4 +241,4 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}", data={"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(response.json()["tags"], ["a", "b"])
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

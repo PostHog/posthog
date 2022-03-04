@@ -253,4 +253,4 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(response.json()["tags"], ["a", "b"])
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
