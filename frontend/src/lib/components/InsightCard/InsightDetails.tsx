@@ -5,9 +5,10 @@ import { allOperatorsMapping, alphabet } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
+import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PathType, PropertyFilter } from '~/types'
+import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow, LemonSpacer } from '../LemonRow'
 import { Lettermark } from '../Lettermark/Lettermark'
@@ -123,31 +124,11 @@ function SeriesDisplay({
 }
 
 function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    // Sync with summarizePaths in utils
-    let humanEventTypes: string[] = []
-    if (filters.include_event_types) {
-        let matchCount = 0
-        if (filters.include_event_types.includes(PathType.PageView)) {
-            humanEventTypes.push('page views')
-            matchCount++
-        }
-        if (filters.include_event_types.includes(PathType.Screen)) {
-            humanEventTypes.push('screen views')
-            matchCount++
-        }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
-            humanEventTypes.push('custom events')
-            matchCount++
-        }
-        if (matchCount === 0 || Object.keys(PathType).length) {
-            humanEventTypes = ['all events']
-        }
-    }
-
+    // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanEventTypes.join(' and ')}</b>
+                User paths based on <b>{humanizePathsEventTypes(filters).join(' and ')}</b>
             </div>
             {filters.start_point && (
                 <div>

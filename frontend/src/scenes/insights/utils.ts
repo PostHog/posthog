@@ -122,8 +122,7 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
         .results[0]?.id
 }
 
-function summarizePaths(filters: Partial<FilterType>): string {
-    // Sync with PathsSummary in InsightDetails
+export function humanizePathsEventTypes(filters: Partial<FilterType>): string[] {
     let humanEventTypes: string[] = []
     if (filters.include_event_types) {
         let matchCount = 0
@@ -143,17 +142,10 @@ function summarizePaths(filters: Partial<FilterType>): string {
             humanEventTypes = ['all events']
         }
     }
-    let summary = `User paths based on ${humanEventTypes.join(' and ')}`
-    if (filters.start_point) {
-        summary += ` starting at ${filters.start_point}`
-    }
-    if (filters.end_point) {
-        summary += ` ending at ${filters.end_point}`
-    }
-    return summary
+    return humanEventTypes
 }
 
-function summarizeBreakdown(
+export function summarizeBreakdown(
     filters: Partial<FilterType>,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsIdMapped: cohortsModelType['values']['cohortsIdMapped']
@@ -206,7 +198,14 @@ export function summarizeInsightFilters(
                     : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
             break
         case InsightType.PATHS:
-            summary = summarizePaths(filters)
+            // Sync format with PathsSummary in InsightDetails
+            summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+            if (filters.start_point) {
+                summary += ` starting at ${filters.start_point}`
+            }
+            if (filters.end_point) {
+                summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
+            }
             break
         default:
             const localFilters = toLocalFilters(filters)
