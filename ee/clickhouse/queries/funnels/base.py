@@ -37,7 +37,6 @@ class ClickhouseFunnelBase(ABC):
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
     _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
 
     def __init__(
         self,
@@ -76,10 +75,8 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({OFFSET: self._filter.offset})
 
         self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
-            self._extra_event_fields = ["uuid"]
-            self._extra_event_properties = ["$session_id", "$window_id"]
+            self._extra_event_fields = ["uuid", "mat_session_id", "mat_window_id"]
 
         self._update_filters()
 
@@ -107,7 +104,7 @@ class ClickhouseFunnelBase(ABC):
 
     @property
     def extra_event_fields_and_properties(self):
-        return self._extra_event_fields + self._extra_event_properties
+        return self._extra_event_fields
 
     def _update_filters(self):
         # format default dates
@@ -361,10 +358,7 @@ class ClickhouseFunnelBase(ABC):
         entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=self._extra_event_fields,
-            extra_event_properties=self._extra_event_properties,
+            filter=self._filter, team_id=self._team, extra_fields=self._extra_event_fields,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)

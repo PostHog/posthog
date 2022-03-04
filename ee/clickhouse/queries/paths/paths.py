@@ -36,7 +36,6 @@ class ClickhousePaths:
     _funnel_filter: Optional[Filter]
     _team: Team
     _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
 
     def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
         self._filter = filter
@@ -51,10 +50,8 @@ class ClickhousePaths:
         self._funnel_filter = funnel_filter
 
         self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
         if self._filter.include_recordings:
-            self._extra_event_fields = ["uuid", "timestamp"]
-            self._extra_event_properties = ["$session_id", "$window_id"]
+            self._extra_event_fields = ["uuid", "timestamp", "mat_session_id", "mat_window_id"]
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
@@ -117,7 +114,7 @@ class ClickhousePaths:
 
     @property
     def extra_event_fields_and_properties(self):
-        return self._extra_event_fields + self._extra_event_properties
+        return self._extra_event_fields
 
     # Returns the set of clauses used to select the uuid, timestamp, session_id and window_id for the events in the query
     # These values are used to identify the recordings shown in the person modal
@@ -165,10 +162,7 @@ class ClickhousePaths:
 
     def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=self._extra_event_fields,
-            extra_event_properties=self._extra_event_properties,
+            filter=self._filter, team_id=self._team, extra_fields=self._extra_event_fields,
         ).get_query()
         self.params.update(params)
 

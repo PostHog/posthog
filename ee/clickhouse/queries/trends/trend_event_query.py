@@ -29,14 +29,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
                     for column_name in self._column_optimizer.event_columns_to_query
                 )
             )
-            + " ".join(
-                [
-                    ", "
-                    + get_property_string_expr("events", property, f"'{property}'", "properties", table_alias="e")[0]
-                    + f" as {property}"
-                    for property in self._extra_event_properties
-                ]
-            )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (

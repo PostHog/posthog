@@ -25,11 +25,6 @@ class FunnelEventQuery(ClickhouseEventQuery):
         ]
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
-        _fields += [
-            get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
-            + f' as "{field}"'
-            for field in self._extra_event_properties
-        ]
 
         _fields.extend(
             f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'

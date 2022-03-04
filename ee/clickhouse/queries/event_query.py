@@ -32,7 +32,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _should_join_persons = False
     _should_round_interval = False
     _extra_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
 
     def __init__(
@@ -44,14 +43,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
         self._filter = filter
         self._team_id = team.pk
-        self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
         self.params: Dict[str, Any] = {

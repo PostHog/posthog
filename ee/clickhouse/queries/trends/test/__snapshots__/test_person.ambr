@@ -1,17 +1,17 @@
 # name: TestPerson.test_group_query_includes_recording_events
   '
   
-  SELECT $group_0 AS actor_id ,
+  SELECT group_0 AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             mat_session_id,
+                             mat_window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0,
-            e."$window_id" as $window_id,
-            e."$session_id" as $session_id,
-            e.uuid as uuid
+            e.group_0 as group_0,
+            e.uuid as uuid,
+            e.mat_window_id as mat_window_id,
+            e.mat_session_id as mat_session_id
      FROM events e
      WHERE team_id = 2
        AND event = 'pageview'

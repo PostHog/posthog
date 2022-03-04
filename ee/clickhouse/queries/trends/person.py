@@ -89,7 +89,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
 
         extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
         if self._filter.include_recordings:
-            extra_fields += ["uuid"]
+            extra_fields += ["uuid", "mat_window_id", "mat_session_id"]
 
         events_query, params = TrendsEventQuery(
             filter=self._filter,
@@ -97,12 +97,11 @@ class ClickhouseTrendsActors(ActorBaseQuery):
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
             should_join_persons=not self.is_aggregating_by_groups,
-            extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
         ).get_query()
 
         matching_events_select_statement = (
-            ", groupUniqArray(10)((timestamp, uuid, $session_id, $window_id)) as matching_events"
+            ", groupUniqArray(10)((timestamp, uuid, mat_session_id, mat_window_id)) as matching_events"
             if self._filter.include_recordings
             else ""
         )
@@ -122,6 +121,6 @@ class ClickhouseTrendsActors(ActorBaseQuery):
     def _aggregation_actor_field(self) -> str:
         if self.is_aggregating_by_groups:
             group_type_index = self.entity.math_group_type_index
-            return f"$group_{group_type_index}"
+            return f"group_{group_type_index}"
         else:
             return "person_id"
