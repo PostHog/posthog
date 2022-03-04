@@ -27,7 +27,7 @@ def rename_column_if_exists(table, current_name, new_name):
     try:
         rename_column(table, current_name, new_name)
     except ServerException as err:
-        logger.info("Failed to rename column, ignoring.", table=table, current_name=current_name, new_name=new_name)
+        logger.info("Column already renamed, ignoring.", table=table, current_name=current_name, new_name=new_name)
 
 
 def rename_materialized_columns_with_dollars(database):
