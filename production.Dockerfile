@@ -25,7 +25,6 @@ RUN apk --update --no-cache add \
     "make~=4.3" \
     "nodejs~=14" \
     "npm~=7" \
-    "curl~=7" \
     && npm install -g yarn@1
 
 # Install SAML dependencies
