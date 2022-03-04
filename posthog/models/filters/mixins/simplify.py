@@ -62,7 +62,7 @@ class SimplifyFilterMixin:
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
 
         entity = EntityClass(entity_params)
-        properties = self._simplify_properties(team, entity.properties, **kwargs)
+        properties = self._simplify_properties(team, entity.property_groups.flat, **kwargs)
         if entity.math == "unique_group":
             properties.append(self._group_set_property(cast(GroupTypeIndex, entity.math_group_type_index)))
 

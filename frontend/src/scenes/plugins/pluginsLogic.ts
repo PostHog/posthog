@@ -25,6 +25,8 @@ export enum PluginSection {
     Disabled = 'disabled',
 }
 
+const PAGINATION_DEFAULT_MAX_PAGES = 10
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -32,6 +34,23 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
         plugin_tag: plugin.tag,
         ...(type && { plugin_installation_type: type }),
     })
+}
+
+async function loadPaginatedResults(
+    url: string | null,
+    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
+): Promise<any[]> {
+    let results: any[] = []
+    for (let i = 0; i <= maxIterations; ++i) {
+        if (!url) {
+            break
+        }
+
+        const { results: partialResults, next } = await api.get(url)
+        results = results.concat(partialResults)
+        url = next
+    }
+    return results
 }
 
 export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
@@ -83,9 +102,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/organizations/@current/plugins')
+                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
-                    for (const plugin of results as PluginType[]) {
+                    for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
                     return plugins
@@ -147,9 +166,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const { results } = await api.get('api/plugin_config')
+                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
 
-                    for (const pluginConfig of results as PluginConfigType[]) {
+                    for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
                     }
 

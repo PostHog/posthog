@@ -16,7 +16,7 @@ def mark_all_materialized() -> None:
         updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
 
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-        execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+        execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
         sync_execute(
             f"""
