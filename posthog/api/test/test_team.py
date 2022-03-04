@@ -146,15 +146,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["primary_dashboard"], d.id)
 
-        # Delete dashboard, should clear the field
-        d.delete()
-        response = self.client.get("/api/projects/@current/")
-        response_data = response.json()
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["primary_dashboard"], None)
-
     def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
         team_2 = Team.objects.create(organization=self.organization, name="Default Project")
         d = Dashboard.objects.create(name="Test", team=team_2)
