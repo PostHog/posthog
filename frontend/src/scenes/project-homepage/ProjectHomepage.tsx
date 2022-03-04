@@ -51,6 +51,10 @@ export function ProjectHomepage(): JSX.Element {
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
             {currentTeam?.primary_dashboard ? (
                 <div>
+                    {/* 
+                        Don't show the dashboard header until the entire dashboard has loaded.
+                        Otherwise, you get a jumping loading indicator.
+                    */}
                     {dashboard && !allItemsLoading && (
                         <div>
                             <Row style={{ justifyContent: 'space-between' }}>
