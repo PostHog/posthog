@@ -1,0 +1,13 @@
+@import '~/vars';
+
+.project-homepage {
+    .empty-state-container {
+        background-color: $bg_side;
+        width: 100%;
+        justify-content: center;
+        align-items: center;
+        padding: $default_spacing * 4;
+        display: flex;
+        flex-direction: column;
+    }
+}

@@ -1,4 +1,5 @@
 import React from 'react'
+import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useActions, useValues } from 'kea'
@@ -14,11 +15,12 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
+import { HomeIcon } from 'lib/components/icons'
 
 export function ProjectHomepage(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const dashboardLogicInstance = dashboardLogic({ id: currentTeam?.primary_dashboard ?? undefined })
-    const { dashboard, allItemsLoading } = useValues(dashboardLogicInstance)
+    const { dashboard } = useValues(dashboardLogicInstance)
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
@@ -51,34 +53,42 @@ export function ProjectHomepage(): JSX.Element {
             <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
             {currentTeam?.primary_dashboard ? (
                 <div>
-                    {/* 
-                        Don't show the dashboard header until the entire dashboard has loaded.
-                        Otherwise, you get a jumping loading indicator.
-                    */}
-                    {dashboard && !allItemsLoading && (
-                        <div>
-                            <Row style={{ justifyContent: 'space-between' }}>
-                                <Typography.Title level={4}>{dashboard?.name}</Typography.Title>
-                                <Button
-                                    data-attr="project-home-new-insight"
-                                    onClick={() => {
-                                        showPrimaryDashboardModal()
-                                    }}
-                                >
-                                    Change dashboard
-                                </Button>
-                            </Row>
-                            <LemonSpacer />
-                        </div>
-                    )}
+                    <div>
+                        <Row style={{ justifyContent: 'space-between' }}>
+                            <Typography.Title level={4}>{dashboard?.name}</Typography.Title>
+                            <Button
+                                data-attr="project-home-new-insight"
+                                onClick={() => {
+                                    showPrimaryDashboardModal()
+                                }}
+                            >
+                                Change dashboard
+                            </Button>
+                        </Row>
+                        <LemonSpacer />
+                    </div>
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         location={DashboardLocation.ProjectHomepage}
                     />
                 </div>
             ) : (
-                <div>
-                    <h1>Set the default dashboard for this project</h1>
+                <div className="empty-state-container">
+                    <HomeIcon className="mb" />
+                    <h1>There isn’t a default dashboard set for this project</h1>
+                    <p className="mb">
+                        Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
+                        here.
+                    </p>
+                    <Button
+                        type="primary"
+                        data-attr="project-home-new-insight"
+                        onClick={() => {
+                            showPrimaryDashboardModal()
+                        }}
+                    >
+                        Select a default dashboard
+                    </Button>
                 </div>
             )}
             <PrimaryDashboardModal />
