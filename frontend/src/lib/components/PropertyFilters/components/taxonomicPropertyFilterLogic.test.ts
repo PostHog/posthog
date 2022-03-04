@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 
 jest.mock('lib/api')
 
@@ -14,6 +15,7 @@ describe('the taxonomic property filter', () => {
 
     beforeEach(() => {
         initKeaTests()
+        columnConfiguratorLogic({ selectedColumns: [] }).mount()
         logic = taxonomicPropertyFilterLogic({
             propertyFilterLogic: propertyFilterLogic({
                 pageKey: 'tests',
