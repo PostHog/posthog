@@ -26,6 +26,7 @@ export type TaxonomicFilterValue = string | number
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
     clearSearchOnSelection?: boolean
+    popoverEnabled?: boolean
 }
 
 export interface TaxonomicFilterGroup {
@@ -67,7 +68,6 @@ export enum TaxonomicFilterGroupType {
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
-    popoverEnabled?: boolean
 }
 
 export interface ListStorage {

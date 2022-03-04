@@ -43,6 +43,7 @@ export function TaxonomicFilter({
         optionsFromProp,
         eventNames,
         clearSearchOnSelection,
+        popoverEnabled,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -136,11 +137,7 @@ export function TaxonomicFilter({
                         }
                     />
                 </div>
-                <InfiniteSelectResults
-                    focusInput={focusInput}
-                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    popperEnabled={popoverEnabled}
-                />
+                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>
         </BindLogic>
     )

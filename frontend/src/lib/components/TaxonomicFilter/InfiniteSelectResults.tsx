@@ -10,7 +10,6 @@ import clsx from 'clsx'
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
-    popperEnabled?: boolean
 }
 
 function CategoryPill({
@@ -49,7 +48,6 @@ function CategoryPill({
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
-    popperEnabled = true,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
@@ -58,7 +56,7 @@ export function InfiniteSelectResults({
         return (
             <BindLogic
                 logic={infiniteListLogic}
-                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0], popperEnabled }}
+                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
             >
                 <InfiniteList />
             </BindLogic>
@@ -93,7 +91,7 @@ export function InfiniteSelectResults({
                     <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
                         <BindLogic
                             logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType, popperEnabled }}
+                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
                             <InfiniteList />
                         </BindLogic>
