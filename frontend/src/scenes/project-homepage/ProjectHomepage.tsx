@@ -8,7 +8,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement, InsightType } from '~/types'
 import { Button, Row, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
@@ -21,7 +20,6 @@ export function ProjectHomepage(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const dashboardLogicInstance = dashboardLogic({ id: currentTeam?.primary_dashboard ?? undefined })
     const { dashboard } = useValues(dashboardLogicInstance)
-    const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
 
@@ -30,7 +28,6 @@ export function ProjectHomepage(): JSX.Element {
             <Button
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
-                    closeSitePopover()
                     showInviteModal()
                 }}
                 className="mr-05"
@@ -61,12 +58,7 @@ export function ProjectHomepage(): JSX.Element {
                                     {dashboard?.name}
                                 </Typography.Title>
                             </div>
-                            <Button
-                                data-attr="project-home-new-insight"
-                                onClick={() => {
-                                    showPrimaryDashboardModal()
-                                }}
-                            >
+                            <Button data-attr="project-home-new-insight" onClick={showPrimaryDashboardModal}>
                                 Change dashboard
                             </Button>
                         </Row>
