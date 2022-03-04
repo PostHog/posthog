@@ -1,5 +1,6 @@
 # name: TagsTestCase.test_tags_migrated
   '
+  
   SELECT c.relname,
          CASE
              WHEN c.relispartition THEN 'p'
@@ -222,7 +223,7 @@
 ---
 # name: TagsTestCase.test_tags_migrated.1013
   '
-
+  
   SELECT c.relname,
          CASE
              WHEN c.relispartition THEN 'p'
@@ -244,7 +245,7 @@
 ---
 # name: TagsTestCase.test_tags_migrated.1014
   '
-
+  
   SELECT c.relname,
          CASE
              WHEN c.relispartition THEN 'p'
