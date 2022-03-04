@@ -1186,15 +1186,15 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             mat_session_id,
+                             mat_window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
             final_uuid as uuid,
             final_timestamp as timestamp,
-            final_$session_id as $session_id,
-            final_$window_id as $window_id,
+            final_mat_session_id as mat_session_id,
+            final_mat_window_id as mat_window_id,
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
@@ -1213,12 +1213,12 @@
                arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
                joined_path_tuple.4 as final_uuid,
                joined_path_tuple.5 as final_timestamp,
-               joined_path_tuple.6 as final_$session_id,
-               joined_path_tuple.7 as final_$window_id ,
+               joined_path_tuple.6 as final_mat_session_id,
+               joined_path_tuple.7 as final_mat_window_id ,
                arrayFilter((x, y)->y, uuid, mapping) as uuids,
                arrayFilter((x, y)->y, timestamp, mapping) as timestamps,
-               arrayFilter((x, y)->y, $session_id, mapping) as $session_ids,
-               arrayFilter((x, y)->y, $window_id, mapping) as $window_ids ,
+               arrayFilter((x, y)->y, mat_session_id, mapping) as mat_session_ids,
+               arrayFilter((x, y)->y, mat_window_id, mapping) as mat_window_ids ,
                indexOf(compact_path, NULL) as target_index ,
                if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
@@ -1228,12 +1228,12 @@
                arraySlice(filtered_uuids, 1, 5) as limited_uuids ,
                if(target_index > 0, arraySlice(timestamps, target_index), timestamps) as filtered_timestamps ,
                arraySlice(filtered_timestamps, 1, 5) as limited_timestamps ,
-               if(target_index > 0, arraySlice($session_ids, target_index), $session_ids) as filtered_$session_ids ,
-               arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
-               if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
-               arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
+               if(target_index > 0, arraySlice(mat_session_ids, target_index), mat_session_ids) as filtered_mat_session_ids ,
+               arraySlice(filtered_mat_session_ids, 1, 5) as limited_mat_session_ids ,
+               if(target_index > 0, arraySlice(mat_window_ids, target_index), mat_window_ids) as filtered_mat_window_ids ,
+               arraySlice(filtered_mat_window_ids, 1, 5) as limited_mat_window_ids ,
                arrayDifference(limited_timings) as timings_diff ,
-               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_mat_session_ids, limited_mat_window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
           (SELECT person_id ,
@@ -1241,27 +1241,37 @@
                   path_time_tuple.2 as time ,
                   path_time_tuple.4 as uuid,
                   path_time_tuple.5 as timestamp,
-                  path_time_tuple.6 as $session_id,
-                  path_time_tuple.7 as $window_id ,
+                  path_time_tuple.6 as mat_session_id,
+                  path_time_tuple.7 as mat_window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, mat_session_ids, mat_window_ids) as paths_tuple ,
                   arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
                      groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
-                     groupArray($session_id) as $session_ids,
-                     groupArray($window_id) as $window_ids,
+                     groupArray(mat_session_id) as mat_session_ids,
+                     groupArray(mat_window_id) as mat_window_ids,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
+<<<<<<< HEAD
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+=======
+                        e.mat_session_id AS mat_session_id,
+                        e.mat_window_id AS mat_window_id,
+                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
+                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
+                                                                                                                                       FROM trim(BOTH '"'
+                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
+                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
+>>>>>>> f0ad60a01... Update snapshots
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1307,15 +1317,15 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             mat_session_id,
+                             mat_window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
             final_uuid as uuid,
             final_timestamp as timestamp,
-            final_$session_id as $session_id,
-            final_$window_id as $window_id,
+            final_mat_session_id as mat_session_id,
+            final_mat_window_id as mat_window_id,
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
@@ -1334,12 +1344,12 @@
                arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
                joined_path_tuple.4 as final_uuid,
                joined_path_tuple.5 as final_timestamp,
-               joined_path_tuple.6 as final_$session_id,
-               joined_path_tuple.7 as final_$window_id ,
+               joined_path_tuple.6 as final_mat_session_id,
+               joined_path_tuple.7 as final_mat_window_id ,
                arrayFilter((x, y)->y, uuid, mapping) as uuids,
                arrayFilter((x, y)->y, timestamp, mapping) as timestamps,
-               arrayFilter((x, y)->y, $session_id, mapping) as $session_ids,
-               arrayFilter((x, y)->y, $window_id, mapping) as $window_ids ,
+               arrayFilter((x, y)->y, mat_session_id, mapping) as mat_session_ids,
+               arrayFilter((x, y)->y, mat_window_id, mapping) as mat_window_ids ,
                indexOf(compact_path, NULL) as target_index ,
                if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
@@ -1349,12 +1359,12 @@
                arraySlice(filtered_uuids, 1, 5) as limited_uuids ,
                if(target_index > 0, arraySlice(timestamps, target_index), timestamps) as filtered_timestamps ,
                arraySlice(filtered_timestamps, 1, 5) as limited_timestamps ,
-               if(target_index > 0, arraySlice($session_ids, target_index), $session_ids) as filtered_$session_ids ,
-               arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
-               if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
-               arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
+               if(target_index > 0, arraySlice(mat_session_ids, target_index), mat_session_ids) as filtered_mat_session_ids ,
+               arraySlice(filtered_mat_session_ids, 1, 5) as limited_mat_session_ids ,
+               if(target_index > 0, arraySlice(mat_window_ids, target_index), mat_window_ids) as filtered_mat_window_ids ,
+               arraySlice(filtered_mat_window_ids, 1, 5) as limited_mat_window_ids ,
                arrayDifference(limited_timings) as timings_diff ,
-               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_mat_session_ids, limited_mat_window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
           (SELECT person_id ,
@@ -1362,27 +1372,37 @@
                   path_time_tuple.2 as time ,
                   path_time_tuple.4 as uuid,
                   path_time_tuple.5 as timestamp,
-                  path_time_tuple.6 as $session_id,
-                  path_time_tuple.7 as $window_id ,
+                  path_time_tuple.6 as mat_session_id,
+                  path_time_tuple.7 as mat_window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, mat_session_ids, mat_window_ids) as paths_tuple ,
                   arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
                      groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
-                     groupArray($session_id) as $session_ids,
-                     groupArray($window_id) as $window_ids,
+                     groupArray(mat_session_id) as mat_session_ids,
+                     groupArray(mat_window_id) as mat_window_ids,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
+<<<<<<< HEAD
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+=======
+                        e.mat_session_id AS mat_session_id,
+                        e.mat_window_id AS mat_window_id,
+                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
+                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
+                                                                                                                                       FROM trim(BOTH '"'
+                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
+                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
+>>>>>>> f0ad60a01... Update snapshots
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1428,15 +1448,15 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             mat_session_id,
+                             mat_window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
             final_uuid as uuid,
             final_timestamp as timestamp,
-            final_$session_id as $session_id,
-            final_$window_id as $window_id,
+            final_mat_session_id as mat_session_id,
+            final_mat_window_id as mat_window_id,
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
@@ -1455,12 +1475,12 @@
                arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
                joined_path_tuple.4 as final_uuid,
                joined_path_tuple.5 as final_timestamp,
-               joined_path_tuple.6 as final_$session_id,
-               joined_path_tuple.7 as final_$window_id ,
+               joined_path_tuple.6 as final_mat_session_id,
+               joined_path_tuple.7 as final_mat_window_id ,
                arrayFilter((x, y)->y, uuid, mapping) as uuids,
                arrayFilter((x, y)->y, timestamp, mapping) as timestamps,
-               arrayFilter((x, y)->y, $session_id, mapping) as $session_ids,
-               arrayFilter((x, y)->y, $window_id, mapping) as $window_ids ,
+               arrayFilter((x, y)->y, mat_session_id, mapping) as mat_session_ids,
+               arrayFilter((x, y)->y, mat_window_id, mapping) as mat_window_ids ,
                indexOf(compact_path, NULL) as target_index ,
                if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
@@ -1470,12 +1490,12 @@
                arraySlice(filtered_uuids, 1, 5) as limited_uuids ,
                if(target_index > 0, arraySlice(timestamps, target_index), timestamps) as filtered_timestamps ,
                arraySlice(filtered_timestamps, 1, 5) as limited_timestamps ,
-               if(target_index > 0, arraySlice($session_ids, target_index), $session_ids) as filtered_$session_ids ,
-               arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
-               if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
-               arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
+               if(target_index > 0, arraySlice(mat_session_ids, target_index), mat_session_ids) as filtered_mat_session_ids ,
+               arraySlice(filtered_mat_session_ids, 1, 5) as limited_mat_session_ids ,
+               if(target_index > 0, arraySlice(mat_window_ids, target_index), mat_window_ids) as filtered_mat_window_ids ,
+               arraySlice(filtered_mat_window_ids, 1, 5) as limited_mat_window_ids ,
                arrayDifference(limited_timings) as timings_diff ,
-               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_mat_session_ids, limited_mat_window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
           (SELECT person_id ,
@@ -1483,27 +1503,37 @@
                   path_time_tuple.2 as time ,
                   path_time_tuple.4 as uuid,
                   path_time_tuple.5 as timestamp,
-                  path_time_tuple.6 as $session_id,
-                  path_time_tuple.7 as $window_id ,
+                  path_time_tuple.6 as mat_session_id,
+                  path_time_tuple.7 as mat_window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, mat_session_ids, mat_window_ids) as paths_tuple ,
                   arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
                      groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
-                     groupArray($session_id) as $session_ids,
-                     groupArray($window_id) as $window_ids,
+                     groupArray(mat_session_id) as mat_session_ids,
+                     groupArray(mat_window_id) as mat_window_ids,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
+<<<<<<< HEAD
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+=======
+                        e.mat_session_id AS mat_session_id,
+                        e.mat_window_id AS mat_window_id,
+                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
+                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
+                                                                                                                                       FROM trim(BOTH '"'
+                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
+                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
+>>>>>>> f0ad60a01... Update snapshots
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1548,15 +1578,15 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             mat_session_id,
+                             mat_window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
             final_uuid as uuid,
             final_timestamp as timestamp,
-            final_$session_id as $session_id,
-            final_$window_id as $window_id,
+            final_mat_session_id as mat_session_id,
+            final_mat_window_id as mat_window_id,
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
@@ -1575,12 +1605,12 @@
                arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
                joined_path_tuple.4 as final_uuid,
                joined_path_tuple.5 as final_timestamp,
-               joined_path_tuple.6 as final_$session_id,
-               joined_path_tuple.7 as final_$window_id ,
+               joined_path_tuple.6 as final_mat_session_id,
+               joined_path_tuple.7 as final_mat_window_id ,
                arrayFilter((x, y)->y, uuid, mapping) as uuids,
                arrayFilter((x, y)->y, timestamp, mapping) as timestamps,
-               arrayFilter((x, y)->y, $session_id, mapping) as $session_ids,
-               arrayFilter((x, y)->y, $window_id, mapping) as $window_ids ,
+               arrayFilter((x, y)->y, mat_session_id, mapping) as mat_session_ids,
+               arrayFilter((x, y)->y, mat_window_id, mapping) as mat_window_ids ,
                indexOf(compact_path, '/1') as start_target_index ,
                if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path ,
                if(start_target_index > 0, arraySlice(timings, start_target_index), timings) as start_filtered_timings ,
@@ -1595,14 +1625,14 @@
                if(start_target_index > 0, arraySlice(timestamps, start_target_index), timestamps) as start_filtered_timestamps ,
                if(end_target_index > 0, arrayResize(start_filtered_timestamps, end_target_index), start_filtered_timestamps) as filtered_timestamps ,
                if(length(filtered_timestamps) > 5, arrayConcat(arraySlice(filtered_timestamps, 1, intDiv(5, 2)), [filtered_timestamps[1+intDiv(5, 2)]], arraySlice(filtered_timestamps, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_timestamps) AS limited_timestamps ,
-               if(start_target_index > 0, arraySlice($session_ids, start_target_index), $session_ids) as start_filtered_$session_ids ,
-               if(end_target_index > 0, arrayResize(start_filtered_$session_ids, end_target_index), start_filtered_$session_ids) as filtered_$session_ids ,
-               if(length(filtered_$session_ids) > 5, arrayConcat(arraySlice(filtered_$session_ids, 1, intDiv(5, 2)), [filtered_$session_ids[1+intDiv(5, 2)]], arraySlice(filtered_$session_ids, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_$session_ids) AS limited_$session_ids ,
-               if(start_target_index > 0, arraySlice($window_ids, start_target_index), $window_ids) as start_filtered_$window_ids ,
-               if(end_target_index > 0, arrayResize(start_filtered_$window_ids, end_target_index), start_filtered_$window_ids) as filtered_$window_ids ,
-               if(length(filtered_$window_ids) > 5, arrayConcat(arraySlice(filtered_$window_ids, 1, intDiv(5, 2)), [filtered_$window_ids[1+intDiv(5, 2)]], arraySlice(filtered_$window_ids, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_$window_ids) AS limited_$window_ids ,
+               if(start_target_index > 0, arraySlice(mat_session_ids, start_target_index), mat_session_ids) as start_filtered_mat_session_ids ,
+               if(end_target_index > 0, arrayResize(start_filtered_mat_session_ids, end_target_index), start_filtered_mat_session_ids) as filtered_mat_session_ids ,
+               if(length(filtered_mat_session_ids) > 5, arrayConcat(arraySlice(filtered_mat_session_ids, 1, intDiv(5, 2)), [filtered_mat_session_ids[1+intDiv(5, 2)]], arraySlice(filtered_mat_session_ids, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_mat_session_ids) AS limited_mat_session_ids ,
+               if(start_target_index > 0, arraySlice(mat_window_ids, start_target_index), mat_window_ids) as start_filtered_mat_window_ids ,
+               if(end_target_index > 0, arrayResize(start_filtered_mat_window_ids, end_target_index), start_filtered_mat_window_ids) as filtered_mat_window_ids ,
+               if(length(filtered_mat_window_ids) > 5, arrayConcat(arraySlice(filtered_mat_window_ids, 1, intDiv(5, 2)), [filtered_mat_window_ids[1+intDiv(5, 2)]], arraySlice(filtered_mat_window_ids, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_mat_window_ids) AS limited_mat_window_ids ,
                arrayDifference(limited_timings) as timings_diff ,
-               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_mat_session_ids, limited_mat_window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
           (SELECT person_id ,
@@ -1610,27 +1640,37 @@
                   path_time_tuple.2 as time ,
                   path_time_tuple.4 as uuid,
                   path_time_tuple.5 as timestamp,
-                  path_time_tuple.6 as $session_id,
-                  path_time_tuple.7 as $window_id ,
+                  path_time_tuple.6 as mat_session_id,
+                  path_time_tuple.7 as mat_window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, mat_session_ids, mat_window_ids) as paths_tuple ,
                   arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
                      groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
-                     groupArray($session_id) as $session_ids,
-                     groupArray($window_id) as $window_ids,
+                     groupArray(mat_session_id) as mat_session_ids,
+                     groupArray(mat_window_id) as mat_window_ids,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
+<<<<<<< HEAD
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+=======
+                        e.mat_session_id AS mat_session_id,
+                        e.mat_window_id AS mat_window_id,
+                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
+                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
+                                                                                                                                       FROM trim(BOTH '"'
+                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
+                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
+>>>>>>> f0ad60a01... Update snapshots
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
