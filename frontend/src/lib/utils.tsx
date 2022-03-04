@@ -11,6 +11,7 @@ import {
     ActionType,
     PropertyFilterValue,
     PropertyType,
+    CohortType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -374,13 +375,15 @@ export function isOperatorDate(operator: string): boolean {
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohorts: Record<string, any>[],
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        ? value in cohortsById
+            ? cohortsById[value]
+            : value
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
