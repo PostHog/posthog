@@ -56,7 +56,7 @@ def _create_all_events(all_events: List[Dict]):
 
     sync_execute(
         f"""
-    INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO sharded_events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )
