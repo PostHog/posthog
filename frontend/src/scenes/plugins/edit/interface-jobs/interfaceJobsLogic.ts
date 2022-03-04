@@ -1,12 +1,10 @@
 import { FormInstance } from 'antd'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
-import { errorToast } from 'lib/utils'
-
 import { interfaceJobsLogicType } from './interfaceJobsLogicType'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { JobSpec } from '~/types'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
     props: {} as {
@@ -76,7 +74,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
                     },
                 })
             } catch (error) {
-                errorToast(`Enqueuing job '${props.jobName}' failed`)
+                lemonToast.error(`Enqueuing job "${props.jobName}" failed`)
                 return
             }
 
@@ -94,7 +92,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
                 actions.setRunJobAvailableTimeout(timeout)
             }, 15000)
 
-            toast.success('Job enqueued succesfully.')
+            lemonToast.success('Job has been enqueued')
         },
         playButtonOnClick: ({ form, jobHasEmptyPayload }) => {
             if (!values.runJobAvailable) {

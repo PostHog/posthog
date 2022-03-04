@@ -5,12 +5,10 @@ import { PreflightStatus, Realm } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { toast } from 'react-toastify'
 import { teamLogic } from 'scenes/teamLogic'
-import { errorToast } from 'lib/utils'
 import { IconSwapHoriz } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
 import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 type PreflightMode = 'experimentation' | 'live'
 
@@ -118,7 +116,6 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
     }),
     events: ({ actions, values }) => ({
         afterMount: () => {
-            errorToast()
             const appContext = getAppContext()
             const preflight = appContext?.preflight
             const switchedTeam = appContext?.switched_team
@@ -128,20 +125,17 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
                 actions.loadPreflight()
             }
             if (switchedTeam) {
-                toast.info(
-                    <div className="flex-center">
-                        <span style={{ flexGrow: 1 }}>
-                            You've switched to&nbsp;project <b>{values.currentTeam?.name}</b>
-                        </span>
-                        <LemonButton
-                            onClick={() => userLogic.actions.updateCurrentTeam(switchedTeam)}
-                            type="secondary"
-                            compact
-                        >
-                            Switch back
-                        </LemonButton>
-                    </div>,
-                    { icon: <IconSwapHoriz /> }
+                lemonToast.info(
+                    <>
+                        You've switched to&nbsp;project <b>{values.currentTeam?.name}</b>
+                    </>,
+                    {
+                        button: {
+                            label: 'Switch back',
+                            action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                        },
+                        icon: <IconSwapHoriz />,
+                    }
                 )
             }
         },

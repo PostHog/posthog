@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
@@ -9,7 +8,6 @@ import {
     MultivariateFlagVariant,
 } from '~/types'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -17,6 +15,7 @@ import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -259,18 +258,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     }),
     listeners: ({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
-            toast.success(
-                <div>
-                    <h1>Your feature flag has been saved!</h1>
-                    <p>Click here to go back to the feature flag list.</p>
-                </div>,
-                {
-                    onClick: () => {
-                        router.actions.push(urls.featureFlags())
-                    },
-                    closeOnClick: true,
-                }
-            )
+            lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {

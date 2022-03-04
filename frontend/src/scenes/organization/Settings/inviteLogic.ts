@@ -1,14 +1,13 @@
 import { kea } from 'kea'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { successToast } from 'lib/utils'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 interface InviteRowState {
@@ -98,7 +97,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 deleteInvite: async (invite: OrganizationInviteType) => {
                     await api.delete(`api/organizations/@current/invites/${invite.id}/`)
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                    successToast('Invite canceled successfully', `Invite for ${invite.target_email} has been canceled.`)
+                    lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
                 },
             },
@@ -107,7 +106,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
-            toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
             if (

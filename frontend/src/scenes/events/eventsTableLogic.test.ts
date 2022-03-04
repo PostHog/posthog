@@ -3,14 +3,14 @@ import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import * as utils from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 
-const errorToastSpy = jest.spyOn(utils, 'errorToast')
-const successToastSpy = jest.spyOn(utils, 'successToast')
+const errorToastSpy = jest.spyOn(lemonToast, 'error')
+const successToastSpy = jest.spyOn(lemonToast, 'success')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 

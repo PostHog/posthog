@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { successToast } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PersonType } from '~/types'
 import { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
@@ -76,10 +76,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
                             ids: values.selectedPersonsToMerge,
                         })
                         if (newPerson.id) {
-                            successToast(
-                                'Persons succesfully merged.',
-                                'All users have been succesfully merged. Changes should take effect immediately.'
-                            )
+                            lemonToast.success('Persons have been merged')
                             eventUsageLogic.actions.reportPersonMerged(values.selectedPersonsToMerge.length)
                             actions.setSplitMergeModalShown(false)
                             actions.setPerson(newPerson)
@@ -92,9 +89,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
                                 : {}),
                         })
                         if (splitAction.success) {
-                            successToast(
-                                'Person succesfully split.',
-                                'We are in the process of splitting this person. It may take up to a couple of minutes to complete.'
+                            lemonToast.success(
+                                'Person succesfully split. This may take up to a couple of minutes to complete'
                             )
                             eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
                             actions.setSplitMergeModalShown(false)

@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
-import { toast } from 'react-toastify'
 import { actionsModel } from '~/models/actionsModel'
 import { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
+import { lemonToast } from 'lib/components/lemonToast'
 
 type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 type ActionEditType = ActionType | NewActionType
@@ -87,7 +87,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                         }
                     }
 
-                    toast('Action saved')
+                    lemonToast.success('Action saved')
                     props.onSave(action)
                     actionsModel.actions.loadActions() // reload actions so they are immediately available
                     return action

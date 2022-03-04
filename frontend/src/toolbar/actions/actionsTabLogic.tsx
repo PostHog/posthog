@@ -1,16 +1,15 @@
-import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { toast } from 'react-toastify'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
+import { lemonToast } from 'lib/components/lemonToast'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
@@ -179,26 +178,12 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             actionsLogic.actions.updateAction({ action: response })
             actions.selectAction(null)
 
-            const insightsUrl = `/insights?insight=TRENDS&interval=day&actions=${encodeURIComponent(
-                JSON.stringify([{ type: 'actions', id: response.id, order: 0, name: response.name }])
-            )}`
-
-            toast(
-                <>
-                    Action saved! Open it in PostHog:{' '}
-                    <a href={`${apiURL}${insightsUrl}`} target="_blank" rel="noreferrer noopener">
-                        Insights
-                    </a>{' '}
-                    -{' '}
-                    <a
-                        href={`${apiURL}/projects/@current/actions/${response.id}`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                    >
-                        Actions
-                    </a>
-                </>
-            )
+            lemonToast.success('Action saved', {
+                button: {
+                    label: 'Open in PostHog',
+                    action: () => window.open(`${apiURL}/projects/@current/actions/${response.id}`, '_blank'),
+                },
+            })
         },
         deleteAction: async () => {
             const { apiURL, temporaryToken } = toolbarLogic.values
@@ -207,10 +192,9 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
                 await api.delete(
                     `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
                 )
-
                 actionsLogic.actions.deleteAction({ id: selectedActionId })
                 actions.selectAction(null)
-                toast('Action deleted!')
+                lemonToast.info('Action deleted')
             }
         },
         showButtonActions: () => {

@@ -1,11 +1,11 @@
 import React from 'react'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '~/types'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -95,7 +95,7 @@ export async function createActionFromEvent(
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
             return recurse(teamId, event, increment + 1, dataAttributes, recurse)
         } else {
-            toast.error(
+            lemonToast.error(
                 <>
                     Couldn't create this action. You can try{' '}
                     <Link to="/action">manually creating an action instead.</Link>
@@ -106,19 +106,6 @@ export async function createActionFromEvent(
     }
     if (action.id) {
         router.actions.push(`/action/${action.id}`)
-        toast(
-            <span>
-                Action succesfully created.{' '}
-                <a
-                    href="#"
-                    onClick={(e) => {
-                        e.preventDefault()
-                        window.history.back()
-                    }}
-                >
-                    Click here to go back.
-                </a>
-            </span>
-        )
+        lemonToast.success('Action created')
     }
 }

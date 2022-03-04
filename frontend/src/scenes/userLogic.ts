@@ -1,13 +1,12 @@
-import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
 import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
-import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
 import { preflightLogic } from './PreflightCheck/logic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const userLogic = kea<userLogicType>({
     path: ['scenes', 'userLogic'],
@@ -109,16 +108,10 @@ export const userLogic = kea<userLogicType>({
             }
         },
         updateUserSuccess: () => {
-            toast.dismiss('updateUser')
-            toast.success(
-                <div>
-                    <h1>Your preferences have been saved!</h1>
-                    <p>All set. Click here to dismiss.</p>
-                </div>,
-                {
-                    toastId: 'updateUser',
-                }
-            )
+            lemonToast.dismiss('updateUser')
+            lemonToast.success('Preferences saved', {
+                toastId: 'updateUser',
+            })
         },
         updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
             if (values.user?.team?.id === teamId) {
