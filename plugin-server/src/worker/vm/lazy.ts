@@ -16,9 +16,9 @@ import { disablePlugin, setPluginCapabilities, setPluginMetrics } from '../../ut
 import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
-const MAX_SETUP_RETRIES = 10
-const INITIALIZATION_RETRY_MULTIPLIER = 2
-const INITIALIZATION_RETRY_BASE_MS = 3000
+export const VM_INIT_MAX_RETRIES = 5
+export const INITIALIZATION_RETRY_MULTIPLIER = 2
+export const INITIALIZATION_RETRY_BASE_MS = 5000
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
@@ -138,7 +138,7 @@ export class LazyPluginVM {
                     status.warn('⚠️', error.message)
                     await createLogEntry(error.message, PluginLogEntryType.Error)
                     void processError(this.hub, this.pluginConfig, error)
-                    if (this.totalInitAttemptsCounter < MAX_SETUP_RETRIES) {
+                    if (this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
                         const nextRetryMs =
                             INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
                             INITIALIZATION_RETRY_BASE_MS
