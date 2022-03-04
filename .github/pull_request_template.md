@@ -1,6 +1,6 @@
 ## Problem
 
-*Please describe or link to an issue about the problem you're solving*
+*Who are we building for, what are their needs, why is this important?*
 
 ## Changes
 
