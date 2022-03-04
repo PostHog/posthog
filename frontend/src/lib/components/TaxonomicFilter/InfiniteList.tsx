@@ -128,13 +128,13 @@ const renderItemContents = ({
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx(isStale && 'text-muted')}>
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
-        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
+        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
     ) : (
         item.name ?? ''
     )
@@ -159,7 +159,7 @@ const renderItemPopupWithoutTaxonomy = (
                     </Link>
                     <br />
                     <h3>
-                        <PropertyKeyInfo value={item.name ?? ''} />
+                        <PropertyKeyInfo value={item.name ?? ''} style={{ maxWidth: '100%' }} />
                     </h3>
                     {item && <ActionSelectInfo entity={item as ActionType} />}
                 </div>
