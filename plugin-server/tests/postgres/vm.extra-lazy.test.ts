@@ -30,11 +30,12 @@ describe('VMs are extra lazy 💤', () => {
         }
     `
         await resetTestDatabase(indexJs)
-        const lazyVm = new LazyPluginVM()
-        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
 
-        const pluginConfig = { ...pluginConfig39, vm: lazyVm, plugin: plugin60 }
-        await lazyVm.initialize!(hub, pluginConfig, indexJs, pluginDigest(plugin60))
+        const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
+        const lazyVm = new LazyPluginVM(hub, pluginConfig)
+        pluginConfig.vm = lazyVm
+        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
+        await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
@@ -54,11 +55,12 @@ describe('VMs are extra lazy 💤', () => {
         }
     `
         await resetTestDatabase(indexJs)
-        const lazyVm = new LazyPluginVM()
-        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
 
-        const pluginConfig = { ...pluginConfig39, vm: lazyVm, plugin: plugin60 }
-        await lazyVm.initialize!(hub, pluginConfig, indexJs, pluginDigest(plugin60))
+        const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
+        const lazyVm = new LazyPluginVM(hub, pluginConfig)
+        pluginConfig.vm = lazyVm
+        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
+        await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
@@ -76,11 +78,11 @@ describe('VMs are extra lazy 💤', () => {
         }
     `
         await resetTestDatabase(indexJs)
-        const lazyVm = new LazyPluginVM()
+        const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
+        const lazyVm = new LazyPluginVM(hub, pluginConfig)
+        pluginConfig.vm = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
-
-        const pluginConfig = { ...pluginConfig39, vm: lazyVm, plugin: plugin60 }
-        await lazyVm.initialize!(hub, pluginConfig, indexJs, pluginDigest(plugin60))
+        await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
         expect(lazyVm.ready).toEqual(false)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
