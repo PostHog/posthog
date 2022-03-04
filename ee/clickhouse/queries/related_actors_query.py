@@ -71,7 +71,7 @@ class RelatedActorsQuery:
         group_ids = self._take_first(
             sync_execute(
                 f"""
-            SELECT DISTINCT $group_{group_type_index} AS group_key
+            SELECT DISTINCT group_{group_type_index} AS group_key
             FROM events e
             {'' if self.is_aggregating_by_groups else self._distinct_ids_join}
             JOIN (
@@ -79,7 +79,7 @@ class RelatedActorsQuery:
                 FROM groups
                 WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
                 GROUP BY group_key
-            ) groups ON $group_{group_type_index} = groups.group_key
+            ) groups ON group_{group_type_index} = groups.group_key
             WHERE team_id = %(team_id)s
               AND timestamp > %(after)s
               AND timestamp < %(before)s
@@ -100,7 +100,7 @@ class RelatedActorsQuery:
     @property
     def _filter_clause(self):
         if self.is_aggregating_by_groups:
-            return f"$group_{self.group_type_index} = %(id)s"
+            return f"group_{self.group_type_index} = %(id)s"
         else:
             return "person_id = %(id)s"
 

@@ -33,7 +33,7 @@ class GroupsJoinQuery:
 
         for group_type_index in self._column_optimizer.group_types_to_query:
             var = f"group_index_{group_type_index}"
-            group_join_key = self._join_key or f'"$group_{group_type_index}"'
+            group_join_key = self._join_key or f"group_{group_type_index}"
             join_queries.append(
                 f"""
                 INNER JOIN (
