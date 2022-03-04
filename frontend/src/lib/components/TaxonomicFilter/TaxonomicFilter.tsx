@@ -51,6 +51,14 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
+    const style = {}
+    if (height) {
+        style['height'] = `${height}px`
+    }
+    if (width) {
+        style['width'] = `${width}px`
+    }
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div
@@ -59,7 +67,7 @@ export function TaxonomicFilter({
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
-                style={{ height: `${height}px`, width: `${width}px`, display: 'flex', flexDirection: 'column' }}
+                style={style}
             >
                 <div style={{ position: 'relative' }}>
                     <Input
