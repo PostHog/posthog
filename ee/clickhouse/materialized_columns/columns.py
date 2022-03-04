@@ -138,7 +138,7 @@ def materialized_column_name(table: TableWithProperties, property: PropertyName)
     "Returns a sanitized and unique column name to use for materialized column"
 
     prefix = "mat_" if table == "events" else "pmat_"
-    property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
+    property_str = re.sub("[^0-9a-zA-Z]", "_", property)
 
     existing_materialized_columns = set(get_materialized_columns(table, use_cache=False).values())
     suffix = ""

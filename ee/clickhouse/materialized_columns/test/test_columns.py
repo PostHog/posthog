@@ -88,9 +88,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
 
         self.assertDictContainsSubset(
             {
-                "$foO();--sqlinject": "mat_$foO_____sqlinject",
-                "$foO();ääsqlinject": "mat_$foO_____sqlinject_yWAc",
-                "$foO_____sqlinject": "mat_$foO_____sqlinject_qGFz",
+                "$foO();--sqlinject": "mat__foO_____sqlinject",
+                "$foO();ääsqlinject": "mat__foO_____sqlinject_yWAc",
+                "$foO_____sqlinject": "mat__foO_____sqlinject_qGFz",
             },
             get_materialized_columns("events"),
         )

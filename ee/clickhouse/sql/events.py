@@ -28,23 +28,23 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
-    , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+    , group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , mat_window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
+    , mat_session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
-    , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+    , group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+    , group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+    , group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+    , group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+    , window_id VARCHAR COMMENT 'column_materializer::$window_id'
+    , session_id VARCHAR COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
