@@ -8,13 +8,13 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
             fallback={({ error, eventId }) => (
                 <AlertMessage type="warning" style={{ marginTop: '1.5rem' }}>
                     <>
-                        <p>An error has occured:</p>
+                        <p>Oh no! An error has occured:</p>
                         <p>
-                            {error.name} (ID: {eventId}):
+                            {error.name} (ID {eventId})
                             <br />
                             {error.message}
                         </p>
-                        We've registered this event for analysis, but feel free to reach out directly to us too.
+                        We've registered this event for analysis, but feel free to contact us directly too.
                         <br />
                     </>
                 </AlertMessage>

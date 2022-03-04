@@ -117,7 +117,7 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <ErrorBoundary>
+                <ErrorBoundary key={activeScene}>
                     <SceneComponent {...params} />
                 </ErrorBoundary>
                 {toastContainer}
@@ -128,7 +128,7 @@ function AppScene(): JSX.Element | null {
     return (
         <>
             <Navigation>
-                <ErrorBoundary>
+                <ErrorBoundary key={activeScene}>
                     <SceneComponent user={user} {...params} />
                 </ErrorBoundary>
             </Navigation>
