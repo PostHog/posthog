@@ -9,7 +9,7 @@ logger = structlog.get_logger(__name__)
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_FROM = [
-    "events",
+    "sharded_events",
     "person",
     "person_distinct_id",
     "person_distinct_id2",
