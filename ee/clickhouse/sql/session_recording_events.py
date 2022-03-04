@@ -60,7 +60,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
     materialized_columns="",
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """

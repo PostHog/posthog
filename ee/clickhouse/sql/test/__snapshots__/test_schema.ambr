@@ -135,7 +135,7 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
   '
   
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
@@ -150,6 +150,9 @@
       created_at DateTime64(6, 'UTC')
       
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -341,7 +344,7 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer.$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer.$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer.$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer.$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer.$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer.$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer.test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'\n\n\n    \n) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))\n]
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer.$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer.$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer.$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer.$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer.$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer.$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer.test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'\n    , $window_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'\n    , $session_id VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'\n\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))\n]
   '
   
   CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
@@ -365,6 +368,9 @@
   
   
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
   
   '
@@ -574,7 +580,7 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
   '
   
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
@@ -589,6 +595,9 @@
       created_at DateTime64(6, 'UTC')
       
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
