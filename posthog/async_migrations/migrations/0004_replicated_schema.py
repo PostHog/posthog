@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List, Optional
+from typing import List, Optional, cast
 
 import structlog
 from constance import config
@@ -87,7 +87,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0003_fill_person_distinct_id2"
 
     def is_required(self):
-        return "Distributed" not in self.get_current_engine("events")
+        return "Distributed" not in cast(str, self.get_current_engine("events"))
 
     def precheck(self):
         if not settings.CLICKHOUSE_REPLICATION:
@@ -179,7 +179,7 @@ class Migration(AsyncMigrationDefinition):
         Note that the engine statement also includes PARTITION BY, ORDER BY, SAMPLE BY and SETTINGS,
         so we use the current table as a base for that and only replace the
         """
-        current_engine = self.get_current_engine(table.name)
+        current_engine = cast(str, self.get_current_engine(table.name))
 
         if "Replicated" in current_engine or "Distributed" in current_engine:
             raise ValueError(
