@@ -22,16 +22,16 @@
                                step_2_conversion_time,
                                ("latest_0",
                                 "uuid_0",
-                                "$session_id_0",
-                                "$window_id_0") as step_0_matching_event,
+                                "mat_session_id_0",
+                                "mat_window_id_0") as step_0_matching_event,
                                ("latest_1",
                                 "uuid_1",
-                                "$session_id_1",
-                                "$window_id_1") as step_1_matching_event,
+                                "mat_session_id_1",
+                                "mat_window_id_1") as step_1_matching_event,
                                ("latest_2",
                                 "uuid_2",
-                                "$session_id_2",
-                                "$window_id_2") as step_2_matching_event,
+                                "mat_session_id_2",
+                                "mat_window_id_2") as step_2_matching_event,
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
@@ -46,16 +46,16 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   ("latest_0",
                    "uuid_0",
-                   "$session_id_0",
-                   "$window_id_0") as step_0_matching_event,
+                   "mat_session_id_0",
+                   "mat_window_id_0") as step_0_matching_event,
                   ("latest_1",
                    "uuid_1",
-                   "$session_id_1",
-                   "$window_id_1") as step_1_matching_event,
+                   "mat_session_id_1",
+                   "mat_window_id_1") as step_1_matching_event,
                   ("latest_2",
                    "uuid_2",
-                   "$session_id_2",
-                   "$window_id_2") as step_2_matching_event,
+                   "mat_session_id_2",
+                   "mat_window_id_2") as step_2_matching_event,
                   if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
            FROM
              (SELECT aggregation_target,
@@ -63,84 +63,84 @@
                      step_0,
                      latest_0,
                      "uuid_0",
-                     "$session_id_0",
-                     "$window_id_0",
+                     "mat_session_id_0",
+                     "mat_window_id_0",
                      step_1,
                      latest_1,
                      "uuid_1",
-                     "$session_id_1",
-                     "$window_id_1",
+                     "mat_session_id_1",
+                     "mat_window_id_1",
                      step_2,
                      min(latest_2) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
                                         last_value("uuid_2") over (PARTITION by aggregation_target
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                  last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                   last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                  last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                      last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
               FROM
                 (SELECT aggregation_target,
                         timestamp,
                         step_0,
                         latest_0,
                         "uuid_0",
-                        "$session_id_0",
-                        "$window_id_0",
+                        "mat_session_id_0",
+                        "mat_window_id_0",
                         step_1,
                         latest_1,
                         "uuid_1",
-                        "$session_id_1",
-                        "$window_id_1",
+                        "mat_session_id_1",
+                        "mat_window_id_1",
                         step_2,
                         if(latest_2 < latest_1, NULL, latest_2) as latest_2,
                         if(latest_2 < latest_1, NULL, "uuid_2") as "uuid_2",
-                        if(latest_2 < latest_1, NULL, "$session_id_2") as "$session_id_2",
-                        if(latest_2 < latest_1, NULL, "$window_id_2") as "$window_id_2"
+                        if(latest_2 < latest_1, NULL, "mat_session_id_2") as "mat_session_id_2",
+                        if(latest_2 < latest_1, NULL, "mat_window_id_2") as "mat_window_id_2"
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            step_0,
                            latest_0,
                            "uuid_0",
-                           "$session_id_0",
-                           "$window_id_0",
+                           "mat_session_id_0",
+                           "mat_window_id_0",
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
                                               last_value("uuid_1") over (PARTITION by aggregation_target
                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
-                                                                        last_value("$session_id_1") over (PARTITION by aggregation_target
-                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
-                                                                                                         last_value("$window_id_1") over (PARTITION by aggregation_target
-                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1",
-                                                                                                                                         step_2,
-                                                                                                                                         min(latest_2) over (PARTITION by aggregation_target
-                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
-                                                                                                                                                            last_value("uuid_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                                                                                                                                      last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                                                                                                                                       last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                        last_value("mat_session_id_1") over (PARTITION by aggregation_target
+                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_1",
+                                                                                                            last_value("mat_window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_1",
+                                                                                                                                               step_2,
+                                                                                                                                               min(latest_2) over (PARTITION by aggregation_target
+                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
+                                                                                                                                                                  last_value("uuid_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
+                                                                                                                                                                                            last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                                                                                                                                                last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
                     FROM
                       (SELECT aggregation_target,
                               timestamp,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
-                              if(step_0 = 1, "$session_id", null) as "$session_id_0",
-                              if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                              if(step_0 = 1, "mat_session_id", null) as "mat_session_id_0",
+                              if(step_0 = 1, "mat_window_id", null) as "mat_window_id_0",
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(step_1 = 1, "uuid", null) as "uuid_1",
-                              if(step_1 = 1, "$session_id", null) as "$session_id_1",
-                              if(step_1 = 1, "$window_id", null) as "$window_id_1",
+                              if(step_1 = 1, "mat_session_id", null) as "mat_session_id_1",
+                              if(step_1 = 1, "mat_window_id", null) as "mat_window_id_1",
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
                               if(step_2 = 1, "uuid", null) as "uuid_2",
-                              if(step_2 = 1, "$session_id", null) as "$session_id_2",
-                              if(step_2 = 1, "$window_id", null) as "$window_id_2"
+                              if(step_2 = 1, "mat_session_id", null) as "mat_session_id_2",
+                              if(step_2 = 1, "mat_window_id", null) as "mat_window_id_2"
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -148,8 +148,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 e."mat_session_id" as "$session_id",
-                                 e."mat_window_id" as "$window_id"
+                                 e.mat_session_id AS mat_session_id,
+                                 e.mat_window_id AS mat_window_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -209,16 +209,16 @@
                                step_2_conversion_time,
                                ("latest_0",
                                 "uuid_0",
-                                "$session_id_0",
-                                "$window_id_0") as step_0_matching_event,
+                                "mat_session_id_0",
+                                "mat_window_id_0") as step_0_matching_event,
                                ("latest_1",
                                 "uuid_1",
-                                "$session_id_1",
-                                "$window_id_1") as step_1_matching_event,
+                                "mat_session_id_1",
+                                "mat_window_id_1") as step_1_matching_event,
                                ("latest_2",
                                 "uuid_2",
-                                "$session_id_2",
-                                "$window_id_2") as step_2_matching_event,
+                                "mat_session_id_2",
+                                "mat_window_id_2") as step_2_matching_event,
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
@@ -233,16 +233,16 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   ("latest_0",
                    "uuid_0",
-                   "$session_id_0",
-                   "$window_id_0") as step_0_matching_event,
+                   "mat_session_id_0",
+                   "mat_window_id_0") as step_0_matching_event,
                   ("latest_1",
                    "uuid_1",
-                   "$session_id_1",
-                   "$window_id_1") as step_1_matching_event,
+                   "mat_session_id_1",
+                   "mat_window_id_1") as step_1_matching_event,
                   ("latest_2",
                    "uuid_2",
-                   "$session_id_2",
-                   "$window_id_2") as step_2_matching_event,
+                   "mat_session_id_2",
+                   "mat_window_id_2") as step_2_matching_event,
                   if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
            FROM
              (SELECT aggregation_target,
@@ -250,84 +250,84 @@
                      step_0,
                      latest_0,
                      "uuid_0",
-                     "$session_id_0",
-                     "$window_id_0",
+                     "mat_session_id_0",
+                     "mat_window_id_0",
                      step_1,
                      latest_1,
                      "uuid_1",
-                     "$session_id_1",
-                     "$window_id_1",
+                     "mat_session_id_1",
+                     "mat_window_id_1",
                      step_2,
                      min(latest_2) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
                                         last_value("uuid_2") over (PARTITION by aggregation_target
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                  last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                   last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                  last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                      last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
               FROM
                 (SELECT aggregation_target,
                         timestamp,
                         step_0,
                         latest_0,
                         "uuid_0",
-                        "$session_id_0",
-                        "$window_id_0",
+                        "mat_session_id_0",
+                        "mat_window_id_0",
                         step_1,
                         latest_1,
                         "uuid_1",
-                        "$session_id_1",
-                        "$window_id_1",
+                        "mat_session_id_1",
+                        "mat_window_id_1",
                         step_2,
                         if(latest_2 < latest_1, NULL, latest_2) as latest_2,
                         if(latest_2 < latest_1, NULL, "uuid_2") as "uuid_2",
-                        if(latest_2 < latest_1, NULL, "$session_id_2") as "$session_id_2",
-                        if(latest_2 < latest_1, NULL, "$window_id_2") as "$window_id_2"
+                        if(latest_2 < latest_1, NULL, "mat_session_id_2") as "mat_session_id_2",
+                        if(latest_2 < latest_1, NULL, "mat_window_id_2") as "mat_window_id_2"
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            step_0,
                            latest_0,
                            "uuid_0",
-                           "$session_id_0",
-                           "$window_id_0",
+                           "mat_session_id_0",
+                           "mat_window_id_0",
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
                                               last_value("uuid_1") over (PARTITION by aggregation_target
                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
-                                                                        last_value("$session_id_1") over (PARTITION by aggregation_target
-                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
-                                                                                                         last_value("$window_id_1") over (PARTITION by aggregation_target
-                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1",
-                                                                                                                                         step_2,
-                                                                                                                                         min(latest_2) over (PARTITION by aggregation_target
-                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
-                                                                                                                                                            last_value("uuid_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                                                                                                                                      last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                                                                                                                                       last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                        last_value("mat_session_id_1") over (PARTITION by aggregation_target
+                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_1",
+                                                                                                            last_value("mat_window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_1",
+                                                                                                                                               step_2,
+                                                                                                                                               min(latest_2) over (PARTITION by aggregation_target
+                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
+                                                                                                                                                                  last_value("uuid_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
+                                                                                                                                                                                            last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                                                                                                                                                last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
                     FROM
                       (SELECT aggregation_target,
                               timestamp,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
-                              if(step_0 = 1, "$session_id", null) as "$session_id_0",
-                              if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                              if(step_0 = 1, "mat_session_id", null) as "mat_session_id_0",
+                              if(step_0 = 1, "mat_window_id", null) as "mat_window_id_0",
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(step_1 = 1, "uuid", null) as "uuid_1",
-                              if(step_1 = 1, "$session_id", null) as "$session_id_1",
-                              if(step_1 = 1, "$window_id", null) as "$window_id_1",
+                              if(step_1 = 1, "mat_session_id", null) as "mat_session_id_1",
+                              if(step_1 = 1, "mat_window_id", null) as "mat_window_id_1",
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
                               if(step_2 = 1, "uuid", null) as "uuid_2",
-                              if(step_2 = 1, "$session_id", null) as "$session_id_2",
-                              if(step_2 = 1, "$window_id", null) as "$window_id_2"
+                              if(step_2 = 1, "mat_session_id", null) as "mat_session_id_2",
+                              if(step_2 = 1, "mat_window_id", null) as "mat_window_id_2"
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -335,8 +335,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 e."mat_session_id" as "$session_id",
-                                 e."mat_window_id" as "$window_id"
+                                 e.mat_session_id AS mat_session_id,
+                                 e.mat_window_id AS mat_window_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -396,16 +396,16 @@
                                step_2_conversion_time,
                                ("latest_0",
                                 "uuid_0",
-                                "$session_id_0",
-                                "$window_id_0") as step_0_matching_event,
+                                "mat_session_id_0",
+                                "mat_window_id_0") as step_0_matching_event,
                                ("latest_1",
                                 "uuid_1",
-                                "$session_id_1",
-                                "$window_id_1") as step_1_matching_event,
+                                "mat_session_id_1",
+                                "mat_window_id_1") as step_1_matching_event,
                                ("latest_2",
                                 "uuid_2",
-                                "$session_id_2",
-                                "$window_id_2") as step_2_matching_event,
+                                "mat_session_id_2",
+                                "mat_window_id_2") as step_2_matching_event,
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
@@ -420,16 +420,16 @@
                      AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time,
                   ("latest_0",
                    "uuid_0",
-                   "$session_id_0",
-                   "$window_id_0") as step_0_matching_event,
+                   "mat_session_id_0",
+                   "mat_window_id_0") as step_0_matching_event,
                   ("latest_1",
                    "uuid_1",
-                   "$session_id_1",
-                   "$window_id_1") as step_1_matching_event,
+                   "mat_session_id_1",
+                   "mat_window_id_1") as step_1_matching_event,
                   ("latest_2",
                    "uuid_2",
-                   "$session_id_2",
-                   "$window_id_2") as step_2_matching_event,
+                   "mat_session_id_2",
+                   "mat_window_id_2") as step_2_matching_event,
                   if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
            FROM
              (SELECT aggregation_target,
@@ -437,84 +437,84 @@
                      step_0,
                      latest_0,
                      "uuid_0",
-                     "$session_id_0",
-                     "$window_id_0",
+                     "mat_session_id_0",
+                     "mat_window_id_0",
                      step_1,
                      latest_1,
                      "uuid_1",
-                     "$session_id_1",
-                     "$window_id_1",
+                     "mat_session_id_1",
+                     "mat_window_id_1",
                      step_2,
                      min(latest_2) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
                                         last_value("uuid_2") over (PARTITION by aggregation_target
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                  last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                   last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                  last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                      last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
               FROM
                 (SELECT aggregation_target,
                         timestamp,
                         step_0,
                         latest_0,
                         "uuid_0",
-                        "$session_id_0",
-                        "$window_id_0",
+                        "mat_session_id_0",
+                        "mat_window_id_0",
                         step_1,
                         latest_1,
                         "uuid_1",
-                        "$session_id_1",
-                        "$window_id_1",
+                        "mat_session_id_1",
+                        "mat_window_id_1",
                         step_2,
                         if(latest_2 < latest_1, NULL, latest_2) as latest_2,
                         if(latest_2 < latest_1, NULL, "uuid_2") as "uuid_2",
-                        if(latest_2 < latest_1, NULL, "$session_id_2") as "$session_id_2",
-                        if(latest_2 < latest_1, NULL, "$window_id_2") as "$window_id_2"
+                        if(latest_2 < latest_1, NULL, "mat_session_id_2") as "mat_session_id_2",
+                        if(latest_2 < latest_1, NULL, "mat_window_id_2") as "mat_window_id_2"
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            step_0,
                            latest_0,
                            "uuid_0",
-                           "$session_id_0",
-                           "$window_id_0",
+                           "mat_session_id_0",
+                           "mat_window_id_0",
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
                                               last_value("uuid_1") over (PARTITION by aggregation_target
                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_1",
-                                                                        last_value("$session_id_1") over (PARTITION by aggregation_target
-                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_1",
-                                                                                                         last_value("$window_id_1") over (PARTITION by aggregation_target
-                                                                                                                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1",
-                                                                                                                                         step_2,
-                                                                                                                                         min(latest_2) over (PARTITION by aggregation_target
-                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
-                                                                                                                                                            last_value("uuid_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
-                                                                                                                                                                                      last_value("$session_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$session_id_2",
-                                                                                                                                                                                                                       last_value("$window_id_2") over (PARTITION by aggregation_target
-                                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
+                                                                        last_value("mat_session_id_1") over (PARTITION by aggregation_target
+                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_1",
+                                                                                                            last_value("mat_window_id_1") over (PARTITION by aggregation_target
+                                                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_1",
+                                                                                                                                               step_2,
+                                                                                                                                               min(latest_2) over (PARTITION by aggregation_target
+                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2,
+                                                                                                                                                                  last_value("uuid_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "uuid_2",
+                                                                                                                                                                                            last_value("mat_session_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_session_id_2",
+                                                                                                                                                                                                                                last_value("mat_window_id_2") over (PARTITION by aggregation_target
+                                                                                                                                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "mat_window_id_2"
                     FROM
                       (SELECT aggregation_target,
                               timestamp,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
-                              if(step_0 = 1, "$session_id", null) as "$session_id_0",
-                              if(step_0 = 1, "$window_id", null) as "$window_id_0",
+                              if(step_0 = 1, "mat_session_id", null) as "mat_session_id_0",
+                              if(step_0 = 1, "mat_window_id", null) as "mat_window_id_0",
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(step_1 = 1, "uuid", null) as "uuid_1",
-                              if(step_1 = 1, "$session_id", null) as "$session_id_1",
-                              if(step_1 = 1, "$window_id", null) as "$window_id_1",
+                              if(step_1 = 1, "mat_session_id", null) as "mat_session_id_1",
+                              if(step_1 = 1, "mat_window_id", null) as "mat_window_id_1",
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
                               if(step_2 = 1, "uuid", null) as "uuid_2",
-                              if(step_2 = 1, "$session_id", null) as "$session_id_2",
-                              if(step_2 = 1, "$window_id", null) as "$window_id_2"
+                              if(step_2 = 1, "mat_session_id", null) as "mat_session_id_2",
+                              if(step_2 = 1, "mat_window_id", null) as "mat_window_id_2"
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -522,8 +522,8 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e.uuid AS uuid,
-                                 e."mat_session_id" as "$session_id",
-                                 e."mat_window_id" as "$window_id"
+                                 e.mat_session_id AS mat_session_id,
+                                 e.mat_window_id AS mat_window_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
