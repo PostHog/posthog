@@ -36,7 +36,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
             <root.div id="__POSTHOG_TOOLBAR__" className="ph-no-capture" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
-                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+                <ToastContainer autoClose={6000} transition={Slide} position="bottom-center" />
             </root.div>
         </>
     )

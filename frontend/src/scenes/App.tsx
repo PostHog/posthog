@@ -119,7 +119,7 @@ function AppScene(): JSX.Element | null {
 
     const toastContainer = (
         <ToastContainer
-            autoClose={8000}
+            autoClose={6000}
             transition={Slide}
             closeOnClick={false}
             closeButton={<ToastCloseButton />}
