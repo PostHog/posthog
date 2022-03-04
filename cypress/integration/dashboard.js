@@ -120,7 +120,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
         cy.get('.InsightCard [data-attr=more-button]').first().click()
         cy.get('button').contains('Duplicate').click()
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('.Toastify__toast').contains('Insight duplicated').should('exist')
     })
 
     it('Move dashboard item', () => {
@@ -128,7 +128,7 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=more-button]').first().click()
         cy.get('button').contains('Move to').click()
         cy.get('button').contains('App Analytics').click()
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('.Toastify__toast').contains('Insight moved').should('exist')
     })
 
     it('Opens dashboard item in insights', () => {

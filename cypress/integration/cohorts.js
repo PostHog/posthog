@@ -27,7 +27,7 @@ describe('Cohorts', () => {
 
         // save
         cy.get('[data-attr="save-cohort"]').click()
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('.Toastify__toast').contains('Cohort saved').should('exist')
 
         // back to cohorts
         cy.get('.ant-drawer-close').click({ force: true })
