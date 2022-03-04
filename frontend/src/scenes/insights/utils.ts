@@ -167,7 +167,9 @@ export function summarizeBreakdown(
                 .join(', ')}`
         } else {
             const noun =
-                breakdown_type !== 'group' ? breakdown_type : aggregationLabel(breakdown_group_type_index).singular
+                breakdown_type !== 'group'
+                    ? breakdown_type
+                    : aggregationLabel(breakdown_group_type_index, true).singular
             return `${noun}'s ${
                 (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
             }`
@@ -190,7 +192,7 @@ export function summarizeInsightFilters(
                 filters.returning_entity?.id === filters.target_entity?.id &&
                 filters.returning_entity?.type === filters.target_entity?.type
             summary =
-                `Retention of ${aggregationLabel(filters.aggregation_group_type_index).plural}` +
+                `Retention of ${aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
                 ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
                 ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
                 (areTargetAndReturningIdentical
@@ -223,7 +225,7 @@ export function summarizeInsightFilters(
                     summary = `${localFilters
                         .map((filter) => getDisplayNameFromEntityFilter(filter))
                         .join(` ${linkSymbol} `)} ${
-                        aggregationLabel(filters.aggregation_group_type_index).singular
+                        aggregationLabel(filters.aggregation_group_type_index, true).singular
                     } conversion`
                     if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                         summary += ' time'
@@ -239,7 +241,8 @@ export function summarizeInsightFilters(
                         localFilters
                             .map((localFilter) => {
                                 const actor = aggregationLabel(
-                                    localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null
+                                    localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
+                                    true
                                 ).singular
                                 return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
                             })
