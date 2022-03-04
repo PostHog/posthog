@@ -4,7 +4,7 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
      FROM events e
      INNER JOIN
@@ -18,7 +18,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
@@ -30,7 +30,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
      FROM events e
      INNER JOIN
@@ -44,8 +44,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0")
+            AND NOT has([''], "group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -57,7 +57,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
      FROM events e
      INNER JOIN
@@ -71,8 +71,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0")
+            AND NOT has([''], "group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
@@ -84,7 +84,7 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e."$group_0" AS aggregation_target,
+    (SELECT e."group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
      FROM events e
      INNER JOIN
@@ -98,8 +98,8 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
-       AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0"))
+       AND (NOT has([''], "group_0")
+            AND NOT has([''], "group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
@@ -128,7 +128,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -161,7 +161,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -194,7 +194,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -227,7 +227,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'

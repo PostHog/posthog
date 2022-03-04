@@ -208,14 +208,14 @@
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_1
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 1
-     GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
+     GROUP BY group_key) groups_1 ON group_1 == groups_1.group_key
   WHERE team_id = 2
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
@@ -250,7 +250,7 @@
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
   WHERE team_id = 2
     AND event = '$pageview'
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))

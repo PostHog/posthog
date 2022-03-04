@@ -12,7 +12,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2020-01-01 00:00:00'
@@ -39,7 +39,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2020-01-01 00:00:00'
@@ -89,7 +89,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT "pmat_$browser" AS value,
+    (SELECT "pmat__browser" AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -101,7 +101,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id,
-               argMax(pmat_$browser, _timestamp) as pmat_$browser
+               argMax(pmat__browser, _timestamp) as pmat__browser
         FROM person
         WHERE team_id = 2
         GROUP BY id
