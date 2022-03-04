@@ -85,13 +85,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     reducers: ({ props }) => ({
         index: [
-            (props.popperEnabled === false ? -1 : 0) as number,
+            (props.popoverEnabled === false ? -1 : 0) as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
             },
         ],
-        showPopper: [props.popperEnabled !== false, {}],
+        showPopover: [props.popoverEnabled !== false, {}],
         limit: [
             100,
             {

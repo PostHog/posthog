@@ -22,7 +22,7 @@ export function TaxonomicFilter({
     eventNames,
     height,
     width,
-    popperEnabled = true,
+    popoverEnabled = true,
     clearSearchOnSelection = false,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -139,7 +139,7 @@ export function TaxonomicFilter({
                 <InfiniteSelectResults
                     focusInput={focusInput}
                     taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    popperEnabled={popperEnabled}
+                    popperEnabled={popoverEnabled}
                 />
             </div>
         </BindLogic>

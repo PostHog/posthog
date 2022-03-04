@@ -119,7 +119,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                         value={undefined}
                                         onChange={(_, value) => value && selectColumn(String(value))}
-                                        popperEnabled={false}
+                                        popoverEnabled={false}
                                         clearSearchOnSelection={false}
                                     />
                                 )

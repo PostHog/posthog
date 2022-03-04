@@ -268,7 +268,7 @@ export function InfiniteList(): JSX.Element {
         totalResultCount,
         totalListCount,
         expandedCount,
-        showPopper,
+        showPopover,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
@@ -312,7 +312,7 @@ export function InfiniteList(): JSX.Element {
             ),
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
             // if the popper is not enabled then don't leave the row selected when the mouse leaves it
-            onMouseLeave: () => (mouseInteractionsEnabled && !showPopper ? setIndex(NO_ITEM_SELECTED) : null),
+            onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
         }
@@ -397,7 +397,7 @@ export function InfiniteList(): JSX.Element {
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None &&
-            showPopper ? (
+            showPopover ? (
                 <Provider>
                     {ReactDOM.createPortal(
                         selectedItem && group ? (

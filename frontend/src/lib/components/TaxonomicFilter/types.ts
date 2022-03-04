@@ -17,7 +17,7 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     height?: number
     width?: number
-    popperEnabled?: boolean
+    popoverEnabled?: boolean
     clearSearchOnSelection?: boolean
 }
 
@@ -67,7 +67,7 @@ export enum TaxonomicFilterGroupType {
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
-    popperEnabled?: boolean
+    popoverEnabled?: boolean
 }
 
 export interface ListStorage {
