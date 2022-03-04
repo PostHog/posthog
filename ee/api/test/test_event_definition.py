@@ -229,3 +229,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
+
+    def test_event_definition_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(response.json()["tags"], ["a", "b"])

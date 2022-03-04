@@ -175,3 +175,16 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["plan", "app_rating"])
+
+    def test_event_property_definition_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(response.json()["tags"], ["a", "b"])

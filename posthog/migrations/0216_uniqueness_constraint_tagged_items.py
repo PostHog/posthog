@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_dashboard_tagged_item" ON "posthog_taggeditem" ("tag_id", "dashboard_id")
-                WHERE ("insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL);
+                WHERE "dashboard_id" is NOT NULL
             """,
             reverse_sql="""
                 DROP INDEX CONCURRENTLY IF EXISTS
@@ -24,22 +24,17 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="taggeditem",
                     constraint=models.UniqueConstraint(
-                        condition=models.Q(
-                            ("insight__isnull", True),
-                            ("event_definition__isnull", True),
-                            ("property_definition__isnull", True),
-                            ("action__isnull", True),
-                        ),
+                        condition=models.Q(("dashboard__isnull", False)),
                         fields=("tag", "dashboard"),
                         name="unique_dashboard_tagged_item",
                     ),
-                )
+                ),
             ],
         ),
         migrations.RunSQL(
             sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_insight_tagged_item" ON "posthog_taggeditem" ("tag_id", "insight_id")
-                WHERE ("dashboard_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL);
+                WHERE "insight_id" is NOT NULL
             """,
             reverse_sql="""
                 DROP INDEX CONCURRENTLY IF EXISTS
@@ -49,22 +44,17 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="taggeditem",
                     constraint=models.UniqueConstraint(
-                        condition=models.Q(
-                            ("dashboard__isnull", True),
-                            ("event_definition__isnull", True),
-                            ("property_definition__isnull", True),
-                            ("action__isnull", True),
-                        ),
+                        condition=models.Q(("insight__isnull", False)),
                         fields=("tag", "insight"),
                         name="unique_insight_tagged_item",
                     ),
-                )
+                ),
             ],
         ),
         migrations.RunSQL(
             sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_event_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "event_definition_id")
-                WHERE ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL);
+                WHERE "event_definition_id" is NOT NULL
             """,
             reverse_sql="""
                 DROP INDEX CONCURRENTLY IF EXISTS
@@ -74,22 +64,17 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="taggeditem",
                     constraint=models.UniqueConstraint(
-                        condition=models.Q(
-                            ("dashboard__isnull", True),
-                            ("insight__isnull", True),
-                            ("property_definition__isnull", True),
-                            ("action__isnull", True),
-                        ),
+                        condition=models.Q(("event_definition__isnull", False)),
                         fields=("tag", "event_definition"),
                         name="unique_event_definition_tagged_item",
                     ),
-                )
+                ),
             ],
         ),
         migrations.RunSQL(
             sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_property_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "property_definition_id")
-                WHERE ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "action_id" IS NULL);
+                WHERE "property_definition_id" is NOT NULL
             """,
             reverse_sql="""
                 DROP INDEX CONCURRENTLY IF EXISTS
@@ -99,22 +84,17 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="taggeditem",
                     constraint=models.UniqueConstraint(
-                        condition=models.Q(
-                            ("dashboard__isnull", True),
-                            ("insight__isnull", True),
-                            ("event_definition__isnull", True),
-                            ("action__isnull", True),
-                        ),
+                        condition=models.Q(("property_definition__isnull", False)),
                         fields=("tag", "property_definition"),
                         name="unique_property_definition_tagged_item",
                     ),
-                )
+                ),
             ],
         ),
         migrations.RunSQL(
             sql="""
                 CREATE UNIQUE INDEX CONCURRENTLY "unique_action_tagged_item" ON "posthog_taggeditem" ("tag_id", "action_id")
-                WHERE ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL);
+                WHERE "action_id" is NOT NULL
             """,
             reverse_sql="""
                 DROP INDEX CONCURRENTLY IF EXISTS
@@ -124,16 +104,11 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="taggeditem",
                     constraint=models.UniqueConstraint(
-                        condition=models.Q(
-                            ("dashboard__isnull", True),
-                            ("insight__isnull", True),
-                            ("event_definition__isnull", True),
-                            ("property_definition__isnull", True),
-                        ),
+                        condition=models.Q(("action__isnull", False)),
                         fields=("tag", "action"),
                         name="unique_action_tagged_item",
                     ),
-                )
+                ),
             ],
         ),
     ]

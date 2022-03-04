@@ -1,3 +1,6 @@
+from typing import cast
+
+from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -237,3 +240,17 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             },
             response_data,
         )
+
+    def test_dashboard_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(response.json()["tags"], ["a", "b"])

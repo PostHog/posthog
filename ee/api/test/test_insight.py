@@ -1,3 +1,6 @@
+from typing import cast
+
+from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -53,3 +56,16 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
             ),
         )
+
+    def test_event_definition_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard",)
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user, dashboard=dashboard)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"tags": ["a", "b", "a"]})
+
+        self.assertListEqual(response.json()["tags"], ["a", "b"])

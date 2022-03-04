@@ -23,12 +23,7 @@ def build_check():
 # uniqueness across null columns.
 def build_partial_uniqueness_constraint(field: str):
     return UniqueConstraint(
-        fields=["tag", field],
-        name=f"unique_{field}_tagged_item",
-        condition=Q(
-            *[(f"{other_field}__isnull", True) for other_field in RELATED_OBJECTS if other_field != field],
-            _connector="AND",
-        ),
+        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False)),
     )
 
 
