@@ -65,7 +65,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             return handle_compare(filter, self._run_formula_query, team)
 
         jobs = []
-        result_dict = dict()
+        result = [None] * len(filter.entities)
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
@@ -75,7 +75,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             thread = threading.Thread(
                 target=handle_compare_threading,
                 args=(filter, self._run_query, team),
-                kwargs={"entity": entity, "entities_dict": result_dict, "index": entity.index + 1},
+                kwargs={"entity": entity, "result": result, "index": entity.index},
             )
             jobs.append(thread)
 
@@ -87,13 +87,8 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         for j in jobs:
             j.join()
 
-        # ensure correct ordering
-        result = []
-        for sublist in sorted(result_dict.items(), key=lambda item: item[0]):
-            for item in sublist[1]:
-                result.append(item)
-
-        return result
+        # flatten results
+        return [item for sublist in result for item in sublist]
 
     def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
         serialized_data = []

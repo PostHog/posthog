@@ -60,8 +60,8 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return entities_list
 
 
-def handle_compare_threading(filter, func: Callable, team: Team, entities_dict: Dict, index: int, **kwargs) -> None:
-    entities_dict[index] = handle_compare(filter, func, team, **kwargs)
+def handle_compare_threading(filter, func: Callable, team: Team, result: List, index: int, **kwargs) -> None:
+    result[index] = handle_compare(filter, func, team, **kwargs)
 
 
 TIME_IN_SECONDS: Dict[str, Any] = {
