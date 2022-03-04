@@ -1282,7 +1282,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
-export enum DashboardLocation {
+export enum DashboardPlacement {
     Public = 'public', // When viewing the dashboard publicly via a shareToken
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage

@@ -8,7 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardLocation, DashboardMode } from '~/types'
+import { DashboardPlacement, DashboardMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -21,11 +21,7 @@ import { DashboardHeader } from './DashboardHeader'
 interface Props {
     id?: string
     shareToken?: string
-    location?: DashboardLocation
-}
-
-interface DashboardViewProps {
-    location?: DashboardLocation
+    placement?: DashboardPlacement
 }
 
 export const scene: SceneExport = {
@@ -34,15 +30,15 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
 }
 
-export function Dashboard({ id, shareToken, location }: Props = {}): JSX.Element {
+export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
     return (
         <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken }}>
-            <DashboardView location={location} />
+            <DashboardView placement={placement} />
         </BindLogic>
     )
 }
 
-function DashboardView({ location }: DashboardViewProps = { location: DashboardLocation.Dashboard }): JSX.Element {
+function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
     const {
         dashboard,
         canEditDashboard,
@@ -60,7 +56,7 @@ function DashboardView({ location }: DashboardViewProps = { location: DashboardL
     }, [])
 
     useKeyboardHotkeys(
-        location === DashboardLocation.Public || location === DashboardLocation.InternalMetrics
+        placement === DashboardPlacement.Public || placement === DashboardPlacement.InternalMetrics
             ? {}
             : {
                   e: {
@@ -98,9 +94,9 @@ function DashboardView({ location }: DashboardViewProps = { location: DashboardL
 
     return (
         <div className="dashboard">
-            {location !== DashboardLocation.ProjectHomepage &&
-                location !== DashboardLocation.Public &&
-                location !== DashboardLocation.InternalMetrics && <DashboardHeader />}
+            {placement !== DashboardPlacement.ProjectHomepage &&
+                placement !== DashboardPlacement.Public &&
+                placement !== DashboardPlacement.InternalMetrics && <DashboardHeader />}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -111,12 +107,12 @@ function DashboardView({ location }: DashboardViewProps = { location: DashboardL
                     <div className="dashboard-items-actions">
                         <div
                             className="left-item"
-                            style={location === DashboardLocation.Public ? { textAlign: 'right' } : undefined}
+                            style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                         >
-                            {location === DashboardLocation.Public ? <LastRefreshText /> : <DashboardReloadAction />}
+                            {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
-                        {location !== DashboardLocation.Public && (
+                        {placement !== DashboardPlacement.Public && (
                             <div
                                 className="right-item"
                                 style={{

@@ -9,7 +9,7 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import '~/styles'
 import './DashboardItems.scss'
-import { DashboardLocation } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 loadPostHogJS()
 initKea()
@@ -50,7 +50,7 @@ ReactDOM.render(
                 </a>
             )}
 
-            <Dashboard id={dashboard.id} shareToken={dashboard.share_token} location={DashboardLocation.Public} />
+            <Dashboard id={dashboard.id} shareToken={dashboard.share_token} placement={DashboardPlacement.Public} />
 
             <div style={{ textAlign: 'center', paddingBottom: '1rem' }}>
                 Made with{' '}

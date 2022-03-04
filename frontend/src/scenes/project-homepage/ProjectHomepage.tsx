@@ -5,7 +5,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { DashboardLocation, InsightType } from '~/types'
+import { DashboardPlacement, InsightType } from '~/types'
 import { Button, Row, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -74,7 +74,7 @@ export function ProjectHomepage(): JSX.Element {
                     </div>
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
-                        location={DashboardLocation.ProjectHomepage}
+                        placement={DashboardPlacement.ProjectHomepage}
                     />
                 </div>
             ) : (

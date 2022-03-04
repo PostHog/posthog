@@ -9,7 +9,6 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
-from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User

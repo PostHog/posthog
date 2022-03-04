@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { DashboardLocation, QuerySummary } from '~/types'
+import { DashboardPlacement, QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
 import { Link } from 'lib/components/Link'
@@ -34,7 +34,7 @@ export function InternalMetricsTab(): JSX.Element {
                         <Dashboard
                             id={dashboard.id.toString()}
                             shareToken={dashboard.share_token}
-                            location={DashboardLocation.InternalMetrics}
+                            placement={DashboardPlacement.InternalMetrics}
                         />
                     </Collapse.Panel>
                 ) : null}
