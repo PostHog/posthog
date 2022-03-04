@@ -97,6 +97,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "id",
             "short_id",
             "name",
+            "derived_name",
             "filters",
             "filters_hash",
             "order",
@@ -249,7 +250,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
-                queryset = queryset.filter(name__icontains=request.GET["search"])
+                queryset = queryset.filter(
+                    Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
+                )
         return queryset
 
     @action(methods=["patch"], detail=False)

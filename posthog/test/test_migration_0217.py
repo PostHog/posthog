@@ -5,8 +5,8 @@ from posthog.test.base import NonAtomicTestMigrations
 
 class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
 
-    migrate_from = "0215_add_tags_back"  # type: ignore
-    migrate_to = "0216_uniqueness_constraint_tagged_items"  # type: ignore
+    migrate_from = "0216_insight_placeholder_name"  # type: ignore
+    migrate_to = "0217_uniqueness_constraint_tagged_items"  # type: ignore
 
     def setUpBeforeMigration(self, apps):
         Dashboard = apps.get_model("posthog", "Dashboard")
