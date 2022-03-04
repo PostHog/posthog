@@ -8,6 +8,7 @@ import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/reten
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './RetentionLineGraph.scss'
 import { RetentionModal } from './RetentionModal'
+import { roundToDecimal } from 'lib/utils'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -69,7 +70,7 @@ export function RetentionLineGraph({
                     },
                     showHeader: false,
                     renderCount: (count) => {
-                        return `${count}%`
+                        return `${roundToDecimal(count)}%`
                     },
                 }}
                 onClick={

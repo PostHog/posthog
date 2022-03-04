@@ -41,6 +41,7 @@ export interface TaxonomicFilterGroup {
     getPopupHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
+    getFullDetailUrl?: (instance: any) => string
 }
 
 export enum TaxonomicFilterGroupType {

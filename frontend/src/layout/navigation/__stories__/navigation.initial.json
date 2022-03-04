@@ -42,7 +42,6 @@
                     "created_at": "2021-09-16T11:39:20.154006Z",
                     "updated_at": "2021-09-16T12:37:01.817475Z",
                     "membership_level": 15,
-                    "personalization": {},
                     "setup": {
                         "is_active": false,
                         "current_section": null
@@ -140,11 +139,6 @@
                 "created_at": "2021-09-16T11:39:20.154006Z",
                 "updated_at": "2021-09-16T12:37:01.817475Z",
                 "membership_level": 15,
-                "personalization": {},
-                "setup": {
-                    "is_active": false,
-                    "current_section": null
-                },
                 "plugins_access_level": 9,
                 "teams": [
                     {

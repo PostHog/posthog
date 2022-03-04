@@ -852,7 +852,7 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
 
 export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -865,7 +865,7 @@ export function PageviewIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element 
 
 export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
                 fill="currentColor"
@@ -885,7 +885,7 @@ export function AutocaptureIcon(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
 
 export function PageleaveIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
                 fill="currentColor"
@@ -1168,16 +1168,15 @@ export function UnverifiedEventStack({
 
 export function VerifiedEventStack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M2 6H4V20H18V22H4C2.9 22 2 21.1 2 20V6ZM8 2H20C21.1 2 22 2.9 22 4V16C22 17.1 21.1 18 20 18H8C6.9 18 6 17.1 6 16V4C6 2.9 6.9 2 8 2ZM8 16H20V4H8V16ZM16.5857 13.9998H11.3584V6.72705H16.5999V8.31796H13.3328V9.56796H16.33V11.1589H13.3328V12.4089H16.5857V13.9998Z"
+                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
                 fill="currentColor"
             />
-            <rect x="16" y="16" width="12" height="12" rx="2" fill="transparent" />
             <path
-                d="M20.7289 23.0449L19.0628 21.3716L18 22.4417L20.7289 25.1777L26 19.8923L24.9372 18.8223L20.7289 23.0449Z"
+                d="M18.7289 21.0449L17.0628 19.3716L16 20.4417L18.7289 23.1777L24 17.8923L22.9372 16.8223L18.7289 21.0449Z"
                 fill="currentColor"
             />
         </svg>
@@ -1213,6 +1212,17 @@ export function PropertyIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element 
         <svg width="18" height="10" viewBox="0 0 18 10" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4ZM0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H18V4H4V6ZM4 10H14V8H4V10ZM4 0V2H18V0H4Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconCorporate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12 7V3H2V21H22V7H12ZM10 19H4V17H10V19ZM10 15H4V13H10V15ZM10 11H4V9H10V11ZM10 7H4V5H10V7ZM20 19H12V9H20V19ZM18 11H14V13H18V11ZM18 15H14V17H18V15Z"
                 fill="currentColor"
             />
         </svg>

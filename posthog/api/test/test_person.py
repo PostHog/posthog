@@ -3,6 +3,8 @@ import unittest
 from unittest import mock
 from uuid import uuid4
 
+from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
@@ -117,6 +119,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
+
+    def test_filter_by_static_cohort(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, distinct_ids=["1"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort.insert_users_by_list(["1", "123"])
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 2, response)
 
     def test_filter_person_list(self):
 
@@ -362,3 +378,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+    def test_csv_export(self):
+        _create_person(
+            team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+        )
+        _create_person(team=self.team, distinct_ids=["4"], properties={"$browser": "whatever", "$os": "Windows"})
+
+        response = self.client.get("/api/person.csv")
+        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+
+        response = self.client.get(
+            "/api/person.csv?properties=%s" % json.dumps([{"key": "$os", "value": "Windows", "type": "person"}])
+        )
+        self.assertEqual(len(response.content.splitlines()), 2)
+
+    def test_pagination_limit(self):
+        for index in range(0, 20):
+            _create_person(
+                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
+            )
+        response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(len(response["results"]), 10)

@@ -785,6 +785,10 @@ describe('vm tests', () => {
 
                 // test auth defaults override
                 await posthog.api.get('/api/event', { projectApiKey: 'token', personalApiKey: 'secret' })
+
+                // test replace @current with team id
+                await posthog.api.get('/api/projects/@current/event')
+
                 return event
             }
         `
@@ -798,7 +802,7 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
-        expect((fetch as any).mock.calls.length).toEqual(6)
+        expect((fetch as any).mock.calls.length).toEqual(7)
         expect((fetch as any).mock.calls).toEqual([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
@@ -844,6 +848,15 @@ describe('vm tests', () => {
                 'https://app.posthog.com/api/event?token=token',
                 {
                     headers: { Authorization: 'Bearer secret' },
+                    method: 'GET',
+                },
+            ],
+            [
+                'https://app.posthog.com/api/projects/' +
+                    pluginConfig39.team_id +
+                    '/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                {
+                    headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'GET',
                 },
             ],

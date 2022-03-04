@@ -41,6 +41,6 @@ pytest-django==4.1.0
 pytest-env==0.6.2
 pytest-mock==3.5.1
 pytest-cov==2.12.1
-pytest-split==0.3.3
+pytest-split==0.6.0
 syrupy==1.4.6
 numpy==1.21.4

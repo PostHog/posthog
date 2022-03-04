@@ -108,7 +108,7 @@ class PasswordResetSerializer(serializers.Serializer):
 
         email = validated_data.pop("email")
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.filter(is_active=True).get(email=email)
         except User.DoesNotExist:
             user = None
 
@@ -145,7 +145,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             return True
 
         try:
-            user = User.objects.get(uuid=self.context["view"].kwargs["user_uuid"])
+            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
@@ -196,7 +196,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.get(uuid=user_uuid)
+            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 

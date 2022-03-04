@@ -26,19 +26,6 @@
         "created_at": "2021-03-29T13:58:27.416616Z",
         "updated_at": "2021-03-29T13:58:57.067131Z",
         "membership_level": 15,
-        "personalization": {
-            "role": "engineer",
-            "products": ["web"],
-            "technical": "technical"
-        },
-        "setup": {
-            "is_active": true,
-            "current_section": 1,
-            "any_project_ingested_events": false,
-            "any_project_completed_snippet_onboarding": false,
-            "non_demo_team_id": null,
-            "has_invited_team_members": true
-        },
         "plugins_access_level": 9,
         "teams": [
             {
