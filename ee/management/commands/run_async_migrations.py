@@ -66,6 +66,9 @@ class Command(BaseCommand):
 
             print()
             if options["check"]:
+                print(
+                    "Async migrations are not completed. See more info https://posthog.com/docs/self-host/configure/async-migrations/overview"
+                )
                 exit(1)
             return
 
