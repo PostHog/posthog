@@ -84,10 +84,8 @@ export function PrimaryDashboardModal(): JSX.Element {
                                 fullWidth
                                 className="dashboard-row"
                                 onClick={() => {
-                                    if (!isPrimary) {
-                                        setPrimaryDashboard(dashboard.id)
-                                        closePrimaryDashboardModal()
-                                    }
+                                    setPrimaryDashboard(dashboard.id)
+                                    closePrimaryDashboardModal()
                                 }}
                             >
                                 {rowContents}
