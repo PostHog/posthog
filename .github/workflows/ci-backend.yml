@@ -184,7 +184,15 @@ jobs:
                       saml: false
                       foss: true
                       name: 'FOSS'
-                      clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
+                      clickhouse-server-image-version: '21.6.5'
+                      concurrency: 1
+                      group: 1
+                    - python-version: '3.8.12'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      clickhouse-server-image-version: '21.11.11.1'
                       concurrency: 1
                       group: 1
                     # :TRICKY: Run SAML tests in a separate container
