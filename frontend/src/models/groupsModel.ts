@@ -57,7 +57,7 @@ export const groupsModel = kea<groupsModelType>({
                         plural: groupType.name_plural || `${groupType.group_type}(s)`,
                     }
                 }
-                return { singular: 'user', plural: 'users' }
+                return { singular: 'person', plural: 'persons' }
             },
         ],
     },
