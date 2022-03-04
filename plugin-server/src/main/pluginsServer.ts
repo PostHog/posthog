@@ -35,6 +35,8 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina
 ): Promise<ServerInstance> {
+    const timer = new Date()
+
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -250,6 +252,7 @@ export async function startPluginsServer(
         // start http server used for the healthcheck
         httpServer = createHttpServer(hub, serverConfig)
 
+        hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
 
         hub.lastActivity = new Date().valueOf()
