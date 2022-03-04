@@ -5,10 +5,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
-import { Row, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import clsx from 'clsx'
 import { HomeIcon } from 'lib/components/icons'
+import { LemonRow } from 'lib/components/LemonRow'
 
 export interface ShareModalProps {
     visible: boolean
@@ -29,6 +29,7 @@ export function PrimaryDashboardModal(): JSX.Element {
             }}
             title="Select a default dashboard for the project"
             destroyOnClose
+            bodyStyle={{ padding: 0 }}
             footer={
                 <>
                     <LemonButton
@@ -43,44 +44,54 @@ export function PrimaryDashboardModal(): JSX.Element {
             }
         >
             {dashboardsLoading ? (
-                <Skeleton active />
+                <div className="loading-skeleton-container">
+                    <Skeleton active />
+                </div>
             ) : (
                 <div className="dashboard-list">
                     {nameSortedDashboards.map((dashboard: DashboardType) => {
                         const isPrimary = dashboard.id === primaryDashboardId
+                        const rowContents = [
+                            <div key={1} className="dashboard-label-container">
+                                <strong>{dashboard.name}</strong>
+                                {dashboard.description && (
+                                    <p className="text-small text-muted-alt dashboard-description">
+                                        {dashboard.description}
+                                    </p>
+                                )}
+                            </div>,
+                            <div key={2}>
+                                {isPrimary ? (
+                                    <div className="default-indicator">
+                                        <HomeIcon className="mr-05" style={{ width: 18 }} />
+                                        <span>Default</span>
+                                    </div>
+                                ) : (
+                                    <strong className="set-default-text">Set as default</strong>
+                                )}
+                            </div>,
+                        ]
+                        if (isPrimary) {
+                            return (
+                                <LemonRow key={dashboard.id} fullWidth className="dashboard-row primary-dashboard-row">
+                                    {rowContents}
+                                </LemonRow>
+                            )
+                        }
                         return (
-                            <Row
+                            <LemonButton
                                 key={dashboard.id}
+                                fullWidth
+                                className="dashboard-row"
                                 onClick={() => {
                                     if (!isPrimary) {
                                         setPrimaryDashboard(dashboard.id)
                                         closePrimaryDashboardModal()
                                     }
                                 }}
-                                className={clsx({
-                                    'dashboard-row': true,
-                                    'primary-dashboard-row': isPrimary,
-                                })}
                             >
-                                <div key={dashboard.id} className="dashboard-label-container">
-                                    <strong>{dashboard.name}</strong>
-                                    {dashboard.description && (
-                                        <p className="text-small text-muted-alt dashboard-description">
-                                            {dashboard.description}
-                                        </p>
-                                    )}
-                                </div>
-                                <div>
-                                    {isPrimary ? (
-                                        <div className="default-indicator">
-                                            <HomeIcon className="mr-05" style={{ width: 18 }} />
-                                            <span>Default</span>
-                                        </div>
-                                    ) : (
-                                        <strong className="set-default-text">Set as default</strong>
-                                    )}
-                                </div>
-                            </Row>
+                                {rowContents}
+                            </LemonButton>
                         )
                     })}
                 </div>

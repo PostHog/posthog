@@ -1,28 +1,25 @@
 @import '~/vars';
 
 .primary-dashboard-modal {
+    .loading-skeleton-container {
+        padding: $default_spacing;
+    }
     .dashboard-list {
-        max-height: 400px;
-        overflow: scroll;
+        max-height: 350px;
+        overflow-y: scroll;
         padding-right: $default_spacing;
         padding-left: $default_spacing;
         .dashboard-row {
             display: flex;
-            flex-direction: row;
+            flex: 1;
             height: 60px;
             padding: $default_spacing/2;
-            margin-bottom: $default_spacing/2;
-            align-items: center;
-            border-radius: $radius;
-            cursor: pointer;
-            &:hover {
-                background-color: $primary_bg_hover;
-            }
+            margin-bottom: $default_spacing/4;
             &.primary-dashboard-row {
                 background-color: $bg_side;
-                pointer-events: none;
             }
             .dashboard-label-container {
+                color: $text_default;
                 flex: 1;
             }
             .dashboard-description {
@@ -32,6 +29,7 @@
                 color: $primary;
             }
             .default-indicator {
+                color: $text_default;
                 display: flex;
                 align-items: center;
             }
