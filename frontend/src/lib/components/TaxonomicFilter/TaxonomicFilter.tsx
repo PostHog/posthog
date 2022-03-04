@@ -23,7 +23,6 @@ export function TaxonomicFilter({
     height,
     width,
     popoverEnabled = true,
-    clearSearchOnSelection = false,
     selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -43,7 +42,6 @@ export function TaxonomicFilter({
         taxonomicGroupTypes,
         optionsFromProp,
         eventNames,
-        clearSearchOnSelection,
         popoverEnabled,
         selectFirstItem,
     }

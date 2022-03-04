@@ -18,7 +18,6 @@ export interface TaxonomicFilterProps {
     height?: number
     width?: number
     popoverEnabled?: boolean
-    clearSearchOnSelection?: boolean
     selectFirstItem?: boolean
 }
 
