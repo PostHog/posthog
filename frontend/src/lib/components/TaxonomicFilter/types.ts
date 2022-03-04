@@ -19,15 +19,14 @@ export interface TaxonomicFilterProps {
     width?: number
     popoverEnabled?: boolean
     clearSearchOnSelection?: boolean
+    selectFirstItem?: boolean
 }
-
-export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
-    clearSearchOnSelection?: boolean
-    popoverEnabled?: boolean
 }
+
+export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterGroup {
     name: string

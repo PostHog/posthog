@@ -60,20 +60,20 @@ describe('infiniteListLogic', () => {
     }
 
     describe('index', () => {
-        it('defaults to 0 when the popperEnabled prop is not set', async () => {
+        it('defaults to 0 when whether the first item should be selected is not specified', async () => {
             await expectLogic(logicWith({})).toMatchValues({
                 index: 0,
             })
         })
 
-        it('is 0 when the popperEnabled prop is true', async () => {
-            await expectLogic(logicWith({ popperEnabled: true })).toMatchValues({
+        it('is 0 when the first item should be selected', async () => {
+            await expectLogic(logicWith({ selectFirstItem: true })).toMatchValues({
                 index: 0,
             })
         })
 
-        it('is -1 when the popperEnabled prop is false', async () => {
-            await expectLogic(logicWith({ popperEnabled: false })).toMatchValues({
+        it('is -1 when first item should not be selected', async () => {
+            await expectLogic(logicWith({ selectFirstItem: false })).toMatchValues({
                 index: -1,
             })
         })

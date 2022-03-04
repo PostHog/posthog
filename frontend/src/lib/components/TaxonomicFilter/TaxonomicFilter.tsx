@@ -24,6 +24,7 @@ export function TaxonomicFilter({
     width,
     popoverEnabled = true,
     clearSearchOnSelection = false,
+    selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -44,6 +45,7 @@ export function TaxonomicFilter({
         eventNames,
         clearSearchOnSelection,
         popoverEnabled,
+        selectFirstItem,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
