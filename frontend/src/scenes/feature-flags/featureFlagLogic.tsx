@@ -11,12 +11,14 @@ import {
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils'
+import { convertPropertyGroupToProperties, deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import clone from 'clone'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -84,7 +86,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                setFeatureFlag: (_, { featureFlag }) => featureFlag,
+                setFeatureFlag: (_, { featureFlag }) => {
+                    const newFeatureFlag = clone(featureFlag)
+                    newFeatureFlag.filters.groups = newFeatureFlag.filters.groups.map((group) => {
+                        if (group.properties) {
+                            return {
+                                ...group,
+                                properties: convertPropertyGroupToProperties(
+                                    group.properties.filter(isValidPropertyFilter)
+                                ),
+                            }
+                        }
+                        return group
+                    })
+                    return newFeatureFlag
+                },
                 addConditionSet: (state) => {
                     if (!state) {
                         return state

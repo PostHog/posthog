@@ -1,10 +1,10 @@
 import { kea } from 'kea'
-import { errorToast, successToast, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
@@ -78,7 +78,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             pollingActive,
         }),
         setProperties: (
-            properties: AnyPropertyFilter[] | AnyPropertyFilter
+            properties: AnyPropertyFilter[] | AnyPropertyFilter | PropertyGroupFilter
         ): {
             properties: AnyPropertyFilter[]
         } => {
@@ -124,7 +124,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
+                setProperties: (_, { properties }) =>
+                    convertPropertyGroupToProperties(properties.filter(isValidPropertyFilter)),
             },
         ],
         eventFilter: [

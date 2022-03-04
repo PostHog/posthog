@@ -1455,7 +1455,7 @@ export interface PropertyGroupFilter {
 
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
-    values: AnyPropertyFilter[]
+    values: PropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {

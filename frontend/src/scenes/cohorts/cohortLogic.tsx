@@ -7,8 +7,9 @@ import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 import { cohortLogicType } from './cohortLogicType'
 import { CohortGroupType, CohortType, MatchType } from '~/types'
-import { errorToast } from 'lib/utils'
+import { convertPropertyGroupToProperties, errorToast } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -33,7 +34,17 @@ function determineMatchType(group: Partial<CohortGroupType>): MatchType {
 function processCohortOnSet(cohort: CohortType): CohortType {
     if (cohort.groups) {
         cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
+        cohort.groups = cohort.groups.map((group) => {
+            if (group.properties) {
+                return {
+                    ...group,
+                    properties: convertPropertyGroupToProperties(group.properties.filter(isValidPropertyFilter)),
+                }
+            }
+            return group
+        })
     }
+
     return cohort
 }
 
