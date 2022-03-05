@@ -1643,7 +1643,7 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number
+    value: boolean | string | number | null
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
