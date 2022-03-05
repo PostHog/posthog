@@ -19,6 +19,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
         setOuterPropertyGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
+        duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
         addFilterGroup: true,
     }),
 

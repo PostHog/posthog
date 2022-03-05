@@ -6,7 +6,7 @@ import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, CopyOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
@@ -74,12 +74,21 @@ export const FilterRow = React.memo(function FilterRow({
                     {filterComponent(() => setOpen(false))}
                     {!!Object.keys(filters[index]).length &&
                         (orFiltering ? (
-                            <LemonButton
-                                icon={<IconDelete />}
-                                type="primary-alt"
-                                onClick={() => onRemove(index)}
-                                compact
-                            />
+                            <>
+                                <LemonButton
+                                    icon={<CopyOutlined style={{ fontSize: '1rem' }} />}
+                                    type="primary-alt"
+                                    className="ml-05"
+                                    onClick={() => {}}
+                                    compact
+                                />
+                                <LemonButton
+                                    icon={<IconDelete />}
+                                    type="primary-alt"
+                                    onClick={() => onRemove(index)}
+                                    compact
+                                />
+                            </>
                         ) : (
                             <CloseButton
                                 onClick={() => onRemove(index)}

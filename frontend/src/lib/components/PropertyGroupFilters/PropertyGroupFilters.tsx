@@ -4,6 +4,7 @@ import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
+import { CopyOutlined } from '@ant-design/icons'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
@@ -37,6 +38,7 @@ export function PropertyGroupFilters({
         setOuterPropertyGroupsType,
         setInnerPropertyGroupType,
         setPropertyFilters,
+        duplicateFilterGroup,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     // Update the logic's internal filters when the props change
@@ -56,7 +58,7 @@ export function PropertyGroupFilters({
                             style={{ borderBottom: '1px solid var(--border)' }}
                         >
                             <GlobalFiltersTitle orFiltering={true} />
-                            {filtersWithNew.type && filtersWithNew.values.length > 2 && (
+                            {filtersWithNew.type && filtersWithNew.values.length > 1 && (
                                 <AndOrFilterSelect
                                     value={filtersWithNew.type}
                                     onChange={(value) => setOuterPropertyGroupsType(value)}
@@ -83,6 +85,11 @@ export function PropertyGroupFilters({
                                                 }}
                                             />
                                             <LemonButton
+                                                icon={<CopyOutlined style={{ fontSize: '1rem' }} />}
+                                                type="primary-alt"
+                                                onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                            />
+                                            <LemonButton
                                                 icon={<IconDelete />}
                                                 type="primary-alt"
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
@@ -92,6 +99,7 @@ export function PropertyGroupFilters({
                                         <PropertyFilters
                                             orFiltering={true}
                                             propertyFilters={group.values}
+                                            style={{ marginBottom: 0 }}
                                             onChange={(properties) => {
                                                 setPropertyFilters(properties, propertyGroupIndex)
                                             }}
@@ -113,14 +121,30 @@ export function PropertyGroupFilters({
                 </div>
             )}
             <div>
-                <LemonButton
-                    data-attr={`${pageKey}-add-filter-group`}
-                    className="mb"
-                    type="secondary"
-                    onClick={() => addFilterGroup()}
-                >
-                    <IconPlus /> Add filter group
-                </LemonButton>
+                {filtersWithNew.values.length > 1 ? (
+                    <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
+                        className="mb full-width"
+                        type="secondary"
+                        style={{ fontWeight: 400 }}
+                        onClick={() => addFilterGroup()}
+                    >
+                        <IconPlus className="mr-05" /> Add filter group
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        onClick={() => addFilterGroup()}
+                        className="mb"
+                        style={{
+                            border: 'none',
+                            background: 'none',
+                            fontWeight: 400,
+                        }}
+                        type="default"
+                    >
+                        <IconPlus className="mr-05" /> Add filter group
+                    </LemonButton>
+                )}
             </div>
         </>
     )

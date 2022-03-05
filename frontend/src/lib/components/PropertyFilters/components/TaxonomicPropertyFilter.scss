@@ -92,6 +92,9 @@
             &.symmetric {
                 grid-template-columns: 70px minmax(140px, 160px) minmax(70px, 80px) minmax(180px, 200px);
             }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px minmax(140px, 220px) minmax(80px, 160px) minmax(100px, 500px);
+            }
         }
     }
 
