@@ -14,6 +14,7 @@ from ee.clickhouse.materialized_columns.columns import (
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from ee.tasks.materialized_columns import mark_all_materialized
+from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
@@ -32,6 +33,17 @@ def _create_event(**kwargs):
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
+    def setUp(self):
+        self.recreate_database()
+
+    def tearDown(self):
+        self.recreate_database()
+
+    def recreate_database(self):
+        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
+        create_clickhouse_tables(0)
+
     def test_get_columns_default(self):
         self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
         self.assertCountEqual(get_materialized_columns("person"), [])
@@ -153,20 +165,20 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
 
         # :KLUDGE: ClickHouse replaces our trim(BOTH '"' FROM properties) with this
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), concat('^[', regexpQuoteMeta('\"'), ']*|[', regexpQuoteMeta('\"'), ']*$'), '')"
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("sharded_events", "mat_myprop"))
 
         backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("DEFAULT", expr), self._get_column_types("sharded_events", "mat_myprop"))
 
         mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("sharded_events", "mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(
             """
             SELECT sum(rows)
             FROM system.parts_columns
-            WHERE table = 'events'
+            WHERE table = 'sharded_events'
               AND database = %(database)s
               AND column = %(column)s
         """,
