@@ -253,15 +253,16 @@ export function summarizeInsightFilters(
                     // Trends are the default type
                     summary = localFilters
                         .map((localFilter, localFilterIndex) => {
-                            const mathDefinition =
-                                mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
-                            const mathSummary =
-                                mathDefinition.onProperty && localFilter.math_property
+                            const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
+                            const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                            const mathSummary = mathDefinition
+                                ? mathDefinition.onProperty && localFilter.math_property
                                     ? `${mathDefinition.shortName} on property ${
                                           keyMapping.event[localFilter.math_property]?.label ||
                                           localFilter.math_property
                                       }`
                                     : mathDefinition.shortName
+                                : mathType
                             let series = `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
                             if (filters.formula) {
                                 series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
