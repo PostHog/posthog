@@ -13,10 +13,10 @@ logger = structlog.get_logger(__name__)
 def rename_column(table, current_name, new_name):
     if CLICKHOUSE_REPLICATION and table == "events":
         sync_execute(
-            f"ALTER TABLE {table} RENAME COLUMN \"{current_name}\" TO {new_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+            f"ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' RENAME COLUMN \"{current_name}\" TO {new_name}"
         )
         sync_execute(
-            f"ALTER TABLE sharded_{table} RENAME COLUMN \"{current_name}\" TO {new_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+            f"ALTER TABLE sharded_{table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' RENAME COLUMN \"{current_name}\" TO {new_name}"
         )
     else:
         sync_execute(f'ALTER TABLE {table} RENAME COLUMN "{current_name}" TO {new_name}')
