@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useValues, BindLogic } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -9,6 +9,10 @@ import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab } from 'scenes/events/EventsTabs'
 import { EventPageHeader } from './EventPageHeader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { EventDefinitionsTable } from 'scenes/data-management/events/EventDefinitionsTable'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export const scene: SceneExport = {
     component: EventsVolumeTable,
@@ -18,6 +22,7 @@ export const scene: SceneExport = {
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -36,12 +41,18 @@ export function EventsVolumeTable(): JSX.Element | null {
                             </>
                         )
                     )}
-                    <VolumeTable data={eventDefinitions} type="event" />
+                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
+                        <BindLogic logic={eventDefinitionsTableLogic} props={{ syncWithUrl: true }}>
+                            <EventDefinitionsTable />
+                        </BindLogic>
+                    ) : (
+                        <VolumeTable data={eventDefinitions} type="event" />
+                    )}
                 </>
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-            <DefinitionDrawer />
+            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
         </div>
     )
 }

@@ -59,14 +59,18 @@ export const mockAPI = (
             })
         }
 
-        for (const chain of ['actions', 'cohorts', 'pluginLogs']) {
+        for (const chain of ['actions', 'cohorts', 'pluginLogs', 'events', 'eventDefinitions', 'propertyDefinitions']) {
             api[chain] = new Proxy(
                 {},
                 {
                     get: function (_, property) {
                         const path = [chain, property].join('.')
-                        return async (...args: any[]) =>
-                            (await apiCallback?.(path, args)) ?? defaultAPICallMocks(path, args)
+                        if (apiCallback?.constructor?.name === 'AsyncFunction') {
+                            return async (...args: any[]) =>
+                                // @ts-ignore
+                                (await apiCallback?.(path, args)) ?? defaultAPICallMocks(path, args)
+                        }
+                        return (...args: any[]) => apiCallback?.(path, args) ?? defaultAPICallMocks(path, args)
                     },
                 }
             )
@@ -97,7 +101,7 @@ export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableF
             `api/projects/${MOCK_TEAM_ID}/groups/`,
             `api/projects/${MOCK_TEAM_ID}/insights/`,
             `api/projects/${MOCK_TEAM_ID}/annotations/`,
-            `api/projects/${MOCK_TEAM_ID}/event_definitions/`,
+            `api/projects/${MOCK_TEAM_ID}/property_definitions/`,
         ].includes(pathname)
     ) {
         return { results: [], next: null }
@@ -106,7 +110,11 @@ export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableF
 }
 
 export function defaultAPICallMocks(path: string, args: any[]): any {
-    if (['actions.list', 'cohorts.list'].includes(path)) {
+    if (
+        ['actions.list', 'cohorts.list', 'events.list', 'eventDefinitions.list', 'propertyDefinitions.list'].includes(
+            path
+        )
+    ) {
         return { results: [], next: null }
     }
     throwLog(`Unmocked API call on: api.${path}() with args: ${JSON.stringify(args)}`)

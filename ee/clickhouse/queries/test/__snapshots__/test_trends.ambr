@@ -13,7 +13,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= '2020-01-01 00:00:00'
@@ -62,7 +62,7 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
@@ -107,7 +107,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= '2020-01-02 00:00:00'
@@ -141,15 +141,15 @@
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND has(['value'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON pdi.person_id = person.id
+        AND (has(['value'], trim(BOTH '"'
+                                 FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= '2020-01-01 00:00:00'
@@ -205,15 +205,15 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND (has(['value'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
@@ -355,7 +355,7 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= '2020-01-01 00:00:00'
@@ -406,7 +406,7 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], trim(BOTH '"'
@@ -457,15 +457,15 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND (has(['value'], trim(BOTH '"'
+                                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key'))))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE team_id = 2
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
@@ -475,5 +475,225 @@
         GROUP BY toStartOfDay(timestamp))
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT trim(BOTH '"'
+                 FROM JSONExtractRaw(person_props, 'email')) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND ((has(['android'], trim(BOTH '"'
+                                    FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$os')))
+              OR has(['safari'], trim(BOTH '"'
+                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= '2020-01-01 00:00:00'
+       AND timestamp <= '2020-07-01 23:59:59'
+       AND ((NOT (trim(BOTH '"'
+                       FROM JSONExtractRaw(person_props, 'email')) ILIKE '%@posthog.com%')
+             OR has(['val'], trim(BOTH '"'
+                                  FROM JSONExtractRaw(e.properties, 'key')))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-07-01 23:59:59') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
+                            trim(BOTH '"'
+                                 FROM JSONExtractRaw(person_props, 'email')) as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND ((has(['android'], trim(BOTH '"'
+                                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$os')))
+                    OR has(['safari'], trim(BOTH '"'
+                                            FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))))) person ON person.id = pdi.person_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND ((NOT (trim(BOTH '"'
+                             FROM JSONExtractRaw(person_props, 'email')) ILIKE '%@posthog.com%')
+                   OR has(['val'], trim(BOTH '"'
+                                        FROM JSONExtractRaw(e.properties, 'key')))))
+             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+             AND timestamp <= '2020-07-01 23:59:59'
+             AND trim(BOTH '"'
+                      FROM JSONExtractRaw(person_props, 'email')) in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT trim(BOTH '"'
+                 FROM JSONExtractRaw(person_props, 'email')) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (((has(['android'], trim(BOTH '"'
+                                     FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$os')))
+               AND has(['chrome'], trim(BOTH '"'
+                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))))
+             AND (trim(BOTH '"'
+                       FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= '2020-01-01 00:00:00'
+       AND timestamp <= '2020-07-01 23:59:59'
+       AND ((has(['val'], trim(BOTH '"'
+                               FROM JSONExtractRaw(e.properties, 'key')))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-07-01 23:59:59') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test2@posthog.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
+                            trim(BOTH '"'
+                                 FROM JSONExtractRaw(person_props, 'email')) as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (((has(['android'], trim(BOTH '"'
+                                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$os')))
+                     AND has(['chrome'], trim(BOTH '"'
+                                              FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))))
+                   AND (trim(BOTH '"'
+                             FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%@posthog.com%'))) person ON person.id = pdi.person_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND ((has(['val'], trim(BOTH '"'
+                                     FROM JSONExtractRaw(e.properties, 'key')))))
+             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+             AND timestamp <= '2020-07-01 23:59:59'
+             AND trim(BOTH '"'
+                      FROM JSONExtractRaw(person_props, 'email')) in (['test2@posthog.com'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
   '
 ---

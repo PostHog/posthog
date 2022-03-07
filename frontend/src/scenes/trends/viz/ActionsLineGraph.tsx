@@ -36,9 +36,7 @@ export function ActionsLineGraph({
             insightId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
-            interval={filters.interval}
             showPersonsModal={showPersonsModal}
-            tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
                     ? {

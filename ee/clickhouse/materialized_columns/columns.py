@@ -45,7 +45,7 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
 
     column_name = column_name or materialized_column_name(table, property)
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
     if CLICKHOUSE_REPLICATION and table == "events":
         sync_execute(
@@ -96,7 +96,7 @@ def backfill_materialized_columns(
 
     updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
     materialized_columns = get_materialized_columns(table, use_cache=False)
 

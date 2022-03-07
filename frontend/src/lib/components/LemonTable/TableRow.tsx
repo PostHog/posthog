@@ -22,10 +22,14 @@ function TableRowRaw<T extends Record<string, any>>({
     onRow,
     expandable,
 }: TableRowProps<T>): JSX.Element {
-    const [isRowExpanded, setIsRowExpanded] = useState(false)
+    const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
+    const isRowExpanded =
+        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record)
 
     return (
         <>
@@ -36,8 +40,12 @@ function TableRowRaw<T extends Record<string, any>>({
                             <LemonButton
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => {
-                                    setIsRowExpanded((state) => !state)
-                                    !isRowExpanded && expandable.onRowExpand?.(record)
+                                    setIsRowExpanded(!isRowExpanded)
+                                    if (isRowExpanded) {
+                                        expandable?.onRowCollapse?.(record)
+                                    } else {
+                                        expandable?.onRowExpand?.(record)
+                                    }
                                 }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}
@@ -67,8 +75,10 @@ function TableRowRaw<T extends Record<string, any>>({
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className="LemonTable__expansion">
-                    <td />
-                    <td colSpan={columns.length}>{expandable.expandedRowRender(record, recordIndex)}</td>
+                    {!expandable.noIndent && <td />}
+                    <td colSpan={columns.length + Number(!!expandable.noIndent)}>
+                        {expandable.expandedRowRender(record, recordIndex)}
+                    </td>
                 </tr>
             )}
         </>

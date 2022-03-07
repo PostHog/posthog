@@ -61,7 +61,7 @@ def create_event(
 
     p = ClickhouseProducer()
 
-    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+    p.produce_proto(sql=INSERT_EVENT_SQL(), topic=KAFKA_EVENTS, data=pb_event)
 
     return str(event_uuid)
 

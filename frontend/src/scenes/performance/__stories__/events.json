@@ -531,11 +531,6 @@
                     "created_at": "2022-02-05T15:41:19.186003Z",
                     "updated_at": "2022-02-05T15:41:19.186027Z",
                     "membership_level": 15,
-                    "personalization": {},
-                    "setup": {
-                        "is_active": false,
-                        "current_section": null
-                    },
                     "plugins_access_level": 9,
                     "teams": [
                         {
@@ -582,11 +577,6 @@
                 "created_at": "2022-02-05T15:41:19.186003Z",
                 "updated_at": "2022-02-05T15:41:19.186027Z",
                 "membership_level": 15,
-                "personalization": {},
-                "setup": {
-                    "is_active": false,
-                    "current_section": null
-                },
                 "plugins_access_level": 9,
                 "teams": [
                     {

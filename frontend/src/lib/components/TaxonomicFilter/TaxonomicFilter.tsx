@@ -7,6 +7,7 @@ import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -19,6 +20,10 @@ export function TaxonomicFilter({
     taxonomicGroupTypes,
     optionsFromProp,
     eventNames,
+    height,
+    width,
+    popoverEnabled = true,
+    selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -37,6 +42,8 @@ export function TaxonomicFilter({
         taxonomicGroupTypes,
         optionsFromProp,
         eventNames,
+        popoverEnabled,
+        selectFirstItem,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -47,16 +54,28 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
+    const style = {
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+    }
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-            <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
+            <div
+                className={clsx(
+                    'taxonomic-filter',
+                    taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
+                    !width && 'force-minimum-width'
+                )}
+                style={style}
+            >
                 <div style={{ position: 'relative' }}>
                     <Input
                         style={{ flexGrow: 1 }}
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
                         prefix={
-                            <IconMagnifier className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`} />
+                            <IconMagnifier className={clsx('magnifier-icon', searchQuery && 'magnifier-icon-active')} />
                         }
                         value={searchQuery}
                         ref={(ref) => (searchInputRef.current = ref)}
@@ -96,27 +115,24 @@ export function TaxonomicFilter({
                                 onClose?.()
                             }
                         }}
+                        suffix={
+                            <Tooltip
+                                title={
+                                    <>
+                                        You can easily navigate between tabs with your keyboard.{' '}
+                                        <div>
+                                            Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                        </div>
+                                        <div>
+                                            Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                        </div>
+                                    </>
+                                }
+                            >
+                                <IconKeyboard style={{ fontSize: '1.2em' }} className="text-muted-alt cursor-pointer" />
+                            </Tooltip>
+                        }
                     />
-                    <span
-                        className="text-muted-alt cursor-pointer"
-                        style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
-                    >
-                        <Tooltip
-                            title={
-                                <>
-                                    You can easily navigate between tabs with your keyboard.{' '}
-                                    <div>
-                                        Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
-                                    </div>
-                                    <div>
-                                        Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
-                                    </div>
-                                </>
-                            }
-                        >
-                            <IconKeyboard />
-                        </Tooltip>
-                    </span>
                 </div>
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>
