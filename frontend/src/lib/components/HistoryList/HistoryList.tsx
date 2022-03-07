@@ -1,6 +1,5 @@
 import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import './HistoryList.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { historyListLogic, HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
@@ -31,7 +30,7 @@ export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
                         <div>
                             <strong>{rowItem.name ?? 'unknown user'}</strong> {rowItem.description}
                         </div>
-                        <div className={'muted'}>
+                        <div className={'text-muted'}>
                             <TZLabel time={rowItem.created_at} />
                         </div>
                     </>
