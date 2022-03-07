@@ -105,9 +105,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
     },
-    [Scene.FeatureFlagHistory]: {
-        projectBased: true,
-    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
@@ -234,7 +231,6 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
-    [urls.featureFlagHistory(':id')]: Scene.FeatureFlagHistory,
     [urls.annotations()]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,

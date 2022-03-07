@@ -47,7 +47,6 @@ export const urls = {
     experiments: () => '/experiments',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
-    featureFlagHistory: (id: string | number) => `/feature_flags/${id}/history`,
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',

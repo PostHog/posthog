@@ -8,10 +8,14 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface HistoryListProps {
     type: 'FeatureFlag'
-    id: number
+    id: number | null
 }
 
-export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
+export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element | null => {
+    if (!id) {
+        return null
+    }
+
     const logic = historyListLogic({ type, id })
     const { history, historyLoading } = useValues(logic)
 

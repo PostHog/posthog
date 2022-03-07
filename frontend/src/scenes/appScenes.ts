@@ -25,7 +25,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
-    [Scene.FeatureFlagHistory]: () => import('./feature-flags/FeatureFlagHistory'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
