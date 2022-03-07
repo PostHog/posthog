@@ -209,8 +209,8 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
-
     has_group_types: boolean
+    primary_dashboard: number // Dashboard shown on the project homepage
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -1283,12 +1283,17 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
+export enum DashboardPlacement {
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
+    ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    Dashboard = 'dashboard', // When on the standard dashboard page
+}
+
 export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
-    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 // Reserved hotkeys globally available
