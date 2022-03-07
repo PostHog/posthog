@@ -165,11 +165,11 @@ class ClickhousePersonQuery:
         params = {}
 
         if self._filter.limit:
-            clause += "LIMIT %(limit)s"
+            clause += " LIMIT %(limit)s"
             params.update({"limit": self._filter.limit})
 
         if self._filter.offset:
-            clause += "OFFSET %(offset)s"
+            clause += " OFFSET %(offset)s"
             params.update({"offset": self._filter.offset})
 
         return clause, params
