@@ -86,8 +86,6 @@ export function TaxonomicPropertyFilter({
         />
     )
 
-    console.log('filter', filter)
-
     return (
         <div
             className={clsx(
@@ -138,11 +136,8 @@ export function TaxonomicPropertyFilter({
                     >
                         <Button
                             data-attr={'property-select-toggle-' + index}
-                            style={!filter?.key ? { background: 'none', border: 'none' } : {}}
-                            className={clsx(
-                                `taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`,
-                                orFiltering && 'or-filtering'
-                            )}
+                            style={!filter?.key && propertyGroupType ? { background: 'none', border: 'none' } : {}}
+                            className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                         >
                             {filter?.type === 'cohort' ? (
@@ -151,7 +146,7 @@ export function TaxonomicPropertyFilter({
                                 <PropertyKeyInfo value={filter.key} disablePopover />
                             ) : (
                                 <>
-                                    {orFiltering ? (
+                                    {orFiltering && propertyGroupType ? (
                                         <div className="primary flex-center">
                                             <IconPlus className="mr-05" />
                                             Add filter
@@ -161,7 +156,7 @@ export function TaxonomicPropertyFilter({
                                     )}
                                 </>
                             )}
-                            {filter?.key && <SelectDownIcon />}
+                            {!propertyGroupType && <SelectDownIcon />}
                         </Button>
                     </Popup>
 

@@ -5,7 +5,6 @@ import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 export type LocalFilter = ActionFilter & {
     order: number
@@ -24,7 +23,7 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         filter.properties
             ? {
                 ...filter,
-                properties: convertPropertyGroupToProperties(filter.properties.filter(isValidPropertyFilter)),
+                properties: convertPropertyGroupToProperties(filter.properties),
             }
             : filter
     )

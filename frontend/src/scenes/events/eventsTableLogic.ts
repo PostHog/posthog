@@ -5,7 +5,6 @@ import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -125,7 +124,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             [] as PropertyFilter[],
             {
                 setProperties: (_, { properties }) =>
-                    convertPropertyGroupToProperties(properties.filter(isValidPropertyFilter)),
+                    convertPropertyGroupToProperties(properties),
             },
         ],
         eventFilter: [

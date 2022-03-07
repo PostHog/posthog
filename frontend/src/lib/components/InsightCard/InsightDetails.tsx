@@ -148,10 +148,9 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
 
-    const properties =
-        filters.properties && isPropertyGroup(filters.properties)
-            ? convertPropertyGroupToProperties(filters.properties)
-            : filters.properties?.filter(isValidPropertyFilter)
+    const properties = isPropertyGroup(filters.properties)
+        ? convertPropertyGroupToProperties(filters.properties)
+        : filters.properties?.filter(isValidPropertyFilter)
 
     const { featureFlags } = useValues(featureFlagLogic)
 

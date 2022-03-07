@@ -4,10 +4,9 @@ import {
     EventDefinition,
     PropertyFilter,
     PropertyOperator,
-    FilterLogicalOperator,
 } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { flattenPropertyGroup } from 'lib/utils'
+import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
 export function parseProperties(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
@@ -18,9 +17,9 @@ export function parseProperties(
     if (
         input &&
         !Array.isArray(input) &&
-        (input.type === FilterLogicalOperator.And || input.type === FilterLogicalOperator.Or)
+        isPropertyGroup(input)
     ) {
-        return flattenPropertyGroup(input as PropertyGroupFilter)
+        return flattenPropertyGroup([], input as PropertyGroupFilter)
     }
     // Old style dict properties
     return Object.entries(input).map(([inputKey, value]) => {

@@ -98,7 +98,7 @@ function flattenProperties(properties: AnyPropertyFilter[]): string[] {
 
 function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
     if (isPropertyGroup(properties)) {
-        const flattenedProperties = flattenPropertyGroup(properties)
+        const flattenedProperties = flattenPropertyGroup([], properties)
         return flattenedProperties.some((prop) => prop.group_type_index != undefined)
     }
     return !!properties && properties.some((property) => property.group_type_index != undefined)

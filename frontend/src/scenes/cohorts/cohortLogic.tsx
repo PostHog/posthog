@@ -9,7 +9,6 @@ import { cohortLogicType } from './cohortLogicType'
 import { CohortGroupType, CohortType, MatchType } from '~/types'
 import { convertPropertyGroupToProperties, errorToast } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -38,7 +37,7 @@ function processCohortOnSet(cohort: CohortType): CohortType {
             if (group.properties) {
                 return {
                     ...group,
-                    properties: convertPropertyGroupToProperties(group.properties.filter(isValidPropertyFilter)),
+                    properties: convertPropertyGroupToProperties(group.properties),
                 }
             }
             return group

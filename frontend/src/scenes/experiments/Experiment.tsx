@@ -389,18 +389,16 @@ export function Experiment_(): JSX.Element {
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
-                                                                ? funnelsFilters.properties &&
-                                                                  isPropertyGroup(funnelsFilters.properties)
+                                                                ? isPropertyGroup(funnelsFilters.properties)
                                                                     ? convertPropertyGroupToProperties(
-                                                                          funnelsFilters.properties
-                                                                      )
+                                                                        funnelsFilters.properties
+                                                                    )
                                                                     : funnelsFilters.properties
-                                                                : trendsFilters.properties &&
-                                                                  isPropertyGroup(trendsFilters.properties)
-                                                                ? convertPropertyGroupToProperties(
-                                                                      trendsFilters.properties
-                                                                  )
-                                                                : trendsFilters.properties
+                                                                : isPropertyGroup(trendsFilters.properties)
+                                                                    ? convertPropertyGroupToProperties(
+                                                                        trendsFilters.properties
+                                                                    )
+                                                                    : trendsFilters.properties
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({

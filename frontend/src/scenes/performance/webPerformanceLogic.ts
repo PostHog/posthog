@@ -329,7 +329,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
         pageViewEvents: {
             loadEvents: async () => {
                 const flattenedPropertyGroup =
-                    eventApiProps.properties && isPropertyGroup(eventApiProps.properties)
+                    isPropertyGroup(eventApiProps.properties)
                         ? convertPropertyGroupToProperties(eventApiProps.properties)
                         : eventApiProps.properties
                 const combinedProperties = [...(flattenedPropertyGroup || []), ...values.properties]

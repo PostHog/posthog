@@ -18,7 +18,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import clone from 'clone'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -93,7 +92,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                             return {
                                 ...group,
                                 properties: convertPropertyGroupToProperties(
-                                    group.properties.filter(isValidPropertyFilter)
+                                    group.properties
                                 ),
                             }
                         }

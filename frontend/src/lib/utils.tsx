@@ -1330,10 +1330,10 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
     if (properties) {
-        return (properties as PropertyGroupFilter).type !== undefined
+        return (properties as PropertyGroupFilter).type !== undefined && (properties as PropertyGroupFilter).values !== undefined
     }
     return false
 }
@@ -1352,17 +1352,23 @@ export function convertPropertiesToPropertyGroup(
 
 export function convertPropertyGroupToProperties(properties: PropertyGroupFilter | PropertyFilter[]): PropertyFilter[] {
     if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup(properties)
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
-    return properties
+    return properties.filter(isValidPropertyFilter)
 }
 
-export function flattenPropertyGroup(properties: PropertyGroupFilter): PropertyFilter[] {
-    const flattenedProps: PropertyFilter[] = []
-    for (let i = 0; i < properties.values.length; i++) {
-        properties.values[i].values.forEach((val) => isValidPropertyFilter(val) && flattenedProps.push(val))
+export function flattenPropertyGroup(flattenedProperties: AnyPropertyFilter[], propertyGroup: PropertyGroupFilter | AnyPropertyFilter): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {};
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k];
+    });
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
     }
-    return flattenedProps
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties);
+    }
+    return flattenedProperties;
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
