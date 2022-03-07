@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS
 
@@ -27,14 +27,14 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-EVENTS_TABLE_MATERIALIZED_COLUMNS = """
-    , $group_0 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
+EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
+    , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
@@ -153,7 +153,7 @@ FROM events WHERE team_id = %(team_id)s
 
 SELECT_PROP_VALUES_SQL = """
 SELECT
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+    DISTINCT {property_field}
 FROM
     events
 WHERE
@@ -166,12 +166,12 @@ LIMIT 10
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))
+    DISTINCT {property_field}
 FROM
     events
 WHERE
     team_id = %(team_id)s AND
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+    {property_field} ILIKE %(value)s
     {parsed_date_from}
     {parsed_date_to}
 LIMIT 10

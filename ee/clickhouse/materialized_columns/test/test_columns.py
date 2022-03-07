@@ -165,8 +165,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
     def test_column_types(self):
         materialize("events", "myprop")
 
-        # :KLUDGE: ClickHouse replaces our trim(BOTH '"' FROM properties) with this
-        expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), concat('^[', regexpQuoteMeta('\"'), ']*|[', regexpQuoteMeta('\"'), ']*$'), '')"
+        expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
         backfill_materialized_columns("events", ["myprop"], timedelta(days=50))

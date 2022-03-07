@@ -46,8 +46,7 @@
                                       AND person._timestamp = person_max._timestamp
                                       WHERE team_id = 2
                                         AND person_max.is_deleted = 0
-                                        AND (trim(BOTH '"'
-                                                  FROM JSONExtractRaw(properties, 'email')) ILIKE '%.com%') ))), 1, 0) as step_0,
+                                        AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%') ))), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -260,12 +259,10 @@
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
-                                 AND (has(['aloha.com'], trim(BOTH '"'
-                                                              FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_1,
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = '$pageview'
-                                 AND (has(['aloha2.com'], trim(BOTH '"'
-                                                               FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_2,
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM
                          (SELECT e.event as event,
@@ -288,14 +285,10 @@
                              WHERE team_id = 2
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((trim(BOTH '"'
-                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.com%'
-                                   AND has(['20'], trim(BOTH '"'
-                                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age'))))
-                                  OR (trim(BOTH '"'
-                                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.org%'
-                                      OR has(['28'], trim(BOTH '"'
-                                                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age')))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= '2020-01-01 00:00:00'
@@ -373,12 +366,10 @@
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
-                                 AND (has(['aloha.com'], trim(BOTH '"'
-                                                              FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_1,
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = '$pageview'
-                                 AND (has(['aloha2.com'], trim(BOTH '"'
-                                                               FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_2,
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM
                          (SELECT e.event as event,
@@ -401,14 +392,10 @@
                              WHERE team_id = 2
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((trim(BOTH '"'
-                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.com%'
-                                   AND has(['20'], trim(BOTH '"'
-                                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age'))))
-                                  OR (trim(BOTH '"'
-                                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.org%'
-                                      OR has(['28'], trim(BOTH '"'
-                                                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age')))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= '2020-01-01 00:00:00'
@@ -490,12 +477,10 @@
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
-                                 AND (has(['aloha.com'], trim(BOTH '"'
-                                                              FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_1,
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = '$pageview'
-                                 AND (has(['aloha2.com'], trim(BOTH '"'
-                                                               FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_2,
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM
                          (SELECT e.event as event,
@@ -518,14 +503,10 @@
                              WHERE team_id = 2
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((trim(BOTH '"'
-                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.com%'
-                                   AND has(['20'], trim(BOTH '"'
-                                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age'))))
-                                  OR (trim(BOTH '"'
-                                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.org%'
-                                      OR has(['28'], trim(BOTH '"'
-                                                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age')))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= '2020-01-01 00:00:00'
@@ -607,12 +588,10 @@
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
-                                 AND (has(['aloha.com'], trim(BOTH '"'
-                                                              FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_1,
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = '$pageview'
-                                 AND (has(['aloha2.com'], trim(BOTH '"'
-                                                               FROM JSONExtractRaw(properties, '$current_url')))), 1, 0) as step_2,
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM
                          (SELECT e.event as event,
@@ -635,14 +614,10 @@
                              WHERE team_id = 2
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((trim(BOTH '"'
-                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.com%'
-                                   AND has(['20'], trim(BOTH '"'
-                                                        FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age'))))
-                                  OR (trim(BOTH '"'
-                                           FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%.org%'
-                                      OR has(['28'], trim(BOTH '"'
-                                                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'age')))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= '2020-01-01 00:00:00'
@@ -740,8 +715,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -846,8 +820,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -892,8 +865,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -997,8 +969,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1041,8 +1012,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1139,8 +1109,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1187,8 +1156,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1285,8 +1253,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1333,8 +1300,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1431,8 +1397,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -1479,8 +1444,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -1577,8 +1541,7 @@
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'buy', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2,
-                              trim(BOTH '"'
-                                   FROM JSONExtractRaw(group_properties_0, 'industry')) AS prop
+                              replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
