@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -384,12 +384,14 @@ SELECT
     count(value)
 FROM (
     SELECT
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+        {property_field} as value
     FROM
         person
     WHERE
         team_id = %(team_id)s AND
-        JSONHas(properties, %(key)s)
+        is_deleted = 0 AND
+        {property_field} IS NOT NULL AND
+        {property_field} != ''
     ORDER BY id DESC
     LIMIT 100000
 )
@@ -404,12 +406,13 @@ SELECT
     count(value)
 FROM (
     SELECT
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+        {property_field} as value
     FROM
         person
     WHERE
         team_id = %(team_id)s AND
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+        is_deleted = 0 AND
+        {property_field} ILIKE %(value)s
     ORDER BY id DESC
     LIMIT 100000
 )

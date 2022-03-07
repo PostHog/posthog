@@ -7,12 +7,12 @@ import { RenderMetricValue } from './RenderMetricValue'
 import { MetricRow, systemStatusLogic } from './systemStatusLogic'
 
 interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
-    oldValue: any
+    oldValue?: boolean | string | number | null
     metricKey: string
 }
 
 function ChangeRow({ metricKey, oldValue, value }: ChangeRowInterface): JSX.Element | null {
-    if (value.toString() === oldValue.toString()) {
+    if (value?.toString() === oldValue?.toString()) {
         return null
     }
 
@@ -26,7 +26,7 @@ function ChangeRow({ metricKey, oldValue, value }: ChangeRowInterface): JSX.Elem
             <div style={{ color: 'var(--text-muted)' }}>
                 Value will be changed from{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value: oldValue })}
+                    {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset' })}
                 </span>{' '}
                 to{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>

@@ -28,5 +28,11 @@
         &.selected {
             background-color: $primary_hover;
         }
+
+        .property-key-info {
+            flex-grow: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
     }
 }

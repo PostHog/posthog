@@ -11,7 +11,7 @@ import {
     PropertyKeyTitle,
 } from 'lib/components/PropertyKeyInfo'
 import { BindLogic, Provider, useActions, useValues } from 'kea'
-import { infiniteListLogic } from './infiniteListLogic'
+import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
@@ -130,15 +130,16 @@ const renderItemContents = ({
             <div className={clsx(isStale && 'text-muted')}>
                 <PropertyKeyInfo
                     value={item.name ?? ''}
-                    customName={'custom_name' in item ? item.custom_name : undefined}
                     disablePopover
+                    customName={'custom_name' in item ? item.custom_name : undefined}
+                    style={{ maxWidth: '100%' }}
                 />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
-        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
+        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
     ) : (
         item.name ?? ''
     )
@@ -163,7 +164,7 @@ const renderItemPopupWithoutTaxonomy = (
                     </Link>
                     <br />
                     <h3>
-                        <PropertyKeyInfo value={item.name ?? ''} />
+                        <PropertyKeyInfo value={item.name ?? ''} style={{ maxWidth: '100%' }} />
                     </h3>
                     {item && <ActionSelectInfo entity={item as ActionType} />}
                 </div>
@@ -272,6 +273,7 @@ export function InfiniteList(): JSX.Element {
         totalResultCount,
         totalListCount,
         expandedCount,
+        showPopover,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
@@ -308,8 +310,14 @@ export function InfiniteList(): JSX.Element {
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
-            className: `taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`,
-            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : null),
+            className: clsx(
+                'taxonomic-list-row',
+                rowIndex === index && mouseInteractionsEnabled && 'hover',
+                isSelected && 'selected'
+            ),
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
+            // if the popover is not enabled then don't leave the row selected when the mouse leaves it
+            onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
         }
@@ -354,7 +362,10 @@ export function InfiniteList(): JSX.Element {
     }
 
     return (
-        <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`}>
+        <div
+            className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}
+            style={{ flexGrow: 1 }}
+        >
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty
@@ -390,7 +401,8 @@ export function InfiniteList(): JSX.Element {
             {isActiveTab &&
             selectedItemInView &&
             selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
-            tooltipDesiredState(referenceElement) !== ListTooltip.None ? (
+            tooltipDesiredState(referenceElement) !== ListTooltip.None &&
+            showPopover ? (
                 <Provider>
                     {ReactDOM.createPortal(
                         selectedItem && group ? (

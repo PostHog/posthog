@@ -14,7 +14,6 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -80,7 +79,7 @@ export function EventsTable({
         months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
-    const { propertyNames } = useValues(propertyDefinitionsModel)
+
     const {
         fetchNextEvents,
         prependNewEvents,
@@ -372,7 +371,6 @@ export function EventsTable({
                             />
                             {!hideTableConfig && (
                                 <TableConfig
-                                    availableColumns={propertyNames}
                                     immutableColumns={['event', 'person']}
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
