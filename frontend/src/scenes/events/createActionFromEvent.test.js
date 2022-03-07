@@ -1,10 +1,8 @@
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { toast } from 'react-toastify'
 import { createActionFromEvent } from './createActionFromEvent'
 
 jest.mock('lib/api')
-jest.mock('react-toastify')
 jest.mock('kea-router', () => ({
     router: { actions: { push: jest.fn() } },
 }))
@@ -54,7 +52,6 @@ describe('createActionFromEvent()', () => {
             await given.subject()
 
             expect(router.actions.push).toHaveBeenCalledWith('/action/456')
-            expect(toast.mock.calls).toMatchSnapshot()
         })
 
         describe('increments', () => {
