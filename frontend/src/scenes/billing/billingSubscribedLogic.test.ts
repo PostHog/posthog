@@ -1,24 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
-import { mockAPI } from 'lib/api.mock'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { billingSubscribedLogic } from './billingSubscribedLogic'
 import { billingLogic } from './billingLogic'
 
-jest.mock('lib/api')
-
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof billingSubscribedLogic.build>
 
-    mockAPI()
-
     describe('if subscription was successful', () => {
-        initKeaTestLogic({
-            logic: billingSubscribedLogic,
-            onLogic: (l) => {
-                logic = l
-            },
+        beforeEach(() => {
+            initKeaTests()
+            logic = billingSubscribedLogic()
+            logic.mount()
         })
 
         it('mounts other logics', async () => {
