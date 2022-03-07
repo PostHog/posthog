@@ -205,8 +205,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         },
         updateInstanceConfigValue: ({ key, value }) => {
             const previousValue = values.editableInstanceSettings.find((item) => item.key === key)?.value
-            const parsedPreviousValue = previousValue ? previousValue.toString() : ''
-            if (value && parsedPreviousValue === value.toString()) {
+            if (value && previousValue == value) {
                 actions.updateInstanceConfigValue(key, undefined)
             }
         },
