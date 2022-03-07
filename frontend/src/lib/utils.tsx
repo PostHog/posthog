@@ -1355,7 +1355,9 @@ export function convertPropertiesToPropertyGroup(
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
-export function convertPropertyGroupToProperties(properties: PropertyGroupFilter | PropertyFilter[]): PropertyFilter[] {
+export function convertPropertyGroupToProperties(
+    properties: PropertyGroupFilter | AnyPropertyFilter[]
+): PropertyFilter[] {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
