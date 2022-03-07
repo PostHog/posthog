@@ -120,6 +120,41 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
 
+    def test_filter_by_cohort_prop(self):
+        for i in range(5):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person",}]))
+        )
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
+    def test_filter_by_cohort_search(self):
+        for i in range(5):
+            _create_person(
+                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons?search=target")
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
     def test_filter_by_static_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
         Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])

@@ -19,6 +19,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -184,10 +185,9 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        raw_result = sync_execute(
-            GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID,
-            {"team_id": team.pk, "cohort_id": cohort.pk, "limit": filter.limit, "offset": filter.offset},
-        )
+        query, params = ClickhousePersonQuery(filter, team.pk, cohort=cohort).get_query()
+
+        raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
 

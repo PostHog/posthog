@@ -94,8 +94,6 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 HAVING sum(sign) > 0
 ORDER BY person_id
-LIMIT %(limit)s
-OFFSET %(offset)s
 """
 
 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID = f"""
@@ -103,7 +101,4 @@ SELECT person_id
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
-ORDER BY person_id
-LIMIT %(limit)s
-OFFSET %(offset)s
 """
