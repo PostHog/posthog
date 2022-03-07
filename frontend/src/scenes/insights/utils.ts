@@ -231,9 +231,12 @@ export function summarizeInsightFilters(
                         summary += ' time'
                     } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
                         summary += ' trend'
+                    } else {
+                        // Steps are the default viz type
+                        summary += ' rate'
                     }
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+                        summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
                     }
                     break
                 case InsightType.STICKINESS:
@@ -255,14 +258,16 @@ export function summarizeInsightFilters(
                         .map((localFilter, localFilterIndex) => {
                             const mathDefinition =
                                 mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
-                            const mathSummary =
+                            const propertyMath: string =
                                 mathDefinition.onProperty && localFilter.math_property
-                                    ? `${mathDefinition.shortName} on property ${
+                                    ? `'s ${
                                           keyMapping.event[localFilter.math_property]?.label ||
                                           localFilter.math_property
                                       }`
-                                    : mathDefinition.shortName
-                            let series = `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
+                                    : ''
+                            let series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
+                                mathDefinition.shortName
+                            }`
                             if (filters.formula) {
                                 series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
                             }
@@ -270,7 +275,11 @@ export function summarizeInsightFilters(
                         })
                         .join(' & ')
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+                        summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
+                            filters,
+                            aggregationLabel,
+                            cohortsById
+                        )}`
                     }
                     if (filters.formula) {
                         summary = `${filters.formula} on ${summary}`
