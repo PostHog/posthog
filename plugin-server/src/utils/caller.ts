@@ -52,7 +52,23 @@ export function callerCallsite(depth = 0, filesToIgnore = DEFAULT_FILES_TO_IGNOR
     }
 }
 
-export function callerPath(): string {
+interface GetCallerResponse {
+    fileName: string
+    functionName: string
+    methodName: string
+    typeName: string
+}
+
+export function getCaller(): GetCallerResponse | null {
     const callsite = callerCallsite()
-    return callsite ? callsite.getFileName() : 'unknown location'
+    if (!callsite) {
+        return null
+    }
+    const response = {
+        fileName: callsite?.getFileName(),
+        functionName: callsite?.getFunctionName(),
+        methodName: callsite?.getMethodName(),
+        typeName: callsite?.getTypeName(),
+    }
+    return response
 }

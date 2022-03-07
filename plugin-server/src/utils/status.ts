@@ -1,6 +1,6 @@
 import { threadId } from 'worker_threads'
 
-import { callerPath } from './caller'
+import { getCaller } from './caller'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -26,8 +26,19 @@ export class Status implements StatusBlueprint {
             const tags = `thread=${threadIdentifier}` // currently tags is static but this could change in the future
             const isoTimestamp = new Date().toISOString()
             const logMessage = [...message].filter(Boolean).join(' ')
-            const caller = callerPath().split('posthog/')[1]
-            const log = `${isoTimestamp} [${type}] ${icon} ${logMessage} [${caller}] ${tags} `
+            const caller = getCaller()
+            let callerPath = 'unknown location'
+            if (caller) {
+                const parsedFileName = caller.fileName.split('posthog/')[1].replaceAll(/\.[jt]sx?$/g, '')
+                if (caller.methodName) {
+                    callerPath = `${parsedFileName}.${caller.typeName}.${caller.methodName}`
+                } else if (caller.functionName) {
+                    callerPath = `${parsedFileName}.${caller.functionName}`
+                } else {
+                    callerPath = parsedFileName
+                }
+            }
+            const log = `${isoTimestamp} [${type}] ${icon} ${logMessage} [${callerPath}] ${tags} `
             console[type](log)
         }
     }
