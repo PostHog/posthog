@@ -103,7 +103,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
                 try:
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
-                    continue
+                    return []
 
         if len(filter.entities) == 1 or filter.compare:
             result = []
