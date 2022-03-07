@@ -37,25 +37,17 @@ export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
                 )
             },
         },
-        {
-            key: 'actions',
-            render: function Render() {
-                return <></>
-            },
-        },
     ]
 
     return (
-        <>
-            <LemonTable
-                dataSource={history}
-                showHeader={false}
-                loading={historyLoading}
-                columns={columns}
-                className="ph-no-capture"
-                rowClassName={'history-list-item'}
-                rowBorders={false}
-            />
-        </>
+        <LemonTable
+            dataSource={history}
+            showHeader={false}
+            loading={historyLoading}
+            columns={columns}
+            className="ph-no-capture"
+            rowClassName={'history-list-item'}
+            rowBorders={false}
+        />
     )
 }
