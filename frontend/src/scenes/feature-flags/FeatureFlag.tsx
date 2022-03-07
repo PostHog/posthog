@@ -120,7 +120,7 @@ export function FeatureFlag(): JSX.Element {
 
     return (
         <div className="feature-flag">
-            <FeatureFlagPageHeader activeTab={FeatureFlagTab.General} id={featureFlag?.id || null} />
+            <FeatureFlagPageHeader activeTab={FeatureFlagTab.Configuration} id={featureFlag?.id || null} />
             {featureFlag ? (
                 <Form
                     layout="vertical"

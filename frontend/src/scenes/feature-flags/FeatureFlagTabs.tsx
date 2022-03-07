@@ -5,12 +5,12 @@ import { urls } from 'scenes/urls'
 
 import { featureFlagTabsLogicType } from './FeatureFlagTabsType'
 export enum FeatureFlagTab {
-    Configiration = 'configuration',
+    Configuration = 'configuration',
     History = 'history',
 }
 
 const tabUrls: Record<FeatureFlagTab, (id: number) => string> = {
-    [FeatureFlagTab.Configiration]: (id) => urls.featureFlag(id),
+    [FeatureFlagTab.Configuration]: (id) => urls.featureFlag(id),
     [FeatureFlagTab.History]: (id) => urls.featureFlagHistory(id),
 }
 
@@ -21,7 +21,7 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
     },
     reducers: {
         tab: [
-            FeatureFlagTab.Configiration as FeatureFlagTab,
+            FeatureFlagTab.Configuration as FeatureFlagTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -32,8 +32,8 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/feature_flags/:id': ({ id }) => {
-            if (id && FeatureFlagTab.Configiration !== values.tab) {
-                actions.setTab(FeatureFlagTab.Configiration, id)
+            if (id && FeatureFlagTab.Configuration !== values.tab) {
+                actions.setTab(FeatureFlagTab.Configuration, id)
             }
         },
         '/feature_flags/:id/history': ({ id }) => {
