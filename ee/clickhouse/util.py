@@ -69,9 +69,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(PERSONS_TABLE_SQL())
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
     def tearDown(self):
         super().tearDown()
@@ -82,9 +82,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(PERSONS_TABLE_SQL())
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
 
 def snapshot_clickhouse_queries(fn):
