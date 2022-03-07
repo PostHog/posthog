@@ -1,5 +1,5 @@
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import { api, defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { api } from 'lib/api.mock'
 import {
     mockActionDefinition,
     mockCohort,
@@ -18,42 +18,38 @@ import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/ty
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 describe('definitionPopupLogic', () => {
     let logic: ReturnType<typeof definitionPopupLogic.build>
 
-    mockAPI(async (routeInfo) => {
-        const { pathname } = routeInfo
-        if (pathname.startsWith(`api/projects/@current/event_definitions/`)) {
-            return {
-                results: mockEventDefinitions,
-                count: mockEventDefinitions.length,
-            }
-        }
-        if (pathname.startsWith(`api/projects/@current/property_definitions/`)) {
-            return {
-                results: [mockEventPropertyDefinition],
-                count: 1,
-            }
-        }
-        if (pathname.startsWith(`api/projects/@current/actions/`)) {
-            return {
-                results: [mockActionDefinition],
-                count: 1,
-            }
-        }
-        if (pathname.startsWith(`api/projects/@current/cohorts/`)) {
-            return {
-                results: [mockCohort],
-                count: 1,
-            }
-        }
-        defaultAPIMocks(routeInfo)
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/@current/event_definitions/': {
+                    results: mockEventDefinitions,
+                    count: mockEventDefinitions.length,
+                },
+                '/api/projects/@current/property_definitions/': {
+                    results: [mockEventPropertyDefinition],
+                    count: 1,
+                },
+                '/api/projects/@current/actions/': {
+                    results: [mockActionDefinition],
+                    count: 1,
+                },
+                '/api/projects/@current/cohorts/': {
+                    results: [mockCohort],
+                    count: 1,
+                },
+            },
+            patch: {
+                '/api/projects/@current/:object/:id/': {},
+            },
+        })
+
+        jest.spyOn(api, 'update')
+
         initKeaTests()
         actionsModel.mount()
         eventDefinitionsModel.mount()
