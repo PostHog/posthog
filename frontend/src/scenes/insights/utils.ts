@@ -31,7 +31,7 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && keyMapping.event[name]) {
+    if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
 
@@ -256,17 +256,21 @@ export function summarizeInsightFilters(
                     // Trends are the default type
                     summary = localFilters
                         .map((localFilter, localFilterIndex) => {
-                            const mathDefinition =
-                                mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
+                            const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
+                            const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
                             const propertyMath: string =
-                                mathDefinition.onProperty && localFilter.math_property
+                                mathDefinition?.onProperty && localFilter.math_property
                                     ? `'s ${
                                           keyMapping.event[localFilter.math_property]?.label ||
                                           localFilter.math_property
                                       }`
                                     : ''
                             let series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
-                                mathDefinition.shortName
+                                mathDefinition
+                                    ? mathDefinition.shortName
+                                    : localFilter.math === 'unique_group'
+                                    ? 'unique groups'
+                                    : mathType
                             }`
                             if (filters.formula) {
                                 series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`

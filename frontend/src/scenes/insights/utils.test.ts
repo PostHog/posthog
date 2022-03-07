@@ -123,7 +123,7 @@ describe('summarizeInsightFilters()', () => {
     const mathDefinitions: Record<string, MathDefinition> = {
         ...BASE_MATH_DEFINITIONS,
         'unique_group::0': {
-            shortName: 'organizations',
+            shortName: 'unique organizations',
         } as unknown as MathDefinition,
         ...PROPERTY_MATH_DEFINITIONS,
     }
@@ -160,6 +160,13 @@ describe('summarizeInsightFilters()', () => {
                             math_group_type_index: 0,
                             order: 4,
                         },
+                        {
+                            id: '$autocapture',
+                            name: '$autocapture',
+                            math: 'unique_group',
+                            math_group_type_index: 11, // Non-existent group
+                            order: 5,
+                        },
                     ],
                     actions: [
                         {
@@ -175,8 +182,21 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual(
-            "Pageview unique users & Rageclick MAUs & Random action count & purchase's price sum & Pageview organizations"
+            "Pageview unique users & Rageclick MAUs & Random action count & purchase's price sum & Pageview unique organizations & Autocapture unique groups"
         )
+    })
+
+    it('summarizes a Trends insight with no series', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual('')
     })
 
     it('summarizes a Trends insight with event property breakdown', () => {
