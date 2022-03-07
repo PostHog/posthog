@@ -1,0 +1,19 @@
+@import '~/vars.scss';
+
+.ErrorBoundary {
+    margin-top: 1.5rem;
+    background: rgba($danger, 0.1);
+    border-radius: var(--radius);
+    padding: 1rem;
+    h2 {
+        margin-bottom: 0.5rem;
+        color: var(--danger);
+        font-weight: 600;
+    }
+    pre {
+        margin-bottom: 0.5rem;
+    }
+    .help-button {
+        margin-top: 0.75rem;
+    }
+}

@@ -13,7 +13,9 @@ import clsx from 'clsx'
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
 export const helpButtonLogic = kea<helpButtonLogicType>({
-    path: ['lib', 'components', 'HelpButton', 'HelpButton'],
+    props: {} as { key?: string },
+    key: (props: { key?: string }) => props.key || 'global',
+    path: (key) => ['lib', 'components', 'HelpButton', key],
     connect: {
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
     },
@@ -47,13 +49,15 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
 export interface HelpButtonProps {
     placement?: Placement
     customComponent?: JSX.Element
-    inline?: boolean // Whether the component should be an inline element as opposed to a block element
+    customKey?: string
+    /** Whether the component should be an inline element as opposed to a block element. */
+    inline?: boolean
 }
 
-export function HelpButton({ placement, customComponent, inline }: HelpButtonProps): JSX.Element {
+export function HelpButton({ placement, customComponent, customKey, inline }: HelpButtonProps): JSX.Element {
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
-    const { isHelpVisible } = useValues(helpButtonLogic)
-    const { toggleHelp, hideHelp } = useActions(helpButtonLogic)
+    const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
+    const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
 
     return (
         <Popup
