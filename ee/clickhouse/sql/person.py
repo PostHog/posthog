@@ -15,7 +15,7 @@ TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = (
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     created_at DateTime64,
@@ -48,7 +48,7 @@ KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 id,
@@ -92,7 +92,7 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -119,7 +119,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda: """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} ON CLUSTER '{cluster}'
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -136,7 +136,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 distinct_id,
@@ -157,7 +157,7 @@ FROM {database}.kafka_{table_name}
 PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
 
 PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     team_id Int64,
     distinct_id VARCHAR,
@@ -192,7 +192,7 @@ KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSON_DISTINCT_ID2_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 team_id,
@@ -214,7 +214,7 @@ FROM {database}.kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     person_id UUID,

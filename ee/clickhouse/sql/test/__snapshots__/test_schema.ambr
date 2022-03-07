@@ -1,7 +1,7 @@
 # name: test_create_kafka_events_with_disabled_protobuf
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -20,7 +20,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -47,7 +47,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -73,7 +73,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -88,7 +88,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
@@ -104,7 +104,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -119,7 +119,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER posthog
+  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -133,7 +133,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -152,7 +152,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -189,7 +189,7 @@
 # name: test_create_table_query[events0]
   '
   
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -223,7 +223,7 @@
 # name: test_create_table_query[events1]
   '
   
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -253,7 +253,7 @@
 # name: test_create_table_query[events_dead_letter_queue]
   '
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -285,7 +285,7 @@
 # name: test_create_table_query[events_dead_letter_queue_mv]
   '
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
   TO posthog_test.events_dead_letter_queue
   AS SELECT
   id,
@@ -313,7 +313,7 @@
 # name: test_create_table_query[events_mv]
   '
   
-  CREATE MATERIALIZED VIEW events_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW events_mv ON CLUSTER 'posthog'
   TO posthog_test.events
   AS SELECT
   uuid,
@@ -333,7 +333,7 @@
 # name: test_create_table_query[groups]
   '
   
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -370,7 +370,7 @@
 # name: test_create_table_query[kafka_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -397,7 +397,7 @@
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -423,7 +423,7 @@
 # name: test_create_table_query[kafka_groups]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -438,7 +438,7 @@
 # name: test_create_table_query[kafka_person]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
@@ -454,7 +454,7 @@
 # name: test_create_table_query[kafka_person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -469,7 +469,7 @@
 # name: test_create_table_query[kafka_person_distinct_id]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER posthog
+  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -483,7 +483,7 @@
 # name: test_create_table_query[kafka_plugin_log_entries]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -502,7 +502,7 @@
 # name: test_create_table_query[kafka_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -524,7 +524,7 @@
 # name: test_create_table_query[person]
   '
   
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
@@ -545,7 +545,7 @@
 # name: test_create_table_query[person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -567,7 +567,7 @@
 # name: test_create_table_query[person_distinct_id2_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
   AS SELECT
   team_id,
@@ -585,7 +585,7 @@
 # name: test_create_table_query[person_distinct_id]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -605,7 +605,7 @@
 # name: test_create_table_query[person_distinct_id_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
   AS SELECT
   distinct_id,
@@ -621,7 +621,7 @@
 # name: test_create_table_query[person_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
   AS SELECT
   id,
@@ -639,7 +639,7 @@
 # name: test_create_table_query[person_static_cohort]
   '
   
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
@@ -658,7 +658,7 @@
 # name: test_create_table_query[plugin_log_entries]
   '
   
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -683,7 +683,7 @@
 # name: test_create_table_query[plugin_log_entries_mv]
   '
   
-  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
   AS SELECT
   id,
@@ -704,7 +704,7 @@
 # name: test_create_table_query[session_recording_events0]
   '
   
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -732,7 +732,7 @@
 # name: test_create_table_query[session_recording_events1]
   '
   
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -753,7 +753,7 @@
 # name: test_create_table_query[session_recording_events_mv]
   '
   
-  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.session_recording_events
   AS SELECT
   uuid,
@@ -773,7 +773,7 @@
 # name: test_create_table_query[writable_events]
   '
   
-  CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -792,7 +792,7 @@
 # name: test_create_table_query[writable_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -826,7 +826,7 @@
 # name: test_create_table_query_replicated_and_storage[events]
   '
   
-  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -860,7 +860,7 @@
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
   '
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -892,7 +892,7 @@
 # name: test_create_table_query_replicated_and_storage[groups]
   '
   
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -912,7 +912,7 @@
 # name: test_create_table_query_replicated_and_storage[person]
   '
   
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
@@ -933,7 +933,7 @@
 # name: test_create_table_query_replicated_and_storage[person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -955,7 +955,7 @@
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -975,7 +975,7 @@
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '
   
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
@@ -994,7 +994,7 @@
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '
   
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -1019,7 +1019,7 @@
 # name: test_create_table_query_replicated_and_storage[session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),

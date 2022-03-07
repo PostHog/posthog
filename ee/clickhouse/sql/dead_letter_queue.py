@@ -9,7 +9,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 DEAD_LETTER_QUEUE_TABLE = "events_dead_letter_queue"
 
 DEAD_LETTER_QUEUE_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     event_uuid UUID,
@@ -54,7 +54,7 @@ KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.for
 )
 
 DEAD_LETTER_QUEUE_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 id,
