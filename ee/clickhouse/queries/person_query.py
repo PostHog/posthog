@@ -152,10 +152,10 @@ class ClickhousePersonQuery:
 
     def _get_limit_offset(self) -> Tuple[str, Dict]:
 
-        if not self._cohort:
+        if not isinstance(self._filter, Filter):
             return "", {}
 
-        if not self._filter.limit or self._filter.offset:
+        if not self._cohort or not (self._filter.limit or self._filter.offset):
             return "", {}
 
         clause = """
@@ -175,6 +175,9 @@ class ClickhousePersonQuery:
         return clause, params
 
     def _get_search_clause(self) -> Tuple[str, Dict]:
+
+        if not isinstance(self._filter, Filter):
+            return "", {}
 
         if self._filter.search:
             prop_group = PropertyGroup(
