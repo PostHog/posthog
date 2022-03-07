@@ -1,4 +1,5 @@
 import equal from 'fast-deep-equal'
+import { VM } from 'vm2'
 
 import {
     Hub,
@@ -14,11 +15,14 @@ import {
 import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities, setPluginMetrics } from '../../utils/db/sql'
 import { status } from '../../utils/status'
+import { pluginDigest } from '../../utils/utils'
 import { createPluginConfigVM } from './vm'
 
-const MAX_SETUP_RETRIES = 10
-const INITIALIZATION_RETRY_MULTIPLIER = 2
-const INITIALIZATION_RETRY_BASE_MS = 3000
+export const VM_INIT_MAX_RETRIES = 5
+export const INITIALIZATION_RETRY_MULTIPLIER = 2
+export const INITIALIZATION_RETRY_BASE_MS = 5000
+
+export class SetupPluginError extends Error {}
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
@@ -94,7 +98,6 @@ export class LazyPluginVM {
         if (!this.ready && vmMethod) {
             await this.setupPluginIfNeeded()
         }
-
         return vmMethod
     }
 
@@ -108,15 +111,6 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         this.resolveInternalVm = new Promise((resolve) => {
             this.initialize = async (indexJs: string, logInfo = '') => {
-                const createLogEntry = async (message: string, logType = PluginLogEntryType.Info): Promise<void> => {
-                    await this.hub.db.queuePluginLogEntry({
-                        message,
-                        pluginConfig: this.pluginConfig,
-                        source: PluginLogEntrySource.System,
-                        type: logType,
-                        instanceId: this.hub.instanceId,
-                    })
-                }
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
@@ -126,49 +120,24 @@ export class LazyPluginVM {
                             Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
                     if (shouldSetupNow) {
-                        await vm.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+                        console.log('I DID GET HERE THO', vm)
+                        await this._setupPlugin(vm.vm)
                         this.ready = true
                     }
-                    await createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
+                    await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    void clearError(this.hub, this.pluginConfig)
                     await this.inferPluginCapabilities(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
-                    await createLogEntry(error.message, PluginLogEntryType.Error)
-                    void processError(this.hub, this.pluginConfig, error)
-                    if (this.totalInitAttemptsCounter < MAX_SETUP_RETRIES) {
-                        const nextRetryMs =
-                            INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
-                            INITIALIZATION_RETRY_BASE_MS
-                        const nextRetrySeconds = `${nextRetryMs / 1000} s`
-                        status.warn('⚠️', `Failed to load ${logInfo}. Retrying in ${nextRetrySeconds}.`)
-                        await createLogEntry(
-                            `Plugin failed to load (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
-                            PluginLogEntryType.Error
-                        )
-                        this.initRetryTimeout = setTimeout(() => {
-                            this.initVm()
-                            void this.initialize?.(indexJs, logInfo)
-                        }, nextRetryMs)
-                        resolve(null)
-                    } else {
-                        const failureContextMessage = `Disabling it due to too many retries – tried to load it ${
-                            this.totalInitAttemptsCounter
-                        } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
-                        status.warn('⚠️', `Failed to load ${logInfo}. ${failureContextMessage}`)
-                        await createLogEntry(
-                            `Plugin failed to load (instance ID ${this.hub.instanceId}). ${failureContextMessage}`,
-                            PluginLogEntryType.Error
-                        )
-                        void disablePlugin(this.hub, this.pluginConfig.id)
-                        resolve(null)
+                    if (!(error instanceof SetupPluginError)) {
+                        await this.processVmSetupError(error)
                     }
-                }
-                this.failInitialization = () => {
                     resolve(null)
                 }
+            }
+            this.failInitialization = () => {
+                resolve(null)
             }
         })
     }
@@ -177,8 +146,66 @@ export class LazyPluginVM {
         if (this.ready) {
             return
         }
-        await (await this.resolveInternalVm)?.vm.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
-        this.ready = true
+        const vm = (await this.resolveInternalVm)?.vm
+        try {
+            await this._setupPlugin(vm)
+        } catch (error) {
+            status.warn('⚠️', error.message)
+        }
+    }
+
+    public async _setupPlugin(vm?: VM): Promise<void> {
+        const logInfo = this.pluginConfig.plugin
+            ? pluginDigest(this.pluginConfig.plugin)
+            : `pluginConfig with ID '${this.pluginConfig.id}'`
+        try {
+            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            this.ready = true
+            await this.createLogEntry(`setupPlugin completed successfully (instance ID ${this.hub.instanceId}).`)
+            status.info('🔌', `setupPlugin completed successfully for ${logInfo}`)
+            void clearError(this.hub, this.pluginConfig)
+        } catch (error) {
+            if (this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
+                const nextRetryMs =
+                    INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
+                    INITIALIZATION_RETRY_BASE_MS
+                const nextRetrySeconds = `${nextRetryMs / 1000} s`
+                status.warn('⚠️', `setupPlugin failed for ${logInfo}. Retrying in ${nextRetrySeconds}.`)
+                await this.createLogEntry(
+                    `setupPlugin failed (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
+                    PluginLogEntryType.Error
+                )
+                this.initRetryTimeout = setTimeout(async () => {
+                    await this._setupPlugin(vm)
+                }, nextRetryMs)
+            } else {
+                const failureContextMessage = `Disabling it due to too many retries – tried to load it ${
+                    this.totalInitAttemptsCounter
+                } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
+                await this.processVmSetupError(error, failureContextMessage)
+                throw new SetupPluginError(`setupPlugin failed for ${logInfo}. ${failureContextMessage}`)
+            }
+        }
+    }
+
+    private async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {
+        await this.hub.db.queuePluginLogEntry({
+            message,
+            pluginConfig: this.pluginConfig,
+            source: PluginLogEntrySource.System,
+            type: logType,
+            instanceId: this.hub.instanceId,
+        })
+    }
+
+    private async processVmSetupError(error: Error, additionalContext?: string): Promise<void> {
+        void processError(this.hub, this.pluginConfig, error)
+        additionalContext = additionalContext ?? `Error: ${error.message}`
+        await this.createLogEntry(
+            `Plugin failed to load (instance ID ${this.hub.instanceId}). ${additionalContext}`,
+            PluginLogEntryType.Error
+        )
+        void disablePlugin(this.hub, this.pluginConfig.id)
     }
 
     private async inferPluginCapabilities(vm: PluginConfigVMResponse): Promise<void> {
