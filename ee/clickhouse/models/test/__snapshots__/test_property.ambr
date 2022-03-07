@@ -3,12 +3,9 @@
   SELECT uuid
   FROM events
   WHERE team_id = 2
-    AND ((has(['val_1'], trim(BOTH '"'
-                              FROM JSONExtractRaw(properties, 'attr_1')))
-          AND has(['val_2'], trim(BOTH '"'
-                                  FROM JSONExtractRaw(properties, 'attr_2'))))
-         OR (has(['val_2'], trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'attr_1')))))
+    AND ((has(['val_1'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_1'), '^"|"$', ''))
+          AND has(['val_2'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_2'), '^"|"$', '')))
+         OR (has(['val_2'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_1'), '^"|"$', ''))))
   '
 ---
 # name: TestPropFormat.test_parse_groups_persons
@@ -35,8 +32,7 @@
                      WHERE team_id = 2
                      GROUP BY id
                      HAVING is_deleted = 0)
-                  WHERE has(['1@posthog.com'], trim(BOTH '"'
-                                                    FROM JSONExtractRaw(properties, 'email'))) ) ))
+                  WHERE has(['1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
          OR (distinct_id IN
                (SELECT distinct_id
                 FROM
@@ -56,8 +52,7 @@
                         WHERE team_id = 2
                         GROUP BY id
                         HAVING is_deleted = 0)
-                     WHERE has(['2@posthog.com'], trim(BOTH '"'
-                                                       FROM JSONExtractRaw(properties, 'email'))) ) )))
+                     WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))
   '
 ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
@@ -74,7 +69,7 @@
 # name: test_parse_prop_clauses_defaults
   <class 'tuple'> (
     '
-      AND (   has(%(vglobal_0)s, trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND distinct_id IN (
+      AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), '^"|"$', ''))  AND distinct_id IN (
       SELECT distinct_id
       FROM (
           
@@ -95,7 +90,7 @@
               GROUP BY id
               HAVING is_deleted = 0
           )
-          WHERE   trim(BOTH '"' FROM JSONExtractRaw(properties, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s
+          WHERE   replaceRegexpAll(JSONExtractRaw(properties, %(kglobalperson_1)s), '^"|"$', '') ILIKE %(vglobalperson_1)s
       )
       ))
     ',
@@ -111,7 +106,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.1
   <class 'tuple'> (
-    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
@@ -124,7 +119,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.2
   <class 'tuple'> (
-    'AND (   has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s)))  AND argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1)s)',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'kpersonquery_global_1': 'email',

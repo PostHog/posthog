@@ -4,15 +4,12 @@
   SELECT value,
          count(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, 'random_prop')) as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
      WHERE team_id = 2
        AND is_deleted = 0
-       AND trim(BOTH '"'
-                FROM JSONExtractRaw(properties, 'random_prop')) IS NOT NULL
-       AND trim(BOTH '"'
-                FROM JSONExtractRaw(properties, 'random_prop')) != ''
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
@@ -26,13 +23,11 @@
   SELECT value,
          count(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, 'random_prop')) as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
      WHERE team_id = 2
        AND is_deleted = 0
-       AND trim(BOTH '"'
-                FROM JSONExtractRaw(properties, 'random_prop')) ILIKE '%qw%'
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value

@@ -26,7 +26,7 @@ from ee.clickhouse.models.cohort import (
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import (
     GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
@@ -430,18 +430,16 @@ def prop_filter_json_extract(
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) > %(v{prepend}_{idx})s",
             params,
         )
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) < %(v{prepend}_{idx})s",
             params,
         )
     else:
@@ -538,7 +536,7 @@ def get_property_string_expr(
     if allow_denormalized_props and property_name in materialized_columns:
         return f'{table_string}"{materialized_columns[property_name]}"', True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
+    return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
