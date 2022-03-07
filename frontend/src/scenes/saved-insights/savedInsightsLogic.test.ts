@@ -116,7 +116,6 @@ describe('savedInsightsLogic', () => {
     })
 
     it('resets the page on filter change', async () => {
-        // makes a search query
         logic.actions.setSavedInsightsFilters({ page: 2 })
         await expectLogic(logic)
             .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
@@ -124,7 +123,6 @@ describe('savedInsightsLogic', () => {
                 filters: partial({ page: 2, search: '' }),
             })
 
-        // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
         await expectLogic(logic)
             .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
