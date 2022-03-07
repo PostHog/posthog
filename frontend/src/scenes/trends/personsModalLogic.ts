@@ -83,7 +83,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
         ]
     }
     if (action?.properties) {
-        params.properties = [...(params.properties || []), ...action.properties]
+        params.properties = { ...(params.properties || {}), ...action.properties }
     }
 
     return toParams({ ...params, ...restParams })

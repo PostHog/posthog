@@ -12,8 +12,10 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from ee.tasks.materialized_columns import mark_all_materialized
+from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
@@ -32,6 +34,18 @@ def _create_event(**kwargs):
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
+    def setUp(self):
+        self.recreate_database()
+        return super().setUp()
+
+    def tearDown(self):
+        self.recreate_database()
+
+    def recreate_database(self):
+        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
+        create_clickhouse_tables(0)
+
     def test_get_columns_default(self):
         self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
         self.assertCountEqual(get_materialized_columns("person"), [])
@@ -153,24 +167,24 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
 
         # :KLUDGE: ClickHouse replaces our trim(BOTH '"' FROM properties) with this
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), concat('^[', regexpQuoteMeta('\"'), ']*|[', regexpQuoteMeta('\"'), ']*$'), '')"
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
         backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
         mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("events", "mat_myprop"))
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(
             """
             SELECT sum(rows)
             FROM system.parts_columns
-            WHERE table = 'events'
-              AND database = %(database)s
+            WHERE database = %(database)s
+              AND table = %(table)s
               AND column = %(column)s
         """,
-            {"database": CLICKHOUSE_DATABASE, "column": column},
+            {"database": CLICKHOUSE_DATABASE, "table": EVENTS_DATA_TABLE(), "column": column},
         )[0][0]
 
     def _get_count_of_mutations_running(self) -> int:
@@ -182,12 +196,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
         """
         )[0][0]
 
-    def _get_column_types(self, table: str, column: str):
+    def _get_column_types(self, column: str):
         return sync_execute(
             """
             SELECT default_kind, default_expression
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
-            {"table": table, "database": CLICKHOUSE_DATABASE, "column": column},
+            {"database": CLICKHOUSE_DATABASE, "table": EVENTS_DATA_TABLE(), "column": column},
         )[0]

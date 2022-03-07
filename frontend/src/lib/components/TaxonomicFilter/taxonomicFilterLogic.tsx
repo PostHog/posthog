@@ -75,7 +75,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
-                selectItem: () => '',
             },
         ],
         activeTab: [
@@ -364,6 +363,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (item && value) {
                 props.onChange?.(group, value, item)
             }
+            actions.setSearchQuery('')
         },
 
         moveUp: async (_, breakpoint) => {

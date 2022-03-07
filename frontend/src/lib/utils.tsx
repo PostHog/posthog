@@ -381,9 +381,7 @@ export function formatPropertyLabel(
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? value in cohortsById
-            ? cohortsById[value]
-            : value
+        ? cohortsById[value]?.name || `ID ${value}`
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
