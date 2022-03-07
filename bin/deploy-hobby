@@ -53,7 +53,6 @@ sudo apt install -y git
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
 git pull
-git checkout am-hobby-upgrade
 cd ..
 
 

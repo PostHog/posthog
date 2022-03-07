@@ -13,7 +13,6 @@ fi
 
 cd posthog
 git pull
-git checkout am-hobby-upgrade
 cd ../
 
 rm -f docker-compose.yml
