@@ -26,7 +26,7 @@ function TZConversionHeader(): JSX.Element {
 }
 
 /** Return a simple label component with timezone conversion UI. */
-function TZLabelRaw({
+export const TZLabel = function ({
     time,
     showSeconds,
     formatString,
@@ -97,8 +97,6 @@ function TZLabelRaw({
         </Popover>
     )
 }
-// Timezone calculations are quite expensive, so the component is memoized to reduce them.
-export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw
 
 /** Return an explainer component for analytics visualization pages. */
 function TZIndicatorRaw({
