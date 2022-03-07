@@ -1,9 +1,10 @@
 import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { historyListLogic, HumanizedHistoryListItem } from 'lib/components/HistoryList/historyListLogic'
+import { historyListLogic } from 'lib/components/HistoryList/historyListLogic'
 import { useValues } from 'kea'
+import './HistoryList.scss'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface HistoryListProps {
     type: 'FeatureFlag'
@@ -14,40 +15,33 @@ export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element => {
     const logic = historyListLogic({ type, id })
     const { history, historyLoading } = useValues(logic)
 
-    const columns: LemonTableColumns<HumanizedHistoryListItem> = [
-        {
-            key: 'profile',
-            width: 40,
-            render: function Render(_, rowItem: HumanizedHistoryListItem) {
-                return <ProfilePicture showName={false} email={rowItem.email} />
-            },
-        },
-        {
-            key: 'description',
-            render: function Render(_, rowItem: HumanizedHistoryListItem) {
-                return (
-                    <>
-                        <div>
-                            <strong>{rowItem.name ?? 'unknown user'}</strong> {rowItem.description}
-                        </div>
-                        <div className={'text-muted'}>
-                            <TZLabel time={rowItem.created_at} />
-                        </div>
-                    </>
-                )
-            },
-        },
-    ]
+    const rows = history.map((historyItem, index) => {
+        return (
+            <div className={'history-list-row'} key={index}>
+                <ProfilePicture showName={false} email={historyItem.email} size={'xl'} />
+                <div className="details">
+                    <div>
+                        <strong>{historyItem.name ?? 'unknown user'}</strong> {historyItem.description}
+                    </div>
+                    <div className={'text-muted'}>
+                        <TZLabel time={historyItem.created_at} />
+                    </div>
+                </div>
+            </div>
+        )
+    })
 
     return (
-        <LemonTable
-            dataSource={history}
-            showHeader={false}
-            loading={historyLoading}
-            columns={columns}
-            className="ph-no-capture"
-            rowClassName={'history-list-item'}
-            rowBorders={false}
-        />
+        <div className="history-list">
+            {rows && rows.length ? (
+                rows
+            ) : historyLoading ? (
+                <div className="empty-state">
+                    <Spinner size="sm" /> Loading history for this item
+                </div>
+            ) : (
+                <div className="empty-state">There is no history for this item</div>
+            )}
+        </div>
     )
 }
