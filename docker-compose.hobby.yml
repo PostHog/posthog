@@ -45,7 +45,7 @@ services:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     worker: &worker
-        image: posthog/posthog:latest-release
+        image: posthog/posthog:$POSTHOG_APP_TAG
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
@@ -95,7 +95,7 @@ services:
         depends_on:
             - web
     plugins:
-        image: posthog/posthog:latest-release
+        image: posthog/posthog:$POSTHOG_APP_TAG
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
         environment:

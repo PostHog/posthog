@@ -3,6 +3,7 @@ set -e
 
 # Seed a secret
 export POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
+export POSTHOG_APP_TAG='latest-release'
 
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
