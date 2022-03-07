@@ -3,8 +3,8 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
-import { AppContext } from '../types'
-import { MOCK_DEFAULT_TEAM } from '../lib/api.mock'
+import { AppContext } from '~/types'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 
 export function initKeaTests(): void {

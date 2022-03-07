@@ -1,4 +1,5 @@
 import { mocksToHandlers } from './utils'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 const API_NOOP = { results: [], next: null }
 
@@ -12,8 +13,13 @@ export const handlers = mocksToHandlers({
         '/api/projects/:team_id/groups/': API_NOOP,
         '/api/projects/:team_id/insights/': API_NOOP,
         '/api/projects/:team_id/property_definitions/': API_NOOP,
-        '/api/organizations/@current/': require('../../../cypress/fixtures/api/organizations/@current.json'),
-        '/api/users/@me/': require('../../../cypress/fixtures/api/users/@me.json'),
+
+        '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
+        '/api/users/@me/': {
+            organization: MOCK_DEFAULT_ORGANIZATION,
+            team: MOCK_DEFAULT_TEAM,
+        },
+        '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/_preflight': require('../../../cypress/fixtures/_preflight.json'),
         '/_system_status': require('../../../cypress/fixtures/_system_status.json'),
     },
