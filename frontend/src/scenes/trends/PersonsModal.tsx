@@ -91,7 +91,9 @@ export function PersonsModal({
     )
 
     const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
+    // TODO: Re-enable CSV downloads when frontend can support new entity properties
+    // const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
+    const isDownloadCsvAvailable: boolean = false
     const isSaveAsCohortAvailable =
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||

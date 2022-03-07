@@ -7,14 +7,12 @@ import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 
 export function PersonCohorts(): JSX.Element {
-    const { cohorts, cohortsLoading } = useValues(personsLogic)
+    const { cohorts, cohortsLoading, person } = useValues(personsLogic)
     const { loadCohorts } = useActions(personsLogic)
 
     useEffect(() => {
-        if (cohorts === null && !cohortsLoading) {
-            loadCohorts()
-        }
-    }, [cohorts, cohortsLoading])
+        loadCohorts()
+    }, [person])
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -34,7 +32,7 @@ export function PersonCohorts(): JSX.Element {
         {
             title: 'Users in cohort',
             render: function RenderCount(count) {
-                return (count as number).toLocaleString()
+                return (count as number)?.toLocaleString()
             },
             dataIndex: 'count',
             sorter: (a, b) => (a.count || 0) - (b.count || 0),

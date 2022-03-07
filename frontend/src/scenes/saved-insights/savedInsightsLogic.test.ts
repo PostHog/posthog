@@ -115,6 +115,22 @@ describe('savedInsightsLogic', () => {
             })
     })
 
+    it('resets the page on filter change', async () => {
+        logic.actions.setSavedInsightsFilters({ page: 2 })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                filters: partial({ page: 2, search: '' }),
+            })
+
+        logic.actions.setSavedInsightsFilters({ search: 'hello' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                filters: partial({ page: 1, search: 'hello' }),
+            })
+    })
+
     it('persists the filter in the url', async () => {
         logic.actions.setSavedInsightsFilters({ search: 'hello' })
         await expectLogic(logic)

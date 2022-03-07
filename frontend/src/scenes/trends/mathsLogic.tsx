@@ -31,7 +31,7 @@ export const BASE_MATH_DEFINITIONS: Record<string, MathDefinition> = {
     },
     dau: {
         name: 'Unique users',
-        shortName: 'users',
+        shortName: 'unique users',
         description: (
             <>
                 Number of unique users who performed the event in the specified period.
@@ -238,7 +238,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                         apiValueToMathType('unique_group', groupType.group_type_index),
                         {
                             name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                            shortName: aggregationLabel(groupType.group_type_index).plural,
+                            shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
                             description: (
                                 <>
                                     Number of unique {aggregationLabel(groupType.group_type_index).plural} who performed

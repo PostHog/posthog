@@ -25,8 +25,8 @@ interface EventDefinitionsTableProps {
 }
 
 export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading } = useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions } = useActions(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId } = useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setOpenedDefinition } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -63,6 +63,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
                               <span className="text-muted">—</span>
                           )
                       },
+                      sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
                   {
                       title: '30 day queries',
@@ -75,6 +76,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
                               <span className="text-muted">—</span>
                           )
                       },
+                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
@@ -110,6 +112,8 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
                     return <EventDefinitionProperties definition={definition} />
                 },
                 noIndent: true,
+                isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
+                onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
             }}
             dataSource={eventDefinitions.results}
             emptyState="No event definitions"

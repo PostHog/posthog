@@ -7,6 +7,7 @@ from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, TEST
@@ -15,7 +16,7 @@ ColumnName = str
 
 TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
 
-TRIM_AND_EXTRACT_PROPERTY = "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(property)s))"
+TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw(properties, %(property)s)")
 
 
 @cache_for(timedelta(minutes=15))

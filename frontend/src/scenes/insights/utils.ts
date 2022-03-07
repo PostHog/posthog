@@ -31,7 +31,7 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && keyMapping.event[name]) {
+    if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
 
@@ -231,9 +231,12 @@ export function summarizeInsightFilters(
                         summary += ' time'
                     } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
                         summary += ' trend'
+                    } else {
+                        // Steps are the default viz type
+                        summary += ' rate'
                     }
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+                        summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
                     }
                     break
                 case InsightType.STICKINESS:
@@ -253,16 +256,22 @@ export function summarizeInsightFilters(
                     // Trends are the default type
                     summary = localFilters
                         .map((localFilter, localFilterIndex) => {
-                            const mathDefinition =
-                                mathDefinitions[apiValueToMathType(localFilter.math, localFilter.math_group_type_index)]
-                            const mathSummary =
-                                mathDefinition.onProperty && localFilter.math_property
-                                    ? `${mathDefinition.shortName} on property ${
+                            const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
+                            const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                            const propertyMath: string =
+                                mathDefinition?.onProperty && localFilter.math_property
+                                    ? `'s ${
                                           keyMapping.event[localFilter.math_property]?.label ||
                                           localFilter.math_property
                                       }`
-                                    : mathDefinition.shortName
-                            let series = `${getDisplayNameFromEntityFilter(localFilter)} ${mathSummary}`
+                                    : ''
+                            let series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
+                                mathDefinition
+                                    ? mathDefinition.shortName
+                                    : localFilter.math === 'unique_group'
+                                    ? 'unique groups'
+                                    : mathType
+                            }`
                             if (filters.formula) {
                                 series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
                             }
@@ -270,7 +279,11 @@ export function summarizeInsightFilters(
                         })
                         .join(' & ')
                     if (filters.breakdown_type) {
-                        summary += `, broken down by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+                        summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
+                            filters,
+                            aggregationLabel,
+                            cohortsById
+                        )}`
                     }
                     if (filters.formula) {
                         summary = `${filters.formula} on ${summary}`
