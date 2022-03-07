@@ -1,7 +1,7 @@
 import copy
 import threading
 from itertools import accumulate
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from django.db.models.query import Prefetch
 from django.utils import timezone
@@ -58,7 +58,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         result[index] = sync_execute(sql, params)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-        result = [None] * len(filter.entities)
+        result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
         jobs = []
 
         for entity in filter.entities:
@@ -85,7 +85,13 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             result[entity.index] = serialized_data
 
         # flatten results
-        return [item for sublist in result for item in sublist]  #  type: ignore
+        flat_results: List[Dict[str, Any]] = []
+        for item in result:
+            if item is not None:  # Mypy thinks results might still be None
+                for flat in item:
+                    flat_results.append(flat)
+
+        return flat_results
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
