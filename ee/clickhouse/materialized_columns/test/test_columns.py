@@ -35,6 +35,7 @@ def _create_event(**kwargs):
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     def setUp(self):
         self.recreate_database()
+        return super().setUp()
 
     def tearDown(self):
         self.recreate_database()
