@@ -285,6 +285,26 @@ function DefinitionEdit(): JSX.Element {
         <>
             <DefinitionPopup.HorizontalLine />
             <form className="definition-popup-edit-form">
+                {definition && 'custom_name' in localDefinition && definition.name && !isPostHogProp(definition.name) && (
+                    <>
+                        <label className="definition-popup-edit-form-label" htmlFor="custom-name">
+                            <span className="label-text">Custom Name</span>
+                            <span className="text-muted-alt">(optional)</span>
+                        </label>
+                        <Input
+                            id="custom-name"
+                            className="definition-popup-edit-form-value"
+                            autoFocus
+                            placeholder={`A memorable name.`}
+                            value={localDefinition.custom_name || ''}
+                            onChange={(e) => {
+                                setLocalDefinition({ custom_name: e.target.value })
+                            }}
+                            maxLength={400}
+                            data-attr="definition-popup-edit-custom-name"
+                        />
+                    </>
+                )}
                 {definition && 'description' in localDefinition && (
                     <>
                         <label className="definition-popup-edit-form-label" htmlFor="description">
@@ -294,7 +314,6 @@ function DefinitionEdit(): JSX.Element {
                         <Input.TextArea
                             id="description"
                             className="definition-popup-edit-form-value"
-                            autoFocus
                             placeholder={`There is no description for this ${singularType}.`}
                             value={localDefinition.description || ''}
                             onChange={(e) => {
@@ -462,8 +481,11 @@ export function ControlledDefinitionPopupContents({
                         title={
                             <PropertyKeyInfo
                                 value={item.name ?? ''}
+                                customName={'custom_name' in item ? item.custom_name : undefined}
                                 type={isElement ? 'element' : undefined}
+                                showSingleName={false}
                                 disablePopover
+                                ellipsis={false}
                                 disableIcon={!!icon}
                             />
                         }

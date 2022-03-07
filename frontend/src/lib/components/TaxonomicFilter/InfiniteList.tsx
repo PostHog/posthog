@@ -128,7 +128,11 @@ const renderItemContents = ({
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx(isStale && 'text-muted')}>
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+                <PropertyKeyInfo
+                    value={item.name ?? ''}
+                    customName={'custom_name' in item ? item.custom_name : undefined}
+                    disablePopover
+                />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}

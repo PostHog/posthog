@@ -15,6 +15,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         fields = (
             "id",
             "name",
+            "custom_name",
             "owner",
             "description",
             "tags",

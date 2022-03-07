@@ -29,6 +29,7 @@ export const getDisplayNameFromEntityFilter = (
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
+    console.log('FILTER', filter, isCustom)
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
     if (name && keyMapping.event[name]) {

@@ -463,7 +463,10 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name: string | null
+    /** Custom name of filter */
     custom_name?: string
+    /** Custom name of chosen item definition */
+    item_custom_name?: string
     index?: number
     order?: number
 }
@@ -1336,6 +1339,7 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
+    custom_name?: string
     description: string
     tags?: string[]
     volume_30_day: number | null
@@ -1361,6 +1365,7 @@ export enum PropertyType {
 export interface PropertyDefinition {
     id: string
     name: string
+    custom_name?: string
     description: string
     tags?: string[]
     volume_30_day: number | null

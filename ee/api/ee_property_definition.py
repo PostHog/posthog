@@ -13,6 +13,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
         fields = (
             "id",
             "name",
+            "custom_name",
             "description",
             "tags",
             "is_numerical",

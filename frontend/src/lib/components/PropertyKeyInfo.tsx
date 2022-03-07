@@ -551,6 +551,8 @@ export function isPostHogProp(key: string): boolean {
 
 interface PropertyKeyInfoInterface {
     value: string
+    customName?: string
+    showSingleName?: boolean
     type?: 'event' | 'element'
     style?: React.CSSProperties
     tooltipPlacement?: TooltipPlacement
@@ -641,64 +643,73 @@ export function PropertyKeyInfo({
     disableIcon = false,
     ellipsis = true,
     className = '',
+    customName = undefined,
+    showSingleName = true,
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
+
     const data = getKeyMapping(value, type)
-    if (!data) {
-        return (
+    const baseValue = (!data ? value : data.label).trim()
+    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+
+    // By this point, property is a PH defined property
+    const innerContent = (
+        <span className="property-key-info">
+            {!disableIcon && !!data && <span className="property-key-info-logo" />}
             <Typography.Text
                 ellipsis={ellipsis}
                 style={{ color: 'inherit', maxWidth: 400, ...style }}
-                title={value}
+                title={baseValue}
                 className={className}
             >
-                {value !== '' ? value : <i>(empty string)</i>}
+                {customName ? (
+                    showSingleName ? (
+                        customName
+                    ) : (
+                        <>
+                            {customName}
+                            {baseValue && (
+                                <Typography.Text
+                                    style={{ maxWidth: 400, marginLeft: 4 }}
+                                    ellipsis={ellipsis}
+                                    type="secondary"
+                                    title={baseValue}
+                                >
+                                    ({baseValueNode})
+                                </Typography.Text>
+                            )}
+                        </>
+                    )
+                ) : (
+                    baseValueNode
+                )}
             </Typography.Text>
-        )
-    }
-    if (disableIcon) {
-        return (
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400 }}
-                title={data.label}
-                className={className}
-            >
-                {data.label !== '' ? data.label : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
-
-    const innerContent = (
-        <span className="property-key-info">
-            <span className="property-key-info-logo" />
-            {data.label}
         </span>
     )
+
+    if (!data || disablePopover) {
+        return innerContent
+    }
+
+    const popoverProps = tooltipPlacement
+        ? {
+              visible: true,
+              placement: tooltipPlacement,
+          }
+        : {
+              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
+          }
 
     const popoverTitle = <PropertyKeyTitle data={data} />
     const popoverContent = <PropertyKeyDescription data={data} value={value} />
 
-    return disablePopover ? (
-        innerContent
-    ) : tooltipPlacement ? (
-        <Popover
-            visible
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            placement={tooltipPlacement}
-            title={popoverTitle}
-            content={popoverContent}
-        >
-            {innerContent}
-        </Popover>
-    ) : (
+    return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
             overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
             title={popoverTitle}
             content={popoverContent}
+            {...popoverProps}
         >
             {innerContent}
         </Popover>

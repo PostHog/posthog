@@ -210,6 +210,7 @@ export function ActionFilterRow({
                             type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
                             id: `${changedValue}`,
                             name: item?.name,
+                            item_custom_name: item?.custom_name,
                             index,
                         })
                     }}
