@@ -105,7 +105,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
 )
 
