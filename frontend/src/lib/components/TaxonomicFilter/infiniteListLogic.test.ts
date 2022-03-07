@@ -1,49 +1,55 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
-import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
+import { AppContext, PropertyDefinition } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        const isEventDefinitions = pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`
-        const isPropertyDefinitions = pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`
-
-        if (isEventDefinitions || isPropertyDefinitions) {
-            // Type defaults to `EventDefinition[] | PropertyDefinition[]`,
-            // which does not type well with `.filter(e => ...)` below
-            let results: (EventDefinition | PropertyDefinition)[] = isEventDefinitions
-                ? mockEventDefinitions
-                : mockEventPropertyDefinitions
-
-            if (searchParams.search) {
-                results = results.filter((e) => e.name.includes(searchParams.search))
-            }
-            if (isPropertyDefinitions && searchParams.is_event_property !== undefined) {
-                results = results.filter(
-                    (e: PropertyDefinition) => e.is_event_property === searchParams.is_event_property
-                )
-            }
-
-            return {
-                results,
-                count: results.length,
-            }
-        }
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': (req) => {
+                    const search = req.url.searchParams.get('search')
+                    const results = search
+                        ? mockEventDefinitions.filter((e) => e.name.includes(search))
+                        : mockEventDefinitions
+                    return [
+                        200,
+                        {
+                            results,
+                            count: results.length,
+                        },
+                    ]
+                },
+                '/api/projects/:team/property_definitions': (req) => {
+                    const search = req.url.searchParams.get('search')
+                    let results = search
+                        ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
+                        : mockEventPropertyDefinitions
+                    if (req.url.searchParams.has('is_event_property')) {
+                        const isEventProperty = req.url.searchParams.get('is_event_property') === 'true'
+                        results = results.filter((e: PropertyDefinition) => e.is_event_property === isEventProperty)
+                    }
+                    return [
+                        200,
+                        {
+                            results,
+                            count: results.length,
+                        },
+                    ]
+                },
+            },
+        })
         initKeaTests()
         teamLogic.mount()
     })
