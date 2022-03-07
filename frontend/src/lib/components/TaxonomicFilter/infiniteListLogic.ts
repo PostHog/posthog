@@ -85,7 +85,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     reducers: ({ props }) => ({
         index: [
-            (props.selectFirstItem === false ? -1 : 0) as number,
+            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
