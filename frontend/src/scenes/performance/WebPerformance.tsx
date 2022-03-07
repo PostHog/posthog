@@ -59,8 +59,10 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             </p>
             {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
                 <p key={index}>
-                    {key}: from: {part.start}ms to {part.end}ms (
-                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)
+                    {key}: from: {part.start}ms to {part.end}ms{' '}
+                    {resourceTiming.entry.duration ? (
+                        <>({(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)</>
+                    ) : null}
                 </p>
             ))}
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
