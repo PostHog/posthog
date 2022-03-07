@@ -45,7 +45,7 @@ services:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     worker: &worker
-        image: posthog/posthog:latest-release
+        image: posthog/posthog:latest
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
@@ -114,3 +114,7 @@ services:
             - redis:redis
             - clickhouse:clickhouse
             - kafka:kafka
+    asyncmigrationscheck:
+        <<: *worker
+        command: python manage.py run_async_migrations --check
+        restart: 'no'

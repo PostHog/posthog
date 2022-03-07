@@ -11,19 +11,24 @@ fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
 
-docker-compose stop
-
 cd posthog
 git pull
+git checkout am-hobby-upgrade
 cd ../
 
-rm -f docker-compose.yml
+mv docker-compose.yml docker-compose-old.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
 docker-compose pull
 
-sudo -E docker-compose up -d
+echo "Checking if async migrations are up to date"
+sudo -E docker-compose run asyncmigrationscheck
+
+echo "Stopping the services"
+docker-compose stop -f docker-compose-old.yml
+
+sudo -E docker-compose up -d --scale asyncmigrationscheck=0
 
 echo "PostHog upgraded successfully!"
