@@ -548,7 +548,7 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
 
 
 def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    property_field, _ = get_property_string_expr("event", key, "%(key)s", "properties")
+    property_field, _ = get_property_string_expr("events", key, "%(key)s", "properties")
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
