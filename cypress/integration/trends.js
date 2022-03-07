@@ -132,7 +132,6 @@ describe('Trends', () => {
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add insight to dashboard').click()
-        cy.wait(200) // not ideal but toast has a delay render
-        cy.get('.Toastify__toast').contains('Insight added to dashboard').should('exist')
+        cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')
     })
 })

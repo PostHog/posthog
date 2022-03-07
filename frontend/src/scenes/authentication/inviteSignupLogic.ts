@@ -75,7 +75,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
     }),
     listeners: ({ values }) => ({
         acceptInviteSuccess: async (_, breakpoint) => {
-            lemonToast.success(`You've joined ${values.invite?.organization_name}! Taking you to PostHog now…`)
+            lemonToast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`)
             await breakpoint(2000) // timeout for the user to read the toast
             window.location.href = '/' // hard refresh because the current_organization changed
         },

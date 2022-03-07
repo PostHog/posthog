@@ -20,14 +20,15 @@ const GET_HELP_BUTTON: ToastButton = {
 }
 
 interface ToastContentProps {
+    type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
     button?: ToastButton
     id?: number | string
 }
 
-function ToastContent({ message, button, id }: ToastContentProps): JSX.Element {
+function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
-        <div className="flex-center">
+        <div className="flex-center" data-attr={`${type}-toast`}>
             <span style={{ flexGrow: 1 }}>{message}</span>
             {button && (
                 <LemonButton
@@ -45,40 +46,48 @@ function ToastContent({ message, button, id }: ToastContentProps): JSX.Element {
     )
 }
 
-function ensureToastId(toastOptions: ToastOptions): void {
-    if (!toastOptions.toastId) {
-        toastOptions.toastId = `lemon-${Math.round(Math.random() * 10000000)}`
-    }
+function ensureToastId(toastOptions: ToastOptions): ToastOptions {
+    return toastOptions.toastId
+        ? toastOptions
+        : { ...toastOptions, toastId: `lemon-${Math.round(Math.random() * 10000000)}` }
 }
 
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        ensureToastId(toastOptions)
-        toast.info(<ToastContent message={message} button={button} id={toastOptions.toastId} />, {
+        toastOptions = ensureToastId(toastOptions)
+        toast.info(<ToastContent type="info" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconInfo />,
             ...toastOptions,
         })
     },
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        ensureToastId(toastOptions)
-        toast.success(<ToastContent message={message} button={button} id={toastOptions.toastId} />, {
+        toastOptions = ensureToastId(toastOptions)
+        toast.success(<ToastContent type="success" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconCheckmark />,
             ...toastOptions,
         })
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        ensureToastId(toastOptions)
-        toast.warning(<ToastContent message={message} button={button} id={toastOptions.toastId} />, {
+        toastOptions = ensureToastId(toastOptions)
+        toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconWarningAmber />,
             ...toastOptions,
         })
     },
     error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        ensureToastId(toastOptions)
-        toast.error(<ToastContent message={message} button={button || GET_HELP_BUTTON} id={toastOptions.toastId} />, {
-            icon: <IconErrorOutline />,
-            ...toastOptions,
-        })
+        toastOptions = ensureToastId(toastOptions)
+        toast.error(
+            <ToastContent
+                type="error"
+                message={message}
+                button={button || GET_HELP_BUTTON}
+                id={toastOptions.toastId}
+            />,
+            {
+                icon: <IconErrorOutline />,
+                ...toastOptions,
+            }
+        )
     },
     dismiss(id?: number | string): void {
         toast.dismiss(id)
