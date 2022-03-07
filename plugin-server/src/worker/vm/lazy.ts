@@ -118,7 +118,6 @@ export class LazyPluginVM {
                             Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
                     if (shouldSetupNow) {
-                        console.log('I DID GET HERE THO', vm)
                         await this._setupPlugin(vm.vm)
                         this.ready = true
                     }
