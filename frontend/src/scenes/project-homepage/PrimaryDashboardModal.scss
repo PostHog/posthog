@@ -9,6 +9,8 @@
         overflow-y: scroll;
         padding-right: $default_spacing;
         padding-left: $default_spacing;
+        padding-top: $default_spacing/2;
+        padding-bottom: $default_spacing/4;
         .dashboard-row {
             display: flex;
             flex: 1;
