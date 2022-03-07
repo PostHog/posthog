@@ -5,12 +5,12 @@ import { urls } from 'scenes/urls'
 
 import { featureFlagTabsLogicType } from './FeatureFlagTabsType'
 export enum FeatureFlagTab {
-    General = 'general',
+    Configiration = 'configuration',
     History = 'history',
 }
 
 const tabUrls: Record<FeatureFlagTab, (id: number) => string> = {
-    [FeatureFlagTab.General]: (id) => urls.featureFlag(id),
+    [FeatureFlagTab.Configiration]: (id) => urls.featureFlag(id),
     [FeatureFlagTab.History]: (id) => urls.featureFlagHistory(id),
 }
 
@@ -21,7 +21,7 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
     },
     reducers: {
         tab: [
-            FeatureFlagTab.General as FeatureFlagTab,
+            FeatureFlagTab.Configiration as FeatureFlagTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -32,8 +32,8 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/feature_flags/:id': ({ id }) => {
-            if (id && FeatureFlagTab.General !== values.tab) {
-                actions.setTab(FeatureFlagTab.General, id)
+            if (id && FeatureFlagTab.Configiration !== values.tab) {
+                actions.setTab(FeatureFlagTab.Configiration, id)
             }
         },
         '/feature_flags/:id/history': ({ id }) => {
@@ -48,7 +48,7 @@ export function FeatureFlagTabs({ tab, id }: { tab: FeatureFlagTab; id: string |
     const { setTab } = useActions(featureFlagTabsLogic)
     return id ? (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as FeatureFlagTab, id)}>
-            <Tabs.TabPane tab="General" key="general" />
+            <Tabs.TabPane tab="Configuration" key="configuration" />
             <Tabs.TabPane tab={<span data-attr="feature-flag-history-tab">History</span>} key="history" />
         </Tabs>
     ) : (
