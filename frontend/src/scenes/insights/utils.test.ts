@@ -175,7 +175,7 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual(
-            'Pageview users & Rageclick MAUs & Random action count & purchase sum on property price & Pageview organizations'
+            "Pageview unique users & Rageclick MAUs & Random action count & purchase's price sum & Pageview organizations"
         )
     })
 
@@ -199,7 +199,7 @@ describe('summarizeInsightFilters()', () => {
                 cohortIdsMapped,
                 mathDefinitions
             )
-        ).toEqual("Pageview users, broken down by event's Browser")
+        ).toEqual("Pageview unique users by event's Browser")
     })
 
     it('summarizes a Trends insight with cohort breakdown', () => {
@@ -208,6 +208,11 @@ describe('summarizeInsightFilters()', () => {
                 {
                     insight: InsightType.TRENDS,
                     events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                        },
                         {
                             id: '$pageview',
                             name: '$pageview',
@@ -222,7 +227,7 @@ describe('summarizeInsightFilters()', () => {
                 cohortIdsMapped,
                 mathDefinitions
             )
-        ).toEqual('Pageview users, broken down by cohorts: all users, Poles')
+        ).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
     })
 
     it('summarizes a Trends insight with a formula', () => {
@@ -252,7 +257,7 @@ describe('summarizeInsightFilters()', () => {
                 cohortIdsMapped,
                 mathDefinitions
             )
-        ).toEqual('(A + B) / 100 on A. Pageview users & B. Random action count')
+        ).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
     })
 
     it('summarizes a user-based Funnels insight with 3 steps', () => {
@@ -284,7 +289,7 @@ describe('summarizeInsightFilters()', () => {
                 cohortIdsMapped,
                 mathDefinitions
             )
-        ).toEqual('Pageview → random_event → Random action user conversion')
+        ).toEqual('Pageview → random_event → Random action user conversion rate')
     })
 
     it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
@@ -312,7 +317,7 @@ describe('summarizeInsightFilters()', () => {
                 cohortIdsMapped,
                 mathDefinitions
             )
-        ).toEqual("Pageview → random_event organization conversion, broken down by person's some_prop")
+        ).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
     })
 
     it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
