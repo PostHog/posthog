@@ -213,7 +213,6 @@ describe('createActionFromEvent()', () => {
                 given.dataAttributes,
                 given.recurse
             )
-            expect(toast).not.toHaveBeenCalled()
         })
 
         describe('increment == 30', () => {
@@ -223,7 +222,6 @@ describe('createActionFromEvent()', () => {
                 await given.subject()
 
                 expect(given.recurse).not.toHaveBeenCalled()
-                expect(toast).not.toHaveBeenCalled()
             })
         })
     })
