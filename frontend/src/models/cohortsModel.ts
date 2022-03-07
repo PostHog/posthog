@@ -61,9 +61,7 @@ export const cohortsModel = kea<cohortsModelType>({
         cohortsById: [
             (s) => [s.cohorts],
             (cohorts): Partial<Record<string | number, CohortType>> =>
-                Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])) as Partial<
-                    Record<CohortType['id'], CohortType>
-                >,
+                Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort])),
         ],
     },
 
