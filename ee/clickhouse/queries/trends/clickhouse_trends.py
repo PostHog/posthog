@@ -17,7 +17,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.base import handle_compare, handle_compare_threading
+from posthog.queries.base import handle_compare
 from posthog.utils import relative_date_parse
 
 
@@ -35,6 +35,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
             sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id).get_query()
+
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
         else:
@@ -53,6 +54,39 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             serialized_data = self._handle_cumulative(serialized_data)
         return serialized_data
 
+    def _run_query_for_threading(self, result: List, index: int, sql, params):
+        result[index] = sync_execute(sql, params)
+
+    def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        result = [None] * len(filter.entities)
+        jobs = []
+
+        for entity in filter.entities:
+            sql, params, _ = self._get_sql_for_entity(filter, entity, team.pk)
+            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
+            jobs.append(thread)
+
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
+
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
+
+        # Parse results for each thread
+        for entity in filter.entities:
+            _, _, parse_function = self._get_sql_for_entity(filter, entity, team.pk)
+            serialized_data = parse_function(result[entity.index])
+            serialized_data = self._format_serialized(entity, serialized_data)
+
+            if filter.display == TRENDS_CUMULATIVE:
+                serialized_data = self._handle_cumulative(serialized_data)
+            result[entity.index] = serialized_data
+
+        # flatten results
+        return [item for sublist in result for item in sublist]  #  type: ignore
+
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
@@ -64,31 +98,21 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)
 
-        jobs = []
-        result = [None] * len(filter.entities)
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     continue
-            thread = threading.Thread(
-                target=handle_compare_threading,
-                args=(filter, self._run_query, team),
-                kwargs={"entity": entity, "result": result, "index": entity.index},
-            )
-            jobs.append(thread)
 
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
+        if len(filter.entities) == 1 or filter.compare:
+            result = []
+            for entity in filter.entities:
+                result.extend(handle_compare(filter, self._run_query, team, entity=entity))
+        else:
+            result = self._run_parallel(filter, team)
 
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
-
-        # flatten results
-        return [item for sublist in result for item in sublist]
+        return result
 
     def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
         serialized_data = []

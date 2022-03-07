@@ -60,10 +60,6 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return entities_list
 
 
-def handle_compare_threading(filter, func: Callable, team: Team, result: List, index: int, **kwargs) -> None:
-    result[index] = handle_compare(filter, func, team, **kwargs)
-
-
 TIME_IN_SECONDS: Dict[str, Any] = {
     "hour": 3600,
     "day": 3600 * 24,
