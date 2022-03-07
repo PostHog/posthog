@@ -1,9 +1,11 @@
 import React from 'react'
-import { kea, useActions } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic as currentFlagsLogic } from '../../lib/logic/featureFlagLogic'
 
 import { featureFlagTabsLogicType } from './FeatureFlagTabsType'
+import { FEATURE_FLAGS } from 'lib/constants'
 export enum FeatureFlagTab {
     Configuration = 'configuration',
     History = 'history',
@@ -45,11 +47,16 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
 })
 
 export function FeatureFlagTabs({ tab, id }: { tab: FeatureFlagTab; id: string | number | null }): JSX.Element | null {
+    const { featureFlags } = useValues(currentFlagsLogic)
     const { setTab } = useActions(featureFlagTabsLogic)
-    return id ? (
-        <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as FeatureFlagTab, id)}>
+    const onTabClick = id ? (t: string) => setTab(t as FeatureFlagTab, id) : undefined
+
+    return (
+        <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={onTabClick}>
             <Tabs.TabPane tab="Configuration" key="configuration" />
-            <Tabs.TabPane tab={<span data-attr="feature-flag-history-tab">History</span>} key="history" />
+            {!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS] && !!id && (
+                <Tabs.TabPane tab={<span data-attr="feature-flag-history-tab">History</span>} key="history" />
+            )}
         </Tabs>
-    ) : null
+    )
 }

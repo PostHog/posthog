@@ -60,15 +60,21 @@ function focusVariantKeyField(index: number): void {
 export function FeatureFlagPageHeader({
     activeTab,
     id,
+    buttons,
 }: {
     activeTab: FeatureFlagTab
     id: string | number | null
+    buttons?: JSX.Element | false
 }): JSX.Element {
     const { featureFlags } = useValues(currentFlagsLogic)
 
     return (
         <>
-            <PageHeader title="Feature Flag" tabbedPage={!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS]} />
+            <PageHeader
+                title="Feature Flag"
+                tabbedPage={!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS]}
+                buttons={buttons}
+            />
             {!!featureFlags[FEATURE_FLAGS.HISTORY_LOGS] && <FeatureFlagTabs tab={activeTab} id={id} />}
         </>
     )
@@ -120,7 +126,6 @@ export function FeatureFlag(): JSX.Element {
 
     return (
         <div className="feature-flag">
-            <FeatureFlagPageHeader activeTab={FeatureFlagTab.Configuration} id={featureFlag?.id || null} />
             {featureFlag ? (
                 <Form
                     layout="vertical"
@@ -142,50 +147,58 @@ export function FeatureFlag(): JSX.Element {
                     requiredMark={false}
                     scrollToFirstError
                 >
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <Form.Item className="enabled-switch">
-                            <Form.Item
-                                shouldUpdate={(prevValues, currentValues) => prevValues.active !== currentValues.active}
-                                style={{ marginBottom: 0, marginRight: 6 }}
-                            >
-                                {({ getFieldValue }) => {
-                                    return (
-                                        <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
-                                            {getFieldValue('active') ? (
-                                                <span className="text-success">Enabled</span>
-                                            ) : (
-                                                <span className="text-danger">Disabled</span>
-                                            )}
-                                        </span>
-                                    )
-                                }}
-                            </Form.Item>
-                            <Form.Item name="active" noStyle valuePropName="checked">
-                                <Switch />
-                            </Form.Item>
-                        </Form.Item>
-                        {featureFlagId !== 'new' && (
-                            <Button
-                                data-attr="delete-flag"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={() => {
-                                    deleteFeatureFlag(featureFlag)
-                                }}
-                                style={{ marginRight: 16 }}
-                            >
-                                Delete
-                            </Button>
-                        )}
-                        <Button
-                            icon={<SaveOutlined />}
-                            type="primary"
-                            data-attr="feature-flag-submit"
-                            htmlType="submit"
-                        >
-                            Save changes
-                        </Button>
-                    </div>
+                    <FeatureFlagPageHeader
+                        activeTab={FeatureFlagTab.Configuration}
+                        id={featureFlag?.id || null}
+                        buttons={
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <Form.Item className="enabled-switch" style={{ marginBottom: 0 }}>
+                                    <Form.Item
+                                        shouldUpdate={(prevValues, currentValues) =>
+                                            prevValues.active !== currentValues.active
+                                        }
+                                        style={{ marginBottom: 0, marginRight: 6 }}
+                                    >
+                                        {({ getFieldValue }) => {
+                                            return (
+                                                <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
+                                                    {getFieldValue('active') ? (
+                                                        <span className="text-success">Enabled</span>
+                                                    ) : (
+                                                        <span className="text-danger">Disabled</span>
+                                                    )}
+                                                </span>
+                                            )
+                                        }}
+                                    </Form.Item>
+                                    <Form.Item name="active" noStyle valuePropName="checked">
+                                        <Switch />
+                                    </Form.Item>
+                                </Form.Item>
+                                {featureFlagId !== 'new' && (
+                                    <Button
+                                        data-attr="delete-flag"
+                                        danger
+                                        icon={<DeleteOutlined />}
+                                        onClick={() => {
+                                            deleteFeatureFlag(featureFlag)
+                                        }}
+                                        style={{ marginRight: 16 }}
+                                    >
+                                        Delete
+                                    </Button>
+                                )}
+                                <Button
+                                    icon={<SaveOutlined />}
+                                    type="primary"
+                                    data-attr="feature-flag-submit"
+                                    htmlType="submit"
+                                >
+                                    Save changes
+                                </Button>
+                            </div>
+                        }
+                    />
                     <Row gutter={16} style={{ marginBottom: 32 }}>
                         <Col span={12}>
                             <Form.Item
