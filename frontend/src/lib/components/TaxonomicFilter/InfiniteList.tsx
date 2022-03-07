@@ -311,7 +311,7 @@ export function InfiniteList(): JSX.Element {
                 isSelected && 'selected'
             ),
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
-            // if the popper is not enabled then don't leave the row selected when the mouse leaves it
+            // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
             ref: isHighlighted ? setReferenceElement : null,
