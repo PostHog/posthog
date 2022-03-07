@@ -465,9 +465,7 @@ class ClickhouseFunnelBase(ABC):
             person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
-        if entity.properties:
-            return prop_filters
-        return ""
+        return prop_filters
 
     def _get_funnel_person_step_condition(self):
         step_num = self._filter.funnel_step

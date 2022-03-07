@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+    , has_full_snapshot Int8 materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
@@ -36,6 +36,9 @@ SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
+SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+)
 SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
@@ -48,9 +51,7 @@ SETTINGS index_granularity=512
     cluster=settings.CLICKHOUSE_CLUSTER,
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
-    engine=ReplacingMergeTree(
-        "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
-    ),
+    engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
     ttl_period=ttl_period(),
 )
 
@@ -59,7 +60,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
     materialized_columns="",
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """

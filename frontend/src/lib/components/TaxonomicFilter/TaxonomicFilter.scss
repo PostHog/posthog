@@ -1,8 +1,13 @@
 .taxonomic-filter {
-    min-width: 300px;
     width: 550px;
     max-width: calc(100vw - 40px);
     background: white;
+    display: flex;
+    flex-direction: column;
+
+    &.force-minimum-width {
+        min-width: 300px;
+    }
 
     &.one-taxonomic-tab {
         .taxonomic-infinite-list {

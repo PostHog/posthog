@@ -1,17 +1,12 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import { mocked } from 'ts-jest/utils'
 
 import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
-import { clearError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
-import { delay } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { resetTestDatabase } from '../../tests/helpers/sql'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
 import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
-import { plugin70 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/utils/status')

@@ -99,7 +99,8 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
     params: Dict[str, Any] = {}
 
     query_parts = []
-    for idx, prop in enumerate(filter.properties):
+    # Cohorts don't yet support OR filters
+    for idx, prop in enumerate(filter.property_groups.flat):
         if prop.type == "cohort":
             try:
                 prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
