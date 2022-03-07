@@ -31,7 +31,7 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && keyMapping.event[name]) {
+    if (name && name in keyMapping.event) {
         name = keyMapping.event[name].label
     }
 
@@ -266,7 +266,11 @@ export function summarizeInsightFilters(
                                       }`
                                     : ''
                             let series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
-                                mathDefinition ? mathDefinition.shortName : mathType
+                                mathDefinition
+                                    ? mathDefinition.shortName
+                                    : localFilter.math === 'unique_group'
+                                    ? 'unique groups'
+                                    : mathType
                             }`
                             if (filters.formula) {
                                 series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
