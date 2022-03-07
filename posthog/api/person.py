@@ -27,13 +27,13 @@ from statshog.defaults.django import statsd
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import get_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
-from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
+from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle

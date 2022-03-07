@@ -384,12 +384,14 @@ SELECT
     count(value)
 FROM (
     SELECT
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+        {property_field} as value
     FROM
         person
     WHERE
         team_id = %(team_id)s AND
-        JSONHas(properties, %(key)s)
+        is_deleted = 0 AND
+        {property_field} IS NOT NULL AND
+        {property_field} != ''
     ORDER BY id DESC
     LIMIT 100000
 )
@@ -404,12 +406,13 @@ SELECT
     count(value)
 FROM (
     SELECT
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+        {property_field} as value
     FROM
         person
     WHERE
         team_id = %(team_id)s AND
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s
+        is_deleted = 0 AND
+        {property_field} ILIKE %(value)s
     ORDER BY id DESC
     LIMIT 100000
 )

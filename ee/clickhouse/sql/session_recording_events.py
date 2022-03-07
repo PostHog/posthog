@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+    , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
+"""
+
+SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
+    , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
@@ -106,7 +110,7 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields="",
-    materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
+    materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
 )
 
 

@@ -547,29 +547,6 @@ def box_value(value: Any, remove_spaces=False) -> List[Any]:
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
 
 
-def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
-
-    if value:
-        return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-        {"team_id": team.pk, "key": key},
-    )
-
-
-def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    if value:
-        return sync_execute(
-            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
-
-
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
     if not operator:
         operator = "exact"
