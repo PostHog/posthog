@@ -22,9 +22,9 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
     return localFilters.map((filter) =>
         filter.properties
             ? {
-                ...filter,
-                properties: convertPropertyGroupToProperties(filter.properties),
-            }
+                  ...filter,
+                  properties: convertPropertyGroupToProperties(filter.properties),
+              }
             : filter
     )
 }
@@ -179,12 +179,12 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 values.localFilters.map((filter, i) =>
                     i === index
                         ? {
-                            ...filter,
-                            id: id ?? filter.id,
-                            name: name ?? filter.name,
-                            type: type ?? filter.type,
-                            custom_name: custom_name ?? filter.custom_name,
-                        }
+                              ...filter,
+                              id: id ?? filter.id,
+                              name: name ?? filter.name,
+                              type: type ?? filter.type,
+                              custom_name: custom_name ?? filter.custom_name,
+                          }
                         : filter
                 )
             )

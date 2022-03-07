@@ -91,9 +91,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         if (group.properties) {
                             return {
                                 ...group,
-                                properties: convertPropertyGroupToProperties(
-                                    group.properties
-                                ),
+                                properties: convertPropertyGroupToProperties(group.properties),
                             }
                         }
                         return group

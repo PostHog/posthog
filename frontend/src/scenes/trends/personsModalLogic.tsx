@@ -86,10 +86,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 
     // If breakdown type is cohort, we use breakdown_value
     // If breakdown type is event, we just set another filter
-    const flattenedPropertyGroup =
-        isPropertyGroup(params.properties)
-            ? convertPropertyGroupToProperties(params.properties)
-            : params.properties
+    const flattenedPropertyGroup = isPropertyGroup(params.properties)
+        ? convertPropertyGroupToProperties(params.properties)
+        : params.properties
     if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [
             ...(flattenedPropertyGroup || []),
@@ -426,7 +425,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     seriesId,
                 }
             },
-            loadMorePeople: async ({ }, breakpoint) => {
+            loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {
                     const {
                         people: currPeople,
@@ -563,7 +562,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, { }, { personModal }) => {
+        '/insights/': (_, {}, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

@@ -391,14 +391,14 @@ export function Experiment_(): JSX.Element {
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? isPropertyGroup(funnelsFilters.properties)
                                                                     ? convertPropertyGroupToProperties(
-                                                                        funnelsFilters.properties
-                                                                    )
+                                                                          funnelsFilters.properties
+                                                                      )
                                                                     : funnelsFilters.properties
                                                                 : isPropertyGroup(trendsFilters.properties)
-                                                                    ? convertPropertyGroupToProperties(
-                                                                        trendsFilters.properties
-                                                                    )
-                                                                    : trendsFilters.properties
+                                                                ? convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
+                                                                : trendsFilters.properties
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({

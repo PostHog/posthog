@@ -136,13 +136,13 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
     return !url
         ? {}
         : url
-            .slice(1)
-            .split('&')
-            .reduce((paramsObject, paramString) => {
-                const [key, value] = paramString.split('=')
-                paramsObject[key] = decodeURIComponent(value)
-                return paramsObject
-            }, {} as Record<string, any>)
+              .slice(1)
+              .split('&')
+              .reduce((paramsObject, paramString) => {
+                  const [key, value] = paramString.split('=')
+                  paramsObject[key] = decodeURIComponent(value)
+                  return paramsObject
+              }, {} as Record<string, any>)
 }
 
 export function fromParams(): Record<string, any> {
@@ -152,9 +152,9 @@ export function fromParams(): Record<string, any> {
 export function percentage(division: number): string {
     return division
         ? division.toLocaleString(undefined, {
-            style: 'percent',
-            maximumFractionDigits: 2,
-        })
+              style: 'percent',
+              maximumFractionDigits: 2,
+          })
         : ''
 }
 
@@ -458,10 +458,11 @@ export function formatPropertyLabel(
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
-        (isOperatorFlag(operator)
-            ? ` ${allOperatorsMapping[operator]}`
-            : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
-            } `)
+              (isOperatorFlag(operator)
+                  ? ` ${allOperatorsMapping[operator]}`
+                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
+                    } `)
 }
 
 // Format a label that gets returned from the /insights api
@@ -475,7 +476,8 @@ export function formatLabel(label: string, action: ActionFilter): string {
         label += ` (${action.properties
             .map(
                 (property) =>
-                    `${property.key ? `${property.key} ` : ''}${allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
+                    `${property.key ? `${property.key} ` : ''}${
+                        allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
                     } ${property.value}`
             )
             .join(', ')})`
@@ -525,7 +527,7 @@ export function clearDOMTextSelection(): void {
         }
     } else if ((document as any).selection) {
         // IE?
-        ; (document as any).selection.empty()
+        ;(document as any).selection.empty()
     }
 }
 
@@ -1333,7 +1335,10 @@ export function isPropertyGroup(
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
     if (properties) {
-        return (properties as PropertyGroupFilter).type !== undefined && (properties as PropertyGroupFilter).values !== undefined
+        return (
+            (properties as PropertyGroupFilter).type !== undefined &&
+            (properties as PropertyGroupFilter).values !== undefined
+        )
     }
     return false
 }
@@ -1357,18 +1362,21 @@ export function convertPropertyGroupToProperties(properties: PropertyGroupFilter
     return properties.filter(isValidPropertyFilter)
 }
 
-export function flattenPropertyGroup(flattenedProperties: AnyPropertyFilter[], propertyGroup: PropertyGroupFilter | AnyPropertyFilter): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {};
+export function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {}
     Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k];
-    });
+        obj[k] = propertyGroup[k]
+    })
     if (isValidPropertyFilter(obj)) {
         flattenedProperties.push(obj)
     }
     if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties);
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
     }
-    return flattenedProperties;
+    return flattenedProperties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

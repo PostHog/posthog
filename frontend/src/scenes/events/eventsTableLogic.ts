@@ -123,8 +123,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (_, { properties }) =>
-                    convertPropertyGroupToProperties(properties),
+                setProperties: (_, { properties }) => convertPropertyGroupToProperties(properties),
             },
         ],
         eventFilter: [
