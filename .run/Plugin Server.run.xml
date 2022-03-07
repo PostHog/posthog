@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Plugin Server - Postgres" type="js.build_tools.npm">
+  <configuration default="false" name="Plugin Server" type="js.build_tools.npm">
     <package-json value="$PROJECT_DIR$/plugin-server/package.json" />
     <command value="run" />
     <scripts>
@@ -9,6 +9,10 @@
     <envs>
       <env name="WORKER_CONCURRENCY" value="2" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
+      <env name="PRIMARY_DB" value="clickhouse" />
+      <env name="KAFKA_ENABLED" value="true" />
+      <env name="CLICKHOUSE_SECURE" value="False" />
+      <env name="KAFKA_HOSTS" value="localhost:9092" />
     </envs>
     <method v="2" />
   </configuration>

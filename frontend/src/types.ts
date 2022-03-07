@@ -678,6 +678,7 @@ export interface InsightModel {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
+    derived_name?: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>

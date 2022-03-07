@@ -1,6 +1,6 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
@@ -48,6 +48,37 @@ describe('infiniteListLogic', () => {
         teamLogic.mount()
     })
 
+    const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {
+        const defaultProps = {
+            taxonomicFilterLogicKey: 'testList',
+            listGroupType: TaxonomicFilterGroupType.Events,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        }
+        const logicWithProps = infiniteListLogic({ ...defaultProps, ...props })
+        logicWithProps.mount()
+        return logicWithProps
+    }
+
+    describe('index', () => {
+        it('defaults to 0 when whether the first item should be selected is not specified', async () => {
+            await expectLogic(logicWith({})).toMatchValues({
+                index: 0,
+            })
+        })
+
+        it('is 0 when the first item should be selected', async () => {
+            await expectLogic(logicWith({ selectFirstItem: true })).toMatchValues({
+                index: 0,
+            })
+        })
+
+        it('is -1 when first item should not be selected', async () => {
+            await expectLogic(logicWith({ selectFirstItem: false })).toMatchValues({
+                index: -1,
+            })
+        })
+    })
+
     describe('events with remote data source', () => {
         beforeEach(() => {
             logic = infiniteListLogic({
@@ -66,6 +97,26 @@ describe('infiniteListLogic', () => {
                         results: partial([partial({ name: 'event1' })]),
                     }),
                 })
+        })
+
+        it('can set the index', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
+            expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({
+                remoteItems: partial({ count: 56 }),
+                index: 1,
+            })
+        })
+
+        it('can set the index up and down as a circular list', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
         })
 
         it('setting search query filters events', async () => {
@@ -103,28 +154,6 @@ describe('infiniteListLogic', () => {
                     }),
                     remoteItemsLoading: false,
                 })
-        })
-
-        describe('index', () => {
-            it('is set via setIndex', async () => {
-                await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
-                expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
-                expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({
-                    remoteItems: partial({ count: 56 }),
-                    index: 1,
-                })
-            })
-
-            it('can go up and down', async () => {
-                await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
-                expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 56 }) })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 55 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
-            })
         })
 
         it('selects the selected item', async () => {

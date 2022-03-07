@@ -25,10 +25,14 @@ function TableRowRaw<T extends Record<string, any>>({
     expandable,
     bordered = true,
 }: TableRowProps<T>): JSX.Element {
-    const [isRowExpanded, setIsRowExpanded] = useState(false)
+    const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
+    const isRowExpanded =
+        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record)
 
     return (
         <>
@@ -43,8 +47,12 @@ function TableRowRaw<T extends Record<string, any>>({
                             <LemonButton
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => {
-                                    setIsRowExpanded((state) => !state)
-                                    !isRowExpanded && expandable.onRowExpand?.(record)
+                                    setIsRowExpanded(!isRowExpanded)
+                                    if (isRowExpanded) {
+                                        expandable?.onRowCollapse?.(record)
+                                    } else {
+                                        expandable?.onRowExpand?.(record)
+                                    }
                                 }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}

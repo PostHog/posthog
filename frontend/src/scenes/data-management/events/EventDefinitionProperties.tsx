@@ -13,7 +13,7 @@ import { PropertyDefinitionHeader } from 'scenes/data-management/events/Definiti
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
-    const { eventPropertiesCacheMap, eventPropertiesCacheMapLoading } = useValues(eventDefinitionsTableLogic)
+    const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     useEffect(() => {
@@ -117,7 +117,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                           }
                         : undefined,
                 }}
-                loading={eventPropertiesCacheMapLoading}
+                loading={eventDefinitionPropertiesLoading.includes(definition.id)}
             />
         </div>
     )

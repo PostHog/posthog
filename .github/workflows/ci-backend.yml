@@ -162,13 +162,14 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image-version }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
+                clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
                 ee: [true]
                 foss: [false]
                 saml: [false]
@@ -183,6 +184,15 @@ jobs:
                       saml: false
                       foss: true
                       name: 'FOSS'
+                      clickhouse-server-image-version: '21.6.5'
+                      concurrency: 1
+                      group: 1
+                    - python-version: '3.8.12'
+                      ee: false
+                      saml: false
+                      foss: true
+                      name: 'FOSS'
+                      clickhouse-server-image-version: '21.11.11.1'
                       concurrency: 1
                       group: 1
                     # :TRICKY: Run SAML tests in a separate container
@@ -190,6 +200,7 @@ jobs:
                       ee: false
                       saml: true
                       foss: false
+                      clickhouse-server-image-version: '21.6.5'
                       name: 'SAML'
                       concurrency: 1
                       group: 1
@@ -205,6 +216,7 @@ jobs:
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}
                   saml: ${{ matrix.saml }}
+                  clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
 

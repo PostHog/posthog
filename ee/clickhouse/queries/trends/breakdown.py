@@ -65,8 +65,8 @@ class ClickhouseTrendsBreakdown:
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team_id=self.team_id)
 
-        props_to_filter = self.filter.property_groups.combine_properties(
-            PropertyOperatorType.AND, self.entity.properties
+        props_to_filter = self.filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self.entity.property_groups
         )
 
         outer_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
