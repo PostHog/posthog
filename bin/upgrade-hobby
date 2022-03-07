@@ -16,7 +16,7 @@ git pull
 git checkout am-hobby-upgrade
 cd ../
 
-mv docker-compose.yml docker-compose-old.yml
+rm -f docker-compose.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
@@ -26,9 +26,10 @@ docker-compose pull
 echo "Checking if async migrations are up to date"
 sudo -E docker-compose run asyncmigrationscheck
 
-echo "Stopping the services"
-docker-compose stop -f docker-compose-old.yml
+echo "Stopping the stack!"
+docker-compose stop
 
+echo "Starting the stack!"
 sudo -E docker-compose up -d --scale asyncmigrationscheck=0
 
 echo "PostHog upgraded successfully!"
