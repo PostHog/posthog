@@ -28,14 +28,23 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = """
-    , $group_0 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
+    , $group_0 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR MATERIALIZED trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
+"""
 
+EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
+    , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
@@ -106,7 +115,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
-    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
 )
 
 INSERT_EVENT_SQL = (

@@ -4,6 +4,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -28,6 +29,6 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
 
         table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(table)s",
-            {"database": CLICKHOUSE_DATABASE, "table": "session_recording_events"},
+            {"database": CLICKHOUSE_DATABASE, "table": SESSION_RECORDING_EVENTS_DATA_TABLE()},
         )
         self.assertIn("TTL toDate(created_at) + toIntervalWeek(5)", table_engine[0][0])
