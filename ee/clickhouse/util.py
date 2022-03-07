@@ -4,7 +4,6 @@ from typing import Any, Tuple, Union
 from unittest.mock import patch
 
 import sqlparse
-from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import ch_pool, sync_execute
 from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -12,7 +11,6 @@ from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, T
 from ee.clickhouse.sql.session_recording_events import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.test.base import BaseTest, QueryMatchingTest
@@ -71,7 +69,6 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
     def tearDown(self):
         super().tearDown()
@@ -84,7 +81,6 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_EVENTS_TABLE_SQL())
         sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
 
 
 def snapshot_clickhouse_queries(fn):
