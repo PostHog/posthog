@@ -44,14 +44,12 @@ const featureFlagTabsLogic = kea<featureFlagTabsLogicType<FeatureFlagTab>>({
     }),
 })
 
-export function FeatureFlagTabs({ tab, id }: { tab: FeatureFlagTab; id: string | number | null }): JSX.Element {
+export function FeatureFlagTabs({ tab, id }: { tab: FeatureFlagTab; id: string | number | null }): JSX.Element | null {
     const { setTab } = useActions(featureFlagTabsLogic)
     return id ? (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as FeatureFlagTab, id)}>
             <Tabs.TabPane tab="Configuration" key="configuration" />
             <Tabs.TabPane tab={<span data-attr="feature-flag-history-tab">History</span>} key="history" />
         </Tabs>
-    ) : (
-        <></>
-    )
+    ) : null
 }
