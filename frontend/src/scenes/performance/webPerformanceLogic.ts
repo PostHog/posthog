@@ -10,10 +10,7 @@ import { router } from 'kea-router'
 import { convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
 
 const eventApiProps: Partial<FilterType> = {
-    properties: [
-        { key: '$performance_page_loaded', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
-        { key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
-    ],
+    properties: [{ key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' }],
 }
 
 export interface EventPerformanceMeasure {

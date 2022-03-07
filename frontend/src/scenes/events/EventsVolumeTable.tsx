@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useValues, BindLogic } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -12,6 +12,7 @@ import { EventPageHeader } from './EventPageHeader'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EventDefinitionsTable } from 'scenes/data-management/events/EventDefinitionsTable'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export const scene: SceneExport = {
     component: EventsVolumeTable,
@@ -41,7 +42,9 @@ export function EventsVolumeTable(): JSX.Element | null {
                         )
                     )}
                     {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
-                        <EventDefinitionsTable />
+                        <BindLogic logic={eventDefinitionsTableLogic} props={{ syncWithUrl: true }}>
+                            <EventDefinitionsTable />
+                        </BindLogic>
                     ) : (
                         <VolumeTable data={eventDefinitions} type="event" />
                     )}

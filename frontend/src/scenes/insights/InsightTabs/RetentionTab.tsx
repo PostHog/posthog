@@ -1,12 +1,17 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
+import {
+    retentionTableLogic,
+    dateOptions,
+    retentionOptionDescriptions,
+    retentionOptions,
+} from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
 import { FilterType, PropertyGroupFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconOpenInNew } from 'lib/components/icons'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
@@ -31,12 +36,6 @@ export function RetentionTab(): JSX.Element {
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
-
-    // TODO: Update constant in retentionTableLogic.ts when releasing 4050
-    const retentionOptions = {
-        [`${RETENTION_FIRST_TIME}`]: 'for the first time',
-        [`${RETENTION_RECURRING}`]: 'recurringly',
-    }
 
     return (
         <div data-attr="retention-tab" className="retention-tab">

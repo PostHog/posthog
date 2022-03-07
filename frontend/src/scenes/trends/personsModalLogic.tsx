@@ -97,7 +97,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
         ]
     }
     if (action?.properties) {
-        params.properties = [...(flattenedPropertyGroup || []), ...action.properties]
+        params.properties = { ...(flattenedPropertyGroup || {}), ...action.properties }
     }
 
     return toParams({ ...params, ...restParams })
@@ -426,7 +426,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     seriesId,
                 }
             },
-            loadMorePeople: async ({}, breakpoint) => {
+            loadMorePeople: async ({ }, breakpoint) => {
                 if (values.people) {
                     const {
                         people: currPeople,
@@ -563,7 +563,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, {}, { personModal }) => {
+        '/insights/': (_, { }, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

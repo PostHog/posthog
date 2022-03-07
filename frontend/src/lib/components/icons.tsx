@@ -1217,3 +1217,25 @@ export function PropertyIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element 
         </svg>
     )
 }
+
+export function HomeIcon(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="54" height="48" viewBox="0 0 54 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M26.7334 4.8L41.1334 15.792V12H45.9334V19.464L53.1334 24.96L50.2294 28.776L45.9334 25.488V48H7.53343V25.488L3.23742 28.752L0.333426 24.96L26.7334 4.8ZM12.3334 43.2H24.3334V33.6H29.1334V43.2H41.1334V21.84L26.7334 10.848L12.3334 21.84V43.2ZM31.5334 0C31.5334 3.984 34.7494 7.2 38.7334 7.2C40.0534 7.2 41.1334 8.28 41.1334 9.6H45.9334C45.9334 5.616 42.7174 2.4 38.7334 2.4C37.4134 2.4 36.3334 1.32 36.3334 0H31.5334Z"
+                fill="#F7A501"
+            />
+        </svg>
+    )
+}
+
+export function IconCorporate(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M12 7V3H2V21H22V7H12ZM10 19H4V17H10V19ZM10 15H4V13H10V15ZM10 11H4V9H10V11ZM10 7H4V5H10V7ZM20 19H12V9H20V19ZM18 11H14V13H18V11ZM18 15H14V17H18V15Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}

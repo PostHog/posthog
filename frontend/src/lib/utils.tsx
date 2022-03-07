@@ -17,6 +17,7 @@ import {
     FilterLogicalOperator,
     AnyPropertyFilter,
     PropertyFilter,
+    CohortType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -135,13 +136,13 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
     return !url
         ? {}
         : url
-              .slice(1)
-              .split('&')
-              .reduce((paramsObject, paramString) => {
-                  const [key, value] = paramString.split('=')
-                  paramsObject[key] = decodeURIComponent(value)
-                  return paramsObject
-              }, {} as Record<string, any>)
+            .slice(1)
+            .split('&')
+            .reduce((paramsObject, paramString) => {
+                const [key, value] = paramString.split('=')
+                paramsObject[key] = decodeURIComponent(value)
+                return paramsObject
+            }, {} as Record<string, any>)
 }
 
 export function fromParams(): Record<string, any> {
@@ -151,9 +152,9 @@ export function fromParams(): Record<string, any> {
 export function percentage(division: number): string {
     return division
         ? division.toLocaleString(undefined, {
-              style: 'percent',
-              maximumFractionDigits: 2,
-          })
+            style: 'percent',
+            maximumFractionDigits: 2,
+        })
         : ''
 }
 
@@ -449,19 +450,18 @@ export function isOperatorDate(operator: string): boolean {
 
 export function formatPropertyLabel(
     item: Record<string, any>,
-    cohorts: Record<string, any>[],
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
-        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        ? cohortsById[value]?.name || `ID ${value}`
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
-              (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
+        (isOperatorFlag(operator)
+            ? ` ${allOperatorsMapping[operator]}`
+            : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
+            } `)
 }
 
 // Format a label that gets returned from the /insights api
@@ -475,8 +475,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
         label += ` (${action.properties
             .map(
                 (property) =>
-                    `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
+                    `${property.key ? `${property.key} ` : ''}${allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
                     } ${property.value}`
             )
             .join(', ')})`
@@ -526,7 +525,7 @@ export function clearDOMTextSelection(): void {
         }
     } else if ((document as any).selection) {
         // IE?
-        ;(document as any).selection.empty()
+        ; (document as any).selection.empty()
     }
 }
 

@@ -25,15 +25,15 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import get_cohort_ids_by_person_uuid
+from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
-from ee.clickhouse.models.property import get_person_property_values_for_key
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
+from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
@@ -143,7 +143,7 @@ class PersonFilter(filters.FilterSet):
 
         return queryset.filter(
             properties_to_Q(
-                [prop for prop in filter.properties if prop.type == "person"],
+                [prop for prop in filter.property_groups.flat if prop.type == "person"],
                 team_id=self.team_id,
                 is_direct_query=True,
             )
@@ -503,9 +503,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohort_ids = get_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
+
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
 

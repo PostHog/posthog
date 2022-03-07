@@ -12,7 +12,7 @@ export type LocalFilter = ActionFilter & {
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
-export function toLocalFilters(filters: FilterType): LocalFilter[] {
+export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
     const localFilters = [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
@@ -23,9 +23,9 @@ export function toLocalFilters(filters: FilterType): LocalFilter[] {
     return localFilters.map((filter) =>
         filter.properties
             ? {
-                  ...filter,
-                  properties: convertPropertyGroupToProperties(filter.properties.filter(isValidPropertyFilter)),
-              }
+                ...filter,
+                properties: convertPropertyGroupToProperties(filter.properties.filter(isValidPropertyFilter)),
+            }
             : filter
     )
 }
@@ -180,12 +180,12 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 values.localFilters.map((filter, i) =>
                     i === index
                         ? {
-                              ...filter,
-                              id: id ?? filter.id,
-                              name: name ?? filter.name,
-                              type: type ?? filter.type,
-                              custom_name: custom_name ?? filter.custom_name,
-                          }
+                            ...filter,
+                            id: id ?? filter.id,
+                            name: name ?? filter.name,
+                            type: type ?? filter.type,
+                            custom_name: custom_name ?? filter.custom_name,
+                        }
                         : filter
                 )
             )

@@ -9,7 +9,6 @@ import {
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
-    UNNAMED_INSIGHT_NAME,
 } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
@@ -45,6 +44,10 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -168,7 +171,10 @@ function InsightMeta({
     const { short_id, name, description, tags, color, filters, dashboard } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
@@ -365,7 +371,16 @@ function InsightMeta({
                             </div>
                             <Link to={urls.insightView(short_id)}>
                                 <h4 title={name} data-attr="insight-card-title">
-                                    {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
+                                    {name || (
+                                        <i>
+                                            {summarizeInsightFilters(
+                                                filters,
+                                                aggregationLabel,
+                                                cohortsById,
+                                                mathDefinitions
+                                            )}
+                                        </i>
+                                    )}
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>

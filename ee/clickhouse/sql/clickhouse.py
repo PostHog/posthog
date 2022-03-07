@@ -52,3 +52,7 @@ def kafka_engine(
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
     return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+
+
+def trim_quotes_expr(expr: str) -> str:
+    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"
