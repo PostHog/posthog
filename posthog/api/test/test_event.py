@@ -178,8 +178,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
-    @snapshot_clickhouse_queries
     @test_with_materialized_columns(["random_prop"])
+    @snapshot_clickhouse_queries
     def test_event_property_values(self):
 
         with freeze_time("2020-01-10"):
