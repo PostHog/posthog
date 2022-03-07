@@ -22,6 +22,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
+from ..clickhouse.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
 
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
@@ -617,6 +618,24 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_earliest_timestamp(self):
         get_earliest_timestamp(2)
+
+    @benchmark_clickhouse
+    def track_event_property_values(self):
+        with no_materialized_columns():
+            get_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_event_property_values_materialized(self):
+        get_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_person_property_values(self):
+        with no_materialized_columns():
+            get_person_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_person_property_values_materialized(self):
+        get_person_property_values_for_key("$browser", self.team)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
