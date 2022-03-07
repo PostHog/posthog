@@ -1,2 +1,4 @@
-export { ProfilePicture, ProfilePictureProps } from './ProfilePicture'
-export { ProfileBubbles, ProfileBubblesProps } from './ProfileBubbles'
+export { ProfilePicture } from './ProfilePicture'
+export type { ProfilePictureProps } from './ProfilePicture'
+export { ProfileBubbles } from './ProfileBubbles'
+export type { ProfileBubblesProps } from './ProfileBubbles'

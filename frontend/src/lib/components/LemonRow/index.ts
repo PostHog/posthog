@@ -1,1 +1,2 @@
-export { LemonRow, LemonRowProps, LemonRowPropsBase, LemonSpacer, LemonSpacerProps } from './LemonRow'
+export { LemonRow, LemonSpacer } from './LemonRow'
+export type { LemonRowProps, LemonRowPropsBase, LemonSpacerProps } from './LemonRow'
