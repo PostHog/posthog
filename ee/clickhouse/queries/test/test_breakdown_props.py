@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event

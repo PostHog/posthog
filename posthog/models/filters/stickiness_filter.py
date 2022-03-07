@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict, Optional, Union
 
-from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 

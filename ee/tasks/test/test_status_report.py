@@ -1,8 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
 
-from freezegun.api import freeze_time
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id

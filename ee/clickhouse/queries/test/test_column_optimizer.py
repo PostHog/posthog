@@ -1,5 +1,3 @@
-import pytest
-
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.util import ClickhouseTestMixin

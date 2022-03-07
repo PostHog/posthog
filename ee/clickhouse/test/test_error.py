@@ -2,7 +2,6 @@ import pytest
 from clickhouse_driver.errors import ServerException
 
 from ee.clickhouse.errors import wrap_query_error
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
 
 
 @pytest.mark.parametrize(

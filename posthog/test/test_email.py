@@ -1,4 +1,3 @@
-import pytz
 from constance.test import override_config
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured

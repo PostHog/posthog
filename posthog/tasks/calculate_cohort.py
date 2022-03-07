@@ -5,7 +5,7 @@ import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.db.models import Case, F, When
+from django.db.models import F
 from django.utils import timezone
 
 from posthog.models import Cohort

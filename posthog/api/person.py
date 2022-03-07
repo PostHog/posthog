@@ -39,7 +39,6 @@ from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseSti
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
-from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import (

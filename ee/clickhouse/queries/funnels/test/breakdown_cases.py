@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for

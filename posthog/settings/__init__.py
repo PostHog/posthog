@@ -24,7 +24,6 @@ from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
-from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.feature_flags import *
 from posthog.settings.logging import *
 from posthog.settings.sentry import *
@@ -116,4 +115,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *
+from posthog.settings.cloud import *  # noqa: F401

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -15,7 +15,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import Cohort, Dashboard, Filter, Insight, Person, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 def _create_person(**kwargs):

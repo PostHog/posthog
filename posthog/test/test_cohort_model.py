@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import pytest
 
 from ee.clickhouse.client import sync_execute

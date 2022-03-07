@@ -2,7 +2,6 @@ from unittest import mock
 
 import pytest
 from django.conf import settings
-from pytest_mock import MockFixture
 from pytest_mock.plugin import MockerFixture
 
 from posthog.internal_metrics import gauge, incr, timing

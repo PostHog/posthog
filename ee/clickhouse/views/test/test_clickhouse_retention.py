@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Any, List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 
 from django.test import TestCase
 from django.test.client import Client

@@ -4,8 +4,6 @@ import sys
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.models import Team
-
 
 class Command(BaseCommand):
     help = "Automated test to make sure there are no non-null migrations"

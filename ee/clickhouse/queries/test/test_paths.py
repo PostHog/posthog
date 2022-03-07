@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4
@@ -9,8 +9,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
@@ -26,7 +24,6 @@ from posthog.constants import (
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.queries.test.test_paths import MockEvent, paths_test_factory
 from posthog.test.base import test_with_materialized_columns
 

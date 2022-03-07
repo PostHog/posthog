@@ -8,7 +8,6 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
-    DISTINCT_ID_FILTER,
     PERIOD,
     RETENTION_RECURRING,
     RETENTION_TYPE,

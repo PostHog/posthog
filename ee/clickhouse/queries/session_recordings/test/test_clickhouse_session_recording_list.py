@@ -1,7 +1,6 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.action import Action, ActionStep
