@@ -600,6 +600,21 @@ function HeaderButtons(): JSX.Element | null {
     ) : null
 }
 
+/*
+The FeatureFlagConfiguration component allows the separation of page scaffolding in FeatureFlag.tsx
+and form behaviour.
+
+It is used similarly to
+
+<>
+    <FeatureFlagConfiguration.Form>
+        <PageHeader buttons={FeatureFlagConfiguration.HeaderButtons} />
+        <MorePageStuff />
+        <FeatureFlagConfiguration.FormBody />
+        <EvenMorePageStuff />
+    </FeatureFlagConfiguration.Form>
+</>
+ */
 export const FeatureFlagConfiguration = {
     Form: FormWrapper,
     FormBody: FormBody,
