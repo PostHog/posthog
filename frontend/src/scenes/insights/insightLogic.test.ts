@@ -1,4 +1,3 @@
-import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
@@ -11,9 +10,8 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/browser'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-
-jest.mock('lib/api')
-jest.mock('@sentry/browser')
+import { useMocks } from '~/mocks/jest'
+import { useFeatures } from '~/mocks/features'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -29,45 +27,52 @@ const Insight500 = '500' as InsightShortId
 
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
-    beforeEach(initKeaTests)
 
-    mockAPI(
-        async (url) => {
-            const { pathname, searchParams, method, data } = url
-            const throwAPIError = (): void => {
-                throw { status: 0, statusText: 'error from the API' }
-            }
-            if (
-                [
-                    `api/projects/${MOCK_TEAM_ID}/insights`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/42`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/43`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/44`,
-                ].includes(pathname)
-            ) {
-                return {
-                    result: pathname.endsWith('42') ? ['result from api'] : null,
-                    id: pathname.endsWith('42') ? 42 : 43,
-                    short_id: pathname.endsWith('42') ? Insight42 : Insight43,
-                    filters: data?.filters || API_FILTERS,
-                }
-            } else if (pathname === 'api/projects/997/insights/' && url.searchParams.short_id) {
-                if (url.searchParams.short_id === 500) {
-                    throwAPIError()
-                }
-
-                return {
-                    results: [
+    beforeEach(() => {
+        useFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
+        useMocks({
+            get: {
+                '/api/projects/:team/insights/trend/': (req) => {
+                    if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
+                        return [500, { status: 0, detail: 'error from the API' }]
+                    }
+                    return [200, { result: ['result from api'] }]
+                },
+                '/api/projects/:team/insights/path/': { result: ['result from api'] },
+                '/api/projects/:team/insights/path': { result: ['result from api'] },
+                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                '/api/projects/:team/insights/retention/': { result: ['result from api'] },
+                '/api/projects/:team/insights/': (req) => {
+                    if (req.url.searchParams.get('saved')) {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
+                                    { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
+                                ],
+                            },
+                        ]
+                    }
+                    const shortId = req.url.searchParams.get('short_id') || ''
+                    if (shortId === '500') {
+                        return [500, { status: 0, detail: 'error from the API' }]
+                    }
+                    return [
+                        200,
                         {
-                            result: parseInt(url.searchParams.short_id) === 42 ? ['result from api'] : null,
-                            id: parseInt(url.searchParams.short_id),
-                            short_id: url.searchParams.short_id.toString(),
-                            filters: data?.filters || API_FILTERS,
+                            results: [
+                                {
+                                    result: parseInt(shortId) === 42 ? ['result from api'] : null,
+                                    id: parseInt(shortId),
+                                    short_id: shortId.toString(),
+                                    filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                                },
+                            ],
                         },
-                    ],
-                }
-            } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
-                return {
+                    ]
+                },
+                '/api/projects/:team/dashboards/33/': {
                     id: 33,
                     filters: {},
                     items: [
@@ -79,37 +84,31 @@ describe('insightLogic', () => {
                             tags: ['bla'],
                         },
                     ],
-                }
-            } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
-                throwAPIError()
-            } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
-                return {
-                    results: [
-                        { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
-                        { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
-                    ],
-                }
-            } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
-                return { id: 12, short_id: Insight12, name: data?.name }
-            } else if (
-                [
-                    `api/projects/${MOCK_TEAM_ID}/insights`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/path/`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/path`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
-                    `api/projects/${MOCK_TEAM_ID}/insights/retention/`,
-                ].includes(pathname)
-            ) {
-                if (searchParams?.events?.[0]?.throw) {
-                    throwAPIError()
-                }
-                return { result: ['result from api'] }
-            }
-        },
-        undefined,
-        [AvailableFeature.DASHBOARD_COLLABORATION]
-    )
+                },
+            },
+            post: {
+                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                '/api/projects/:team/insights/': (req) => [
+                    200,
+                    { id: 12, short_id: Insight12, name: (req.body as any)?.name },
+                ],
+            },
+            patch: {
+                '/api/projects/:team/insights/:id': (req) => {
+                    return [
+                        200,
+                        {
+                            result: req.params['id'] === '42' ? ['result from api'] : null,
+                            id: req.params['id'] === '42' ? 42 : 43,
+                            short_id: req.params['id'] === '42' ? Insight42 : Insight43,
+                            filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+    })
 
     it('requires props', () => {
         expect(() => {
@@ -418,10 +417,11 @@ describe('insightLogic', () => {
                 })
 
             router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
+            await expectLogic(logic).toFinishAllListeners()
             await expectLogic(router)
                 .delay(1)
                 .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit(Insight43) }),
+                    location: partial({ pathname: urls.insightEdit(Insight12) }),
                     hashParams: { filters: partial({ insight: 'FUNNELS' }) },
                 })
         })
@@ -731,6 +731,7 @@ describe('insightLogic', () => {
     })
 
     test('will not save with empty filters', async () => {
+        jest.spyOn(Sentry, 'captureException')
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
