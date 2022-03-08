@@ -10,7 +10,7 @@ else
 fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
-export POSTHOG_APP_TAG="${POSTHOG_VERSION:-'latest-release'}" $POSTHOG_APP_TAG
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}" $POSTHOG_APP_TAG
 
 cd posthog
 git pull
