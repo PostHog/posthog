@@ -1,11 +1,14 @@
 import json
+from dataclasses import asdict
 from unittest.mock import patch
 
+from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import FeatureFlag, GroupTypeMapping, HistoricalVersion, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.history_logging import HistoryListItem
 from posthog.test.base import APIBaseTest
 
 
@@ -151,6 +154,11 @@ class TestFeatureFlag(APIBaseTest):
                 "aggregating_by_groups": False,
             },
         )
+
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.assertEqual(historical_flags[0].state, response.json())
+        self.assertEqual(historical_flags[0].action, "create")
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
@@ -324,10 +332,17 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.assertEqual(historical_flags[0].state, response.json())
+        self.assertEqual(historical_flags[0].action, "update")
+        self.assertEqual(historical_flags[0].created_by, self.user)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
         self.client.force_login(new_user)
 
         with patch("posthog.mixins.report_user_action") as mock_capture:
@@ -350,6 +365,126 @@ class TestFeatureFlag(APIBaseTest):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
             },
+        )
+
+        historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
+        self.assertEqual(len(historical_flags), 1)
+        self.maxDiff = None
+        self.assertEqual(
+            historical_flags[0].state,
+            {
+                "id": None,
+                "key": "potato",
+                "name": "",
+                "_state": None,
+                "active": True,
+                "deleted": False,
+                "filters": {},
+                "team_id": self.team.id,
+                "created_at": "2021-08-25T22:09:14.252000+00:00",
+                "created_by_id": self.user.id,
+                "rollout_percentage": None,
+            },
+        )
+        self.assertEqual(historical_flags[0].action, "delete")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_get_feature_flag_that_needs_importing(self):
+        """
+        The first time we load history for a feature flag that existed before starting history logging
+        Import its current state
+        """
+        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
+
+        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        self.client.force_login(new_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/history")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        history = response.json()["results"]
+
+        expected = [
+            asdict(
+                HistoryListItem(
+                    email="history.hog@posthog.com",
+                    name="history hog",
+                    action="FeatureFlag_imported",
+                    detail={"id": str(instance.pk), "key": ""},
+                    created_at="2021-08-25T22:09:14.252000+00:00",
+                )
+            )
+        ]
+
+        self.assertEqual(
+            history, expected,
+        )
+
+    def test_get_feature_flag_history(self):
+        """
+        The first time we load history for a feature flag that existed before starting history logging
+        Import its current state
+        """
+        new_user = User.objects.create_and_join(
+            self.organization, "person_acting_and_then_viewing_history@posthog.com", None
+        )
+        self.client.force_login(new_user)
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"name": "Alpha feature", "key": "alpha-feature"}
+            )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        with freeze_time("2021-08-26T22:12:14.252Z"):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Alpha feature", "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},},
+                format="json",
+            )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        history_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/history")
+
+        self.assertEqual(history_response.status_code, status.HTTP_200_OK)
+
+        history = history_response.json()["results"]
+
+        self.maxDiff = None
+        expected = [
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "action": "FeatureFlag_filters_changed",
+                "detail": {
+                    "id": str(flag_id),
+                    "key": "alpha-feature",
+                    "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                    "to": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                },
+                "created_at": "2021-08-26T22:12:14.252000+00:00",
+            },
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "action": "FeatureFlag_rollout_percentage_changed",
+                "detail": {"id": str(flag_id), "key": "alpha-feature", "from": None, "to": 74},
+                "created_at": "2021-08-26T22:12:14.252000+00:00",
+            },
+            {
+                "email": "person_acting_and_then_viewing_history@posthog.com",
+                "name": "",
+                "action": "FeatureFlag_created",
+                "detail": {"id": str(flag_id), "key": "alpha-feature"},
+                "created_at": "2021-08-25T22:09:14.252000+00:00",
+            },
+        ]
+        self.assertEqual(
+            history, expected,
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
