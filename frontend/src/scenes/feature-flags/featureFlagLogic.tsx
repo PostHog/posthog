@@ -314,7 +314,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
         aggregationTargetName: [
             (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
-            (featureFlag, groupTypes, aggregationLabel) => {
+            (featureFlag, groupTypes, aggregationLabel): string => {
                 if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
@@ -323,7 +323,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
         taxonomicGroupTypes: [
             (s) => [s.featureFlag, s.groupsTaxonomicTypes],
-            (featureFlag, groupsTaxonomicTypes) => {
+            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
