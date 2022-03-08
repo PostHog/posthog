@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { DownloadOutlined } from '@ant-design/icons'
+import { DeleteOutlined, DownloadOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
@@ -347,12 +347,26 @@ export function EventsTable({
                         }}
                     >
                         <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
-                            <EventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
+                            <div style={{ display: 'flex', flexDirection: 'row' }}>
+                                <EventName
+                                    value={eventFilter}
+                                    onChange={(value: string) => {
+                                        setEventFilter(value || '')
+                                    }}
+                                />
+                                {eventFilter && (
+                                    <Button
+                                        type="link"
+                                        onClick={() => {
+                                            setEventFilter('')
+                                        }}
+                                        className="events-table-button-clear"
+                                        title="Clear filter"
+                                    >
+                                        <DeleteOutlined />
+                                    </Button>
+                                )}
+                            </div>
                             <PropertyFilters
                                 propertyFilters={properties}
                                 onChange={setProperties}
