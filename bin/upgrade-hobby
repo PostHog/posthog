@@ -9,7 +9,7 @@ else
     exit
 fi
 
-[[ -f ".env" ]] && source .env || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
 
 docker-compose stop
 

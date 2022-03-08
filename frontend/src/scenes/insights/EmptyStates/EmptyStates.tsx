@@ -16,8 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export const UNNAMED_INSIGHT_NAME = 'Name this insight'
-
 export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
     return (
         <div className={clsx('insight-empty-state', color)}>

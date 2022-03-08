@@ -37,7 +37,6 @@ ignore=
     E722, # do not use bare except, specify exception instead
     E731, # do not assign a lambda expression, use a def
     E741, # do not use variables named ‘l’, ‘O’, or ‘I’
-    F401, # module imported but unused
     F403, # ‘from module import *’ used; unable to detect undefined names
     F405, # name may be undefined, or defined from star imports: module
     F541, # f-string without any placeholders

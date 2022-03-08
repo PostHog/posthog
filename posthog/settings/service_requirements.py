@@ -18,5 +18,5 @@ SERVICE_VERSION_REQUIREMENTS = [
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
-        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0"),
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.12.0"),
     ]

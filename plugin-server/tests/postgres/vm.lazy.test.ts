@@ -4,12 +4,12 @@ import { mocked } from 'ts-jest/utils'
 import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
 import { clearError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
-import { delay } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
 import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
+import { VM_INIT_MAX_RETRIES } from './../../src/worker/vm/lazy'
 import { plugin70 } from './../helpers/plugins'
 
 jest.mock('../../src/worker/vm/vm')
@@ -25,11 +25,6 @@ const mockConfig = {
 }
 
 describe('LazyPluginVM', () => {
-    const createVM = () => {
-        const lazyVm = new LazyPluginVM()
-        lazyVm.ready = true
-        return lazyVm
-    }
     const baseDb = {
         queuePluginLogEntry: jest.fn(),
         batchInsertPostgresLogs: jest.fn(),
@@ -42,7 +37,14 @@ describe('LazyPluginVM', () => {
     }
 
     const mockServer: any = { db }
-    const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, mockConfig as any, '', 'some plugin')
+
+    const createVM = () => {
+        const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)
+        lazyVm.ready = true
+        return lazyVm
+    }
+
+    const initializeVm = (vm: LazyPluginVM) => vm.initialize!('', 'some plugin')
 
     const mockVM = {
         vm: 'vm',
@@ -124,7 +126,7 @@ describe('LazyPluginVM', () => {
             expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual({})
         })
 
-        it('vm init retries 10x with exponential backoff before disabling plugin', async () => {
+        it('vm init retries with exponential backoff before disabling plugin', async () => {
             let i = 0
             // throw a RetryError setting up the vm
             mocked(createPluginConfigVM).mockImplementation(() => {
@@ -134,11 +136,11 @@ describe('LazyPluginVM', () => {
                 throw retryError
             })
 
-            await vm.initialize!(mockServer, mockFailureConfig as any, 'some log info', 'failure plugin')
+            await vm.initialize!('some log info', 'failure plugin')
 
             // try to initialize the vm 11 times (1 try + 10 retries)
             await vm.resolveInternalVm
-            for (let i = 0; i < 10; ++i) {
+            for (let i = 0; i < VM_INIT_MAX_RETRIES + 1; ++i) {
                 jest.runOnlyPendingTimers()
                 await vm.resolveInternalVm
 
@@ -146,36 +148,25 @@ describe('LazyPluginVM', () => {
                 expect(await vm.getProcessEvent()).toEqual(null)
             }
 
-            // plugin setup is retried 15 times with exponential backoff
             expect((status.warn as any).mock.calls).toEqual([
                 ['⚠️', 'I failed without retry, please retry me too!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 3 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 5 s.'],
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 6 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 10 s.'],
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 12 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 20 s.'],
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 24 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 48 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 96 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 192 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 384 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 768 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 40 s.'],
                 ['⚠️', 'I failed, please retry me!'],
                 [
                     '⚠️',
-                    'Failed to load failure plugin. Disabling it due to too many retries – tried to load it 10 times before giving up.',
+                    'Failed to load failure plugin. Disabling it due to too many retries – tried to load it 5 times before giving up.',
                 ],
             ])
 
             // plugin gets disabled
             expect(disablePlugin).toHaveBeenCalledTimes(1)
-            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 35)
+            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 39)
         })
 
         it('vm init will retry on error and load plugin successfully on a retry', async () => {
@@ -184,13 +175,13 @@ describe('LazyPluginVM', () => {
                 throw retryError
             })
 
-            await vm.initialize!(mockServer, mockFailureConfig as any, 'some log info', 'failure plugin')
+            await vm.initialize!('some log info', 'failure plugin')
             await vm.resolveInternalVm
 
             // retry mechanism is called based on the error
             expect((status.warn as any).mock.calls).toEqual([
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 3 s.'],
+                ['⚠️', 'Failed to load failure plugin. Retrying in 5 s.'],
             ])
 
             // do not fail on the second try

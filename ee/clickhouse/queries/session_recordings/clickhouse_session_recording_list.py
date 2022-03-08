@@ -217,17 +217,17 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
 
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
         filter_sql, params = format_entity_filter(team_id=team_id, entity=entity, prepend=prepend, filter_by_team=False)
-        if entity.properties:
-            filters, filter_params = parse_prop_grouped_clauses(
-                team_id=team_id,
-                property_group=entity.property_groups,
-                prepend=prepend,
-                allow_denormalized_props=True,
-                has_person_id_joined=True,
-                person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            )
-            filter_sql += f" {filters}"
-            params = {**params, **filter_params}
+
+        filters, filter_params = parse_prop_grouped_clauses(
+            team_id=team_id,
+            property_group=entity.property_groups,
+            prepend=prepend,
+            allow_denormalized_props=True,
+            has_person_id_joined=True,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        )
+        filter_sql += f" {filters}"
+        params = {**params, **filter_params}
 
         return filter_sql, params
 

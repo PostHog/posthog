@@ -1,13 +1,4 @@
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -29,7 +20,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.property import PropertyGroup
 
 ALL_USERS_COHORT_ID = 0
 
@@ -51,7 +41,7 @@ def get_breakdown_prop_values(
     column_optimizer = column_optimizer or ColumnOptimizer(filter, team_id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
-    props_to_filter = filter.property_groups.combine_properties(PropertyOperatorType.AND, entity.properties)
+    props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
     outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
@@ -135,7 +125,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     props_to_filter = filter.property_groups
 
     if entity and isinstance(entity, Entity):
-        props_to_filter = props_to_filter.combine_properties(PropertyOperatorType.AND, entity.properties)
+        props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team_id, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",

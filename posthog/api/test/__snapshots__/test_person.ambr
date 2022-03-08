@@ -1,0 +1,74 @@
+# name: TestPerson.test_person_property_values
+  '
+  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  SELECT value,
+         count(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+     FROM person
+     WHERE team_id = 2
+       AND is_deleted = 0
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
+     ORDER BY id DESC
+     LIMIT 100000)
+  GROUP BY value
+  ORDER BY count(value) DESC
+  LIMIT 20
+  '
+---
+# name: TestPerson.test_person_property_values.1
+  '
+  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  SELECT value,
+         count(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+     FROM person
+     WHERE team_id = 2
+       AND is_deleted = 0
+       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+     ORDER BY id DESC
+     LIMIT 100000)
+  GROUP BY value
+  ORDER BY count(value) DESC
+  LIMIT 20
+  '
+---
+# name: TestPerson.test_person_property_values_materialized
+  '
+  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  SELECT value,
+         count(value)
+  FROM
+    (SELECT "pmat_random_prop" as value
+     FROM person
+     WHERE team_id = 2
+       AND is_deleted = 0
+       AND "pmat_random_prop" IS NOT NULL
+       AND "pmat_random_prop" != ''
+     ORDER BY id DESC
+     LIMIT 100000)
+  GROUP BY value
+  ORDER BY count(value) DESC
+  LIMIT 20
+  '
+---
+# name: TestPerson.test_person_property_values_materialized.1
+  '
+  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  SELECT value,
+         count(value)
+  FROM
+    (SELECT "pmat_random_prop" as value
+     FROM person
+     WHERE team_id = 2
+       AND is_deleted = 0
+       AND "pmat_random_prop" ILIKE '%qw%'
+     ORDER BY id DESC
+     LIMIT 100000)
+  GROUP BY value
+  ORDER BY count(value) DESC
+  LIMIT 20
+  '
+---

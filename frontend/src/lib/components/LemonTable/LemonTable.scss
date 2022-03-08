@@ -161,7 +161,7 @@
 .LemonTable__pagination {
     display: flex;
     align-items: center;
-    justify-content: end;
+    justify-content: flex-end;
     height: var(--row-base-height);
     border-top: 1px solid var(--border);
     padding: 0 1rem;

@@ -159,7 +159,7 @@ CLICKHOUSE_TABLES = [
 
 if settings.CLICKHOUSE_REPLICATION:
     CLICKHOUSE_TABLES.extend(
-        ["sharded_events", "sharded_person", "sharded_person_distinct_id", "sharded_session_recording_events",]
+        ["sharded_events", "sharded_session_recording_events",]
     )
 
 

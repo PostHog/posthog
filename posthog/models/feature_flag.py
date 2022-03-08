@@ -242,8 +242,9 @@ class FeatureFlagMatcher:
             key = f"condition_{index}"
 
             if len(condition.get("properties", {})) > 0:
+                # Feature Flags don't support OR filtering yet
                 expr: Any = properties_to_Q(
-                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_direct_query=True,
+                    Filter(data=condition).property_groups.flat, team_id=self.feature_flag.team_id, is_direct_query=True
                 )
             else:
                 expr = RawSQL("true", [])

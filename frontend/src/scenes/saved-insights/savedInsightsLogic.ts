@@ -121,14 +121,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             null as Partial<SavedInsightFilters> | null,
             {
                 setSavedInsightsFilters: (state, { filters, merge }) =>
-                    cleanFilters(
-                        merge
-                            ? {
-                                  ...(state || {}),
-                                  ...filters,
-                              }
-                            : filters
-                    ),
+                    cleanFilters({
+                        ...(merge ? state || {} : {}),
+                        ...filters,
+                        ...('page' in filters ? {} : { page: 1 }),
+                    }),
             },
         ],
     },

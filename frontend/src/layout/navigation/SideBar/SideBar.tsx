@@ -17,7 +17,6 @@ import {
     IconPerson,
     IconPlus,
     IconRecording,
-    IconServer,
     IconSettings,
     IconTools,
 } from 'lib/components/icons'
@@ -139,7 +138,6 @@ function Pages(): JSX.Element {
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
-    const { user } = useValues(userLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -250,17 +248,6 @@ function Pages(): JSX.Element {
             )}
             <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
             <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
-            {user?.is_staff && (
-                <>
-                    <LemonSpacer />
-                    <PageButton
-                        title="Instance status & settings"
-                        icon={<IconServer />}
-                        identifier={Scene.SystemStatus}
-                        to={urls.instanceStatus()}
-                    />
-                </>
-            )}
         </div>
     )
 }

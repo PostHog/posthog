@@ -2,9 +2,9 @@
 
 import django.contrib.postgres.fields.jsonb
 import django.db.models.deletion
-from django.db import migrations, models
+from django.db import migrations
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
 def move_funnel_steps(apps, schema_editor):

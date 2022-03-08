@@ -68,7 +68,7 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.33.9"
 
     service_version_requirements = [
-        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0"),
     ]
 
     @cached_property
@@ -161,9 +161,17 @@ class Migration(AsyncMigrationDefinition):
         if settings.MULTI_TENANCY:
             return False
 
-        res = sync_execute(f"SHOW CREATE TABLE {EVENTS_TABLE_NAME}")
+        table_engine = sync_execute(
+            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "name": EVENTS_TABLE},
+        )[0][0]
+
+        if "Distributed" in table_engine:
+            return False
+
         return (
-            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))" not in res[0][0]
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            not in table_engine
         )
 
     def precheck(self):

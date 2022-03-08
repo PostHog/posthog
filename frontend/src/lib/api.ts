@@ -297,9 +297,10 @@ const api = {
             excluded_properties?: string[],
             is_event_property?: boolean,
             limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            offset?: number,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<PropertyDefinition>> {
-            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
+            const params: Record<string, any> = { event_names, excluded_properties, is_event_property, limit, offset }
             return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
@@ -307,9 +308,10 @@ const api = {
             excluded_properties?: string[],
             is_event_property?: boolean,
             limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
+            offset?: number,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: Record<string, any> = { limit, event_names, excluded_properties, is_event_property }
+            const params: Record<string, any> = { event_names, excluded_properties, is_event_property, limit, offset }
             return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },

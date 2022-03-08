@@ -43,8 +43,9 @@ def any_ongoing_mutations() -> bool:
 
 
 def is_default_expression(table: str, column_name: ColumnName) -> bool:
+    updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
     column_query = sync_execute(
         "SELECT default_kind FROM system.columns WHERE table = %(table)s AND name = %(name)s AND database = %(database)s",
-        {"table": table, "name": column_name, "database": CLICKHOUSE_DATABASE,},
+        {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE,},
     )
     return len(column_query) > 0 and column_query[0][0] == "DEFAULT"

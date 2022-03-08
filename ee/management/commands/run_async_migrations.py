@@ -5,7 +5,12 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+    is_async_migration_complete,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -13,6 +18,8 @@ logger = structlog.get_logger(__name__)
 def get_necessary_migrations():
     necessary_migrations = []
     for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
+        if is_async_migration_complete(migration_name):
+            continue
         sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
 
         sm.description = definition.description

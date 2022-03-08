@@ -7,7 +7,7 @@ from django.utils import timezone
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -56,7 +56,11 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
-                {"properties": self._filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
+                {
+                    "properties": self._filter.property_groups.combine_properties(
+                        PropertyOperatorType.AND, [Property(key="id", value=cohort.pk, type="cohort")]
+                    ).to_dict()
+                }
             )
         elif (
             self._filter.breakdown_type
@@ -75,7 +79,13 @@ class ClickhouseTrendsActors(ActorBaseQuery):
                     key=self._filter.breakdown, value=self._filter.breakdown_value, type=self._filter.breakdown_type
                 )
 
-            self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
+            self._filter = self._filter.with_data(
+                {
+                    "properties": self._filter.property_groups.combine_properties(
+                        PropertyOperatorType.AND, [breakdown_prop]
+                    ).to_dict()
+                }
+            )
 
         extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
         if self._filter.include_recordings:
