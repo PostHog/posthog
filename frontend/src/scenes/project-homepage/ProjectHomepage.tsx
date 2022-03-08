@@ -3,7 +3,6 @@ import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement, InsightType } from '~/types'
 import { Button, Row, Typography } from 'antd'
@@ -11,15 +10,13 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { projectHomepageLogic } from './projectHomepageLogic'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { HomeIcon } from 'lib/components/icons'
 
 export function ProjectHomepage(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const dashboardLogicInstance = dashboardLogic({ id: currentTeam?.primary_dashboard ?? undefined })
-    const { dashboard } = useValues(dashboardLogicInstance)
+    const { currentTeam, dashboard } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
 
@@ -58,7 +55,7 @@ export function ProjectHomepage(): JSX.Element {
                                     {dashboard?.name}
                                 </Typography.Title>
                             </div>
-                            <Button data-attr="project-home-new-insight" onClick={showPrimaryDashboardModal}>
+                            <Button data-attr="project-home-change-dashboard" onClick={showPrimaryDashboardModal}>
                                 Change dashboard
                             </Button>
                         </Row>
@@ -79,10 +76,8 @@ export function ProjectHomepage(): JSX.Element {
                     </p>
                     <Button
                         type="primary"
-                        data-attr="project-home-new-insight"
-                        onClick={() => {
-                            showPrimaryDashboardModal()
-                        }}
+                        data-attr="project-home-change-dashboard"
+                        onClick={showPrimaryDashboardModal}
                     >
                         Select a default dashboard
                     </Button>
@@ -95,4 +90,5 @@ export function ProjectHomepage(): JSX.Element {
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
+    logic: projectHomepageLogic,
 }
