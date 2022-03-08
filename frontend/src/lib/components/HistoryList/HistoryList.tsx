@@ -17,7 +17,7 @@ so that it can provide a mechanism to allow the containing parent to refresh its
  */
 export const HistoryList = forwardRef(({ type, id }: HistoryListProps, ref): JSX.Element | null => {
     if (!id) {
-        return null
+        return <div className="empty-state">There is no history for this item</div>
     }
 
     const logic = historyListLogic({ type, id })

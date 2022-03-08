@@ -1,6 +1,5 @@
 import datetime
 import json
-from typing import Dict
 
 from django.db import models
 from django.utils import timezone
