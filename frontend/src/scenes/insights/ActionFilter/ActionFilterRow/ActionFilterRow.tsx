@@ -473,7 +473,7 @@ interface MathSelectorProps {
     math?: string
     mathGroupTypeIndex?: number | null
     index: number
-    onMathSelect: (index: number, value: any) => any // TODO
+    onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
 
