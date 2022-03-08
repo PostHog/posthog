@@ -2,23 +2,24 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { router } from 'kea-router'
-import { MOCK_TEAM_ID, mockAPI, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { useMocks } from '~/mocks/jest'
 
-jest.mock('lib/api')
-
-describe('savedInsightsLogic', () => {
+describe('primaryDashboardModalLogic', () => {
     let logic: ReturnType<typeof primaryDashboardModalLogic.build>
 
-    mockAPI(async ({ pathname, data }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}` && data) {
-            return { ...MOCK_DEFAULT_TEAM, primary_dashboard: data?.primary_dashboard }
-        }
-    })
-
     beforeEach(async () => {
+        useMocks({
+            patch: {
+                '/api/projects/:team': (req) => {
+                    const data = req.body as any
+                    return [200, { ...MOCK_DEFAULT_TEAM, primary_dashboard: data?.primary_dashboard }]
+                },
+            },
+        })
         initKeaTests()
         teamLogic.mount()
         userLogic.mount()

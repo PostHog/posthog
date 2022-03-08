@@ -1,74 +1,70 @@
 import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { PropertyDefinition, PropertyType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useMocks } from '~/mocks/jest'
 
-jest.mock('lib/api')
+const propertyDefinitions: PropertyDefinition[] = [
+    {
+        id: 'an id',
+        name: 'no property type',
+        description: 'a description',
+        volume_30_day: null,
+        query_usage_30_day: null,
+    },
+    {
+        id: 'an id',
+        name: 'a string',
+        description: 'a description',
+        volume_30_day: null,
+        query_usage_30_day: null,
+        property_type: PropertyType.String,
+    },
+    {
+        id: 'an id',
+        name: '$time',
+        description: 'a description',
+        volume_30_day: null,
+        query_usage_30_day: null,
+        property_type: PropertyType.DateTime,
+    },
+    {
+        id: 'an id',
+        name: '$timestamp',
+        description: 'a description',
+        volume_30_day: null,
+        query_usage_30_day: null,
+        property_type: PropertyType.DateTime,
+    },
+]
 
 describe('the property definitions model', () => {
     let logic: ReturnType<typeof propertyDefinitionsModel.build>
     let featureFlagsLogic: ReturnType<typeof featureFlagLogic.build>
 
-    const propertyDefinitions: PropertyDefinition[] = [
-        {
-            id: 'an id',
-            name: 'no property type',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-        },
-        {
-            id: 'an id',
-            name: 'a string',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-            property_type: PropertyType.String,
-        },
-        {
-            id: 'an id',
-            name: '$time',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-            property_type: PropertyType.DateTime,
-        },
-        {
-            id: 'an id',
-            name: '$timestamp',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-            property_type: PropertyType.DateTime,
-        },
-    ]
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                '/api/projects/@current/property_definitions/': {
+                    count: 3,
+                    results: propertyDefinitions,
+                    next: undefined,
+                },
+            },
+        })
 
-    mockAPI(async (url) => {
-        if (url.pathname === 'api/projects/@current/property_definitions/') {
-            return {
-                count: 3,
-                results: propertyDefinitions,
-                next: undefined,
-            }
-        }
-        return defaultAPIMocks(url)
-    })
-
-    beforeEach(() => {
         initKeaTests()
         featureFlagsLogic = featureFlagLogic()
         featureFlagsLogic.mount()
         logic = propertyDefinitionsModel()
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPropertyDefinitionsSuccess'])
     })
 
     it('can load property definitions', () => {
-        expectLogic(logic).toMatchValues({
-            propertyDefinitions,
-        })
+        expectLogic(logic).toMatchValues({ propertyDefinitions })
     })
 
     it('does not describe a property that has no server provided type', () => {
