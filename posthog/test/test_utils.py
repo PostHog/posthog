@@ -18,6 +18,7 @@ from posthog.utils import (
     load_data_from_request,
     mask_email_address,
     relative_date_parse,
+    should_refresh,
 )
 
 
@@ -187,3 +188,37 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
+
+
+class TestShouldRefresh(TestCase):
+    def test_should_refresh_with_refresh_true(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "true"
+        self.assertTrue(should_refresh(Request(request)))
+
+    def test_should_refresh_with_refresh_empty(self):
+        request = HttpRequest()
+        request.GET["refresh"] = ""
+        self.assertTrue(should_refresh(Request(request)))
+
+    def test_should_not_refresh_with_refresh_false(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "false"
+        self.assertFalse(should_refresh(Request(request)))
+
+    def test_should_not_refresh_with_refresh_gibberish(self):
+        request = HttpRequest()
+        request.GET["refresh"] = "2132klkl"
+        self.assertFalse(should_refresh(Request(request)))
+
+    def test_should_refresh_with_data_true(self):
+        request = HttpRequest()
+        request.META["Content-Type"] = "application/json"
+        request._body = '{ "refresh": true }'  # type: ignore
+        self.assertFalse(should_refresh(Request(request)))
+
+    def test_should_not_refresh_with_data_false(self):
+        request = HttpRequest()
+        request.META["Content-Type"] = "application/json"
+        request._body = '{ "refresh": false }'  # type: ignore
+        self.assertFalse(should_refresh(Request(request)))
