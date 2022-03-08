@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import Sentry from '@sentry/react'
+import * as Sentry from '@sentry/react'
 import { Integration } from '@sentry/types'
 
 const configWithSentry = (config: posthog.Config): posthog.Config => {
