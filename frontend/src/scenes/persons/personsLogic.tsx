@@ -193,7 +193,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 loadPersons: async ({ url }) => {
                     if (!url) {
                         if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons`
+                            url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
                         } else {
                             url = `api/person/?${toParams(values.listFilters)}`
                         }

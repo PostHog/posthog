@@ -175,7 +175,7 @@ class ClickhousePersonQuery:
 
         if self._filter.search:
             prop_group = PropertyGroup(
-                type=PropertyOperatorType.AND, values=[Property(key="email", value=self._filter.search, type="person")]
+                type=PropertyOperatorType.AND, values=[Property(key="email", operator="icontains", value=self._filter.search, type="person")]
             )
             search_clause, params = parse_prop_grouped_clauses(
                 self._team_id,
