@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Automated test to make sure there are no non-null migrations"
+    help = "Automated test to make sure there are no non-null, dropping, renaming, or multiple migrations"
 
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
