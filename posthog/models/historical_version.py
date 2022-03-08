@@ -22,10 +22,18 @@ class HistoricalVersionJSONEncoder(json.JSONEncoder):
 
 class HistoricalVersion(UUIDModel):
     """
-    We don't store foreign key references cos the referenced model will change or be deleted.
+    We don't store a foreign key references to the item being versioned
+    because the referenced model will change or be deleted.
+
     The history log should hold the state at the time it is written not the time it is read
 
     Everything in the log must have either a team id or an organization id
+
+    We do store the user whose action is creating the version as a foreign key
+    If their name changes it should change in the log
+
+    This does mean that if the user is deleted we will still have the logged version
+    but won't be able to display who caused it to be logged
     """
 
     class Action(models.TextChoices):
