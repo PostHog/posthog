@@ -17,7 +17,6 @@ import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import clone from 'clone'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -86,17 +85,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             null as FeatureFlagType | null,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
-                    const newFeatureFlag = clone(featureFlag)
-                    newFeatureFlag.filters.groups = newFeatureFlag.filters.groups.map((group) => {
-                        if (group.properties) {
-                            return {
-                                ...group,
-                                properties: convertPropertyGroupToProperties(group.properties),
-                            }
-                        }
-                        return group
-                    })
-                    return newFeatureFlag
+                    const groups = featureFlag.filters.groups.map((group) => ({
+                        ...group,
+                        properties: convertPropertyGroupToProperties(group.properties),
+                    }))
+                    return { ...featureFlag, filters: { ...featureFlag?.filters, groups } }
                 },
                 addConditionSet: (state) => {
                     if (!state) {

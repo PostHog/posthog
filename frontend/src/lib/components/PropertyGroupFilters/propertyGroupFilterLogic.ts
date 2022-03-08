@@ -4,7 +4,6 @@ import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
-import clone from 'clone'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
@@ -42,38 +41,28 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                             ],
                         }
                     }
-                    const groupsCopy = clone(state)
-                    groupsCopy.values.push({ type: FilterLogicalOperator.And, values: [{}] })
+                    const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [{}] }]
 
-                    if (groupsCopy.values.length > 1 && !groupsCopy.type) {
-                        groupsCopy.type = FilterLogicalOperator.And
-                    }
-                    return groupsCopy
+                    return { ...state, values: filterGroups }
                 },
                 removeFilterGroup: (state, { filterGroup }) => {
-                    const newState = clone(state)
-                    const removedFilterGroupState = {
-                        ...newState,
-                        values: newState.values.filter((_, idx: number) => idx !== filterGroup),
-                    }
-                    return removedFilterGroupState
+                    const filteredGroups = [...state.values]
+                    filteredGroups.splice(filterGroup, 1)
+                    return { ...state, values: filteredGroups }
                 },
                 setOuterPropertyGroupsType: (state, { type }) => {
                     return { ...state, type }
                 },
                 setPropertyFilters: (state, { properties, index }) => {
-                    const newState = clone(state)
-                    newState.values[index].values = properties
-                    // removes entire property group if no properties in values
-                    if (newState.values[index].values.length === 0) {
-                        newState.values = newState.values.filter((_, i: number) => i !== index)
-                    }
-                    return newState
+                    const values = [...state.values]
+                    values[index] = { ...values[index], values: properties }
+
+                    return { ...state, values }
                 },
                 setInnerPropertyGroupType: (state, { type, index }) => {
-                    const newState = { ...state }
-                    newState.values[index].type = type
-                    return newState
+                    const values = [...state.values]
+                    values[index] = { ...values[index], type }
+                    return { ...state, values }
                 },
             },
         ],
