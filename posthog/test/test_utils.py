@@ -212,13 +212,11 @@ class TestShouldRefresh(TestCase):
         self.assertFalse(should_refresh(Request(request)))
 
     def test_should_refresh_with_data_true(self):
-        request = HttpRequest()
-        request.META["Content-Type"] = "application/json"
-        request._body = '{ "refresh": true }'  # type: ignore
-        self.assertFalse(should_refresh(Request(request)))
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": True}  # type: ignore
+        self.assertTrue(should_refresh((drf_request)))
 
     def test_should_not_refresh_with_data_false(self):
-        request = HttpRequest()
-        request.META["Content-Type"] = "application/json"
-        request._body = '{ "refresh": false }'  # type: ignore
-        self.assertFalse(should_refresh(Request(request)))
+        drf_request = Request(HttpRequest())
+        drf_request._full_data = {"refresh": False}  # type: ignore
+        self.assertFalse(should_refresh(drf_request))
