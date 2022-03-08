@@ -1,6 +1,5 @@
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -8,47 +7,45 @@ import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightModel, DashboardType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 
 const dashboardJson = _dashboardJson as any as DashboardType
-jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {
-            return dashboardJson
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/6/`) {
-            return {
-                ...dashboardJson,
-                items: [
-                    { ...dashboardJson.items[0], result: null },
-                    { ...dashboardJson.items[1], result: null },
-                    { ...dashboardJson.items[0], id: 666, short_id: '666' },
-                    { ...dashboardJson.items[1], id: 999, short_id: '999' },
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/dashboards/5/': dashboardJson,
+                '/api/projects/:team/dashboards/6/': {
+                    ...dashboardJson,
+                    items: [
+                        { ...dashboardJson.items[0], result: null },
+                        { ...dashboardJson.items[1], result: null },
+                        { ...dashboardJson.items[0], id: 666, short_id: '666' },
+                        { ...dashboardJson.items[1], id: 999, short_id: '999' },
+                    ],
+                },
+                '/api/projects/:team/dashboards/7/': () => [500, '💣'],
+                '/api/projects/:team/dashboards/8/': {
+                    ...dashboardJson,
+                    items: [{ id: 1001, short_id: '1001' }],
+                },
+                '/api/projects/:team/insights/1001/': () => [500, '💣'],
+                '/api/projects/:team/insights/:id/': (req) => [
+                    200,
+                    dashboardJson.items.find(({ id }: any) => String(id) === req.params['id']),
                 ],
-            }
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/7/`) {
-            throw new Error('💣')
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/8/`) {
-            return {
-                ...dashboardJson,
-                items: [{ id: 1001, short_id: '1001' }],
-            }
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/1001/`) {
-            throw new Error('💣')
-        } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
-            return dashboardJson.items.find(({ id }: any) => String(id) === pathname.split('/')[4])
-        }
+            },
+        })
+        initKeaTests()
     })
 
     describe('when there is no props id', () => {
-        initKeaTestLogic({
-            logic: dashboardLogic,
-            props: {
-                id: undefined as unknown as number,
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = dashboardLogic({ id: undefined })
+            logic.mount()
         })
 
         it('does not fetch dashboard items on mount', async () => {
@@ -60,28 +57,22 @@ describe('dashboardLogic', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
 
-        initKeaTestLogic({
-            logic: dashboardLogic,
-            props: {
-                id: 7,
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 7 })
+            logic.mount()
         })
 
         it('allows consumers to respond', async () => {
-            await expectLogic(logic).toMatchValues({
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 receivedErrorsFromAPI: true,
             })
         })
     })
 
     describe('when a dashboard item API errors', () => {
-        initKeaTestLogic({
-            logic: dashboardLogic,
-            props: {
-                id: 8,
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 8 })
+            logic.mount()
         })
 
         it('allows consumers to respond', async () => {
@@ -97,12 +88,10 @@ describe('dashboardLogic', () => {
     })
 
     describe('when props id is set to a number', () => {
-        initKeaTestLogic({
-            logic: dashboardLogic,
-            props: {
-                id: 5,
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         describe('on load', () => {
@@ -179,6 +168,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.refreshAllDashboardItems([dashboardJson.items[0] as any])
                 })
+                    .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
                         logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].short_id], true),
@@ -212,16 +202,14 @@ describe('dashboardLogic', () => {
     })
 
     describe('with a half-cached dashboard', () => {
-        initKeaTestLogic({
-            logic: dashboardLogic,
-            props: {
-                id: 6,
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 6 })
+            logic.mount()
         })
 
         it('fetches dashboard items on mount', async () => {
             await expectLogic(logic)
+                .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
                     allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 2),
