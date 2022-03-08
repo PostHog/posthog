@@ -1,5 +1,4 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
-
 from typing import Literal
 
 from django.conf import settings

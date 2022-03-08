@@ -15,12 +15,7 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
-from posthog.models.async_migration import (
-    AsyncMigration,
-    AsyncMigrationError,
-    MigrationStatus,
-    get_all_running_async_migrations,
-)
+from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
 

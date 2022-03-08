@@ -1,7 +1,5 @@
 from uuid import UUID, uuid4
 
-import pytest
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import insert_static_cohort
 from ee.clickhouse.models.event import create_event

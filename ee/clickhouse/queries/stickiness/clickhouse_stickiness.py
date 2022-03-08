@@ -6,7 +6,6 @@ from typing import Any, Dict, List
 from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
-from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute

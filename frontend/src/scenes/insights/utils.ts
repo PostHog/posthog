@@ -161,7 +161,7 @@ export function summarizeBreakdown(
                         (cohortId === 'all'
                             ? 'all users'
                             : cohortId in cohortsById
-                            ? cohortsById[cohortId].name
+                            ? cohortsById[cohortId]?.name
                             : `ID ${cohortId}`)
                 )
                 .join(', ')}`
