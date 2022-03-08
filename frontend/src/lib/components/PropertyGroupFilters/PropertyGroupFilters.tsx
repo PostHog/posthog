@@ -133,6 +133,7 @@ export function PropertyGroupFilters({
                     </LemonButton>
                 ) : (
                     <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
                         onClick={() => addFilterGroup()}
                         className="mb"
                         style={{
