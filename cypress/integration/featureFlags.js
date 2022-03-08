@@ -43,7 +43,7 @@ describe('Feature Flags', () => {
             .type('-updated')
             .should('have.value', name + '-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
-        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
+        cy.get('[data-attr=menu-item-featureflags]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
         cy.get(`[data-row-key=${name}-updated] [data-attr=more-button]`).click()
@@ -59,7 +59,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-submit]').click()
-        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
+        cy.get('[data-attr=menu-item-featureflags]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
