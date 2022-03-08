@@ -14,6 +14,8 @@ from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.historical_version import HistoryLoggingMixin
+from posthog.models.history_logging import HistoryListItemSerializer, load_history
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -138,7 +140,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(
+    StructuredViewSetMixin, HistoryLoggingMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet
+):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -196,6 +200,20 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 }
             )
         return Response(flags)
+
+    @action(methods=["GET"], detail=True)
+    def history(self, request: request.Request, **kwargs):
+        history = load_history(
+            history_type="FeatureFlag",
+            team_id=self.team_id,
+            item_id=kwargs["pk"],
+            instance=self.get_object(),
+            serializer=FeatureFlagSerializer,
+        )
+        return Response(
+            {"results": HistoryListItemSerializer(history, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
