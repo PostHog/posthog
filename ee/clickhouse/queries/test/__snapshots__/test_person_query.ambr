@@ -32,8 +32,7 @@
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s)) ILIKE %(vpersonquery_global_0_1)s)) 
-              
+              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_1)s))
           
   '
 ---
@@ -45,8 +44,7 @@
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s  AND has(%(vpersonquery_global_1)s, trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1)s)))  AND has(%(vpersonquery_global_2)s, trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_2)s)))) 
-              
+              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s  AND has(%(vpersonquery_global_1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1)s), '^"|"$', ''))  AND has(%(vpersonquery_global_2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_2)s), '^"|"$', '')))
           
   '
 ---
@@ -84,8 +82,7 @@
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s)) ILIKE %(vpersonquery_global_0_1)s)) 
-              
+              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_1)s))
           
   '
 ---
@@ -97,8 +94,7 @@
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_0_1)s)) ILIKE %(vpersonquery_global_0_0_1)s))AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1_0)s  OR trim(BOTH '"' FROM JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1_1)s)) ILIKE %(vpersonquery_global_1_1)s)) 
-              
+              HAVING max(is_deleted) = 0 AND (((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_0_1)s))AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_1_1)s))
           
   '
 ---

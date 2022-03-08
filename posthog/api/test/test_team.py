@@ -1,6 +1,7 @@
 from rest_framework import status
 
 from posthog.demo import create_demo_team
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -133,6 +134,28 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+    def test_update_primary_dashboard(self):
+        d = Dashboard.objects.create(name="Test", team=self.team)
+
+        # Can set it
+        response = self.client.patch("/api/projects/@current/", {"primary_dashboard": d.id})
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_data["name"], self.team.name)
+        self.assertEqual(response_data["primary_dashboard"], d.id)
+
+    def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
+        team_2 = Team.objects.create(organization=self.organization, name="Default Project")
+        d = Dashboard.objects.create(name="Test", team=team_2)
+
+        response = self.client.patch("/api/projects/@current/", {"primary_dashboard": d.id})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.get("/api/projects/@current/")
+        response_data = response.json()
+        self.assertEqual(response_data["primary_dashboard"], None)
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

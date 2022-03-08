@@ -9,10 +9,10 @@ from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -80,6 +80,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data[1]["name"], "$browser")
         self.assertEqual(response_data[1]["count"], 1)
 
+    @test_with_materialized_columns(person_properties=["random_prop"])
+    @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
             team=self.team, properties={"random_prop": "asdf", "some other prop": "with some text"},
@@ -381,11 +383,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         cohort3.calculate_people_ch(pending_version=0)
 
+        cohort4 = Cohort.objects.create(
+            team=self.team, groups=[], is_static=True, last_calculation=timezone.now(), name="cohort4"
+        )
+        cohort4.insert_users_by_list(["2"])
+
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
-        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(

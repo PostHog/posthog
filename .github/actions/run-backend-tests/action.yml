@@ -5,6 +5,9 @@ inputs:
     python-version:
         required: true
         type: string
+    clickhouse-server-image-version:
+        default: '21.6.5'
+        type: string
     ee:
         required: true
         type: boolean
@@ -27,6 +30,7 @@ runs:
         - name: Start stack with Docker Compose
           shell: bash
           run: |
+              export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
               docker-compose -f docker-compose.dev.yml down
               docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
 

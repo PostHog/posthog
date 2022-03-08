@@ -80,7 +80,7 @@ describe('eventDefinitionsTableLogic', () => {
                 return `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=30`
             }
             if (path === 'propertyDefinitions.determineListEndpoint') {
-                return `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`
+                return `api/projects/${MOCK_TEAM_ID}/property_definitions?${toParams({ limit: 5, offset: args?.[4] })}`
             }
             if (path === 'events.determineListEndpoint') {
                 return `api/projects/${MOCK_TEAM_ID}/events?${toParams({ ...args[0], limit: args[1] })}`
@@ -178,8 +178,9 @@ describe('eventDefinitionsTableLogic', () => {
                     eventPropertiesCacheMap: partial({
                         [eventDefinition.id]: partial({
                             count: 5,
-                            previous: null,
                             results: mockEventPropertyDefinitions.slice(0, 5),
+                            previous: null,
+                            current: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`,
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),
