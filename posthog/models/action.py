@@ -27,7 +27,6 @@ class Action(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-    test_var: models.BooleanField = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
