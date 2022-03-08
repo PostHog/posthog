@@ -22,7 +22,7 @@ class HistoricalVersionJSONEncoder(json.JSONEncoder):
 
 class HistoricalVersion(UUIDModel):
     """
-    We don't store a foreign key references to the item being versioned
+    We don't store foreign key references to the item being versioned
     because the referenced model will change or be deleted.
 
     The history log should hold the state at the time it is written not the time it is read
