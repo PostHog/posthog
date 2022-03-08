@@ -30,7 +30,7 @@ class HistoricalVersion(UUIDModel):
     Everything in the log must have either a team id or an organization id
 
     We do store the user whose action is creating the version as a foreign key
-    If their name changes it should change in the log
+    Because if their name or email changes it should change in the log
 
     This does mean that if the user is deleted we will still have the logged version
     but won't be able to display who caused it to be logged
