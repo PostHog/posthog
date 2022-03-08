@@ -10,7 +10,6 @@ from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorTyp
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import PropertyGroup
 
 
 class TrendsEventQuery(ClickhouseEventQuery):

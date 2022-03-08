@@ -1,15 +1,7 @@
 import unittest
 
-import pytest
-
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
-from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import PropertyOperatorType
-from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
-from posthog.models.property import PropertyGroup
-from posthog.test.base import APIBaseTest
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
