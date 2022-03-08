@@ -1,12 +1,11 @@
-import re
 from typing import Dict, Set
 
 import structlog
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, build_query, get_table_name
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, MULTI_TENANCY
 
 logger = structlog.get_logger(__name__)
 
@@ -20,7 +19,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if not CLICKHOUSE_REPLICATION or MULTI_TENANCY:
+        if not settings.CLICKHOUSE_REPLICATION or settings.MULTI_TENANCY:
             logger.info("✅ Skipping non-replicated or cloud setup")
             return
 
@@ -29,7 +28,7 @@ class Command(BaseCommand):
         if len(out_of_sync_hosts) > 0:
             logger.info("Schema out of sync on some clickhouse nodes!", out_of_sync_hosts=out_of_sync_hosts)
 
-            if options["dry_run"]:
+            if options.get("dry_run"):
                 exit(1)
 
             logger.info("Creating missing tables")
@@ -49,10 +48,9 @@ class Command(BaseCommand):
             GROUP BY host
         """,
             {
-                "cluster": CLICKHOUSE_CLUSTER,
-                "database": CLICKHOUSE_DATABASE,
+                "cluster": settings.CLICKHOUSE_CLUSTER,
+                "database": settings.CLICKHOUSE_DATABASE,
                 "table_names": table_names,
-                "target_count": len(table_names),
             },
         )
 

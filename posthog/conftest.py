@@ -1,4 +1,5 @@
 import pytest
+from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
@@ -6,14 +7,6 @@ from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-)
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_REPLICATION,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
 )
 from posthog.test.base import TestMixin
 
@@ -53,7 +46,7 @@ def create_clickhouse_tables(num_tables: int):
         GROUPS_TABLE_SQL(),
     ]
 
-    if CLICKHOUSE_REPLICATION:
+    if settings.CLICKHOUSE_REPLICATION:
         TABLES_TO_CREATE_DROP.extend([DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()])
 
     if num_tables == len(TABLES_TO_CREATE_DROP):
@@ -101,11 +94,11 @@ def reset_clickhouse_tables():
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
-        CLICKHOUSE_DATABASE,
-        db_url=CLICKHOUSE_HTTP_URL,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        verify_ssl_cert=CLICKHOUSE_VERIFY,
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
     )
 
     if not django_db_keepdb:
@@ -116,7 +109,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
     database.create_database()  # Create database if it doesn't exist
     table_count = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
+        "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": settings.CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)
 
