@@ -40,6 +40,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
+    item_custom_name: Optional[str]
     math: Optional[MATH_TYPE]
     math_property: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
@@ -66,6 +67,10 @@ class Entity(PropertyMixin):
         if custom_name is not None:
             custom_name = str(custom_name).strip() or None
         self.custom_name = custom_name
+        item_custom_name = data.get("item_custom_name")
+        if item_custom_name is not None:
+            item_custom_name = str(item_custom_name).strip() or None
+        self.item_custom_name = item_custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
         self.math_group_type_index = validate_group_type_index(
@@ -85,6 +90,7 @@ class Entity(PropertyMixin):
             "order": self.order,
             "name": self.name,
             "custom_name": self.custom_name,
+            "item_custom_name": self.item_custom_name,
             "math": self.math,
             "math_property": self.math_property,
             "math_group_type_index": self.math_group_type_index,
@@ -133,7 +139,9 @@ class Entity(PropertyMixin):
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
-    __repr__ = sane_repr("id", "type", "order", "name", "custom_name", "math", "math_property", "properties")
+    __repr__ = sane_repr(
+        "id", "type", "order", "name", "custom_name", "item_custom_name", "math", "math_property", "properties"
+    )
 
 
 class ExclusionEntity(Entity, FunnelFromToStepsMixin):

@@ -40,10 +40,12 @@
 
                     &.taxonomy-icon-verified {
                         height: 24px;
-                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
-
                         path {
                             fill: var(--success);
+                        }
+
+                        &:not(.taxonomy-icon-ph) {
+                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                         }
                     }
                 }

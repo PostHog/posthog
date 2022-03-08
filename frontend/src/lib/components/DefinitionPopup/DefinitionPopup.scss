@@ -89,6 +89,10 @@
                     path {
                         fill: var(--success);
                     }
+
+                    &:not(.taxonomy-icon-ph) {
+                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
+                    }
                 }
             }
 

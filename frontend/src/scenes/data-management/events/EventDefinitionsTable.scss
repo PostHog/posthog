@@ -24,10 +24,13 @@
 
                     &.taxonomy-icon-verified {
                         height: 28px;
-                        margin-bottom: -4px;
 
                         path {
                             fill: var(--success);
+                        }
+
+                        &:not(.taxonomy-icon-ph) {
+                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                         }
                     }
                 }
@@ -87,6 +90,7 @@
         .LemonTable__expansion {
             .event-properties-wrapper {
                 padding: 1rem 0 1rem 1rem;
+
                 .event-properties-header {
                     font-weight: 600;
                 }
