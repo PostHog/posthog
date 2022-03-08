@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, isPropertyGroup } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
@@ -15,7 +15,6 @@ import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
 import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
-import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
 
@@ -148,9 +147,7 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
     const { filters, created_at, created_by } = insight
 
-    const properties = isPropertyGroup(filters.properties)
-        ? convertPropertyGroupToProperties(filters.properties)
-        : filters.properties?.filter(isValidPropertyFilter)
+    const properties = convertPropertyGroupToProperties(filters.properties)
 
     const { featureFlags } = useValues(featureFlagLogic)
 

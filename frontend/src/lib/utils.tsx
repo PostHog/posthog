@@ -1356,12 +1356,12 @@ export function convertPropertiesToPropertyGroup(
 }
 
 export function convertPropertyGroupToProperties(
-    properties: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyFilter[] {
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyFilter[] | undefined {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
-    return properties.filter(isValidPropertyFilter)
+    return properties && properties.filter(isValidPropertyFilter)
 }
 
 export function flattenPropertyGroup(
