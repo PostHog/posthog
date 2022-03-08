@@ -4,7 +4,6 @@ import {
     AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagType,
-    GroupType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
 } from '~/types'
@@ -18,6 +17,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { featureFlagLogicType } from './featureFlagLogicType'
 const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -45,7 +45,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
-export const featureFlagLogic = kea({
+export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
@@ -265,7 +265,7 @@ export const featureFlagLogic = kea({
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveFeatureFlagSuccess: ({ featureFlag }: { featureFlag: FeatureFlagType }) => {
+        saveFeatureFlagSuccess: ({ featureFlag }) => {
             toast.success(
                 <div>
                     <h1>Your feature flag has been saved!</h1>
@@ -280,7 +280,7 @@ export const featureFlagLogic = kea({
             )
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
         },
-        deleteFeatureFlag: async ({ featureFlag }: { featureFlag: FeatureFlagType }) => {
+        deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
                 object: { name: featureFlag.name, id: featureFlag.id },
@@ -290,7 +290,7 @@ export const featureFlagLogic = kea({
                 },
             })
         },
-        setMultivariateEnabled: async ({ enabled }: { enabled: boolean }) => {
+        setMultivariateEnabled: async ({ enabled }) => {
             if (enabled) {
                 actions.setMultivariateOptions(EMPTY_MULTIVARIATE_OPTIONS)
             } else {
@@ -299,40 +299,22 @@ export const featureFlagLogic = kea({
         },
     }),
     selectors: {
-        multivariateEnabled: [
-            (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType) => !!featureFlag?.filters.multivariate,
-        ],
-        variants: [
-            (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): MultivariateFlagVariant[] =>
-                featureFlag?.filters.multivariate?.variants || [],
-        ],
-        nonEmptyVariants: [
-            (s) => [s.variants],
-            (variants: MultivariateFlagVariant[]) => variants.filter(({ key }) => !!key),
-        ],
+        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
+        nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
             (s) => [s.variants],
-            (variants: MultivariateFlagVariant[]) =>
-                variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
+            (variants) => variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
         ],
         areVariantRolloutsValid: [
             (s) => [s.variants, s.variantRolloutSum],
-            (variants: MultivariateFlagVariant[], variantRolloutSum: number) =>
+            (variants, variantRolloutSum) =>
                 variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
                 variantRolloutSum === 100,
         ],
         aggregationTargetName: [
             (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
-            (
-                featureFlag: FeatureFlagType,
-                groupTypes: GroupType[],
-                aggregationLabel: (
-                    groupTypeIndex: number | null | undefined,
-                    deferToUserWording?: boolean
-                ) => { singular: string; plural: string }
-            ): string => {
+            (featureFlag, groupTypes, aggregationLabel) => {
                 if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
@@ -341,10 +323,7 @@ export const featureFlagLogic = kea({
         ],
         taxonomicGroupTypes: [
             (s) => [s.featureFlag, s.groupsTaxonomicTypes],
-            (
-                featureFlag: FeatureFlagType,
-                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
-            ): TaxonomicFilterGroupType[] => {
+            (featureFlag, groupsTaxonomicTypes) => {
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
@@ -358,7 +337,7 @@ export const featureFlagLogic = kea({
         ],
         breadcrumbs: [
             (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): Breadcrumb[] => [
+            (featureFlag): Breadcrumb[] => [
                 {
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
