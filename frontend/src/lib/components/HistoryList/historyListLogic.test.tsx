@@ -6,11 +6,9 @@ import {
 } from 'lib/components/HistoryList/historyListLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { mockAPI } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 const aHumanizedPageOfHistory: HumanizedHistoryListItem[] = [
     {
@@ -73,15 +71,12 @@ const aPageOfHistory: HistoryListItem[] = [
 describe('the history list logic', () => {
     let logic: ReturnType<typeof historyListLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (pathname == '/api/projects/@current/feature_flags/7/history') {
-            return {
-                results: aPageOfHistory,
-            }
-        }
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/@current/feature_flags/7/history/': { results: aPageOfHistory },
+            },
+        })
         initKeaTests()
         logic = historyListLogic({ type: 'FeatureFlag', id: 7 })
         logic.mount()
@@ -91,8 +86,8 @@ describe('the history list logic', () => {
         expect(logic.key).toEqual('history/FeatureFlag/7')
     })
 
-    it('can load a page of history', async () => {
-        await expectLogic(logic).toMatchValues({
+    it.only('can load a page of history', async () => {
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
             historyLoading: false,
             history: aHumanizedPageOfHistory,
         })
