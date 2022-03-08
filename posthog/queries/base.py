@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError

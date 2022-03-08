@@ -35,7 +35,6 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
             sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id).get_query()
-
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
         else:
