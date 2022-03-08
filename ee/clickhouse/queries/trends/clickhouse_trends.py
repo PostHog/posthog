@@ -1,7 +1,7 @@
 import copy
 import threading
 from itertools import accumulate
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union, cast
 
 from django.db.models.query import Prefetch
 from django.utils import timezone
@@ -86,9 +86,8 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         # flatten results
         flat_results: List[Dict[str, Any]] = []
         for item in result:
-            if item is not None:  # Mypy thinks results might still be None
-                for flat in item:
-                    flat_results.append(flat)
+            for flat in cast(List[Dict[str, Any]], item):
+                flat_results.append(flat)
 
         return flat_results
 
