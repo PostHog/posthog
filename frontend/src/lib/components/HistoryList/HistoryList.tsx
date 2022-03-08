@@ -11,6 +11,10 @@ interface HistoryListProps {
     id: number | null
 }
 
+/*
+As HistoryList is intended to be embedded in other components it uses forwardRef
+so that it can provide a mechanism to allow the containing parent to refresh its data
+ */
 export const HistoryList = forwardRef(({ type, id }: HistoryListProps, ref): JSX.Element | null => {
     if (!id) {
         return null
