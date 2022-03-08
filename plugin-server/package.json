@@ -87,7 +87,7 @@
         "snowflake-sdk": "^1.6.1",
         "tar-stream": "^2.2.0",
         "uuid": "^8.3.2",
-        "vm2": "3.9.5"
+        "vm2": "3.9.6"
     },
     "devDependencies": {
         "@babel/cli": "^7.13.0",
