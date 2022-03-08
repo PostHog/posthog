@@ -23,8 +23,11 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
-import { convertPropertiesToPropertyGroup } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -121,10 +124,9 @@ export function FunnelTab(): JSX.Element {
             <Col xs={24} md={8} xl={24}>
                 <hr />
                 <div className="mt" />
-                {filters.properties && (
+                {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                     <PropertyGroupFilters
                         propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                        style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                         onChange={(properties: PropertyGroupFilter) => {
                             setFilters({ properties })
                         }}
@@ -138,6 +140,31 @@ export function FunnelTab(): JSX.Element {
                         pageKey="EditFunnel-property"
                         eventNames={allEventNames}
                     />
+                ) : (
+                    <>
+                        <div className="flex-center">
+                            <div style={{ flexGrow: 1 }}>
+                                <GlobalFiltersTitle unit="steps" />
+                            </div>
+                        </div>
+                        <PropertyFilters
+                            pageKey={`EditFunnel-property`}
+                            propertyFilters={convertPropertyGroupToProperties(filters.properties) || []}
+                            onChange={(anyProperties) => {
+                                setFilters({
+                                    properties: anyProperties.filter(isValidPropertyFilter),
+                                })
+                            }}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                            eventNames={allEventNames}
+                        />
+                    </>
                 )}
                 <div className="flex-center">
                     <div style={{ marginBottom: '0.5rem' }}>

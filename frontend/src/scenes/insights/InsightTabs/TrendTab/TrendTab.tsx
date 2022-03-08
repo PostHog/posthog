@@ -16,10 +16,11 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet, convertPropertiesToPropertyGroup } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export interface TrendTabProps {
     view: string
@@ -113,10 +114,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            {filters.properties && (
+                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                                 <PropertyGroupFilters
                                     propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                                    style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                                     onChange={(properties) => {
                                         setFilters({ properties })
                                     }}
@@ -130,6 +130,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     pageKey="trends-filters"
                                     eventNames={allEventNames}
                                 />
+                            ) : (
+                                <>
+                                    <GlobalFiltersTitle />
+                                    <PropertyFilters
+                                        propertyFilters={convertPropertyGroupToProperties(filters.properties)}
+                                        onChange={(properties) => setFilters({ properties })}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            ...groupsTaxonomicTypes,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                        pageKey="trends-filters"
+                                        eventNames={allEventNames}
+                                    />
+                                </>
                             )}
 
                             <TestAccountFilter filters={filters} onChange={setFilters} />

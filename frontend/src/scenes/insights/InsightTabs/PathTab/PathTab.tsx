@@ -27,7 +27,9 @@ import { PathAdvanded } from './PathAdvanced'
 import clsx from 'clsx'
 import { IconArrowDropDown } from 'lib/components/icons'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { convertPropertiesToPropertyGroup } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export function PathTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
@@ -433,10 +435,9 @@ export function PathTab(): JSX.Element {
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
-                    {filter.properties && (
+                    {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filter.properties ? (
                         <PropertyGroupFilters
                             propertyFilters={convertPropertiesToPropertyGroup(filter.properties)}
-                            style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                             onChange={(properties: PropertyGroupFilter) => {
                                 setFilter({ properties })
                             }}
@@ -450,6 +451,23 @@ export function PathTab(): JSX.Element {
                             pageKey="insight-path"
                             eventNames={allEventNames}
                         />
+                    ) : (
+                        <>
+                            <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
+                            <PropertyFilters
+                                propertyFilters={convertPropertyGroupToProperties(filter.properties)}
+                                onChange={(properties) => setFilter({ properties })}
+                                pageKey="insight-path"
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                                eventNames={allEventNames}
+                            />
+                        </>
                     )}
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     {hasAdvancedPaths && (

@@ -23,7 +23,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '../BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { convertPropertiesToPropertyGroup } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { GlobalFiltersTitle } from '../common'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -39,8 +41,8 @@ export function RetentionTab(): JSX.Element {
 
     return (
         <div data-attr="retention-tab" className="retention-tab">
-            <Row gutter={24}>
-                <Col md={12} xs={24}>
+            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
+                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
                     <Row gutter={8} align="middle">
                         <Col>
                             <ActionFilter
@@ -155,11 +157,14 @@ export function RetentionTab(): JSX.Element {
                         </Col>
                     </Row>
                 </Col>
-                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                    {filters.properties && (
+                <Col
+                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
+                    xs={24}
+                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
+                >
+                    {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                         <PropertyGroupFilters
                             propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                            style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
                             onChange={(properties: PropertyGroupFilter) => {
                                 setFilters({ properties })
                             }}
@@ -173,6 +178,23 @@ export function RetentionTab(): JSX.Element {
                             pageKey="insight-retention"
                             eventNames={allEventNames}
                         />
+                    ) : (
+                        <>
+                            <GlobalFiltersTitle unit="actions/events" />
+                            <PropertyFilters
+                                propertyFilters={convertPropertyGroupToProperties(filters.properties)}
+                                onChange={(properties) => setFilters({ properties })}
+                                pageKey="insight-retention"
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                                eventNames={allEventNames}
+                            />
+                        </>
                     )}
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 

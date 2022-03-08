@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
@@ -16,7 +16,6 @@ interface PropertyGroupFilters {
     propertyFilters?: PropertyGroupFilter | null
     onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
-    style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
 }
@@ -26,7 +25,6 @@ export function PropertyGroupFilters({
     onChange,
     pageKey,
     taxonomicGroupTypes,
-    style = {},
     eventNames = [],
 }: PropertyGroupFilters): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
@@ -69,7 +67,7 @@ export function PropertyGroupFilters({
                         {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
                                 <>
-                                    <div className="mt mb" style={style} key={propertyGroupIndex}>
+                                    <div className="property-group" key={propertyGroupIndex}>
                                         <Row justify="space-between" align="middle" className="mb-05">
                                             <AndOrFilterSelect
                                                 onChange={(type) => setInnerPropertyGroupType(type, propertyGroupIndex)}

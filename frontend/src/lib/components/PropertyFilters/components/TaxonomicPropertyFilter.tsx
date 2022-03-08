@@ -101,13 +101,15 @@ export function TaxonomicPropertyFilter({
                     {orFiltering ? (
                         <>
                             {propertyGroupType && index !== 0 && filter?.key && (
-                                <div className="taxonomic-where primary-alt" style={{ fontSize: 11, marginLeft: 0 }}>
+                                <div className="taxonomic-where">
                                     {propertyGroupType === FilterLogicalOperator.And ? (
                                         <span style={{ fontSize: 12 }}>
-                                            <b>{'&'}</b>
+                                            <strong>{'&'}</strong>
                                         </span>
                                     ) : (
-                                        <b>{propertyGroupType}</b>
+                                        <span style={{ fontSize: 11 }}>
+                                            <strong>{propertyGroupType}</strong>
+                                        </span>
                                     )}
                                 </div>
                             )}

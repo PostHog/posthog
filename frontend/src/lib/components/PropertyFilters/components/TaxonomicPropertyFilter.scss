@@ -47,6 +47,10 @@
             grid-row: 2;
         }
 
+        &.logical-operator-filtering {
+            grid-template-columns: 16px minmax(160px, 1fr) minmax(100px, auto);
+        }
+
         // small screens
         @media (max-width: 512px) {
             grid-template-columns: 35px auto 70px;
@@ -57,6 +61,9 @@
                 .arrow {
                     display: none;
                 }
+            }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px auto 70px;
             }
         }
 
@@ -83,6 +90,9 @@
             .taxonomic-value-select {
                 grid-column: 4;
                 grid-row: 1;
+            }
+            &.logical-operator-filtering {
+                grid-template-columns: 16px minmax(140px, 160px) minmax(70px, 160px) minmax(100px, 400px);
             }
         }
         // even more space for huge screens
