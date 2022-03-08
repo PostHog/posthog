@@ -71,11 +71,7 @@ describe('funnelLogic', () => {
                 ],
                 '/api/projects/:team/insights/': { results: funnelResults },
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
-                '/api/projects/:team/groups_types/': [
-                    // { group_type: 'project', group_type_index: 0, name_singular: null, name_plural: null },
-                    // { group_type: 'organization', group_type_index: 1, name_singular: null, name_plural: null },
-                    // { group_type: 'instance', group_type_index: 2, name_singular: null, name_plural: null },
-                ],
+                '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
                 '/api/person/funnel': { results: [], next: null },
                 '/api/person/properties': [
