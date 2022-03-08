@@ -30,6 +30,6 @@ echo "Stopping the stack!"
 docker-compose stop
 
 echo "Restarting the stack!"
-sudo -E docker-compose up -d --scale asyncmigrationscheck=0
+sudo -E docker-compose up -d
 
 echo "PostHog upgraded successfully!"
