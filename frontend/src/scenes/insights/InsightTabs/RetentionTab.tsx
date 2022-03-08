@@ -39,8 +39,8 @@ export function RetentionTab(): JSX.Element {
 
     return (
         <div data-attr="retention-tab" className="retention-tab">
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row gutter={24}>
+                <Col md={12} xs={24}>
                     <Row gutter={8} align="middle">
                         <Col>
                             <ActionFilter
@@ -155,7 +155,7 @@ export function RetentionTab(): JSX.Element {
                         </Col>
                     </Row>
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.properties && (
                         <PropertyGroupFilters
                             propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
