@@ -85,8 +85,11 @@ class InsightBasicSerializer(serializers.ModelSerializer):
 
 
 class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
+
     result = serializers.SerializerMethodField()
-    last_refresh = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField(
+        help_text="When the cache for the result of this insight was last refreshed.", read_only=True
+    )
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -123,6 +126,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "effective_privilege_level",
         ]
         read_only_fields = (
+            "last_refresh",
             "created_at",
             "created_by",
             "last_modified_at",
@@ -199,6 +203,11 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
 
 class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+    """
+    Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
+    reports or part of a dashboard.
+    """
+
     queryset = Insight.objects.all().prefetch_related(
         "dashboard", "dashboard__team", "dashboard__team__organization", "created_by"
     )
