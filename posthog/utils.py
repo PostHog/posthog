@@ -683,8 +683,8 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(l: Union[List, Tuple]) -> Generator:
-    for el in l:
+def flatten(i: Union[List, Tuple]) -> Generator:
+    for el in i:
         if isinstance(el, list):
             yield from flatten(el)
         else:

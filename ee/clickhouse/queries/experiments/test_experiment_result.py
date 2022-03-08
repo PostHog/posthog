@@ -355,16 +355,16 @@ def probability_C_beats_A_and_B_count_data(
 ) -> Probability:
     total: Probability = 0
 
-    for k in range(B_count):
-        for l in range(A_count):
+    for i in range(B_count):
+        for j in range(A_count):
             total += exp(
-                k * log(B_exposure)
-                + l * log(A_exposure)
+                i * log(B_exposure)
+                + j * log(A_exposure)
                 + C_count * log(C_exposure)
-                - (k + l + C_count) * log(B_exposure + A_exposure + C_exposure)
-                + lgamma(k + l + C_count)
-                - lgamma(k + 1)
-                - lgamma(l + 1)
+                - (i + j + C_count) * log(B_exposure + A_exposure + C_exposure)
+                + lgamma(i + j + C_count)
+                - lgamma(i + 1)
+                - lgamma(j + 1)
                 - lgamma(C_count)
             )
     return (
