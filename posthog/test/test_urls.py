@@ -1,10 +1,7 @@
 import uuid
 
-import pytest
-from django.conf import settings
 from rest_framework import status
 
-import posthog.urls
 from posthog.test.base import APIBaseTest
 
 

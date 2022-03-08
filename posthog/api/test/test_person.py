@@ -4,7 +4,6 @@ from unittest import mock
 from uuid import uuid4
 
 from django.utils import timezone
-from freezegun import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute
@@ -348,11 +347,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         cohort2.calculate_people_ch(pending_version=0)
         cohort3.calculate_people_ch(pending_version=0)
 
+        cohort4 = Cohort.objects.create(
+            team=self.team, groups=[], is_static=True, last_calculation=timezone.now(), name="cohort4"
+        )
+        cohort4.insert_users_by_list(["2"])
+
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
-        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
+        self.assertDictContainsSubset({"id": cohort4.id, "count": None, "name": cohort4.name}, response["results"][2])
 
     def test_split_person_clickhouse(self):
         person = _create_person(

@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 from uuid import uuid4
 
 import dateutil.parser
-from django.conf import settings
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status

@@ -22,6 +22,7 @@ from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
@@ -249,7 +250,7 @@ class FunnelCorrelation:
         else:
             array_join_query = f"""
                 arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-                arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
+                arrayMap(x -> {trim_quotes_expr("JSONExtractRaw(properties, x)")}, prop_keys) as prop_values,
                 arrayJoin(arrayZip(prop_keys, prop_values)) as prop
             """
 
@@ -470,13 +471,14 @@ class FunnelCorrelation:
         )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
+            map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
             return (
                 f"""
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({aggregation_properties_alias})) as person_prop_keys,
             arrayJoin(
                 arrayZip(
                     person_prop_keys,
-                    arrayMap(x -> trim(BOTH '"' FROM JSONExtractRaw({aggregation_properties_alias}, x)), person_prop_keys)
+                    arrayMap(x -> {map_expr}, person_prop_keys)
                 )
             ) as prop
             """,

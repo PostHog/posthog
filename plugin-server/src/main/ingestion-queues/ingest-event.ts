@@ -108,6 +108,7 @@ async function runInstrumentedFunction({
         Sentry.captureException(error)
         throw error
     } finally {
+        server.statsd?.increment(`${statsKey}_total`)
         server.statsd?.timing(statsKey, timer)
         clearTimeout(timeout)
     }
