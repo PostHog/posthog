@@ -1,15 +1,9 @@
-from typing import Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Dict, List, Optional, Set, Tuple, Union
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import (
-    extract_tables_and_properties,
-    parse_prop_grouped_clauses,
-    prop_filter_json_extract,
-)
+from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
-from ee.clickhouse.queries.property_optimizer import PropertyOptimizer
 from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter

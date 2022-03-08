@@ -3,11 +3,9 @@ import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
-import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 const Insight42 = 'ii42' as InsightShortId
 
@@ -41,19 +39,17 @@ const createSavedInsights = (string = 'hello'): InsightsResult => ({
 describe('savedInsightsLogic', () => {
     let logic: ReturnType<typeof savedInsightsLogic.build>
 
-    mockAPI(async ({ pathname, searchParams: { search } }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
-            return createSavedInsights(search)
-        }
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/42`) {
-            return createInsight(42)
-        }
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/123`) {
-            return createInsight(123)
-        }
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/insights/': (req) => [
+                    200,
+                    createSavedInsights(req.url.searchParams.get('search') ?? ''),
+                ],
+                '/api/projects/:team/insights/42': createInsight(42),
+                '/api/projects/:team/insights/123': createInsight(123),
+            },
+        })
         initKeaTests()
         router.actions.push(urls.savedInsights())
         logic = savedInsightsLogic()
@@ -162,24 +158,22 @@ describe('savedInsightsLogic', () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
             )
-            await expectLogic(router)
-                .delay(1)
-                .toMatchValues({
-                    location: partial({ pathname: urls.insightView(Insight42) }),
-                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
-                })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(router).toMatchValues({
+                location: partial({ pathname: urls.insightView(Insight42) }),
+                hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
+            })
         })
 
         it('in edit mode with a #fromItem=', async () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
             )
-            await expectLogic(router)
-                .delay(1)
-                .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
-                })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(router).toMatchValues({
+                location: partial({ pathname: urls.insightEdit(Insight42) }),
+                hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
+            })
         })
 
         it('new mode with ?insight= and no hash params', async () => {

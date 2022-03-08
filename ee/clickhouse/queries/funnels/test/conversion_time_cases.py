@@ -1,7 +1,5 @@
 from datetime import datetime
-from typing import List, cast
 
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter

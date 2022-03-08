@@ -1,6 +1,5 @@
 from typing import Any, Dict, cast
 
-from rest_framework import exceptions
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -9,7 +8,7 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.api.insight import InsightViewSet
 from posthog.decorators import cached_function
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.models.filters import Filter
 
 

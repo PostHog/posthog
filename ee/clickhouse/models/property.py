@@ -13,10 +13,8 @@ from typing import (
 )
 
 from clickhouse_driver.util.escape import escape_param
-from django.utils import timezone
 from rest_framework import exceptions
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
     format_cohort_subquery,
@@ -28,13 +26,7 @@ from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import (
-    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
-    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
-    SELECT_PERSON_PROP_VALUES_SQL,
-    SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
-)
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
@@ -46,8 +38,7 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
-from posthog.models.team import Team
-from posthog.utils import is_valid_regex, relative_date_parse
+from posthog.utils import is_valid_regex
 
 # Property Groups Example:
 # {type: 'AND', groups: [

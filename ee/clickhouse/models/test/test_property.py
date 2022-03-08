@@ -1,4 +1,3 @@
-import inspect
 from datetime import datetime
 from typing import List, Literal, Union, cast
 from uuid import UUID, uuid4
@@ -27,7 +26,7 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
-from posthog.test.base import BaseTest, test_with_materialized_columns
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> UUID:
