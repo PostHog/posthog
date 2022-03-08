@@ -101,8 +101,6 @@ test('setupPlugins and runProcessEvent', async () => {
         ],
     ])
 
-    expect(clearError).toHaveBeenCalledWith(hub, pluginConfig)
-
     const processEvent = vm!.methods['processEvent']!
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     await processEvent(event)
