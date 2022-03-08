@@ -1,5 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ActionType } from '~/types'
@@ -21,9 +21,8 @@ global.fetch = jest.fn(() =>
 describe('toolbar actionsLogic', () => {
     let logic: ReturnType<typeof actionsLogic.build>
 
-    initKeaTestLogic()
-
     beforeEach(() => {
+        initKeaTests()
         toolbarLogic({ apiURL: 'http://localhost' }).mount()
         logic = actionsLogic()
         logic.mount()
