@@ -179,11 +179,12 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
 def get_deferred_field_set_for_model(
     model: Type[models.Model], fields_not_deferred: Set[str] = set(), field_prefix: str = ""
 ) -> Set[str]:
-    """Return a set of field names that are deferred for a given model. Used with `.defer()` after `select_related`
+    """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`
 
     Why? `select_related` fetches the entire related objects - not allowing you to specify which fields
     you want from the related objects. Often, we only want a few fields from the related object in addition to the entire
-    initial object. This is a helper function to make that easier. Example of how it's used is:
+    initial object. As a result, you can't use `.only()`. This is a helper function to make it easier to use `.defer()` in this case.
+    Example of how it's used is:
 
     `Project.objects.select_related("team").defer(*get_deferred_field_set_for_model(Team, {"name"}, "team__"))`
 
