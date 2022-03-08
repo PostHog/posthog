@@ -1,9 +1,7 @@
 import json
-from unittest.mock import patch
 from uuid import uuid4
 
 from freezegun import freeze_time
-from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event

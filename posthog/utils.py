@@ -42,7 +42,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 
-from posthog.constants import AnalyticsDBMS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 

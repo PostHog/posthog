@@ -1,13 +1,10 @@
-from typing import TYPE_CHECKING, Any, Dict, cast
+from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
-
-if TYPE_CHECKING:
-    from posthog.models.user import User
 
 
 class Dashboard(models.Model):

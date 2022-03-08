@@ -1,5 +1,3 @@
-from typing import Any, List
-
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 from rest_framework.decorators import api_view

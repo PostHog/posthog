@@ -1,3 +1,4 @@
+# flake8: noqa
 # Make tasks ready for celery autoimport
 import posthog.tasks.async_migrations
 import posthog.tasks.calculate_cohort

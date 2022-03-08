@@ -1,9 +1,9 @@
 import json
-from typing import Any, Dict, Iterator, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PROPERTIES, PROPERTY_GROUPS, PropertyOperatorType
+from posthog.constants import PROPERTIES, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.models.property import Property, PropertyGroup

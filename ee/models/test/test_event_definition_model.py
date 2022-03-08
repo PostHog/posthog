@@ -1,5 +1,4 @@
 import pytest
-from django.db.utils import IntegrityError
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.test.base import BaseTest

@@ -1,3 +1,4 @@
+# flake8: noqa
 from .action import Action
 from .action_step import ActionStep
 from .annotation import Annotation

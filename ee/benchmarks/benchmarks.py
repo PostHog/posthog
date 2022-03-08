@@ -1,12 +1,8 @@
 # isort: skip_file
 # Needs to be first to set up django environment
 from .helpers import *
-
-from django.utils import timezone
 from datetime import timedelta
 from typing import List, Tuple
-
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation

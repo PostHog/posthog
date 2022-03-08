@@ -4,7 +4,6 @@ from typing import Dict, Optional, cast
 import pytz
 
 from ee.models.license import License, LicenseManager
-from posthog.models import Organization
 from posthog.test.base import APIBaseTest
 
 
