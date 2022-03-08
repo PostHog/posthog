@@ -87,7 +87,7 @@ export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps, 
     path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
     props: {} as HistoryListLogicProps,
     key: ({ id, type }) => `history/${type}/${id}`,
-    loaders: ({ props, values }) => ({
+    loaders: ({ props }) => ({
         history: [
             [] as HumanizedHistoryListItem[],
             {
@@ -95,7 +95,7 @@ export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps, 
                     const apiResponse: PaginatedResponse<HistoryListItem> = await api.get(
                         `/api/projects/@current/feature_flags/${props.id}/history`
                     )
-                    return [...(values.history || []), ...humanize(apiResponse?.results)]
+                    return humanize(apiResponse?.results)
                 },
             },
         ],

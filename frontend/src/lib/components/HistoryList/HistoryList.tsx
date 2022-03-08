@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { forwardRef, useImperativeHandle } from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { historyListLogic } from 'lib/components/HistoryList/historyListLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import './HistoryList.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
@@ -11,13 +11,20 @@ interface HistoryListProps {
     id: number | null
 }
 
-export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element | null => {
+export const HistoryList = forwardRef(({ type, id }: HistoryListProps, ref): JSX.Element | null => {
     if (!id) {
         return null
     }
 
     const logic = historyListLogic({ type, id })
     const { history, historyLoading } = useValues(logic)
+    const { fetchHistory } = useActions(logic)
+
+    useImperativeHandle(ref, () => ({
+        reload() {
+            fetchHistory()
+        },
+    }))
 
     const rows = history.map((historyItem, index) => {
         return (
@@ -48,4 +55,4 @@ export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element | null 
             )}
         </div>
     )
-}
+})
