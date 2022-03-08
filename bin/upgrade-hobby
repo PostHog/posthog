@@ -29,7 +29,7 @@ sudo -E docker-compose run asyncmigrationscheck
 echo "Stopping the stack!"
 docker-compose stop
 
-echo "Starting the stack!"
+echo "Restarting the stack!"
 sudo -E docker-compose up -d --scale asyncmigrationscheck=0
 
 echo "PostHog upgraded successfully!"
