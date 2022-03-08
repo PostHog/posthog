@@ -1,6 +1,7 @@
 import json
 
 from dateutil import parser
+from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -19,19 +20,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_retrieve_dashboard_list(self):
         d1 = Dashboard.objects.create(team=self.team, name="a dashboard", created_by=self.user)
         d2 = Dashboard.objects.create(team=self.team, name="b dashboard", created_by=self.user)
-        d3 = Dashboard.objects.create(team=self.team, name="c dashboard", created_by=self.user)
 
-        # Makes 8 queries right now
-        # For permissions: session, user, team, organization membership, organization
-        # For dashboards: dashboard count, dashboard list, dashboard items
-        with self.assertNumQueries(8):
-            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertEqual(len(response_data["results"]), 3)
-            self.assertEqual(response_data["results"][0]["name"], d1.name)
-            self.assertEqual(response_data["results"][1]["name"], d2.name)
-            self.assertEqual(response_data["results"][2]["name"], d3.name)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], [d1.name, d2.name])
+
+    @snapshot_postgres_queries
+    def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self):
+        Dashboard.objects.create(team=self.team, name="a dashboard", created_by=self.user)
+
+        start_query_count = len(connection.queries)
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        expected_query_count = len(connection.queries) - start_query_count
+
+        Dashboard.objects.create(team=self.team, name="b dashboard", created_by=self.user)
+        Dashboard.objects.create(team=self.team, name="c dashboard", created_by=self.user)
+
+        with self.assertNumQueries(expected_query_count):
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
