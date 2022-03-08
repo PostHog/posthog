@@ -27,8 +27,8 @@ export const handlers = mocksToHandlers({
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
-        '/_preflight': require('../../../cypress/fixtures/_preflight.json'),
-        '/_system_status': require('../../../cypress/fixtures/_system_status.json'),
+        '/_preflight': require('./fixtures/_preflight.json'),
+        '/_system_status': require('./fixtures/_system_status.json'),
     },
     post: {
         '/e/': () => [200, 'ok'],
