@@ -98,11 +98,13 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
 const renderItemContents = ({
     item,
     listGroupType,
+    group,
     featureFlags,
     eventNames,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
+    group: TaxonomicFilterGroup
     featureFlags: FeatureFlagsSet
     eventNames: string[]
 }): JSX.Element | string => {
@@ -120,6 +122,8 @@ const renderItemContents = ({
         (item as PropertyDefinition).is_event_property !== null &&
         !(item as PropertyDefinition).is_event_property
 
+    const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>
+
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
@@ -127,10 +131,12 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx(isStale && 'text-muted')}>
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+                {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
                     disablePopover
+                    disableIcon={!!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]}
                     customName={'custom_name' in item ? item.custom_name : undefined}
                     style={{ maxWidth: '100%' }}
                 />
@@ -138,10 +144,17 @@ const renderItemContents = ({
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
-    ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
-        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
     ) : (
-        item.name ?? ''
+        <div className="taxonomic-list-row-contents">
+            {listGroupType === TaxonomicFilterGroupType.Elements ? (
+                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+            ) : (
+                <>
+                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && icon}
+                    {item.name ?? ''}
+                </>
+            )}
+        </div>
     )
 }
 
@@ -331,6 +344,7 @@ export function InfiniteList(): JSX.Element {
                 {renderItemContents({
                     item,
                     listGroupType,
+                    group,
                     featureFlags,
                     eventNames,
                 })}

@@ -41,12 +41,13 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-const apiCache: Record<string, ListStorage> = {}
-const apiCacheTimers: Record<string, number> = {}
+let apiCache: Record<string, ListStorage> = {}
+let apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
     let response
+    console.log('API CACHE', apiCache)
     if (apiCache[url]) {
         response = apiCache[url]
     } else {
@@ -108,6 +109,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
+                    console.log('loadRemoteItems', offset, limit)
                     // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
                         await breakpoint(150)
@@ -162,6 +164,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                 },
                 updateRemoteItem: ({ item }) => {
+                    // On updating item, invalidate from cache
+                    apiCache = {}
+                    apiCacheTimers = {}
                     return {
                         ...values.remoteItems,
                         results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
@@ -212,6 +217,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
         expand: () => {
+            console.log('LOAD REMOTE ITEMS', 'expand')
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
     }),
@@ -293,7 +299,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         items: [
             (s) => [s.isRemoteDataSource, s.remoteItems, s.localItems],
-            (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
+            (isRemoteDataSource, remoteItems, localItems) => {
+                console.log('is remote data', isRemoteDataSource, remoteItems, localItems)
+                return isRemoteDataSource ? remoteItems : localItems
+            },
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
         totalExtraCount: [(s) => [s.isExpandable], (isExpandable) => (isExpandable ? 1 : 0)],
@@ -320,6 +329,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     events: ({ actions, values, props }) => ({
         afterMount: () => {
             if (values.isRemoteDataSource) {
+                console.log('LOAD REMOTE ITEMS', 'aftermount')
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else if (values.groupType === props.listGroupType) {
                 const { value, group, results } = values

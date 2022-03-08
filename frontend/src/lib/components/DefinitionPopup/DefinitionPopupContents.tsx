@@ -483,7 +483,7 @@ export function ControlledDefinitionPopupContents({
                                 value={item.name ?? ''}
                                 customName={'custom_name' in item ? item.custom_name : undefined}
                                 type={isElement ? 'element' : undefined}
-                                showSingleName={false}
+                                showSingleName
                                 disablePopover
                                 ellipsis={false}
                                 disableIcon={!!icon}

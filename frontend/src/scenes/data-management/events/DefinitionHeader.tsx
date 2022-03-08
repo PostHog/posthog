@@ -7,6 +7,7 @@ import {
     PropertyIcon,
     UnverifiedEventStack,
     VerifiedEventStack,
+    VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -31,7 +32,10 @@ export enum DefinitionType {
     Property = 'property',
 }
 
-export function getPropertyDefinitionIcon(): JSX.Element {
+export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (!!keyMapping.event[definition.name]) {
+        return <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
+    }
     return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
 }
 

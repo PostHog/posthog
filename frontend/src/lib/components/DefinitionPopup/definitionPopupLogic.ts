@@ -88,6 +88,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                                 owner: _event.owner?.id ?? null,
                                 verified: !!_event.verified,
                             })
+                            console.log('eventDefinitionsModel', eventDefinitionsModel.findMounted())
                             eventDefinitionsModel
                                 .findMounted()
                                 ?.actions.updateEventDefinition(definition as EventDefinition)

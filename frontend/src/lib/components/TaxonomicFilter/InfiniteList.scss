@@ -20,6 +20,36 @@
         cursor: pointer;
         border: none;
 
+        .taxonomic-list-row-contents {
+            display: flex;
+            align-items: center;
+
+            .taxonomic-list-row-contents-icon {
+                width: 30px;
+
+                svg.taxonomy-icon {
+                    vertical-align: middle;
+                    flex-shrink: 0;
+                    height: 18.5px;
+
+                    &.taxonomy-icon-muted {
+                        path {
+                            fill: var(--taxonomy-icon-muted);
+                        }
+                    }
+
+                    &.taxonomy-icon-verified {
+                        height: 24px;
+                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
+
+                        path {
+                            fill: var(--success);
+                        }
+                    }
+                }
+            }
+        }
+
         & > div {
             max-width: 100%;
 
