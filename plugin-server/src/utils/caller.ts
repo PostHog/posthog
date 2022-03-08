@@ -37,8 +37,7 @@ export function callerCallsite(depth = 0, filesToIgnore = DEFAULT_FILES_TO_IGNOR
 
     for (const callsite of callsites() || []) {
         const fileName = callsite.getFileName()
-        const hasReceiver =
-            fileName !== null && !filesToIgnore.some((f) => fileName.replaceAll(/\.[jt]sx?$/g, '').endsWith(f))
+        const hasReceiver = fileName && !filesToIgnore.some((f) => fileName.replaceAll(/\.[jt]sx?$/g, '').endsWith(f))
 
         if (!callerFileSet.has(fileName)) {
             callerFileSet.add(fileName)
