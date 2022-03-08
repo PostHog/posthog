@@ -52,9 +52,17 @@ export interface HelpButtonProps {
     customKey?: string
     /** Whether the component should be an inline element as opposed to a block element. */
     inline?: boolean
+    /** Whether only options abount contact with PostHog should be shown (e.g. leaving docs out). */
+    contactOnly?: boolean
 }
 
-export function HelpButton({ placement, customComponent, customKey, inline }: HelpButtonProps): JSX.Element {
+export function HelpButton({
+    placement,
+    customComponent,
+    customKey,
+    inline = false,
+    contactOnly = false,
+}: HelpButtonProps): JSX.Element {
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
@@ -102,19 +110,21 @@ export function HelpButton({ placement, customComponent, customKey, inline }: He
                             Send us an email
                         </LemonButton>
                     </a>
-                    <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
-                        <LemonButton
-                            icon={<IconArticle />}
-                            type="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.Docs)
-                                hideHelp()
-                            }}
-                        >
-                            Read the docs
-                        </LemonButton>
-                    </a>
+                    {!contactOnly && (
+                        <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                            <LemonButton
+                                icon={<IconArticle />}
+                                type="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    reportHelpButtonUsed(HelpType.Docs)
+                                    hideHelp()
+                                }}
+                            >
+                                Read the docs
+                            </LemonButton>
+                        </a>
+                    )}
                 </>
             }
             onClickOutside={hideHelp}

@@ -10,12 +10,15 @@
         margin: 1.5rem 0;
     }
     h2 {
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
         color: var(--danger);
         font-weight: 600;
     }
     pre {
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
+        background: rgba($danger, 0.1);
+        border-radius: var(--radius);
+        padding: 0.75rem 1rem;
     }
     .help-button {
         margin-top: 0.75rem;
