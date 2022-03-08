@@ -171,13 +171,6 @@ export function AsyncMigrations(): JSX.Element {
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => triggerMigration(asyncMigration.id)}
-                                            fullWidth
-                                        >
-                                            Restart without rollback
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="stealth"
                                             onClick={() => rollbackMigration(asyncMigration.id)}
                                             fullWidth
                                         >
