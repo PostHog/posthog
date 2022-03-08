@@ -47,7 +47,7 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "EMAIL_HOST": (
-        get_from_env("EMAIL_HOST", optional=True),
+        get_from_env("EMAIL_HOST", default=""),
         "Hostname to connect to for establishing SMTP connections.",
         str,
     ),
@@ -57,12 +57,14 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "EMAIL_HOST_USER": (
-        get_from_env("EMAIL_HOST_USER", optional=True),
+        get_from_env(
+            "EMAIL_HOST_USER", default=""
+        ),  # we use default='' so an unconfigured value is an empty string, not a `None`
         "Credentials to connect to the email host.",
         str,
     ),
     "EMAIL_HOST_PASSWORD": (
-        get_from_env("EMAIL_HOST_PASSWORD", optional=True),
+        get_from_env("EMAIL_HOST_PASSWORD", default=""),
         "Credentials to connect to the email host.",
         str,
     ),
@@ -82,7 +84,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "EMAIL_REPLY_TO": (
-        get_from_env("EMAIL_REPLY_TO", ""),
+        get_from_env("EMAIL_REPLY_TO", default=""),
         "Reply address to which email clients should send responses.",
         str,
     ),

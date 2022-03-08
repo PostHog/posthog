@@ -1,5 +1,4 @@
 import unittest
-from typing import List
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
@@ -17,7 +16,6 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.models.property import Property
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 

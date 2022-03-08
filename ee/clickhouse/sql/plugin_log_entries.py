@@ -7,7 +7,7 @@ from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     team_id Int64,
@@ -45,7 +45,7 @@ KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.f
 )
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 id,

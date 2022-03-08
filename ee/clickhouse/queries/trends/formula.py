@@ -5,8 +5,8 @@ from typing import Any, Dict, List
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.trends.util import parse_response
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
 
@@ -25,7 +25,7 @@ class ClickhouseTrendsFormula:
         breakdown_value = (
             ", sub_A.breakdown_value"
             if filter.breakdown_type == "cohort"
-            else ", trim(BOTH '\"' FROM sub_A.breakdown_value)"
+            else f", {trim_quotes_expr('sub_A.breakdown_value')}"
         )
         is_aggregate = filter.display in TRENDS_DISPLAY_BY_VALUE
 

@@ -26,7 +26,7 @@ export enum ConfigMode {
 export interface MetricRow {
     metric: string
     key: string
-    value: any
+    value?: boolean | string | number | null
 }
 
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings'
@@ -205,10 +205,8 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             actions.setInstanceConfigMode(ConfigMode.View)
         },
         updateInstanceConfigValue: ({ key, value }) => {
-            if (
-                value &&
-                values.editableInstanceSettings.find((item) => item.key === key)?.value.toString() === value.toString()
-            ) {
+            const previousValue = values.editableInstanceSettings.find((item) => item.key === key)?.value
+            if (value && previousValue == value) {
                 actions.updateInstanceConfigValue(key, undefined)
             }
         },

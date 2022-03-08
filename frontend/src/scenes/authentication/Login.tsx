@@ -85,7 +85,6 @@ export function Login(): JSX.Element {
                             </Form.Item>
                         </Form>
                         <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
-                            &nbsp;
                             {preflight?.cloud && (
                                 <Link to="/signup" data-attr="signup" className="lhs">
                                     Create an account

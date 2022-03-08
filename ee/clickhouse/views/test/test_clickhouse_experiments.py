@@ -2,13 +2,11 @@ import pytest
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.group_type_mapping import GroupTypeMapping
 
 
 class TestExperimentCRUD(APILicensedTest):

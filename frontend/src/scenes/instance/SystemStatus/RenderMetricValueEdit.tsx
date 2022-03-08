@@ -16,7 +16,7 @@ export function RenderMetricValueEdit({
     if (value_type === 'bool') {
         return (
             <>
-                <Checkbox defaultChecked={value} onChange={(e) => onValueChanged(key, e.target.checked)} />
+                <Checkbox defaultChecked={!!value} onChange={(e) => onValueChanged(key, e.target.checked)} />
                 <LemonTag style={{ marginLeft: 4 }} type={value ? 'success' : 'danger'}>
                     {value ? 'Yes' : 'No'}
                 </LemonTag>
@@ -26,7 +26,7 @@ export function RenderMetricValueEdit({
 
     return (
         <Input
-            defaultValue={value}
+            defaultValue={value as string | number | ReadonlyArray<string>}
             type={value_type === 'int' ? 'number' : 'text'}
             onBlur={(e) => onValueChanged(key, e.target.value)}
         />
