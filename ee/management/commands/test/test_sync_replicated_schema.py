@@ -2,9 +2,11 @@ import pytest
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, EVENTS_TABLE_SQL
+from ee.clickhouse.sql.events import KAFKA_EVENTS_TABLE_SQL
+from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.management.commands.sync_replicated_schema import Command
+from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import BaseTest
 
 
@@ -13,15 +15,16 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def setUp(self):
         settings.CLICKHOUSE_REPLICATION = True
         self.recreate_database()
+        sync_execute(KAFKA_EVENTS_TABLE_SQL())
 
     def tearDown(self):
         self.recreate_database()
         settings.CLICKHOUSE_REPLICATION = False
+        create_clickhouse_tables(0)
 
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
-        sync_execute(EVENTS_TABLE_SQL())
 
     def test_get_out_of_sync_hosts(self):
         # :KLUDGE: We simulate an out-of-sync database by wiping everything but one table
