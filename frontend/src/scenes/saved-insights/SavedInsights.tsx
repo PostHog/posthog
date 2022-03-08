@@ -256,11 +256,11 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} compact fullWidth>
+                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonSpacer />
-                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} compact fullWidth>
+                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
