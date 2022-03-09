@@ -62,6 +62,8 @@ const indexJs = `
     export async function handleAlert(alert) {
         testConsole.log('handleAlert', alert)
     }
+
+    export async function runEveryMinute() {}
 `
 
 // TODO: merge these tests with clickhouse/e2e.test.ts
