@@ -5,6 +5,8 @@ CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
 # Warning: Dynamically updating these settings should only be done through the API.
+# CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
+
 CONSTANCE_CONFIG = {
     "RECORDINGS_TTL_WEEKS": (
         3,
@@ -112,3 +114,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
 )
+
+SECRET_SETTINGS = [
+    "EMAIL_HOST_PASSWORD",
+]
