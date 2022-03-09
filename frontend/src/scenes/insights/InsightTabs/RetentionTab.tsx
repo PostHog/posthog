@@ -177,6 +177,8 @@ export function RetentionTab(): JSX.Element {
                             ]}
                             pageKey="insight-retention"
                             eventNames={allEventNames}
+                            filters={filters}
+                            setTestFilters={(testFilters) => setFilters(testFilters)}
                         />
                     ) : (
                         <>
@@ -194,9 +196,9 @@ export function RetentionTab(): JSX.Element {
                                 ]}
                                 eventNames={allEventNames}
                             />
+                            <TestAccountFilter filters={filters} onChange={setFilters} />
                         </>
                     )}
-                    <TestAccountFilter filters={filters} onChange={setFilters} />
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (

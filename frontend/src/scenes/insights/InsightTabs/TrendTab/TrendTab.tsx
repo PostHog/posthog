@@ -129,6 +129,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     ]}
                                     pageKey="trends-filters"
                                     eventNames={allEventNames}
+                                    filters={filters}
+                                    setTestFilters={(testFilters) => setFilters(testFilters)}
                                 />
                             ) : (
                                 <>
@@ -146,10 +148,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                         pageKey="trends-filters"
                                         eventNames={allEventNames}
                                     />
+                                    <TestAccountFilter filters={filters} onChange={setFilters} />
                                 </>
                             )}
 
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>
                                     <hr />

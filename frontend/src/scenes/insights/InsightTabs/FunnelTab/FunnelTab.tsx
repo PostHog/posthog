@@ -139,12 +139,17 @@ export function FunnelTab(): JSX.Element {
                         ]}
                         pageKey="EditFunnel-property"
                         eventNames={allEventNames}
+                        filters={filters}
+                        setTestFilters={(testFilters) => setFilters(testFilters)}
                     />
                 ) : (
                     <>
                         <div className="flex-center">
                             <div style={{ flexGrow: 1 }}>
                                 <GlobalFiltersTitle unit="steps" />
+                            </div>
+                            <div style={{ marginBottom: '0.5rem' }}>
+                                <TestAccountFilter filters={filters} onChange={setFilters} />
                             </div>
                         </div>
                         <PropertyFilters
@@ -166,11 +171,6 @@ export function FunnelTab(): JSX.Element {
                         />
                     </>
                 )}
-                <div className="flex-center">
-                    <div style={{ marginBottom: '0.5rem' }}>
-                        <TestAccountFilter filters={filters} onChange={setFilters} />
-                    </div>
-                </div>
 
                 {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>

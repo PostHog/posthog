@@ -64,6 +64,10 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                     values[index] = { ...values[index], type }
                     return { ...state, values }
                 },
+                duplicateFilterGroup: (state, { propertyGroupIndex }) => {
+                    const values = state.values.concat([state.values[propertyGroupIndex]])
+                    return { ...state, values }
+                },
             },
         ],
     }),

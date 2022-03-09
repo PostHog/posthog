@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
@@ -11,6 +11,7 @@ import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconDelete, IconPlus } from '../icons'
 import { LemonButton } from '../LemonButton'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 interface PropertyGroupFilters {
     propertyFilters?: PropertyGroupFilter | null
@@ -18,6 +19,8 @@ interface PropertyGroupFilters {
     pageKey: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
+    setTestFilters: (filters: Partial<FilterType>) => void
+    filters: Partial<FilterType>
 }
 
 export function PropertyGroupFilters({
@@ -26,6 +29,8 @@ export function PropertyGroupFilters({
     pageKey,
     taxonomicGroupTypes,
     eventNames = [],
+    setTestFilters,
+    filters,
 }: PropertyGroupFilters): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
@@ -119,6 +124,7 @@ export function PropertyGroupFilters({
                 </div>
             )}
             <div>
+                <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                 {filtersWithNew.values.length > 1 ? (
                     <LemonButton
                         data-attr={`${pageKey}-add-filter-group`}

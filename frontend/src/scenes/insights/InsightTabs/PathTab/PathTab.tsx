@@ -450,6 +450,8 @@ export function PathTab(): JSX.Element {
                             ]}
                             pageKey="insight-path"
                             eventNames={allEventNames}
+                            filters={filter}
+                            setTestFilters={(testFilters) => setFilter(testFilters)}
                         />
                     ) : (
                         <>
@@ -467,9 +469,9 @@ export function PathTab(): JSX.Element {
                                 ]}
                                 eventNames={allEventNames}
                             />
+                            <TestAccountFilter filters={filter} onChange={setFilter} />
                         </>
                     )}
-                    <TestAccountFilter filters={filter} onChange={setFilter} />
                     {hasAdvancedPaths && (
                         <>
                             <hr />
