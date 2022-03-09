@@ -14,6 +14,7 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
@@ -131,7 +132,9 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
+                <ErrorBoundary key={activeScene}>
+                    <SceneComponent {...params} />
+                </ErrorBoundary>
                 {toastContainer}
             </Layout>
         ) : null
@@ -140,7 +143,9 @@ function AppScene(): JSX.Element | null {
     return (
         <>
             <Navigation>
-                <SceneComponent user={user} {...params} />
+                <ErrorBoundary key={activeScene}>
+                    <SceneComponent user={user} {...params} />
+                </ErrorBoundary>
             </Navigation>
             {toastContainer}
             <UpgradeModal />
