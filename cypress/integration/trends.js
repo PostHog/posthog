@@ -46,6 +46,7 @@ describe('Trends', () => {
 
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
+        cy.wait(500)
         cy.get('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
@@ -60,6 +61,7 @@ describe('Trends', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
+        cy.wait(500)
         cy.get('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
@@ -132,7 +134,6 @@ describe('Trends', () => {
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add insight to dashboard').click()
-        cy.wait(300) // not ideal but toast has a delay render
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')
     })
 })

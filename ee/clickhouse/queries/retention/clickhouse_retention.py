@@ -5,7 +5,6 @@ from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 
@@ -145,7 +144,7 @@ class ClickhouseRetention:
 def build_returning_event_query(filter: RetentionFilter, team: Team):
     returning_event_query_templated, returning_event_params = RetentionEventsQuery(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
-        team_id=team.pk,
+        team=team,
         event_query_type=RetentionQueryType.RETURNING,
     ).get_query()
 
@@ -157,7 +156,7 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
 def build_target_event_query(filter: RetentionFilter, team: Team):
     target_event_query_templated, target_event_params = RetentionEventsQuery(
         filter=filter,
-        team_id=team.pk,
+        team=team,
         event_query_type=(
             RetentionQueryType.TARGET_FIRST_TIME
             if (filter.retention_type == RETENTION_FIRST_TIME)

@@ -5,8 +5,10 @@ import { PreflightStatus, Realm } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { toast } from 'react-toastify'
 import { teamLogic } from 'scenes/teamLogic'
+import { IconSwapHoriz } from 'lib/components/icons'
+import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 type PreflightMode = 'experimentation' | 'live'
 
@@ -123,11 +125,17 @@ export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, Pr
                 actions.loadPreflight()
             }
             if (switchedTeam) {
-                toast(
+                lemonToast.info(
                     <>
-                        You've switched globally to&nbsp;project{' '}
-                        <b style={{ whiteSpace: 'pre' }}>{values.currentTeam?.name}</b>
-                    </>
+                        You've switched to&nbsp;project <b>{values.currentTeam?.name}</b>
+                    </>,
+                    {
+                        button: {
+                            label: 'Switch back',
+                            action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                        },
+                        icon: <IconSwapHoriz />,
+                    }
                 )
             }
         },

@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { successToast } from 'lib/utils'
-
+import { lemonToast } from 'lib/components/lemonToast'
 import { passwordResetLogicType } from './passwordResetLogicType'
+
 interface ResponseType {
     success: boolean
     errorCode?: string
@@ -88,10 +88,7 @@ export const passwordResetLogic = kea<
     listeners: {
         updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
             if (newPasswordResponse.success) {
-                successToast(
-                    'Password changed successfully',
-                    'Your password was successfully changed. Redirecting you...'
-                )
+                lemonToast.success('Your password has been changed. Redirecting…')
                 await breakpoint(3000)
                 window.location.href = '/' // We need the refresh
             }

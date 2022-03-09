@@ -7,8 +7,7 @@ import TextArea from 'antd/lib/input/TextArea'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { dashboardsLogic } from './dashboardsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { DashboardRestrictionLevel, FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardRestrictionLevel } from 'lib/constants'
 import { AvailableFeature } from '~/types'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -19,7 +18,6 @@ export function NewDashboardModal(): JSX.Element {
     const { newDashboardModalVisible } = useValues(dashboardsLogic)
     const { addDashboard } = useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -109,7 +107,7 @@ export function NewDashboardModal(): JSX.Element {
                         data-attr="copy-from-template"
                     />
                 </Form.Item>
-                {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
+                {
                     <Form.Item
                         name="restrictionLevel"
                         label="Collaboration settings"
@@ -133,7 +131,7 @@ export function NewDashboardModal(): JSX.Element {
                             />
                         </PayGateMini>
                     </Form.Item>
-                )}
+                }
             </Form>
         </LemonModal>
     )
