@@ -894,6 +894,81 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             return p1, p2, p3, p4
 
+        def test_retention_aggregate_by_distinct_id(self):
+            self.team.aggregate_users_by_distinct_id = True
+            self.team.save()
+            person1 = person_factory(
+                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"}
+            )
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = retention().run(RetentionFilter(data={"date_to": self._date(10, hour=6)}), self.team)
+            self.assertEqual(len(result), 11)
+            self.assertEqual(
+                self.pluck(result, "label"),
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
+            )
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [2, 1, 0, 0, 0, 0],  # this first day is different b/c of the distinct_id aggregation
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
+            result = retention().run(
+                RetentionFilter(
+                    data={
+                        "date_to": self._date(10, hour=6),
+                        "properties": [{"key": "test", "value": "ok", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [2, 1, 0, 0, 0, 0],  # this first day is different b/c of the distinct_id aggregation
+                    [1, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
         def _create_signup_actions(self, user_and_timestamps):
 
             for distinct_id, timestamp in user_and_timestamps:

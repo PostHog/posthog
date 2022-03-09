@@ -113,6 +113,10 @@ class Team(UUIDClassicModel):
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
     )  # Dashboard shown on project homepage
 
+    # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
+    # Switches _most_ queries to using distinct_id as aggregator instead of person_id
+    aggregate_users_by_distinct_id: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
     # repository for correlation related settings.

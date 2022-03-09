@@ -2343,4 +2343,44 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        def test_trends_aggregate_by_distinct_id(self):
+            # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
+            self.team.aggregate_users_by_distinct_id = True
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["third"])
+
+            with freeze_time("2019-12-24 03:45:34"):
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="anonymous_id",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="third",
+                )
+
+            with freeze_time("2019-12-31T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}],}), self.team,
+                )
+
+            self.assertEqual(daily_response[0]["data"][0], 3)
+
+            with freeze_time("2019-12-31T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "dau"}],
+                            "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(daily_response[0]["data"][0], 2)
+
     return TestTrends
