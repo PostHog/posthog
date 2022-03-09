@@ -1361,7 +1361,10 @@ export function convertPropertyGroupToProperties(
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
-    return properties && properties.filter(isValidPropertyFilter)
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
 }
 
 export function flattenPropertyGroup(

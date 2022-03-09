@@ -7,6 +7,7 @@ import {
     FeatureFlagType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
+    PropertyFilter,
 } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
@@ -85,11 +86,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             null as FeatureFlagType | null,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
-                    const groups = featureFlag.filters.groups.map((group) => ({
-                        ...group,
-                        properties: convertPropertyGroupToProperties(group.properties),
-                    }))
-                    return { ...featureFlag, filters: { ...featureFlag?.filters, groups } }
+                    if (featureFlag.filters.groups) {
+                        const groups = featureFlag.filters.groups.map((group) => {
+                            if (group.properties) {
+                                return {
+                                    ...group,
+                                    properties: convertPropertyGroupToProperties(group.properties) as PropertyFilter[],
+                                }
+                            }
+                            return group
+                        })
+                        return { ...featureFlag, filters: { ...featureFlag?.filters, groups } }
+                    }
+                    return featureFlag
                 },
                 addConditionSet: (state) => {
                     if (!state) {

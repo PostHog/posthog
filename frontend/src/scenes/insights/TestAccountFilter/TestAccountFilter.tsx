@@ -18,7 +18,7 @@ export function TestAccountFilter({
 
     return (
         <LemonButton className="mb full-width" type="secondary">
-            <Row className="full-width" justify="space-between">
+            <Row className="full-width" justify="space-between" style={{ flexWrap: 'nowrap' }}>
                 <div className="text-default">
                     <label
                         style={{
