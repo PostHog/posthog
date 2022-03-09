@@ -74,7 +74,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                         ]
                         if (isPrimary) {
                             return (
-                                <LemonRow key={dashboard.id} fullWidth className="dashboard-row primary-dashboard-row">
+                                <LemonRow key={dashboard.id} fullWidth status="muted" className="dashboard-row">
                                     {rowContents}
                                 </LemonRow>
                             )

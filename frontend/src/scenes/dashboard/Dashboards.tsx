@@ -19,8 +19,10 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
+import { HomeIcon } from 'lib/components/icons'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -34,6 +36,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -58,6 +61,7 @@ export function Dashboards(): JSX.Element {
             dataIndex: 'name',
             width: '40%',
             render: function Render(name, { id, description, _highlight, is_shared }) {
+                const is_primary = id === currentTeam?.primary_dashboard
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
@@ -67,6 +71,11 @@ export function Dashboards(): JSX.Element {
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
+                                </Tooltip>
+                            )}
+                            {is_primary && (
+                                <Tooltip title="Primary dashboards are shown on the project home page">
+                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
                                 </Tooltip>
                             )}
                         </div>
@@ -129,6 +138,10 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
                                     Duplicate
                                 </LemonButton>
+                                <LemonSpacer />
+                                <LemonRow icon={<HomeIcon />} fullWidth>
+                                    Change the default dashboard on the project home page.
+                                </LemonRow>
                                 <LemonSpacer />
                                 <LemonButton
                                     type="stealth"
