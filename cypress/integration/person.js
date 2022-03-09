@@ -22,7 +22,7 @@ describe('Merge person', () => {
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.get('.ant-input-search-button').click()
         cy.contains('deborah.fernandez@gmail.com').click()
-        cy.wait(100)
+        cy.wait(1000)
     })
 
     it('Should merge person', () => {
