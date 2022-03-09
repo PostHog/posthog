@@ -226,7 +226,7 @@ class Migration(AsyncMigrationDefinition):
         for (partition,) in partitions:
             logger.info("Moving partitions between tables", from_table=from_table, to_table=to_table, id=partition)
             # :KLUDGE: Partition IDs are special and cannot be passed as arguments
-            sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
+            sync_execute(f"ALTER TABLE {to_table} REPLACE PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
 
     def rename_tables(
