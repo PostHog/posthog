@@ -245,6 +245,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # Replace tag id lookups for postgres
+        query = re.sub(
+            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -275,7 +282,7 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
-class BaseTestMigrations:
+class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self):
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
@@ -283,6 +290,7 @@ class BaseTestMigrations:
     migrate_from = None
     migrate_to = None
     apps = None
+    assert_snapshots = False
 
     def setUp(self):
         assert (
@@ -301,9 +309,17 @@ class BaseTestMigrations:
         # Run the migration to test
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
-        executor.migrate(self.migrate_to)
+
+        if self.assert_snapshots:
+            self._execute_migration_with_snapshots(executor)
+        else:
+            executor.migrate(self.migrate_to)
 
         self.apps = executor.loader.project_state(self.migrate_to).apps
+
+    @snapshot_postgres_queries
+    def _execute_migration_with_snapshots(self, executor):
+        executor.migrate(self.migrate_to)
 
     def setUpBeforeMigration(self, apps):
         pass
