@@ -1,5 +1,3 @@
-import pytest
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS

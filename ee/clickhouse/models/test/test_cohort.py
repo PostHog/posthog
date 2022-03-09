@@ -1,6 +1,4 @@
 from datetime import datetime
-from typing import List, Tuple, cast
-from unittest.mock import patch
 from uuid import uuid4
 
 from django.utils import timezone

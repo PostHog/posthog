@@ -42,7 +42,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 
-from posthog.constants import AnalyticsDBMS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -683,8 +683,8 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(l: Union[List, Tuple]) -> Generator:
-    for el in l:
+def flatten(i: Union[List, Tuple]) -> Generator:
+    for el in i:
         if isinstance(el, list):
             yield from flatten(el)
         else:
@@ -808,10 +808,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 
 def should_refresh(request: Request) -> bool:
-    key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
-        key, False
-    ) is True
+    query_param = request.query_params.get("refresh")
+    data_value = request.data.get("refresh")
+    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
 def str_to_bool(value: Any) -> bool:

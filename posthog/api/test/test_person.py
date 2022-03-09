@@ -4,7 +4,6 @@ from unittest import mock
 from uuid import uuid4
 
 from django.utils import timezone
-from freezegun import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.client import sync_execute

@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
-from posthog.models import Organization, Person, SessionRecordingEvent
+from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest

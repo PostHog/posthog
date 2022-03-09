@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_cohort_subquery, is_precalculated_query
+from ee.clickhouse.models.cohort import is_precalculated_query
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer

@@ -10,7 +10,6 @@ from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, Filter
-from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 

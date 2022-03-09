@@ -2,10 +2,10 @@ import re
 from typing import Dict, get_args
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field  # for easy import
+from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
 from rest_framework import serializers
 
-from posthog.models.property import OperatorType, Property, PropertyType
+from posthog.models.property import OperatorType, PropertyType
 
 
 @extend_schema_field(OpenApiTypes.STR)

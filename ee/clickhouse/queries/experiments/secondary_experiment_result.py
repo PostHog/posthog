@@ -1,6 +1,5 @@
-import dataclasses
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, Optional
 
 from rest_framework.exceptions import ValidationError
 

@@ -1,14 +1,10 @@
-import datetime
 import json
 
-from django.core.exceptions import EmptyResultSet
-from django.db import connection, models, transaction
+from django.db import models
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-from rest_hooks.signals import raw_hook_event
-from sentry_sdk import capture_exception
 
 from posthog.redis import get_client
 

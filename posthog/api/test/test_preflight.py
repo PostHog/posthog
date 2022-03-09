@@ -2,7 +2,6 @@ from typing import cast
 
 import pytest
 from constance.test import override_config
-from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
 

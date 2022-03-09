@@ -1,6 +1,6 @@
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
 describe('the column configurator lets the user change which columns should be visible', () => {
@@ -8,12 +8,10 @@ describe('the column configurator lets the user change which columns should be v
 
     const selectedColumns = ['a', 'b', 'ant', 'aardvark']
 
-    initKeaTestLogic({
-        logic: columnConfiguratorLogic,
-        props: { selectedColumns },
-        onLogic: (l) => {
-            logic = l
-        },
+    beforeEach(() => {
+        initKeaTests()
+        logic = columnConfiguratorLogic({ selectedColumns })
+        logic.mount()
     })
 
     it('has expected defaults', () => {
