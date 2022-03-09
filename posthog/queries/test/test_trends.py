@@ -1,6 +1,7 @@
 import json
 from typing import Dict, List, Optional, Tuple, Union
 
+from constance import config
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
@@ -2345,7 +2346,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_trends_aggregate_by_distinct_id(self):
             # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
-            self.team.aggregate_users_by_distinct_id = True
+            config.AGGREGATE_BY_DISTINCT_IDS_TEAMS = f"{self.team.pk},4"
+
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )

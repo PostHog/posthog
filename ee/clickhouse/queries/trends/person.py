@@ -93,7 +93,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
 
         events_query, params = TrendsEventQuery(
             filter=self._filter,
-            team_id=self._team.pk,
+            team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
             should_join_persons=not self.is_aggregating_by_groups,
