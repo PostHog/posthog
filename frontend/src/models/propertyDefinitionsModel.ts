@@ -5,7 +5,6 @@ import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { midEllipsis } from 'lib/utils'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -165,8 +164,7 @@ export const propertyDefinitionsModel = kea<
                             }
                         }
 
-                        // Cap property length at 32 to avoid really long pills.
-                        return midEllipsis(propertyValue, 32)
+                        return propertyValue
                     })
 
                     // formattedValues is always an array after normalising above
