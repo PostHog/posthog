@@ -49,7 +49,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         if self._aggregate_users_by_distinct_id and not self._filter.aggregation_group_type_index:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"]
         else:
-            f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target",
+            _fields += [
+                f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target"
+            ]
 
         if self._filter.breakdowns and self._filter.breakdown_type:
             # NOTE: `get_single_or_multi_property_string_expr` doesn't

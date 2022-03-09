@@ -62,7 +62,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         jobs = []
 
         for entity in filter.entities:
-            sql, params, parse_function = self._get_sql_for_entity(filter, entity, team.pk)
+            sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
             parse_functions[entity.index] = parse_function
             thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
             jobs.append(thread)
