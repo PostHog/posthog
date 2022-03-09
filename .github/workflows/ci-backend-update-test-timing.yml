@@ -24,7 +24,6 @@ jobs:
                   python-version: 3.8.5
                   ee: true
                   foss: false
-                  saml: false
                   concurrency: 1
                   group: 1
 
