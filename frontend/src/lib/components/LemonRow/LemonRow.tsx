@@ -29,6 +29,8 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
+    /** Whether the button text should be bold. Default false */
+    strong?: any
     /** A compact row is slightly smaller than normal to better look inline with text. */
     compact?: boolean
     'data-attr'?: string
@@ -54,6 +56,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         fullWidth = false,
         center = false,
         outlined = false,
+        strong = false,
         ...props
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
@@ -81,7 +84,9 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         <>
             <div className="LemonRow__main-area">
                 {icon && <span className="LemonRow__icon">{icon}</span>}
-                {children && <div className="LemonRow__content">{children}</div>}
+                {children && (
+                    <div className={clsx('LemonRow__content', strong && 'LemonRow__content--strong')}>{children}</div>
+                )}
                 {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
             </div>
             {extendedContent && <div className="LemonRow__extended-area">{extendedContent}</div>}

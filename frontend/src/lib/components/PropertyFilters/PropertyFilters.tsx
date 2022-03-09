@@ -24,6 +24,7 @@ interface PropertyFiltersProps {
     eventNames?: string[]
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
+    useLemonButton?: boolean
 }
 
 export function PropertyFilters({
@@ -40,6 +41,7 @@ export function PropertyFilters({
     eventNames = [],
     orFiltering = false,
     propertyGroupType = null,
+    useLemonButton = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -69,6 +71,7 @@ export function PropertyFilters({
                             showNestedArrow={showNestedArrow}
                             label={'Add filter'}
                             onRemove={remove}
+                            useLemonButton={useLemonButton}
                             orFiltering={orFiltering}
                             filterComponent={(onComplete) => (
                                 <TaxonomicPropertyFilter
