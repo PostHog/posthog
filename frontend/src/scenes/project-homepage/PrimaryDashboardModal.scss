@@ -25,7 +25,9 @@
                 flex: 1;
             }
             .dashboard-description {
-                margin: 0;
+                margin-bottom: 0;
+                width: 300px;
+                color: $text_muted;
             }
             .set-default-text {
                 color: $primary;
