@@ -1,10 +1,10 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
 import { APIErrorType, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/logic'
 import { isLicenseExpired } from '.'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const licenseLogic = kea<licenseLogicType>({
     path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
@@ -25,8 +25,8 @@ export const licenseLogic = kea<licenseLogicType>({
                 createLicense: async (payload: { key: string }) => {
                     try {
                         const license = (await api.create('api/license', payload)) as LicenseType
-                        toast(
-                            `Your license key was succesfully activated. You can now use all the features in the ${license.plan} plan.`
+                        lemonToast.success(
+                            `Activated license – you can now use all features of the ${license.plan} plan`
                         )
                         actions.setError(null)
                         return [license, ...values.licenses]

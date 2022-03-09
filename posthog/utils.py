@@ -259,7 +259,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": get_default_event_name(),
-            "switched_team": getattr(request, "switched_team", False),
+            "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
 
@@ -683,8 +683,8 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(l: Union[List, Tuple]) -> Generator:
-    for el in l:
+def flatten(i: Union[List, Tuple]) -> Generator:
+    for el in i:
         if isinstance(el, list):
             yield from flatten(el)
         else:

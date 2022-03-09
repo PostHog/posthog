@@ -18,9 +18,7 @@ import {
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
-import React from 'react'
-import { Link } from 'lib/components/Link'
+import { lemonToast } from 'lib/components/lemonToast'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -34,7 +32,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
-import * as Sentry from '@sentry/browser'
+import * as Sentry from '@sentry/react'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -670,12 +668,12 @@ export const insightLogic = kea<insightLogicType>({
             if (setViewMode) {
                 actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             }
-            toast(
-                <div data-attr="success-toast">
-                    Insight saved!&nbsp;
-                    <Link to={urls.savedInsights()}>Click here to see your list of saved insights</Link>
-                </div>
-            )
+            lemonToast.success('Insight saved', {
+                button: {
+                    label: 'View Insights list',
+                    action: () => router.actions.push(urls.savedInsights()),
+                },
+            })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             dashboardsModel.actions.updateDashboardItem(savedInsight)
         },
@@ -694,7 +692,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: values.filters,
                 saved: true,
             })
-            toast(`You're now working on a copy of ${values.insight.name}`)
+            lemonToast.info(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             if (values.syncWithUrl) {
@@ -892,7 +890,7 @@ export const insightLogic = kea<insightLogicType>({
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-            toast.dismiss()
+            lemonToast.dismiss()
         },
     }),
 })

@@ -251,6 +251,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
@@ -335,6 +336,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
@@ -400,6 +402,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2

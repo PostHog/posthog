@@ -41,8 +41,8 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-const apiCache: Record<string, ListStorage> = {}
-const apiCacheTimers: Record<string, number> = {}
+let apiCache: Record<string, ListStorage> = {}
+let apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
@@ -162,6 +162,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                 },
                 updateRemoteItem: ({ item }) => {
+                    // On updating item, invalidate cache
+                    apiCache = {}
+                    apiCacheTimers = {}
                     return {
                         ...values.remoteItems,
                         results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
