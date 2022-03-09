@@ -1,5 +1,4 @@
 from datetime import datetime
-from sys import stderr
 from typing import Optional
 
 import structlog

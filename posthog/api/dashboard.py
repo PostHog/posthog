@@ -3,7 +3,7 @@ import secrets
 from typing import Any, Dict, Sequence, Type, Union, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import Http404, HttpRequest
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt

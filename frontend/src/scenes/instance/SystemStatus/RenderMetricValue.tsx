@@ -17,7 +17,7 @@ export function RenderMetricValue({
     value_type,
     emptyNullLabel,
 }: MetricValueInterface): JSX.Element | string {
-    if (TIMESTAMP_VALUES.has(key)) {
+    if (TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'
         }
@@ -28,12 +28,12 @@ export function RenderMetricValue({
         return <LemonTag type={value ? 'success' : 'danger'}>{value ? 'Yes' : 'No'}</LemonTag>
     }
 
-    if (value_type === 'int' || typeof value === 'number') {
-        return value.toLocaleString('en-US')
-    }
-
     if (value === null || value === undefined || value === '') {
         return <LemonTag style={{ color: 'var(--text-muted)' }}>{emptyNullLabel ?? 'Unknown'}</LemonTag>
+    }
+
+    if (value_type === 'int' || typeof value === 'number') {
+        return value.toLocaleString('en-US')
     }
 
     return value.toString()

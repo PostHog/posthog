@@ -1,6 +1,5 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from math import exp, sqrt
 from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng

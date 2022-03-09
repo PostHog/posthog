@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Union, cast
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation

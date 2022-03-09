@@ -1,4 +1,3 @@
-import inspect
 from datetime import datetime
 from typing import List, Literal, Union, cast
 from uuid import UUID, uuid4
@@ -27,7 +26,7 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property, TableWithProperties
-from posthog.test.base import BaseTest, test_with_materialized_columns
+from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs) -> UUID:
@@ -582,12 +581,16 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def test_get_property_string_expr(self):
         string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
-        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(properties, 'some_non_mat_prop'))", False))
+        self.assertEqual(
+            string_expr, ("replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
+        )
 
         string_expr = get_property_string_expr(
             "events", "some_non_mat_prop", "'some_non_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(e.properties, 'some_non_mat_prop'))", False))
+        self.assertEqual(
+            string_expr, ("replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')", False)
+        )
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
@@ -651,13 +654,18 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
 
 
 TEST_BREAKDOWN_PROCESSING = [
-    ("$browser", "events", "prop", "trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')) AS prop"),
-    (["$browser"], "events", "value", "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser'))) AS value",),
+    ("$browser", "events", "prop", "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop"),
+    (
+        ["$browser"],
+        "events",
+        "value",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+    ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
-        "array(trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser')),trim(BOTH '\"' FROM JSONExtractRaw(properties, '$browser_version'))) AS prop",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
     ),
 ]
 

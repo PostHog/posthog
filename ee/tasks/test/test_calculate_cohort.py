@@ -8,7 +8,7 @@ from freezegun import freeze_time
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models.cohort import Cohort, CohortPeople
+from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory

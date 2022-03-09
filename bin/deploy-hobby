@@ -3,6 +3,7 @@ set -e
 
 # Seed a secret
 export POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
+export POSTHOG_APP_TAG='latest-release'
 
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
@@ -161,7 +162,7 @@ echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
 echo "If you have any issues at all delete everything in this directory and run the curl command again"
 echo ""
-echo "To upgrade: run ./posthog/bin/upgrade-hobby"
+echo 'To upgrade: run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)"'
 echo ""
 echo "PostHog will be up at the location you provided!"
 echo "https://${DOMAIN}"

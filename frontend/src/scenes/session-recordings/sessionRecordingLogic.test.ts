@@ -1,7 +1,7 @@
 import { parseMetadataResponse, sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { api, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
@@ -10,8 +10,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
 const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
@@ -23,19 +22,17 @@ const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/e
 describe('sessionRecordingLogic', () => {
     let logic: ReturnType<typeof sessionRecordingLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (!!pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-            return { result: recordingSnapshotsJson }
-        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
-            return { result: recordingMetaJson }
-        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
-            return { results: recordingEventsJson }
-        }
-    })
-
-    initKeaTestLogic({
-        logic: sessionRecordingLogic,
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
+                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                '/api/projects/:team/events': { results: recordingEventsJson },
+            },
+        })
+        initKeaTests()
+        logic = sessionRecordingLogic()
+        logic.mount()
     })
 
     describe('core assumptions', () => {
@@ -140,13 +137,12 @@ describe('sessionRecordingLogic', () => {
                 .toFinishAllListeners()
         })
         it('fetch metadata error and snapshots success', async () => {
-            api.get.mockImplementation(async (url: string) => {
-                if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                    return { result: { ...recordingSnapshotsJson, next: undefined } }
-                } else {
-                    throw new Error('Oh no.')
-                }
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id': () => [500, { status: 0 }],
+                },
             })
+
             silenceKeaLoadersErrors()
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
@@ -177,12 +173,10 @@ describe('sessionRecordingLogic', () => {
                 bufferedTo: null,
             }
             silenceKeaLoadersErrors()
-            api.get.mockImplementation(async (url: string) => {
-                if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                    throw new Error('Oh no.')
-                } else {
-                    return { result: recordingMetaJson }
-                }
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                },
             })
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
@@ -252,23 +246,16 @@ describe('sessionRecordingLogic', () => {
         it('fetch all events and sort by player time', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
 
-            api.get.mockClear()
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
-                        return { result: recordingMetaJson }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
-                        return { results: recordingEventsJson, next: firstNext }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
-                        return { results: recordingEventsJson }
-                    }
-                })
+            jest.spyOn(api, 'get')
+            let count = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/events': () => [
+                        200,
+                        { results: recordingEventsJson, next: count++ === 0 ? firstNext : undefined },
+                    ],
+                },
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')

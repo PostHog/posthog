@@ -3,7 +3,6 @@ from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.async_migrations.setup import ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH
-from posthog.constants import AnalyticsDBMS
 from posthog.test.base import BaseTest
 from posthog.version_requirement import ServiceVersionRequirement
 

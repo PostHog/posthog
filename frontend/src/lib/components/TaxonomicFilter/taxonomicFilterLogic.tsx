@@ -22,7 +22,7 @@ import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ActionStack, CohortIcon, PropertyIcon } from 'lib/components/icons'
+import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 
@@ -75,7 +75,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
-                selectItem: () => '',
             },
         ],
         activeTab: [
@@ -299,9 +298,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
                     getValue: (group) => group.name,
                     getPopupHeader: () => `Property`,
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <PropertyIcon className="taxonomy-icon-muted" />
-                    },
+                    getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),
         ],
@@ -364,6 +361,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (item && value) {
                 props.onChange?.(group, value, item)
             }
+            actions.setSearchQuery('')
         },
 
         moveUp: async (_, breakpoint) => {
