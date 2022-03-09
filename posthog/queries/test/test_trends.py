@@ -2358,6 +2358,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     team=self.team, event="sign up", distinct_id="blabla",
                 )
                 event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )  # aggregated by distinctID, so this should be ignored
+                event_factory(
                     team=self.team, event="sign up", distinct_id="anonymous_id",
                 )
                 event_factory(
