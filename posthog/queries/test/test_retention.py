@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import pytz
+from constance import config
 from rest_framework import status
 
 from posthog.constants import (
@@ -895,8 +896,9 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             return p1, p2, p3, p4
 
         def test_retention_aggregate_by_distinct_id(self):
-            self.team.aggregate_users_by_distinct_id = True
-            self.team.save()
+
+            config.AGGREGATE_BY_DISTINCT_IDS_TEAMS = f"{self.team.pk}"
+
             person1 = person_factory(
                 team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"}
             )
