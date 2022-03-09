@@ -20,11 +20,7 @@ export const scene: SceneExport = {
     paramsToProps: () => ({ syncWithUrl: true }),
 }
 
-interface EventDefinitionsTableProps {
-    compact?: boolean
-}
-
-export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.Element {
+export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setOpenedDefinition } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
@@ -117,7 +113,7 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
             }}
             dataSource={eventDefinitions.results}
             emptyState="No event definitions"
-            nouns={['definition', 'definitions']}
+            nouns={['event', 'events']}
         />
     )
 }

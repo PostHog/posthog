@@ -199,12 +199,12 @@ export function PropertyDefinitionHeader({
     hideIcon = false,
     hideView = false,
     hideEdit = false,
+    updateRemoteItem,
 }: {
     definition: PropertyDefinition
-    event: EventDefinition
+    event?: EventDefinition
+    updateRemoteItem?: (definition: TaxonomicDefinitionTypes) => void
 } & SharedDefinitionHeaderProps): JSX.Element {
-    const { setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
-
     return (
         <RawDefinitionHeader
             definition={definition}
@@ -221,7 +221,7 @@ export function PropertyDefinitionHeader({
                     urls.eventPropertyStat(propertyDefinition.id),
             }}
             hideIcon={hideIcon}
-            updateRemoteItem={(_definition) => setLocalPropertyDefinition(event, _definition as PropertyDefinition)}
+            updateRemoteItem={updateRemoteItem}
             hideEdit={hideEdit}
             hideView={hideView}
         />
