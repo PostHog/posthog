@@ -22,9 +22,6 @@ import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
-import { helpButtonLogic } from './components/HelpButton/HelpButton'
-
-helpButtonLogic // TODO: Remove this. I've no idea why, but Jest tests fail if helpButtonLogic is not used in this file
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
