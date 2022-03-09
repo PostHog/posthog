@@ -8,7 +8,7 @@ import sqlparse
 from django.apps import apps
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
@@ -132,6 +132,18 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
+
+
+class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
+    class for TestCase that doesn't implement this atomic wrapper.
+    Read more: https://avilpage.com/2020/01/disable-transactions-django-tests.html
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
 
 
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
@@ -263,7 +275,7 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
-class TestMigrations(BaseTest):
+class BaseTestMigrations:
     @property
     def app(self):
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
@@ -295,3 +307,15 @@ class TestMigrations(BaseTest):
 
     def setUpBeforeMigration(self, apps):
         pass
+
+
+class TestMigrations(BaseTestMigrations, BaseTest):
+    """
+    Can be used to test migrations
+    """
+
+
+class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
+    """
+    Can be used to test migrations where atomic=False.
+    """
