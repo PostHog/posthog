@@ -28,6 +28,8 @@ import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -58,6 +60,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = activeView === InsightType.FUNNELS
@@ -218,8 +221,14 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         <InsightsNav />
                     </Row>
 
-                    <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
-                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
+                    <Row
+                        gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}
+                        style={verticalLayout ? { marginBottom: 64 } : undefined}
+                    >
+                        <Col
+                            span={24}
+                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8) : undefined}
+                        >
                             {verticalLayout ? (
                                 insightTab
                             ) : (
@@ -231,7 +240,10 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 </Card>
                             )}
                         </Col>
-                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
+                        <Col
+                            span={24}
+                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16) : undefined}
+                        >
                             <InsightContainer />
                         </Col>
                     </Row>

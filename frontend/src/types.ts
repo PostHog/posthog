@@ -885,7 +885,7 @@ export interface FilterType {
     interval?: IntervalType
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     event?: string // specify one event
     actions?: Record<string, any>[]
@@ -1455,7 +1455,7 @@ export enum FilterLogicalOperator {
     Or = 'OR',
 }
 export interface PropertyGroupFilter {
-    type?: FilterLogicalOperator
+    type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
 }
 
