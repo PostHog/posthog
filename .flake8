@@ -28,7 +28,7 @@ ignore=
     C414, # Unnecessary list call within sorted().
     C416, # Unnecessary list comprehension - rewrite using list().
     C901, # function complexity
-    E203, # whitespace before ‘:’
+    E203, # whitespace before ‘:’. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E402, # module level import not at top of file
@@ -39,7 +39,6 @@ ignore=
     F405, # name may be undefined, or defined from star imports: module
     F541, # f-string without any placeholders
     F601, # dictionary key name repeated with different values
-    F811, # redefinition of unused name from line N
     F841, # local variable name is assigned to but never used
     I100, # Import statements are in the wrong order.
     I101, # Imported names are in the wrong order
