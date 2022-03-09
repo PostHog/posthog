@@ -63,6 +63,6 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
-        cy.contains('Click to undo').should('exist')
+        cy.get('button').contains('Undo').should('exist')
     })
 })
