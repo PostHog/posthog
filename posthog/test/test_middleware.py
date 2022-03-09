@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework import status
 
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
