@@ -6,9 +6,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -30,9 +30,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
@@ -98,9 +98,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -122,9 +122,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
@@ -186,9 +186,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -210,9 +210,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',

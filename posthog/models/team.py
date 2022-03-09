@@ -2,12 +2,14 @@ import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytz
+from constance import config
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
@@ -112,6 +114,12 @@ class Team(UUIDClassicModel):
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
     )  # Dashboard shown on project homepage
+
+    # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
+    # Switches _most_ queries to using distinct_id as aggregator instead of person_id
+    @property
+    def aggregate_users_by_distinct_id(self) -> bool:
+        return str(self.pk) in get_list(config.AGGREGATE_BY_DISTINCT_IDS_TEAMS)
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config

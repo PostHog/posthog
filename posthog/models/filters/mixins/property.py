@@ -101,11 +101,14 @@ class PropertyMixin(BaseParamMixin):
             return cast(List[Property], [])
         has_property_groups = False
         has_simple_properties = False
+
         for prop in prop_list:
             if "type" in prop and "values" in prop:
                 has_property_groups = True
-            else:
+            elif "key" in prop:
                 has_simple_properties = True
+            else:
+                has_property_groups = True
 
         if has_simple_properties and has_property_groups:
             raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")

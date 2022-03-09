@@ -11,7 +11,6 @@ env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
-    "dashboard-permissions",
     "invite-teammates-prompt",
     "stale-events",
     "unseen-event-properties",

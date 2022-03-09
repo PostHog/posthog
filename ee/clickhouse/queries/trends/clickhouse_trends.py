@@ -32,18 +32,18 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
             return Filter(data={**filter._data, **data})
         return filter
 
-    def _get_sql_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict, Callable]:
+    def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id).get_query()
+            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
-            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
+            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:
-            sql, params, parse_function = self._total_volume_query(entity, filter, team_id)
+            sql, params, parse_function = self._total_volume_query(entity, filter, team)
 
         return sql, params, parse_function
 
-    def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
-        sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
+    def _run_query(self, filter: Filter, entity: Entity, team: Team) -> List[Dict[str, Any]]:
+        sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
         result = sync_execute(sql, params)
 
         result = parse_function(result)
@@ -62,7 +62,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         jobs = []
 
         for entity in filter.entities:
-            sql, params, parse_function = self._get_sql_for_entity(filter, entity, team.pk)
+            sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
             parse_functions[entity.index] = parse_function
             thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
             jobs.append(thread)

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter, errorToast, successToast } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
@@ -12,6 +12,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from '../lemonToast'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -108,15 +109,11 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
                     } catch (error) {
-                        errorToast(
-                            'Error saving your definition',
-                            'Attempting to save this definition returned an error:',
-                            error.message
-                        )
+                        lemonToast.error(error.message)
                     }
                     breakpoint()
                     // Disregard save attempts for any other types of taxonomy groups
-                    successToast(`${capitalizeFirstLetter(values.singularType)} definition saved`)
+                    lemonToast.success(`${capitalizeFirstLetter(values.singularType)} definition saved`)
                     // Update item in infinite list
                     props.updateRemoteItem?.(definition)
                     return definition

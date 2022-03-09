@@ -21,6 +21,11 @@ CONSTANCE_CONFIG = {
         "Whether materialized columns should be created or updated (existing columns will still be used at query time).",
         bool,
     ),
+    "AGGREGATE_BY_DISTINCT_IDS_TEAMS": (
+        get_from_env("AGGREGATE_BY_DISTINCT_IDS_TEAMS", ""),
+        "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
+        str,
+    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
@@ -98,6 +103,7 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
+    "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",

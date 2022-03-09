@@ -37,17 +37,17 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.team import Team
 from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
-    def __init__(
-        self, entity: Entity, filter: Filter, team_id: int, column_optimizer: Optional[ColumnOptimizer] = None
-    ):
+    def __init__(self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[ColumnOptimizer] = None):
         self.entity = entity
         self.filter = filter
-        self.team_id = team_id
-        self.params: Dict[str, Any] = {"team_id": team_id}
+        self.team = team
+        self.team_id = team.pk
+        self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
@@ -68,7 +68,7 @@ class ClickhouseTrendsBreakdown:
             table_name="e",
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
-        aggregate_operation, _, math_params = process_math(self.entity)
+        aggregate_operation, _, math_params = process_math(self.entity, self.team)
 
         action_query = ""
         action_params: Dict = {}

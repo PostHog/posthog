@@ -399,13 +399,13 @@ class QuerySuite:
     def track_session_recordings_list(self):
         filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_event_filter(self):
         filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_person_property_filter(self):
@@ -422,7 +422,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_retention(self):

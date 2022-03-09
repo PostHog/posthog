@@ -20,6 +20,7 @@ from ee.clickhouse.sql.person import (
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
 
@@ -94,8 +95,8 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
     )
 
 
-def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
-    return Person.objects.filter(team_id=team_id, uuid__in=uuids)
+def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
+    return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
 def delete_person(

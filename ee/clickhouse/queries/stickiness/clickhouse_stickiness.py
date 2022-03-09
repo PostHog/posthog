@@ -35,8 +35,8 @@ class ClickhouseStickiness:
             response.extend(entity_resp)
         return response
 
-    def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
-        events_query, event_params = StickinessEventsQuery(entity, filter, team_id).get_query()
+    def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
+        events_query, event_params = StickinessEventsQuery(entity, filter, team).get_query()
 
         query = f"""
         SELECT countDistinct(aggregation_target), num_intervals FROM ({events_query})
@@ -74,7 +74,7 @@ class ClickhouseStickiness:
             "persons_urls": self._get_persons_url(filter, entity),
         }
 
-    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team_id: int) -> List[Dict[str, Any]]:
+    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -85,7 +85,7 @@ class ClickhouseStickiness:
         }
         response = []
         new_dict = copy.deepcopy(serialized)
-        new_dict.update(self.stickiness(entity=entity, filter=filter, team_id=team_id))
+        new_dict.update(self.stickiness(entity=entity, filter=filter, team=team))
         response.append(new_dict)
         return response
 

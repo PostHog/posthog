@@ -2,10 +2,10 @@ import { kea } from 'kea'
 import { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { invitesLogic } from './invitesLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 interface InviteRowState {
@@ -75,7 +75,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembers.length
-            toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
             invitesLogic.actions.loadInvites()
             actions.resetInviteRows()

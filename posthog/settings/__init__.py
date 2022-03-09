@@ -25,7 +25,7 @@ from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.feature_flags import *
-from posthog.settings.logging import *
+from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *

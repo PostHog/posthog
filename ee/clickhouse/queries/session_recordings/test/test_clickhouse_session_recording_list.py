@@ -42,7 +42,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -71,7 +71,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team,
                     data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],},
                 )
-                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()
                 self.assertEqual(len(session_recordings), 1)
                 self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -88,7 +88,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -97,7 +97,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -115,7 +115,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -125,6 +125,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)

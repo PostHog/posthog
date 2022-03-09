@@ -426,9 +426,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person, self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             assert_funnel_breakdown_result_is_correct(
-                result[0],
+                result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Safari"], count=2),
                     FunnelStepResult(
@@ -448,7 +449,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[1],
+                result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Other"], count=3),
                     FunnelStepResult(
@@ -1366,6 +1367,7 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
     """
 
     assert len(left) == len(right)
+
     for index, item in enumerate(exclude_people_urls_from_funnel_response(left)):
         other = exclude_people_urls_from_funnel_response(right)[index]
         assert item.keys() == other.keys()
@@ -1375,6 +1377,10 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
             except AssertionError as e:
                 e.args += (f"failed comparing ${key}", f'Got "{item[key]}" and "{other[key]}"')
                 raise
+
+
+def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
+    return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
 
 
 def assert_funnel_breakdown_results_equal(left, right):
