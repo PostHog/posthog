@@ -19,15 +19,6 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-export const CorrelationToast = (): JSX.Element => (
-    <div data-attr="success-toast">
-        <h3>
-            <IconSelectEvents /> {'Correlation results are ready'}{' '}
-        </h3>
-        Click to view
-    </div>
-)
-
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
