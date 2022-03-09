@@ -7,6 +7,7 @@ import {
     PropertyIcon,
     UnverifiedEventStack,
     VerifiedEventStack,
+    VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -31,7 +32,10 @@ export enum DefinitionType {
     Property = 'property',
 }
 
-export function getPropertyDefinitionIcon(): JSX.Element {
+export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (!!keyMapping.event[definition.name]) {
+        return <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
+    }
     return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
 }
 
@@ -40,21 +44,21 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
     if (definition.name === '$pageview') {
         return (
             <Tooltip title="Verified event">
-                <PageviewIcon className="taxonomy-icon taxonomy-icon-verified" />
+                <PageviewIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
             <Tooltip title="Verified event">
-                <PageleaveIcon className="taxonomy-icon taxonomy-icon-verified" />
+                <PageleaveIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
         return (
             <Tooltip title="Verified event">
-                <AutocaptureIcon className="taxonomy-icon taxonomy-icon-verified" />
+                <AutocaptureIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }

@@ -61,6 +61,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
