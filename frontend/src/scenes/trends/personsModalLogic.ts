@@ -1,13 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import {
-    convertPropertyGroupToProperties,
-    fromParamsGivenUrl,
-    isGroupType,
-    pluralize,
-    toParams,
-} from 'lib/utils'
+import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -419,7 +413,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     seriesId,
                 }
             },
-            loadMorePeople: async ({ }, breakpoint) => {
+            loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {
                     const {
                         people: currPeople,
@@ -552,7 +546,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, { }, { personModal }) => {
+        '/insights/': (_, {}, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

@@ -259,7 +259,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({ }, searchParams) => {
+        '/persons': ({}, searchParams) => {
             if (props.syncWithUrl) {
                 actions.setListFilters(searchParams)
                 if (!values.persons.results.length && !values.personsLoading) {
