@@ -154,7 +154,7 @@ class Migration(AsyncMigrationDefinition):
                 table.renamed_table_name,
                 table.tmp_table_name,
                 table.name,
-                skip_if_backup_exists=True,
+                skip_unless_backup_exists=True,
             ),
         )
 
@@ -230,13 +230,13 @@ class Migration(AsyncMigrationDefinition):
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
 
     def rename_tables(
-        self, data_table_name, tmp_table_name, new_main_table_name, backup_table_name, skip_if_backup_exists=False
+        self, data_table_name, tmp_table_name, new_main_table_name, backup_table_name, skip_unless_backup_exists=False
     ):
         # :KLUDGE: Due to how async migrations rollback works, we need to check whether backup table exists even if the rename failed
         #   in the first place
-        if skip_if_backup_exists and self.get_current_engine(backup_table_name) is not None:
+        if skip_unless_backup_exists and self.get_current_engine(backup_table_name) is None:
             logger.info(
-                "Backup table already exists, skipping renaming.",
+                "Backup table doesn't exist, skipping renaming.",
                 data_table_name=data_table_name,
                 new_table_name=tmp_table_name,
                 new_main_table_name=new_main_table_name,
