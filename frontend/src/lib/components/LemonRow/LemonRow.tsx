@@ -14,6 +14,8 @@ declare module 'react' {
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref'> {
+    /** If icon width is relaxed, width of icon box is set to auto. Default icon width is 1em  */
+    relaxedIconWidth?: boolean
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
@@ -29,8 +31,6 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
-    /** Whether the button text should be bold. Default false */
-    strong?: any
     /** A compact row is slightly smaller than normal to better look inline with text. */
     compact?: boolean
     'data-attr'?: string
@@ -45,6 +45,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
     {
         children,
         icon,
+        relaxedIconWidth = false,
         className,
         tag,
         status,
@@ -56,7 +57,6 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         fullWidth = false,
         center = false,
         outlined = false,
-        strong = false,
         ...props
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
@@ -83,11 +83,17 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         },
         <>
             <div className="LemonRow__main-area">
-                {icon && <span className="LemonRow__icon">{icon}</span>}
-                {children && (
-                    <div className={clsx('LemonRow__content', strong && 'LemonRow__content--strong')}>{children}</div>
+                {icon && (
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                        {icon}
+                    </span>
                 )}
-                {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
+                {children && <div className="LemonRow__content">{children}</div>}
+                {sideIcon && (
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
+                        {sideIcon}
+                    </span>
+                )}
             </div>
             {extendedContent && <div className="LemonRow__extended-area">{extendedContent}</div>}
         </>

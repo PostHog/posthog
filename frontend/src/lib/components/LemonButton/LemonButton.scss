@@ -1,4 +1,5 @@
 .LemonButton {
+    font-weight: 600;
     color: var(--primary);
     cursor: pointer;
     &:not(:disabled):hover,
@@ -92,28 +93,5 @@
         top: 1.25rem;
         right: 1.25rem;
         transform: translate(50%, -50%);
-    }
-    .side-buttons-row {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-
-        .side-buttons-row-button {
-            position: relative;
-
-            &.side-buttons-row-button-no-hover {
-                &:not(:disabled):hover {
-                    background: unset;
-                }
-            }
-        }
-
-        .side-buttons-row-button-divider {
-            width: 1px;
-            height: 20px;
-            margin-left: 0.25rem;
-            margin-right: 0.25rem;
-            background-color: var(--border);
-        }
     }
 }

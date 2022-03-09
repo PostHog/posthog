@@ -105,6 +105,7 @@
 }
 
 .LemonRow__icon {
+    width: 1em;
     height: 1em;
     transition: background-color 200ms ease, color 200ms ease;
     display: flex;
@@ -115,20 +116,16 @@
     &:not(:first-child):last-child {
         margin-right: -0.5rem;
     }
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
+    }
 }
 
 .LemonRow__content {
     flex-grow: 1;
     display: flex;
     align-items: center;
-}
-
-.LemonRow__content {
-    font-weight: 400;
-
-    &.LemonRow__content--strong {
-        font-weight: 600;
-    }
 }
 
 .LemonRow__content,

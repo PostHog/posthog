@@ -348,6 +348,7 @@ export function EventsTable({
                         <div
                             style={{
                                 display: 'flex',
+                                flexWrap: 'wrap',
                                 gap: '0.5rem',
                                 flexDirection: 'row',
                                 alignItems: 'center',

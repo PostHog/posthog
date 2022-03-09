@@ -78,6 +78,7 @@ export function TaxonomicPopup({
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
                         {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
                     </span>
+                    <div style={{ flexGrow: 1 }} />
                     <DownOutlined style={{ fontSize: 10 }} />
                 </Button>
             )}
@@ -106,7 +107,6 @@ export function LemonTaxonomicProps({
     dataAttr,
     eventNames = [],
     placeholder = 'Please select',
-    style,
     allowClear = false,
     ...buttonProps
 }: TaxonomicPopupProps): JSX.Element {
@@ -124,6 +124,7 @@ export function LemonTaxonomicProps({
     return (
         <div className="LemonButtonWithSideAction">
             <LemonButtonWithPopup
+                className="TaxonomicPopup__button"
                 data-attr={dataAttr}
                 popup={{
                     overlay: (
@@ -148,6 +149,7 @@ export function LemonTaxonomicProps({
                 onClick={() => {
                     setVisible(!visible)
                 }}
+                relaxedIconWidth
                 sideIcon={
                     <div className="side-buttons-row">
                         {isClearButtonShown && (
@@ -155,7 +157,7 @@ export function LemonTaxonomicProps({
                                 <LemonButton
                                     className="side-buttons-row-button"
                                     type="tertiary"
-                                    icon={<IconClose fontSize={16} />}
+                                    icon={<IconClose style={{ fontSize: 16 }} />}
                                     tooltip="Clear selection"
                                     onClick={(e) => {
                                         e.stopPropagation()

@@ -135,13 +135,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
                                             type="secondary"
-                                            icon={
-                                                <IconPlus
-                                                    color="var(--primary)"
-                                                    style={{ marginRight: '-0.25rem' }}
-                                                    fontSize={14}
-                                                />
-                                            }
+                                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
                                         >
                                             {label}
                                         </LemonButton>
