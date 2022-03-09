@@ -1652,4 +1652,5 @@ export interface InstanceSetting {
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
+    is_secret: boolean
 }

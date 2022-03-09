@@ -28,7 +28,7 @@ class InstanceSetting(object):
     is_secret: bool = False
 
     def __init__(self, **kwargs):
-        for field in ("key", "value", "value_type", "description", "editable"):
+        for field in ("key", "value", "value_type", "description", "editable", "is_secret"):
             setattr(self, field, kwargs.get(field, None))
 
 
