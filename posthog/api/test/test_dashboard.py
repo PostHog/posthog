@@ -18,25 +18,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
-        d1 = Dashboard.objects.create(team=self.team, name="a dashboard", created_by=self.user)
-        d2 = Dashboard.objects.create(team=self.team, name="b dashboard", created_by=self.user)
+        dashboard_names = ["a dashboard", "b dashboard"]
+        for dashboard_name in dashboard_names:
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": dashboard_name})
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], [d1.name, d2.name])
+        self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], dashboard_names)
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self):
-        Dashboard.objects.create(team=self.team, name="a dashboard", created_by=self.user)
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "a dashboard"})
 
+        # Get the query count when there is only a single dashboard
         start_query_count = len(connection.queries)
         self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         expected_query_count = len(connection.queries) - start_query_count
 
-        Dashboard.objects.create(team=self.team, name="b dashboard", created_by=self.user)
-        Dashboard.objects.create(team=self.team, name="c dashboard", created_by=self.user)
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "b dashboard"})
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "c dashboard"})
 
+        # Verify that the query count is the same when there are multiple dashboards
         with self.assertNumQueries(expected_query_count):
             self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
