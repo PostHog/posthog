@@ -54,7 +54,7 @@ FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
 """
 
 # { ..., "group_0": 1325 }
-# To join with events join using $group_{group_type_index} column
+# To join with events join using group_{group_type_index} column
 
 TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
