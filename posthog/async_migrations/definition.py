@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
+from posthog.models.utils import sane_repr
 from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -34,7 +34,6 @@ class AsyncMigrationOperation:
         self.rollback_fn = rollback_fn
 
 
-@dataclass(frozen=True)
 class AsyncMigrationOperationSQL(AsyncMigrationOperation):
     def __init__(
         self,
@@ -61,6 +60,8 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
             execute_op_clickhouse(sql, query_id, self.timeout_seconds)
         else:
             execute_op_postgres(sql, query_id)
+
+    __repr__ = sane_repr("sql", "rollback", "database", "timeout_seconds", include_id=False)
 
 
 class AsyncMigrationDefinition:
