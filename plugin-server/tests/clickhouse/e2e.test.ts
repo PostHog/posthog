@@ -64,6 +64,8 @@ export async function exportEvents(events) {
         }
     }
 }
+
+export async function runEveryMinute() {}
 `
 
 // TODO: merge these tests with postgres/e2e.test.ts
