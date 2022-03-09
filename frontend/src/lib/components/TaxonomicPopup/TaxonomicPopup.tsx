@@ -132,6 +132,7 @@ export function LemonTaxonomicProps({
                             value={value}
                             onChange={({ type }, payload) => {
                                 onChange?.(payload, type)
+                                setVisible(false)
                             }}
                             taxonomicGroupTypes={groupTypes ?? [groupType]}
                             eventNames={eventNames}
@@ -156,7 +157,8 @@ export function LemonTaxonomicProps({
                                     type="tertiary"
                                     icon={<IconClose fontSize={16} />}
                                     tooltip="Clear selection"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                        e.stopPropagation()
                                         onChange?.('', groupType)
                                         setLocalValue('')
                                     }}
