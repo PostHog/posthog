@@ -362,7 +362,7 @@ class ClickhouseFunnelBase(ABC):
 
         event_query, params = FunnelEventQuery(
             filter=self._filter,
-            team_id=self._team.pk,
+            team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)

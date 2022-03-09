@@ -47,6 +47,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_USE_SSL',
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
+    'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
