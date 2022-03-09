@@ -157,7 +157,7 @@ export function PropertyGroupFilters({
 
 interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
-    value: string
+    value: FilterLogicalOperator
     topLevelFilter?: boolean
 }
 
@@ -169,7 +169,7 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={FilterLogicalOperator.And}
+                defaultValue={value || FilterLogicalOperator.And}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
