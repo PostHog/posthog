@@ -53,7 +53,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-            <DefinitionDrawer />
+            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
         </div>
     )
 }

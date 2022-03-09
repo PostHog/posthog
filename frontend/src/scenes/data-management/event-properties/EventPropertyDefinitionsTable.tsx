@@ -1,4 +1,4 @@
-import './EventDefinitionsTable.scss'
+import './EventPropertyDefinitionsTable.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
@@ -20,7 +20,9 @@ export const scene: SceneExport = {
 }
 
 export function EventPropertyDefinitionsTable(): JSX.Element {
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading } = useValues(eventPropertyDefinitionsTableLogic)
+    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId } = useValues(
+        eventPropertyDefinitionsTableLogic
+    )
     const { loadEventPropertyDefinitions, setLocalEventPropertyDefinition } = useActions(
         eventPropertyDefinitionsTableLogic
     )
@@ -36,8 +38,9 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     <PropertyDefinitionHeader
                         definition={definition}
                         hideView
+                        openDetailInNewTab={false}
                         updateRemoteItem={(nextPropertyDefinition) => {
-                            setLocalEventPropertyDefinition(nextPropertyDefinition)
+                            setLocalEventPropertyDefinition(nextPropertyDefinition as PropertyDefinition)
                         }}
                     />
                 )
@@ -81,6 +84,9 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             data-attr="event-properties-definition-table"
             loading={eventPropertyDefinitionsLoading}
             rowKey="id"
+            rowStatus={(row) => {
+                return row.id === openedDefinitionId ? 'highlighted' : undefined
+            }}
             pagination={{
                 controlled: true,
                 currentPage: eventPropertyDefinitions?.page ?? 1,

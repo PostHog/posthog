@@ -32,6 +32,8 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                         event={definition}
                         hideIcon
                         hideView
+                        asLink
+                        openDetailInNewTab={false}
                         updateRemoteItem={(nextPropertyDefinition) => {
                             setLocalPropertyDefinition(definition, nextPropertyDefinition as PropertyDefinition)
                         }}

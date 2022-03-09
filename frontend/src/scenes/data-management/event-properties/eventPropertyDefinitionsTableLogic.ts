@@ -24,11 +24,14 @@ export const eventPropertyDefinitionsTableLogic = kea<
     props: {} as EventPropertyDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventPropertyDefinitions: (url: string | null = '') => ({ url }),
+        loadEventPropertyDefinitions: (url: string | null = '', includedPropertyIds: string[] = []) => ({
+            url,
+            includedPropertyIds,
+        }),
         setFilters: (filters: Filters) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
-        setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
+        setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
     },
     reducers: {
         filters: [
@@ -63,13 +66,17 @@ export const eventPropertyDefinitionsTableLogic = kea<
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url }, breakpoint) => {
+                loadEventPropertyDefinitions: async ({ url, includedPropertyIds }, breakpoint) => {
+                    console.log('INCLUDED', includedPropertyIds)
+
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.propertyDefinitions.determineListEndpoint({})
+                        url = api.propertyDefinitions.determineListEndpoint({
+                            included_properties: includedPropertyIds,
+                        })
                     }
                     const response = await api.get(url)
                     breakpoint()
@@ -115,14 +122,17 @@ export const eventPropertyDefinitionsTableLogic = kea<
             if (props.syncWithUrl) {
                 actions.setFilters(searchParams as Filters)
                 if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+                    console.log('LOADING FROM HERE')
                     actions.loadEventPropertyDefinitions()
                 }
             }
         },
         '/events/properties/:id': ({ id }) => {
             if (props.syncWithUrl) {
+                console.log('HELLO', values.eventPropertyDefinitions, !values.eventPropertyDefinitionsLoading)
                 if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                    actions.loadEventPropertyDefinitions()
+                    console.log('id', id, id ? [id] : [])
+                    actions.loadEventPropertyDefinitions(null, id ? [id] : [])
                 }
                 if (id) {
                     actions.setOpenedDefinition(id)
@@ -130,11 +140,12 @@ export const eventPropertyDefinitionsTableLogic = kea<
             }
         },
     }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                actions.loadEventPropertyDefinitions()
-            }
-        },
-    }),
+    // events: ({ actions, values }) => ({
+    //     afterMount: () => {
+    //         if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+    //             console.log("LOADING FROM HERE 2")
+    //             actions.loadEventPropertyDefinitions()
+    //         }
+    //     },
+    // }),
 })

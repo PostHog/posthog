@@ -60,36 +60,5 @@
                 }
             }
         }
-
-        td.definition-example-type {
-            .definition-pill-value {
-                float: right;
-            }
-        }
-
-        .definition-pill-value {
-            display: flex;
-            align-items: center;
-            width: fit-content;
-            height: 1.25rem;
-            padding: 0.125rem 0.25rem;
-            letter-spacing: 0.25px;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-light);
-            background: var(--bg-mid);
-            color: var(--muted-alt);
-            font-size: 0.625rem;
-            font-weight: 500;
-            cursor: default;
-        }
-
-        .LemonTable__expansion {
-            .event-properties-wrapper {
-                padding: 1rem 0 1rem 1rem;
-                .event-properties-header {
-                    font-weight: 600;
-                }
-            }
-        }
     }
 }

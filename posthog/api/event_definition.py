@@ -1,3 +1,4 @@
+import json
 from typing import Type
 
 from django.db.models import Prefetch
@@ -54,6 +55,22 @@ class EventDefinitionViewSet(
             else:
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+
+                included_events = self.request.GET.get("included_events", None)
+                if included_events:
+                    included_events = json.loads(included_events)
+                included_events = tuple(set(included_events or []))
+                if included_events:
+                    # Create conditional field based on whether id exists in included_properties
+                    included_events_query = f"{{{','.join(included_events)}}}"
+                    included_events_field = f"(posthog_eventdefinition.id = ANY ('{included_events_query}'::uuid[]))"
+                else:
+                    included_events_field = "NULL"
+
+                excluded_events = self.request.GET.get("excluded_events", None)
+                if excluded_events:
+                    excluded_properties = json.loads(excluded_events)
+
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 event_definition_fields = ", ".join(
                     [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
@@ -61,7 +78,8 @@ class EventDefinitionViewSet(
 
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
-                    SELECT {event_definition_fields}
+                    SELECT {event_definition_fields},
+                           {included_events_field} AS is_included_event
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s {search_query}
