@@ -33,7 +33,6 @@ ignore=
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E402, # module level import not at top of file
     E501, # line too long
-    E713, # test for membership should be ‘not in’
     E722, # do not use bare except, specify exception instead
     E731, # do not assign a lambda expression, use a def
     F403, # ‘from module import *’ used; unable to detect undefined names
