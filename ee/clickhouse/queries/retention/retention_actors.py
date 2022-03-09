@@ -9,7 +9,6 @@ from ee.clickhouse.queries.retention.clickhouse_retention import (
     build_target_event_query,
 )
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
