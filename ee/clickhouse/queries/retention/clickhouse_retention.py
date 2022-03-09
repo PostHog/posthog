@@ -145,9 +145,8 @@ class ClickhouseRetention:
 def build_returning_event_query(filter: RetentionFilter, team: Team):
     returning_event_query_templated, returning_event_params = RetentionEventsQuery(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
-        team_id=team.pk,
+        team=team,
         event_query_type=RetentionQueryType.RETURNING,
-        aggregate_users_by_distinct_id=team.aggregate_users_by_distinct_id,
     ).get_query()
 
     query = substitute_params(returning_event_query_templated, returning_event_params)
@@ -158,13 +157,12 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
 def build_target_event_query(filter: RetentionFilter, team: Team):
     target_event_query_templated, target_event_params = RetentionEventsQuery(
         filter=filter,
-        team_id=team.pk,
+        team=team,
         event_query_type=(
             RetentionQueryType.TARGET_FIRST_TIME
             if (filter.retention_type == RETENTION_FIRST_TIME)
             else RetentionQueryType.TARGET
         ),
-        aggregate_users_by_distinct_id=team.aggregate_users_by_distinct_id,
     ).get_query()
 
     query = substitute_params(target_event_query_templated, target_event_params)

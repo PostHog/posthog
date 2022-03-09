@@ -15,6 +15,7 @@ from posthog.constants import (
 from posthog.models import Entity
 from posthog.models.action import Action
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.team import Team
 
 
 class RetentionEventsQuery(ClickhouseEventQuery):
@@ -23,14 +24,10 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _trunc_func: str
 
     def __init__(
-        self,
-        filter: RetentionFilter,
-        event_query_type: RetentionQueryType,
-        team_id: int,
-        aggregate_users_by_distinct_id=False,
+        self, filter: RetentionFilter, event_query_type: RetentionQueryType, team: Team,
     ):
         self._event_query_type = event_query_type
-        super().__init__(filter=filter, team_id=team_id, aggregate_users_by_distinct_id=aggregate_users_by_distinct_id)
+        super().__init__(filter=filter, team=team)
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
