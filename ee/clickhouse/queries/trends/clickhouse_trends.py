@@ -36,7 +36,7 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         if filter.breakdown:
             sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
-            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
+            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team.pk)
         else:
             sql, params, parse_function = self._total_volume_query(entity, filter, team)
 
