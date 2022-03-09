@@ -1,6 +1,4 @@
 import React, { FormEvent } from 'react'
-import { toast } from 'react-toastify'
-import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { Select, Modal } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -8,6 +6,9 @@ import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveTo
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { InsightModel } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { lemonToast } from '../lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -28,12 +29,12 @@ export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDas
         event.preventDefault()
         updateInsight({ ...insight, dashboard: dashboardId }, () => {
             reportSavedInsightToDashboard()
-            toast(
-                <div data-attr="success-toast">
-                    Panel added to dashboard.&nbsp;
-                    <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
-                </div>
-            )
+            lemonToast.success('Insight added to dashboard', {
+                button: {
+                    label: 'View dashboard',
+                    action: () => router.actions.push(urls.dashboard(dashboardId)),
+                },
+            })
             closeModal()
         })
     }

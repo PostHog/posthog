@@ -1,11 +1,8 @@
-import React from 'react'
-import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import {
     convertPropertyGroupToProperties,
-    errorToast,
     fromParamsGivenUrl,
     isGroupType,
     pluralize,
@@ -23,16 +20,16 @@ import {
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS } from 'lib/constants'
-import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 export interface PersonsModalParams {
     action?: ActionFilter
@@ -422,7 +419,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     seriesId,
                 }
             },
-            loadMorePeople: async ({}, breakpoint) => {
+            loadMorePeople: async ({ }, breakpoint) => {
                 if (values.people) {
                     const {
                         people: currPeople,
@@ -470,22 +467,18 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 const qs = values.peopleUrlParams.url.split('?').pop() || ''
                 const cohort = await api.create('api/cohort?' + qs, cohortParams)
                 cohortsModel.actions.cohortCreated(cohort)
-                toast.success(
-                    <div data-attr="success-toast">
-                        <h1>Cohort saved successfully!</h1>
-                        <p>
-                            <Link to={'/cohorts/' + cohort.id}>Click here to see the cohort.</Link>
-                        </p>
-                    </div>,
-                    {
-                        toastId: `cohort-saved-${cohort.id}`,
-                    }
-                )
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
 
                 const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
                 actions.reportCohortCreatedFromPersonsModal(filters)
             } else {
-                errorToast(undefined, "We couldn't create your cohort:")
+                lemonToast.error("The cohort couldn't be created")
             }
         },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
@@ -559,7 +552,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/': (_, {}, { personModal }) => {
+        '/insights/': (_, { }, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }
