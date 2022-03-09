@@ -19,7 +19,7 @@ import { delayUntilEventIngested } from '../shared/process-event'
 const { console: testConsole } = writeToFile
 
 jest.mock('../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_ENABLED: true,
@@ -202,7 +202,7 @@ describe('e2e', () => {
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
