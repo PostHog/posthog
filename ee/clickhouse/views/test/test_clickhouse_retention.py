@@ -1,7 +1,7 @@
 from dataclasses import asdict, dataclass
 from typing import List, Literal, Optional, TypedDict, Union
 
-from constance import config
+from constance.test import override_config
 from django.test import TestCase
 from django.test.client import Client
 
@@ -70,7 +70,6 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
         user = create_user(email="test@posthog.com", password="1234", organization=organization)
-        config.AGGREGATE_BY_DISTINCT_IDS_TEAMS = f"{team.pk}"
 
         self.client.force_login(user)
 
@@ -86,44 +85,45 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             team=team,
         )
 
-        retention = get_retention_ok(
-            client=self.client,
-            team_id=team.pk,
-            request=RetentionRequest(
-                target_entity={"id": "target event", "type": "events"},
-                returning_entity={"id": "target event", "type": "events"},
-                date_from="2020-01-01",
-                total_intervals=3,
-                date_to="2020-01-03",
-                period="Day",
-                retention_type="retention_first_time",
-            ),
-        )
+        with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{team.pk}"):
+            retention = get_retention_ok(
+                client=self.client,
+                team_id=team.pk,
+                request=RetentionRequest(
+                    target_entity={"id": "target event", "type": "events"},
+                    returning_entity={"id": "target event", "type": "events"},
+                    date_from="2020-01-01",
+                    total_intervals=3,
+                    date_to="2020-01-03",
+                    period="Day",
+                    retention_type="retention_first_time",
+                ),
+            )
 
-        assert retention["result"][0]["values"][0]["count"] == 2
-        assert retention["result"][0]["values"][1]["count"] == 1
-        assert retention["result"][0]["values"][2]["count"] == 1
+            assert retention["result"][0]["values"][0]["count"] == 2  #  person 1 and another one
+            assert retention["result"][0]["values"][1]["count"] == 1  # person 1
+            assert retention["result"][0]["values"][2]["count"] == 1  # another one
 
-        #  person 2
-        assert retention["result"][1]["values"][0]["count"] == 1
-        assert retention["result"][1]["values"][1]["count"] == 0
+            #  person 2
+            assert retention["result"][1]["values"][0]["count"] == 1
+            assert retention["result"][1]["values"][1]["count"] == 0
 
-        people_url = retention["result"][0]["values"][0]["people_url"]
-        people_response = self.client.get(people_url)
-        assert people_response.status_code == 200
+            people_url = retention["result"][0]["values"][0]["people_url"]
+            people_response = self.client.get(people_url)
+            assert people_response.status_code == 200
 
-        people = people_response.json()["result"]
-        # person1 and another one are the same person
-        assert len(people) == 1
-        assert people[0]["id"] == str(p1.uuid)
+            people = people_response.json()["result"]
+            # person1 and another one are the same person
+            assert len(people) == 1
+            assert people[0]["id"] == str(p1.uuid)
 
-        people_url = retention["result"][1]["values"][0]["people_url"]
-        people_response = self.client.get(people_url)
-        assert people_response.status_code == 200
+            people_url = retention["result"][1]["values"][0]["people_url"]
+            people_response = self.client.get(people_url)
+            assert people_response.status_code == 200
 
-        people = people_response.json()["result"]
-        assert len(people) == 1
-        assert people[0]["id"] == str(p2.uuid)
+            people = people_response.json()["result"]
+            assert len(people) == 1
+            assert people[0]["id"] == str(p2.uuid)
 
 
 class BreakdownTests(TestCase, ClickhouseTestMixin):
