@@ -254,12 +254,16 @@ describe('funnelLogic', () => {
 
     const defaultProps: InsightLogicProps = {
         dashboardItemId: undefined,
-        filters: {
-            insight: InsightType.FUNNELS,
-            actions: [
-                { id: '$pageview', order: 0 },
-                { id: '$pageview', order: 1 },
-            ],
+        cachedInsight: {
+            short_id: undefined,
+            filters: {
+                insight: InsightType.FUNNELS,
+                actions: [
+                    { id: '$pageview', order: 0 },
+                    { id: '$pageview', order: 1 },
+                ],
+            },
+            result: null,
         },
     }
 

@@ -611,8 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic({
                             dashboardItemId: dashboardItem.short_id,
-                            filters: dashboardItem.filters,
-                            cachedResults: refreshedDashboardItem.result,
+                            cachedInsight: dashboardItem,
                         })
                         itemResultLogic.actions.setInsight(
                             { ...dashboardItem, result: refreshedDashboardItem.result },

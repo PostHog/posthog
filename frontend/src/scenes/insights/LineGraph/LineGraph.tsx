@@ -42,7 +42,6 @@ interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
-    color: string
     type: GraphType
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
@@ -63,7 +62,6 @@ export function LineGraph({
     datasets: _datasets,
     hiddenLegendKeys,
     labels,
-    color,
     type,
     isInProgress = false,
     onClick,
@@ -104,7 +102,7 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
-    const colors = getGraphColors(color === 'white')
+    const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
@@ -117,7 +115,7 @@ export function LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, hiddenLegendKeys])
+    }, [datasets, hiddenLegendKeys])
 
     // annotation related effects
 
@@ -182,7 +180,7 @@ export function LineGraph({
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const colorList = getChartColors('white', _datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
@@ -666,7 +664,7 @@ export function LineGraph({
                         onClose={() => {
                             setAnnotationsFocused(false)
                         }}
-                        graphColor={color}
+                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />
@@ -701,7 +699,7 @@ export function LineGraph({
                         left={(focused ? holdLeft : left) - 12.5}
                         top={topExtent}
                         label="Add note"
-                        graphColor={color}
+                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />

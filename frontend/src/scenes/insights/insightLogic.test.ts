@@ -142,7 +142,9 @@ describe('insightLogic', () => {
         it('initialize insight with hidden keys', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { hidden_legend_keys: { 0: true, 10: true } },
+                cachedInsight: {
+                    filters: { insight: InsightType.FUNNELS, hidden_legend_keys: { 0: true, 10: true } },
+                },
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
@@ -178,9 +180,12 @@ describe('insightLogic', () => {
 
     describe('analytics', () => {
         it('reports insight changes on setFilter', async () => {
+            const insight = {
+                filters: { insight: InsightType.TRENDS },
+            }
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { insight: InsightType.TRENDS },
+                cachedInsight: insight,
             })
             logic.mount()
 
@@ -188,7 +193,7 @@ describe('insightLogic', () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
                 eventUsageLogic.actionCreators.reportInsightViewed(
-                    { tags: [], filters: {}, result: null },
+                    insight,
                     { insight: InsightType.FUNNELS },
                     ItemMode.View,
                     true,
@@ -207,11 +212,14 @@ describe('insightLogic', () => {
             beforeEach(() => {
                 logic = insightLogic({
                     dashboardItemId: Insight42,
-                    cachedResults: ['cached result'],
-                    filters: {
-                        insight: InsightType.TRENDS,
-                        events: [{ id: 2 }],
-                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: ['cached result'],
+                        filters: {
+                            insight: InsightType.TRENDS,
+                            events: [{ id: 2 }],
+                            properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                        },
                     },
                 })
                 logic.mount()
@@ -223,7 +231,7 @@ describe('insightLogic', () => {
             it('no query to load results', async () => {
                 await expectLogic(logic)
                     .toMatchValues({
-                        insight: partial({ short_id: Insight42, result: ['cached result'] }),
+                        insight: partial({ short_id: Insight42, results: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
                             properties: [partial({ type: 'lol' })],
@@ -237,11 +245,14 @@ describe('insightLogic', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight42,
-                    cachedResults: undefined,
-                    filters: {
-                        insight: InsightType.TRENDS,
-                        events: [{ id: 3 }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: undefined,
+                        filters: {
+                            insight: InsightType.TRENDS,
+                            events: [{ id: 3 }],
+                            properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        },
                     },
                 })
                 logic.mount()
@@ -266,21 +277,25 @@ describe('insightLogic', () => {
             afterEach(resumeKeaLoadersErrors)
 
             it('makes a query to load the results', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedResults: undefined,
+                const insight = {
+                    short_id: Insight42,
+                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
+                }
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: insight,
                 })
                 logic.mount()
 
                 await expectLogic(logic)
                     .toDispatchActions(['loadResults', 'loadResultsFailure'])
                     .toMatchValues({
-                        insight: partial({ short_id: Insight42, result: null }),
+                        insight: insight,
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -294,21 +309,25 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                logic = insightLogic({
-                    dashboardItemId: Insight42,
-                    cachedResults: undefined,
+                const insight = {
+                    short_id: Insight42,
+                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
+                }
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: insight,
                     doNotLoad: true,
                 })
                 logic.mount()
 
                 await expectLogic(logic)
                     .toMatchValues({
-                        insight: partial({ short_id: Insight42, result: null }),
+                        insight: insight,
                         filters: partial({
                             events: [partial({ id: 3 })],
                             properties: [partial({ value: 'a' })],
@@ -323,8 +342,11 @@ describe('insightLogic', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight42,
-                    cachedResults: undefined,
-                    filters: undefined,
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: undefined,
+                        filters: undefined,
+                    },
                 })
                 logic.mount()
 
@@ -345,8 +367,7 @@ describe('insightLogic', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight43, // 43 --> result: null
-                    cachedResults: undefined,
-                    filters: undefined,
+                    cachedInsight: undefined,
                 })
                 logic.mount()
 
@@ -377,8 +398,7 @@ describe('insightLogic', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight500, // 500 --> result: throws
-                    cachedResults: undefined,
-                    filters: undefined,
+                    cachedInsight: undefined,
                 })
                 logic.mount()
 
@@ -451,7 +471,7 @@ describe('insightLogic', () => {
     test('keeps saved filters', async () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
-            filters: { insight: InsightType.FUNNELS },
+            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
         })
         logic.mount()
 
@@ -525,8 +545,11 @@ describe('insightLogic', () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight42,
-            filters: { insight: InsightType.FUNNELS },
-            cachedResults: {},
+            cachedInsight: {
+                short_id: Insight42,
+                filters: { insight: InsightType.FUNNELS },
+                results: {},
+            },
         })
         logic.mount()
 
@@ -544,7 +567,9 @@ describe('insightLogic', () => {
 
         logic = insightLogic({
             dashboardItemId: Insight42,
-            filters: { insight: InsightType.FUNNELS },
+            cachedInsight: {
+                filters: { insight: InsightType.FUNNELS },
+            },
         })
         logic.mount()
 

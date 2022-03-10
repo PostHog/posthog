@@ -9,11 +9,7 @@ import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 
-export function ActionsLineGraph({
-    color = 'white',
-    inSharedMode = false,
-    showPersonsModal = true,
-}: ChartParams): JSX.Element | null {
+export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
@@ -30,7 +26,6 @@ export function ActionsLineGraph({
                     : GraphType.Line
             }
             hiddenLegendKeys={hiddenLegendKeys}
-            color={color}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             insightNumericId={insight.id}
@@ -93,6 +88,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} />
+        <InsightEmptyState />
     )
 }

@@ -48,7 +48,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph filters={_filters} />
+            return <ActionsLineGraph />
         }
         if (_filters.display === ACTIONS_TABLE) {
             return (
@@ -64,10 +64,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} />
+            return <ActionsPie />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsHorizontalBar filters={_filters} />
+            return <ActionsHorizontalBar />
         }
     }
 

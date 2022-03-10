@@ -143,12 +143,13 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            {
-                short_id: props.dashboardItemId,
-                tags: [],
-                filters: props.cachedResults ? props.filters || {} : {},
-                result: props.cachedResults || null,
-            } as Partial<InsightModel>,
+            props.cachedInsight ??
+                ({
+                    short_id: props.dashboardItemId,
+                    tags: [],
+                    filters: {},
+                    result: null,
+                } as Partial<InsightModel>),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -350,7 +351,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
-            () => props.filters || ({} as Partial<FilterType>),
+            () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
@@ -363,7 +364,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
         /* savedFilters contain filters that are persisted on an insight */
         savedFilters: [
-            () => props.filters || ({} as Partial<FilterType>),
+            () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setInsight: (state, { insight: { filters }, options: { fromPersistentApi } }) =>
                     fromPersistentApi ? cleanFilters(filters || {}) : state,
@@ -742,8 +743,8 @@ export const insightLogic = kea<insightLogicType>({
 
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
-            if (!props.cachedResults) {
-                if (props.dashboardItemId && !props.filters) {
+            if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
+                if (props.dashboardItemId) {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId,
                         router.values.hashParams.fromDashboard
@@ -752,12 +753,18 @@ export const insightLogic = kea<insightLogicType>({
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
                             actions.reportInsightViewed(insight, insight.filters || {})
-                            return
+                        } else {
+                            actions.loadResults()
                         }
+                        return
                     }
-                    actions.loadInsight(props.dashboardItemId)
-                } else if (!props.doNotLoad) {
-                    actions.loadResults()
+                }
+                if (!props.doNotLoad) {
+                    if (props.cachedInsight?.filters) {
+                        actions.loadResults()
+                    } else if (props.dashboardItemId) {
+                        actions.loadInsight(props.dashboardItemId)
+                    }
                 }
             }
         },
