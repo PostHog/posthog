@@ -85,6 +85,7 @@
         "re2": "^1.16.0",
         "redlock": "^4.2.0",
         "snowflake-sdk": "^1.6.1",
+        "structlog": "^1.0.2",
         "tar-stream": "^2.2.0",
         "uuid": "^8.3.2",
         "vm2": "3.9.6"

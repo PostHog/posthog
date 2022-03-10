@@ -3608,7 +3608,7 @@ color@3.0.x:
     color-convert "^1.9.1"
     color-string "^1.5.2"
 
-colors@^1.2.1:
+colors@^1.2.1, colors@^1.4.0:
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/colors/-/colors-1.4.0.tgz#c50491479d4c1bdaed2c9ced32cf7c7dc2360f78"
   integrity sha512-a+UqTh4kgZg/SlGvfbzDHpgRu7AAQOmmqRHJnxhRZICKFUT91brVhNNt58CMWU9PsBbv3PDCZUHbVxuDiH2mtA==
@@ -8553,6 +8553,13 @@ strip-json-comments@^3.1.0, strip-json-comments@^3.1.1:
   version "3.1.1"
   resolved "https://registry.yarnpkg.com/strip-json-comments/-/strip-json-comments-3.1.1.tgz#31f1281b3832630434831c310c01cccda8cbe006"
   integrity sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==
+
+structlog@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/structlog/-/structlog-1.0.2.tgz#60e74037a5501062d49ec9accd59bd19d9112546"
+  integrity sha512-SW64WGnCtCjdJwCEDSSaAQIa4zXKi+/a/l7IA3tE0GkZSSXmkQGB1IU+WJ/uyr6N66155Y1A5mrbzS2bSS4E2g==
+  dependencies:
+    colors "^1.4.0"
 
 stubs@^3.0.0:
   version "3.0.0"

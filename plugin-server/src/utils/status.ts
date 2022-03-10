@@ -1,4 +1,6 @@
-import { threadId } from 'worker_threads'
+import { StructuredLogger } from 'structlog'
+
+import { determineNodeEnv, NodeEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -10,21 +12,27 @@ export interface StatusBlueprint {
 }
 
 export class Status implements StatusBlueprint {
-    prefixOverride?: string
+    mode?: string
+    logger: StructuredLogger
 
-    constructor(prefixOverride?: string) {
-        this.prefixOverride = prefixOverride
-    }
-
-    determinePrefix(): string {
-        return `[${this.prefixOverride ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')}] ${
-            new Date().toTimeString().split(' ')[0]
-        }`
+    constructor(mode?: string) {
+        this.mode = mode
+        const loggerOptions: Record<string, any> = {
+            pathStackDepth: 1,
+            useLogIdExtension: true,
+            useThreadTagsExtension: true,
+        }
+        if (determineNodeEnv() !== NodeEnv.Production) {
+            loggerOptions['logFormat'] = '{message}'
+        }
+        this.logger = new StructuredLogger(loggerOptions)
     }
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, ...message: any[]) => {
-            console[type](this.determinePrefix(), icon, ...message.filter(Boolean))
+            const singleMessage = [...message].filter(Boolean).join(' ')
+            const logMessage = `${icon} ${singleMessage}`
+            this.logger[type](logMessage, { ...(this.mode ? { mode: this.mode } : {}) })
         }
     }
 
