@@ -2,6 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Input, Row, Tabs } from 'antd'
+import { EyeOutlined, EditOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
@@ -75,7 +76,7 @@ export function Dashboards(): JSX.Element {
                             )}
                             {is_primary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
+                                    <HomeIcon style={{ marginLeft: 6, height: 12, width: 12 }} />
                                 </Tooltip>
                             )}
                         </div>
@@ -106,8 +107,9 @@ export function Dashboards(): JSX.Element {
                 return (
                     <More
                         overlay={
-                            <>
+                            <div style={{ maxWidth: 250 }}>
                                 <LemonButton
+                                    icon={<EyeOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -122,6 +124,7 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
+                                    icon={<EditOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -135,23 +138,32 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
+                                <LemonButton
+                                    icon={<CopyOutlined />}
+                                    type="stealth"
+                                    onClick={() => duplicateDashboard({ id, name })}
+                                    fullWidth
+                                >
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
-                                <LemonRow icon={<HomeIcon />} fullWidth>
-                                    Change the default dashboard on the project home page.
+                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
+                                    <span>
+                                        Change the default dashboard on the{' '}
+                                        <Link to={urls.projectHomepage()}>project home page</Link>.
+                                    </span>
                                 </LemonRow>
                                 <LemonSpacer />
                                 <LemonButton
+                                    icon={<DeleteOutlined />}
                                     type="stealth"
-                                    style={{ color: 'var(--danger)' }}
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
+                                    status="danger"
                                 >
                                     Delete dashboard
                                 </LemonButton>
-                            </>
+                            </div>
                         }
                     />
                 )
