@@ -28,13 +28,13 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         filter: RetentionFilter,
         event_query_type: RetentionQueryType,
         team: Team,
-        override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        aggregate_users_by_distinct_id: Optional[bool] = None,
     ):
         self._event_query_type = event_query_type
         super().__init__(filter=filter, team=team)
 
-        if override_aggregate_users_by_distinct_id is not None:
-            self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
+        if aggregate_users_by_distinct_id is not None:
+            self._aggregate_users_by_distinct_id = aggregate_users_by_distinct_id
             self._determine_should_join_distinct_ids()
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)

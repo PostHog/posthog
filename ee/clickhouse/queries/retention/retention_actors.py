@@ -114,7 +114,7 @@ def build_actor_activity_query(
     team: Team,
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
-    override_aggregate_users_by_distinct_id: Optional[bool] = None,
+    aggregate_users_by_distinct_id: Optional[bool] = None,
 ) -> str:
     """
     The retention actor query is used to retrieve something of the form:
@@ -125,11 +125,11 @@ def build_actor_activity_query(
     person_ids
     """
     returning_event_query = build_returning_event_query(
-        filter=filter, team=team, override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id
+        filter=filter, team=team, aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
     )
 
     target_event_query = build_target_event_query(
-        filter=filter, team=team, override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id
+        filter=filter, team=team, aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
     )
 
     all_params = {
@@ -156,7 +156,7 @@ def _build_actor_query(
         team=team,
         filter_by_breakdown=filter_by_breakdown,
         selected_interval=selected_interval,
-        override_aggregate_users_by_distinct_id=False,
+        aggregate_users_by_distinct_id=False,
     )
 
     actor_query_template = """
