@@ -25,15 +25,22 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                 <code>{metricKey}</code>
             </div>
             <div style={{ color: 'var(--text-muted)' }}>
-                Value will be changed from{' '}
-                <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
-                </span>{' '}
-                to{' '}
+                Value will be changed
+                {!isSecret && (
+                    <>
+                        {' from '}
+                        <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                            {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
+                        </span>
+                    </>
+                )}
+                {' to '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
                     {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
-                {isSecret && <div className="text-danger mt-05">You will not be able to see this value again.</div>}
+                {isSecret && (
+                    <div className="text-danger">This field is secret – you won't see its value once saved</div>
+                )}
             </div>
         </div>
     )
