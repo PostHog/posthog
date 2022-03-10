@@ -68,14 +68,17 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
 
-    actionToUrl: ({ values }) => ({
-        setInsightId: ({ insightId }) =>
-            values.insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId),
-        setInsightMode: ({ insightMode }) =>
+    actionToUrl: ({ values }) => {
+        const actionToUrl = (): string | undefined =>
             values.insightId
-                ? insightMode === ItemMode.View
+                ? values.insightMode === ItemMode.View
                     ? urls.insightView(values.insightId)
                     : urls.insightEdit(values.insightId)
-                : undefined,
-    }),
+                : undefined
+
+        return {
+            setInsightId: actionToUrl,
+            setInsightMode: actionToUrl,
+        }
+    },
 })
