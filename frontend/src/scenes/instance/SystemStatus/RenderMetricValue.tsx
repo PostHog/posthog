@@ -22,11 +22,11 @@ export function RenderMetricValue({
 }: MetricValueInterface): JSX.Element | string {
     if (isSecret) {
         return (
-            <LemonTag style={{ color: 'var(--text-muted)', padding: '4px 6px', backgroundColor: '#fee5b3' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                    {isSecret && <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} />}
-                    Secret
-                </div>
+            <LemonTag
+                style={{ color: 'var(--text-muted)', backgroundColor: '#fee5b3' }}
+                icon={isSecret ? <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} /> : undefined}
+            >
+                Secret
             </LemonTag>
         )
     }
