@@ -285,7 +285,7 @@ def get_event_ingestion_context_for_personal_api_key(
 
 
 def check_definition_ids_inclusion_field_sql(raw_included_definition_ids: Optional[str], is_property: bool):
-    included_definition_ids = []
+    included_definition_ids: Tuple = ()
     if raw_included_definition_ids:
         included_definition_ids = json.loads(raw_included_definition_ids)
     included_definition_ids = tuple(set(included_definition_ids))
