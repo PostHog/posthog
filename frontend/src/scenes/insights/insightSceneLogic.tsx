@@ -14,16 +14,28 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         logic: [eventUsageLogic],
     },
     actions: {
-        newInsight: (filters: Partial<FilterType>) => ({ filters }),
+        createNewInsight: (filters: Partial<FilterType>) => ({ filters }),
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
+        setSceneState: (insightId: InsightShortId, insightMode: ItemMode) => ({
+            insightId,
+            insightMode,
+        }),
     },
     reducers: {
-        insightId: [null as null | InsightShortId, { setInsightId: (_, { insightId }) => insightId }],
+        insightId: [
+            null as null | InsightShortId,
+            {
+                setInsightId: (_, { insightId }) => insightId,
+                setSceneState: (_, { insightId }) => insightId,
+            },
+        ],
         insightMode: [
             ItemMode.View as ItemMode,
             {
                 setInsightMode: (_, { insightMode }) => insightMode,
+                createNewInsight: () => ItemMode.Edit,
+                setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
         lastInsightModeSource: [
@@ -34,7 +46,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         ],
     },
     listeners: () => ({
-        newInsight: async ({ filters }, breakpoint) => {
+        createNewInsight: async ({ filters }, breakpoint) => {
             const createdInsight: InsightModel = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 {
@@ -51,19 +63,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        [urls.insightNew()]: async (_, __, { filters }) => {
-            actions.newInsight(filters)
-        },
-        '/insights/:shortId(/:mode)': (params) => {
-            const insightId = String(params.shortId) as InsightShortId
+        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters }) => {
+            const insightId = String(shortId) as InsightShortId
             if (insightId !== values.insightId) {
-                actions.setInsightId(insightId)
-            }
-
-            if (params.mode === 'edit' && values.insightMode === ItemMode.View) {
-                actions.setInsightMode(ItemMode.Edit, InsightEventSource.Browser)
-            } else if (!params.mode && values.insightMode === ItemMode.Edit) {
-                actions.setInsightMode(ItemMode.View, InsightEventSource.Browser)
+                actions.setSceneState(insightId, mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View)
+                if (shortId === 'new') {
+                    actions.createNewInsight(filters)
+                }
             }
         },
     }),

@@ -30,14 +30,24 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId })
-    const { insightProps, filters, canEditInsight, activeView, insight, filtersChanged, savedFilters, tagLoading } =
-        useValues(logic)
+    const {
+        insightProps,
+        insightLoading,
+        filters,
+        canEditInsight,
+        activeView,
+        insight,
+        filtersChanged,
+        savedFilters,
+        tagLoading,
+    } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -82,6 +92,12 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
             disabled: insightMode !== ItemMode.View,
         },
     })
+
+    // Show the skeleton if loading an insight for which we only know the id
+    // This helps with the UX flickering and showing placeholder "name" text.
+    if (insightLoading && !('insight' in (insight.filters ?? {}))) {
+        return <InsightSkeleton />
+    }
 
     /* These are insight specific filters. They each have insight specific logics */
     const insightTab = {

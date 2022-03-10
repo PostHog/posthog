@@ -8,7 +8,7 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 export function InsightScene(): JSX.Element {
     const { insightId } = useValues(insightSceneLogic)
 
-    if (insightId) {
+    if (insightId && insightId !== 'new') {
         return <Insight insightId={insightId} />
     }
 
