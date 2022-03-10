@@ -3,7 +3,6 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
 from ee.clickhouse.queries.event_query import EE_EventQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
     PAGEVIEW_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -12,9 +11,10 @@ from posthog.constants import (
     RetentionQueryType,
 )
 from posthog.models import Entity
-from posthog.models.action import Action, format_action_filter
+from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
+from posthog.queries.util import get_trunc_func_ch
 
 
 class RetentionEventsQuery(EE_EventQuery):

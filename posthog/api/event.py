@@ -27,7 +27,8 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.action import Action, format_action_filter
+from posthog.models.action import Action
+from posthog.models.action.util import format_action_filter
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission

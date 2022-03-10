@@ -6,11 +6,11 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.breakdown_props import _parse_breakdown_cohorts
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
+from posthog.queries.util import get_earliest_timestamp
 
 
 def _create_event(**kwargs):

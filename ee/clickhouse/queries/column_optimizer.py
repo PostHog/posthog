@@ -2,7 +2,7 @@ from typing import Counter, List, Set, cast
 
 from ee.clickhouse.models.property import box_value, extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action import get_action_tables_and_properties
+from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
