@@ -42,6 +42,10 @@
             color: var(--success);
         }
     }
+
+    &.LemonRow--status-muted {
+        background: $bg_side;
+    }
 }
 
 .LemonRow__main-area {
