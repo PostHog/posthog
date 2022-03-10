@@ -14,23 +14,27 @@ import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 export const scene: SceneExport = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id), onComplete: () => {} }),
+    paramsToProps: ({ params: { id } }): ActionLogicProps => ({
+        id: parseInt(id),
+        onComplete: () => {
+            const fixedFilters = { action_id: id }
+            eventsTableLogic({
+                fixedFilters,
+                sceneUrl: id ? urls.action(id) : urls.actions(),
+                key: 'Action',
+                disableActions: true,
+            }).actions.fetchEvents()
+        },
+    }),
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { fetchEvents } = useActions(
-        eventsTableLogic({
-            fixedFilters,
-            sceneUrl: id ? urls.action(id) : urls.actions(),
-            key: 'Action',
-            disableActions: true,
-        })
-    )
-    const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
-    const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
+
+    const { action, isComplete } = useValues(actionLogic({ id }))
+    const { loadAction } = useActions(actionLogic({ id }))
 
     return (
         <>

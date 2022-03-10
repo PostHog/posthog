@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
-    onComplete: () => void
+    onComplete?: () => void
 }
 
 export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
@@ -66,7 +66,7 @@ export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
             if (action.is_calculating) {
                 actions.setPollTimeout(setTimeout(() => actions.loadAction(), 1000))
             } else {
-                props.onComplete()
+                props.onComplete?.()
                 actions.setIsComplete(new Date())
                 values.pollTimeout && clearTimeout(values.pollTimeout)
             }
