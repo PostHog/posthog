@@ -3,11 +3,10 @@ import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
-import { toast } from 'react-toastify'
-import React from 'react'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -61,26 +60,21 @@ export const teamLogic = kea<teamLogicType>({
                     /* Notify user the update was successful  */
                     const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
 
-                    let description = "Your project's settings have been successfully updated. Click here to dismiss."
-
+                    let message: string
                     if (updatedAttribute === 'slack_incoming_webhook') {
-                        description = payload.slack_incoming_webhook
-                            ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                        message = payload.slack_incoming_webhook
+                            ? `Webhook integration enabled – you should be seeing a message on ${resolveWebhookService(
                                   payload.slack_incoming_webhook
-                              )}.`
-                            : 'Webhook integration disabled.'
+                              )}`
+                            : 'Webhook integration disabled'
+                    } else {
+                        message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
 
-                    toast.dismiss('updateCurrentTeam')
-                    toast.success(
-                        <div>
-                            <h1>{parseUpdatedAttributeName(updatedAttribute)} updated successfully!</h1>
-                            <p>{description}</p>
-                        </div>,
-                        {
-                            toastId: 'updateCurrentTeam',
-                        }
-                    )
+                    lemonToast.dismiss('updateCurrentTeam')
+                    lemonToast.success(message, {
+                        toastId: 'updateCurrentTeam',
+                    })
 
                     return patchedTeam
                 },
@@ -129,7 +123,7 @@ export const teamLogic = kea<teamLogicType>({
             }
         },
         deleteTeamSuccess: () => {
-            toast.success('Project has been deleted')
+            lemonToast.success('Project has been deleted')
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'

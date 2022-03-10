@@ -1,6 +1,8 @@
 import React from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import clsx from 'clsx'
+import '../../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
 
 export function GlobalFiltersTitle({
     unit = 'series',
@@ -12,7 +14,7 @@ export function GlobalFiltersTitle({
     orFiltering?: boolean
 }): JSX.Element {
     return (
-        <h4 className="secondary" style={orFiltering ? { marginBottom: 0 } : {}}>
+        <h4 className={clsx('secondary', orFiltering && 'property-group-title')}>
             {title}{' '}
             {!orFiltering && (
                 <Tooltip

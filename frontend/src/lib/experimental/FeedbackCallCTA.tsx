@@ -6,7 +6,7 @@ import { kea, useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { feedbackCallLogicType } from './FeedbackCallCTAType'
 import posthog from 'posthog-js'
-import { successToast } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 /**
  * CURRENTLY DISABLED. To enable, set a new `FEEDBACK_CALL_KEY` and create either a multivariate FF or an experiment on PostHog.
@@ -69,10 +69,7 @@ const feedbackCallLogic = kea<feedbackCallLogicType>({
             localStorage.setItem(FEEDBACK_CALL_KEY, 'true')
             actions.hide()
             if (result === 'more-info') {
-                successToast(
-                    "We'll be in touch soon!",
-                    'We will send you more information on this feature to your email in the next few days.'
-                )
+                lemonToast.success(`We'll be in touch via email in the next few days!`)
             }
         },
     }),

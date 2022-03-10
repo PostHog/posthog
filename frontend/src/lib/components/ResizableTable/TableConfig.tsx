@@ -120,7 +120,6 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                                         value={undefined}
                                         onChange={(_, value) => value && selectColumn(String(value))}
                                         popoverEnabled={false}
-                                        clearSearchOnSelection={false}
                                         selectFirstItem={false}
                                     />
                                 )

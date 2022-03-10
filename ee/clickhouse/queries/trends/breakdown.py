@@ -1,4 +1,3 @@
-import json
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -16,13 +15,7 @@ from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
-from ee.clickhouse.queries.util import (
-    date_from_clause,
-    deep_dump_object,
-    get_time_diff,
-    get_trunc_func_ch,
-    parse_timestamps,
-)
+from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
@@ -44,18 +37,17 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.models.property import PropertyGroup
+from posthog.models.team import Team
 from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
-    def __init__(
-        self, entity: Entity, filter: Filter, team_id: int, column_optimizer: Optional[ColumnOptimizer] = None
-    ):
+    def __init__(self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[ColumnOptimizer] = None):
         self.entity = entity
         self.filter = filter
-        self.team_id = team_id
-        self.params: Dict[str, Any] = {"team_id": team_id}
+        self.team = team
+        self.team_id = team.pk
+        self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
@@ -76,7 +68,7 @@ class ClickhouseTrendsBreakdown:
             table_name="e",
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
-        aggregate_operation, _, math_params = process_math(self.entity)
+        aggregate_operation, _, math_params = process_math(self.entity, self.team)
 
         action_query = ""
         action_params: Dict = {}

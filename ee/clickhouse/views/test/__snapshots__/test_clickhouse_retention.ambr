@@ -6,9 +6,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -23,17 +23,16 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
@@ -55,8 +54,7 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -100,9 +98,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -117,17 +115,16 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
@@ -149,8 +146,7 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -190,9 +186,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -207,17 +203,16 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               pdi.person_id as target,
                argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
                argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+               pdi.person_id as target,
                [
                           dateDiff(
                               'Day',
@@ -239,8 +234,7 @@
            WHERE team_id = 2
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (trim(BOTH '"'
-                          FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'email')) ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target

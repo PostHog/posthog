@@ -6,9 +6,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               e."$group_0" as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               e."$group_0" as target
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
@@ -17,9 +17,9 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        e."$group_0" as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        e."$group_0" as target,
                         [
                           dateDiff(
                               'Week',
@@ -71,9 +71,9 @@
           0 as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               e."$group_0" as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               e."$group_0" as target
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
@@ -82,9 +82,9 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        e."$group_0" as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        e."$group_0" as target,
                         [
                           dateDiff(
                               'Week',
@@ -129,9 +129,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               e."$group_1" as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               e."$group_1" as target
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
@@ -140,9 +140,9 @@
           AND (NOT has([''], "$group_1")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        e."$group_1" as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        e."$group_1" as target,
                         [
                           dateDiff(
                               'Week',
@@ -191,9 +191,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -213,13 +213,12 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], trim(BOTH '"'
-                                        FROM JSONExtractRaw(group_properties_0, 'industry')))) ),
+          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        pdi.person_id as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        pdi.person_id as target,
                         [
                           dateDiff(
                               'Week',
@@ -246,10 +245,9 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], trim(BOTH '"'
-                                        FROM JSONExtractRaw(group_properties_0, 'industry')))) ) SELECT DISTINCT breakdown_values,
-                                                                                                                 intervals_from_base,
-                                                                                                                 actor_id
+          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) SELECT DISTINCT breakdown_values,
+                                                                                                                                     intervals_from_base,
+                                                                                                                                     actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -283,9 +281,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               pdi.person_id as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               pdi.person_id as target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -308,9 +306,9 @@
           AND (JSONHas(group_properties_0, 'industry')) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        pdi.person_id as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        pdi.person_id as target,
                         [
                           dateDiff(
                               'Week',
@@ -376,9 +374,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(e.timestamp) AS event_date,
-               e."$group_0" as target,
                e.uuid AS uuid,
-               e.event AS event
+               e.event AS event,
+               e."$group_0" as target
         FROM events e
         WHERE team_id = 2
           AND e.event = '$pageview'
@@ -387,9 +385,9 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
-                        e."$group_0" as target,
                         e.uuid AS uuid,
                         e.event AS event,
+                        e."$group_0" as target,
                         [
                           dateDiff(
                               'Week',

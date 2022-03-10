@@ -101,7 +101,9 @@ export class KafkaQueue implements Queue {
                     try {
                         await this.eachBatch(payload)
                     } catch (error) {
-                        status.info('💀', `Kafka batch of ${payload.batch.messages.length} events failed!`)
+                        const eventCount = payload.batch.messages.length
+                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount)
+                        status.info('💀', `Kafka batch of ${eventCount} events failed!`)
                         if (error.type === 'UNKNOWN_MEMBER_ID') {
                             status.info(
                                 '💀',

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
 
