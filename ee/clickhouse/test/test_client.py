@@ -4,8 +4,8 @@ import fakeredis
 from django.test import TestCase
 from freezegun import freeze_time
 
-from ee.clickhouse import client
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog import client
 from posthog.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute, sync_execute
 
 
