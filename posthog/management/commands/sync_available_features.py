@@ -12,4 +12,3 @@ class Command(BaseCommand):
             org.save()
             billing_plan, _ = org._billing_plan_details
             print(f"{billing_plan} features synced for org: {org.name}")
-
