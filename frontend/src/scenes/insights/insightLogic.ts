@@ -879,7 +879,8 @@ export const insightLogic = kea<insightLogicType>({
                             return
                         }
                     }
-                    actions.loadInsight(props.dashboardItemId)
+                    // Do not load insight on mount, prevent race condition
+                    // actions.loadInsight(props.dashboardItemId)
                 } else if (!props.doNotLoad) {
                     actions.loadResults()
                 }
