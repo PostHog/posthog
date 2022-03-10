@@ -402,7 +402,7 @@ export function Experiment_(): JSX.Element {
                                                             properties: anyProperties.filter(isValidPropertyFilter),
                                                         })
                                                     }}
-                                                    style={{ marginTop: '1rem', marginLeft: '1rem' }}
+                                                    style={{ marginTop: '1rem' }}
                                                     taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                 />
                                             </Col>
