@@ -1,6 +1,9 @@
+import structlog
 from django.core.management.base import BaseCommand
 
 from posthog.models import Organization
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -11,4 +14,4 @@ class Command(BaseCommand):
             org.update_available_features()
             org.save()
             billing_plan, _ = org._billing_plan_details
-            print(f"{billing_plan} features synced for org: {org.name}")
+            logger.info(f"{billing_plan} features synced for org: {org.name}")
