@@ -8,7 +8,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/Insight'),
-    [Scene.InsightRouter]: () => import('./insights/InsightRouter'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.Events]: () => import('./events/Events'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),

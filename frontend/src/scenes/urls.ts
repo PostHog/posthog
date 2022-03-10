@@ -27,13 +27,14 @@ export const urls = {
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
+    // insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
+    // insightView: (id: InsightShortId) => `/insights/${id}`,
     sessionRecordings: () => '/recordings',
     person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
