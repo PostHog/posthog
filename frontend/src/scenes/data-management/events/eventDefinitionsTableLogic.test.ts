@@ -164,7 +164,7 @@ describe('eventDefinitionsTableLogic', () => {
     })
 
     // TODO: unbork this
-    describe.skip('property definitions', () => {
+    describe('property definitions', () => {
         const eventDefinition = mockEventDefinitions[0]
 
         it('load property definitions and cache', async () => {
