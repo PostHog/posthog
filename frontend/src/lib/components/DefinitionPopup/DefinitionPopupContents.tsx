@@ -271,6 +271,7 @@ function DefinitionEdit(): JSX.Element {
         singularType,
         hasTaxonomyFeatures,
         isViewable,
+        hideView,
         type,
         dirty,
         viewFullDetailUrl,
@@ -340,7 +341,7 @@ function DefinitionEdit(): JSX.Element {
                 )}
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
-                    {isViewable && type !== TaxonomicFilterGroupType.Events ? (
+                    {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <Link target="_blank" to={viewFullDetailUrl}>
                             <Button
                                 className="definition-popup-edit-form-buttons-secondary"

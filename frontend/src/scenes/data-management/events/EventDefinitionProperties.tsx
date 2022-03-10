@@ -12,7 +12,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
-    const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
+    const { loadPropertiesForEvent, setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
@@ -26,7 +26,19 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             key: 'property',
             className: 'definition-column-name',
             render: function Render(_, _definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon hideView />
+                return (
+                    <PropertyDefinitionHeader
+                        definition={_definition}
+                        event={definition}
+                        hideIcon
+                        hideView
+                        asLink
+                        openDetailInNewTab={false}
+                        updateRemoteItem={(nextPropertyDefinition) => {
+                            setLocalPropertyDefinition(definition, nextPropertyDefinition as PropertyDefinition)
+                        }}
+                    />
+                )
             },
         },
         {
@@ -100,7 +112,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 className={`event-properties-definition-table-${definition.id}`}
                 dataSource={eventPropertiesCacheMap?.[definition.id]?.results ?? []}
                 emptyState="This event has no properties"
-                nouns={['definition', 'definitions']}
+                nouns={['property definition', 'property definitions']}
                 pagination={{
                     controlled: true,
                     pageSize: PROPERTY_DEFINITIONS_PER_EVENT,
