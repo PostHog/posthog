@@ -3,7 +3,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
-from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -12,8 +11,6 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
@@ -38,6 +35,9 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_query import PersonQuery
 from posthog.utils import encode_get_request_params
 
 
@@ -329,7 +329,7 @@ class ClickhouseTrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
+        person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         event_join = EVENT_JOIN_PERSON_SQL.format(
             GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
         )

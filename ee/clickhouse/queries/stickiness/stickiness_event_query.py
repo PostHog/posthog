@@ -2,14 +2,14 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import EE_EventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
-class StickinessEventsQuery(ClickhouseEventQuery):
+class StickinessEventsQuery(EE_EventQuery):
     _entity: Entity
     _filter: StickinessFilter
 

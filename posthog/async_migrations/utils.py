@@ -24,7 +24,7 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 

@@ -24,7 +24,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -41,6 +40,7 @@ from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
+from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_CORRELATION_PERSON_LIMIT,
     FUNNEL_CORRELATION_PERSON_OFFSET,

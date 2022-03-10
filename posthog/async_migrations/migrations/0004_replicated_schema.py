@@ -7,9 +7,9 @@ import structlog
 from constance import config
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 

@@ -13,7 +13,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
@@ -26,6 +25,7 @@ from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
+from posthog.client import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS, LIMIT
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort

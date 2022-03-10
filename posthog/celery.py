@@ -165,7 +165,7 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -180,7 +180,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -195,7 +195,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -211,7 +211,7 @@ def clickhouse_part_count():
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """

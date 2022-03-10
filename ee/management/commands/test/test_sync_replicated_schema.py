@@ -1,11 +1,11 @@
 import pytest
 from django.conf import settings
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import KAFKA_EVENTS_TABLE_SQL
 from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES
 from ee.clickhouse.util import ClickhouseTestMixin
 from ee.management.commands.sync_replicated_schema import Command
+from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.test.base import BaseTest
 
