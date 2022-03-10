@@ -48,12 +48,12 @@ class EventDefinitionViewSet(
     def get_queryset(self):
         # Include by id
         included_event_ids_field, included_event_ids = check_definition_ids_inclusion_field_sql(
-            included_definition_ids=self.request.GET.get("included_event_ids", None), is_property=False
+            raw_included_definition_ids=self.request.GET.get("included_ids", None), is_property=False
         )
 
         # Exclude by id
         excluded_event_ids_field, excluded_event_ids = check_definition_ids_inclusion_field_sql(
-            included_definition_ids=self.request.GET.get("excluded_event_ids", None), is_property=False
+            raw_included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=False
         )
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
@@ -73,13 +73,12 @@ class EventDefinitionViewSet(
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
                     SELECT {event_definition_fields},
-                           {included_event_ids_field} AS is_included_event,
-                           {excluded_event_ids_field} AS is_not_excluded_event
+                           {included_event_ids_field} AS is_included_event
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s AND (
-                        {excluded_event_ids_field} = false
-                        OR {included_event_ids_field} = true
+                        {included_event_ids_field} = true
+                        OR {excluded_event_ids_field} = false
                     ) {search_query}
                     ORDER BY is_included_event DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                     """,
@@ -103,7 +102,7 @@ class EventDefinitionViewSet(
                     When(id__in=excluded_event_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
                 )
             )
-            .filter(Q(is_not_excluded_event=False) | Q(is_included_event=True))
+            .filter(Q(is_included_event=True) | Q(is_not_excluded_event=False))
             .order_by("-is_included_event", "name")
         )
 

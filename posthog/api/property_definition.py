@@ -92,12 +92,12 @@ class PropertyDefinitionViewSet(
 
         # Include by id
         included_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
-            included_definition_ids=self.request.GET.get("included_ids", None), is_property=True
+            raw_included_definition_ids=self.request.GET.get("included_ids", None), is_property=True
         )
 
         # Exclude by id
         excluded_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
-            included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=True
+            raw_included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=True
         )
 
         # Exclude by name
@@ -136,14 +136,12 @@ class PropertyDefinitionViewSet(
                 f"""
                             SELECT {property_definition_fields},
                                    {event_property_field} AS is_event_property,
-                                   {included_property_ids_field} AS is_included_property,
-                                   {excluded_property_ids_field} AS is_not_excluded_property
+                                   {included_property_ids_field} AS is_included_property
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                             WHERE team_id = %(team_id)s AND (
-                                name NOT IN %(excluded_properties)s
-                                OR {excluded_property_ids_field} = false
-                                OR {included_property_ids_field} = true
+                                {included_property_ids_field} = true
+                                OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
                             ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
                             ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
@@ -160,13 +158,11 @@ class PropertyDefinitionViewSet(
             f"""
                 SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property,
-                       {included_property_ids_field} AS is_included_property,
-                       {excluded_property_ids_field} AS is_not_excluded_property
+                       {included_property_ids_field} AS is_included_property
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND (
-                    name NOT IN %(excluded_properties)s
-                    OR {excluded_property_ids_field} = false
-                    OR {included_property_ids_field} = true
+                    {included_property_ids_field} = true
+                    OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
                 ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
                 ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,
