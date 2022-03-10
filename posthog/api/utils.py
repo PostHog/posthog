@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
@@ -281,3 +282,20 @@ def get_event_ingestion_context_for_personal_api_key(
         return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
+
+
+def check_definition_ids_inclusion_field_sql(
+    included_definition_ids: Optional[Union[str, List[str]]], is_property: bool
+):
+    if included_definition_ids:
+        included_definition_ids = json.loads(included_definition_ids)
+    included_definition_ids = tuple(set(included_definition_ids or []))
+
+    # Create conditional field based on whether id exists in included_properties
+    included_definitions_sql = f"{{{','.join(included_definition_ids)}}}"
+    if is_property:
+        included_definitions_sql = f"(posthog_propertydefinition.id = ANY ('{included_definitions_sql}'::uuid[]))"
+    else:
+        included_definitions_sql = f"(posthog_eventdefinition.id = ANY ('{included_definitions_sql}'::uuid[]))"
+
+    return included_definitions_sql, included_definition_ids

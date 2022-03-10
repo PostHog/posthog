@@ -75,7 +75,6 @@
             display: flex;
             align-items: center;
             width: fit-content;
-            height: 1.25rem;
             padding: 0.125rem 0.25rem;
             letter-spacing: 0.25px;
             border-radius: var(--radius);
@@ -85,6 +84,9 @@
             font-size: 0.625rem;
             font-weight: 500;
             cursor: default;
+            word-break: break-all;
+            max-width: 300px;
+            cursor: text;
         }
 
         .LemonTable__expansion {

@@ -1,11 +1,11 @@
-import json
 from typing import Type
 
-from django.db.models import Prefetch
+from django.db.models import BooleanField, Case, Prefetch, Q, Value, When
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import check_definition_ids_inclusion_field_sql
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -43,10 +43,19 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
-    ordering = "name"
     search_fields = ["name"]
 
     def get_queryset(self):
+        # Include by id
+        included_event_ids_field, included_event_ids = check_definition_ids_inclusion_field_sql(
+            included_definition_ids=self.request.GET.get("included_event_ids", None), is_property=False
+        )
+
+        # Exclude by id
+        excluded_event_ids_field, excluded_event_ids = check_definition_ids_inclusion_field_sql(
+            included_definition_ids=self.request.GET.get("excluded_event_ids", None), is_property=False
+        )
+
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.event_definition import EnterpriseEventDefinition
@@ -56,21 +65,6 @@ class EventDefinitionViewSet(
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-                included_events = self.request.GET.get("included_events", None)
-                if included_events:
-                    included_events = json.loads(included_events)
-                included_events = tuple(set(included_events or []))
-                if included_events:
-                    # Create conditional field based on whether id exists in included_properties
-                    included_events_query = f"{{{','.join(included_events)}}}"
-                    included_events_field = f"(posthog_eventdefinition.id = ANY ('{included_events_query}'::uuid[]))"
-                else:
-                    included_events_field = "NULL"
-
-                excluded_events = self.request.GET.get("excluded_events", None)
-                if excluded_events:
-                    excluded_properties = json.loads(excluded_events)
-
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 event_definition_fields = ", ".join(
                     [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
@@ -79,11 +73,15 @@ class EventDefinitionViewSet(
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
                     SELECT {event_definition_fields},
-                           {included_events_field} AS is_included_event
+                           {included_event_ids_field} AS is_included_event,
+                           {excluded_event_ids_field} AS is_not_excluded_event
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %(team_id)s {search_query}
-                    ORDER BY query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
+                    WHERE team_id = %(team_id)s AND (
+                        {excluded_event_ids_field} = false
+                        OR {included_event_ids_field} = true
+                    ) {search_query}
+                    ORDER BY is_included_event DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                     """,
                     params={"team_id": self.team_id, **search_kwargs},
                 )
@@ -93,7 +91,21 @@ class EventDefinitionViewSet(
                     )
                 )
 
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+        return (
+            self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
+            .annotate(
+                is_included_event=Case(
+                    When(id__in=included_event_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
+                )
+            )
+            .annotate(
+                is_not_excluded_event=Case(
+                    When(id__in=excluded_event_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
+                )
+            )
+            .filter(Q(is_not_excluded_event=False) | Q(is_included_event=True))
+            .order_by("-is_included_event", "name")
+        )
 
     def get_object(self):
         id = self.kwargs["id"]

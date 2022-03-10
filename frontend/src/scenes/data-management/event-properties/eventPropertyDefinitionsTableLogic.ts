@@ -75,7 +75,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
 
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
-                            included_properties: includedPropertyIds,
+                            included_ids: includedPropertyIds,
                         })
                     }
                     const response = await api.get(url)

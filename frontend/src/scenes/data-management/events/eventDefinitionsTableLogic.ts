@@ -33,14 +33,7 @@ function normalizePropertyDefinitionEndpointUrl(url: string | null): string | nu
     if (!url) {
         return null
     }
-    const { event_names, excluded_properties, is_event_property, limit, offset } = combineUrl(url).searchParams
-    return api.propertyDefinitions.determineListEndpoint({
-        event_names,
-        excluded_properties,
-        is_event_property,
-        limit,
-        offset,
-    })
+    return api.propertyDefinitions.determineListEndpoint(combineUrl(url).searchParams)
 }
 
 export interface EventDefinitionsTableLogicProps {

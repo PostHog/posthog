@@ -6,6 +6,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import check_definition_ids_inclusion_field_sql
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -89,17 +90,17 @@ class PropertyDefinitionViewSet(
         if event_names:
             event_names = json.loads(event_names)
 
-        included_properties = self.request.GET.get("included_properties", None)
-        if included_properties:
-            included_properties = json.loads(included_properties)
-        included_properties = tuple(set(included_properties or []))
-        if included_properties:
-            # Create conditional field based on whether id exists in included_properties
-            included_properties_sql = f"{{{','.join(included_properties)}}}"
-            included_properties_field = f"(posthog_propertydefinition.id = ANY ('{included_properties_sql}'::uuid[]))"
-        else:
-            included_properties_field = "NULL"
+        # Include by id
+        included_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
+            included_definition_ids=self.request.GET.get("included_ids", None), is_property=True
+        )
 
+        # Exclude by id
+        excluded_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
+            included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=True
+        )
+
+        # Exclude by name
         excluded_properties = self.request.GET.get("excluded_properties", None)
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
@@ -121,7 +122,6 @@ class PropertyDefinitionViewSet(
             "event_names": tuple(event_names or []),
             "names": names,
             "team_id": self.team_id,
-            "included_properties": included_properties,
             "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
             **search_kwargs,
         }
@@ -136,11 +136,14 @@ class PropertyDefinitionViewSet(
                 f"""
                             SELECT {property_definition_fields},
                                    {event_property_field} AS is_event_property,
-                                   {included_properties_field} AS is_included_property
+                                   {included_property_ids_field} AS is_included_property,
+                                   {excluded_property_ids_field} AS is_not_excluded_property
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                             WHERE team_id = %(team_id)s AND (
-                                name NOT IN %(excluded_properties)s OR {included_properties_field} = true
+                                name NOT IN %(excluded_properties)s
+                                OR {excluded_property_ids_field} = false
+                                OR {included_property_ids_field} = true
                             ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
                             ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
@@ -157,10 +160,13 @@ class PropertyDefinitionViewSet(
             f"""
                 SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property,
-                       {included_properties_field} AS is_included_property
+                       {included_property_ids_field} AS is_included_property,
+                       {excluded_property_ids_field} AS is_not_excluded_property
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND (
-                    name NOT IN %(excluded_properties)s OR {included_properties_field} = true
+                    name NOT IN %(excluded_properties)s
+                    OR {excluded_property_ids_field} = false
+                    OR {included_property_ids_field} = true
                 ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
                 ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,

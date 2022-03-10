@@ -272,89 +272,87 @@ const api = {
 
     eventDefinitions: {
         async list({
-            included_events,
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            offset,
             teamId = getCurrentTeamId(),
+            ...params
         }: {
-            included_events?: string[]
+            included_ids?: string[]
+            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
         }): Promise<PaginatedResponse<EventDefinition>> {
-            const params: Record<string, any> = { limit, offset, included_events }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).get()
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .get()
         },
         determineListEndpoint({
-            included_events,
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            offset,
             teamId = getCurrentTeamId(),
+            ...params
         }: {
-            included_events?: string[]
+            included_ids?: string[]
+            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
         }): string {
-            const params: Record<string, any> = { limit, offset, included_events }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .assembleFullUrl()
         },
     },
 
     propertyDefinitions: {
         async list({
-            event_names,
-            included_properties,
-            excluded_properties,
-            is_event_property,
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            offset,
             teamId = getCurrentTeamId(),
+            ...params
         }: {
             event_names?: string[]
-            included_properties?: string[]
+            included_ids?: string[]
+            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']
         }): Promise<PaginatedResponse<PropertyDefinition>> {
-            const params: Record<string, any> = {
-                event_names,
-                included_properties,
-                excluded_properties,
-                is_event_property,
-                limit,
-                offset,
-            }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
         },
         determineListEndpoint({
-            event_names,
-            included_properties,
-            excluded_properties,
-            is_event_property,
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            offset,
             teamId = getCurrentTeamId(),
+            ...params
         }: {
             event_names?: string[]
-            included_properties?: string[]
+            included_ids?: string[]
+            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']
         }): string {
-            const params: Record<string, any> = {
-                event_names,
-                included_properties,
-                excluded_properties,
-                is_event_property,
-                limit,
-                offset,
-            }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .assembleFullUrl()
         },
     },
 
