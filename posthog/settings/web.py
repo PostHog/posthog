@@ -13,7 +13,7 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
-AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 200))
+AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 50, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = [
