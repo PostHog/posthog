@@ -22,7 +22,6 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
-    SAML_DISABLED: 1
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
 
@@ -172,7 +171,6 @@ jobs:
                 clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
                 ee: [true]
                 foss: [false]
-                saml: [false]
                 name: ['']
                 # :NOTE: Keep concurrency and group's in sync
                 concurrency: [5]
@@ -181,7 +179,6 @@ jobs:
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.8.12'
                       ee: false
-                      saml: false
                       foss: true
                       name: 'FOSS'
                       clickhouse-server-image-version: '21.6.5'
@@ -189,21 +186,12 @@ jobs:
                       group: 1
                     - python-version: '3.8.12'
                       ee: false
-                      saml: false
                       foss: true
                       name: 'FOSS'
                       clickhouse-server-image-version: '21.11.11.1'
                       concurrency: 1
                       group: 1
-                    # :TRICKY: Run SAML tests in a separate container
-                    - python-version: '3.8.12'
-                      ee: false
-                      saml: true
-                      foss: false
-                      clickhouse-server-image-version: '21.6.5'
-                      name: 'SAML'
-                      concurrency: 1
-                      group: 1
+
         steps:
             - uses: actions/checkout@v2
               with:
@@ -215,7 +203,6 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}
-                  saml: ${{ matrix.saml }}
                   clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
@@ -257,6 +244,11 @@ jobs:
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'

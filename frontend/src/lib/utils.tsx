@@ -11,6 +11,10 @@ import {
     ActionType,
     PropertyFilterValue,
     PropertyType,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    AnyPropertyFilter,
+    PropertyFilter,
     CohortType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
@@ -20,6 +24,7 @@ import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
+import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 
@@ -1251,6 +1256,59 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
+}
+
+export function isPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+): properties is PropertyGroupFilter {
+    if (properties) {
+        return (
+            (properties as PropertyGroupFilter).type !== undefined &&
+            (properties as PropertyGroupFilter).values !== undefined
+        )
+    }
+    return false
+}
+
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[]
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+export function convertPropertyGroupToProperties(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
+}
+
+export function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {}
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
+    }
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

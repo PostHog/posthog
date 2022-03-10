@@ -1,3 +1,4 @@
+import logging
 import os
 
 import structlog
@@ -7,9 +8,16 @@ from posthog.settings.base_variables import TEST
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
 DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
+
+
+class FilterStatsd(logging.Filter):
+    def filter(self, record):
+        return not record.name.startswith("statsd.client")
+
+
 LOGGING = {
     "version": 1,
-    "disable_existing_loggers": False,
+    "disable_existing_loggers": True,
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
@@ -17,8 +25,13 @@ LOGGING = {
         },
         "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
     },
+    "filters": {"filter_statsd": {"()": "posthog.settings.logs.FilterStatsd",}},
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+            "filters": ["filter_statsd"],
+        },
         "null": {"class": "logging.NullHandler",},
     },
     "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
@@ -29,7 +42,6 @@ LOGGING = {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "axes": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
-        "statsd": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     },
 }
 

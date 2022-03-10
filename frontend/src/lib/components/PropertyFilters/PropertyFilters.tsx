@@ -79,6 +79,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     index={index}
                                     onComplete={onComplete}
+                                    orFiltering={orFiltering}
                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                     eventNames={eventNames}
                                     propertyGroupType={propertyGroupType}

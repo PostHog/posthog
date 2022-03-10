@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Tuple, Union, cast
+from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
@@ -24,14 +24,21 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _trunc_func: str
 
     def __init__(
-        self, filter: RetentionFilter, event_query_type: RetentionQueryType, team: Team,
+        self,
+        filter: RetentionFilter,
+        event_query_type: RetentionQueryType,
+        team: Team,
+        aggregate_users_by_distinct_id: Optional[bool] = None,
     ):
         self._event_query_type = event_query_type
-        super().__init__(filter=filter, team=team)
+        super().__init__(
+            filter=filter, team=team, override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
+
         _fields = [
             self.get_timestamp_field(),
             (
@@ -157,9 +164,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             return f"{self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._filter.aggregation_group_type_index is not None:
+        if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = False
-        elif not self._aggregate_users_by_distinct_id:
+        else:
             self._should_join_distinct_ids = True
 
     def _get_entity_query(self, entity: Entity):
