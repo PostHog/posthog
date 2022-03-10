@@ -31,7 +31,7 @@ function ChangeRow({ metricKey, oldValue, value, is_secret }: ChangeRowInterface
                 </span>{' '}
                 to{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value })}
+                    {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {is_secret && <div className="text-danger mt-05">You will not be able to see this value again.</div>}
             </div>
