@@ -1,7 +1,11 @@
+import { useValues } from 'kea'
 import { IconOpenInNew } from 'lib/components/icons'
 import React from 'react'
+import { staffUsersLogic } from './staffUsersLogic'
 
 export function StaffUsersTab(): JSX.Element {
+    const { staffUsers } = useValues(staffUsersLogic)
+
     return (
         <div>
             <div className="flex-center">
@@ -18,6 +22,7 @@ export function StaffUsersTab(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {JSON.stringify(staffUsers)}
         </div>
     )
 }
