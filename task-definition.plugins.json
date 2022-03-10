@@ -166,7 +166,7 @@
                 "retries": 10,
                 "command": ["CMD-SHELL", "curl -f http://localhost:6738/_ready || exit 1"],
                 "timeout": 10,
-                "interval": 15,
+                "interval": 25,
                 "startPeriod": 30
             }
         }
