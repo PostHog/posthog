@@ -668,6 +668,7 @@ export class EventsProcessor {
                     },
                 ],
             })
+            this.pluginsServer.statsd?.increment('event_sent_to_clickhouse')
         } else {
             let elementsHash = ''
             if (elements && elements.length > 0) {
