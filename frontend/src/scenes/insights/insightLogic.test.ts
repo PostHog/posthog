@@ -545,7 +545,6 @@ describe('insightLogic', () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
-            syncWithUrl: true,
         })
         logic.mount()
 
@@ -558,7 +557,6 @@ describe('insightLogic', () => {
                 filters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 filtersChanged: true,
-                syncWithUrl: true,
             })
 
         await expectLogic(router)
