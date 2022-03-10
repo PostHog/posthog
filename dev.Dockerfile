@@ -37,7 +37,7 @@ RUN apk --update --no-cache add \
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
-# libxml2-dev, xmlsec & xmlsec-dev are dependencies for python3-saml
+# `libxml2-dev`, `xmlsec` & `xmlsec-dev` are dependencies for python3-saml
 COPY requirements.txt requirements-dev.txt ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "cargo~=1.52" \
