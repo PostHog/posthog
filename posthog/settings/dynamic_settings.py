@@ -115,6 +115,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
 )
 
+# SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
+# On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
 ]

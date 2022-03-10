@@ -9,10 +9,10 @@ import { MetricRow, systemStatusLogic } from './systemStatusLogic'
 interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
     oldValue?: boolean | string | number | null
     metricKey: string
-    is_secret?: boolean
+    isSecret?: boolean
 }
 
-function ChangeRow({ metricKey, oldValue, value, is_secret }: ChangeRowInterface): JSX.Element | null {
+function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface): JSX.Element | null {
     if (value?.toString() === oldValue?.toString()) {
         return null
     }
@@ -27,13 +27,13 @@ function ChangeRow({ metricKey, oldValue, value, is_secret }: ChangeRowInterface
             <div style={{ color: 'var(--text-muted)' }}>
                 Value will be changed from{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', is_secret })}
+                    {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
                 </span>{' '}
                 to{' '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
                     {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
-                {is_secret && <div className="text-danger mt-05">You will not be able to see this value again.</div>}
+                {isSecret && <div className="text-danger mt-05">You will not be able to see this value again.</div>}
             </div>
         </div>
     )
@@ -81,7 +81,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                     metricKey={key}
                     value={instanceConfigEditingState[key]}
                     oldValue={editableInstanceSettings.find((record) => record.key === key)?.value}
-                    is_secret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
+                    isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
                 />
             ))}
             {loading && (

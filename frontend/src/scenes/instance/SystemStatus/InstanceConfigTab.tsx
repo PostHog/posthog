@@ -73,7 +73,7 @@ export function InstanceConfigTab(): JSX.Element {
                     key: record.key,
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
-                    is_secret: record.is_secret,
+                    isSecret: record.is_secret,
                 }
                 return instanceConfigMode === ConfigMode.View
                     ? RenderMetricValue(props)

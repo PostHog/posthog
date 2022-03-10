@@ -10,7 +10,7 @@ const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 type BaseValueInterface = Pick<MetricRow, 'key' | 'value'> & Partial<Pick<InstanceSetting, 'value_type'>>
 export interface MetricValueInterface extends BaseValueInterface {
     emptyNullLabel?: string
-    is_secret?: boolean
+    isSecret?: boolean
 }
 
 export function RenderMetricValue({
@@ -18,13 +18,13 @@ export function RenderMetricValue({
     value,
     value_type,
     emptyNullLabel,
-    is_secret,
+    isSecret,
 }: MetricValueInterface): JSX.Element | string {
-    if (is_secret) {
+    if (isSecret) {
         return (
             <LemonTag style={{ color: 'var(--text-muted)', padding: '4px 6px', backgroundColor: '#fee5b3' }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                    {is_secret && <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} />}
+                    {isSecret && <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} />}
                     Secret
                 </div>
             </LemonTag>
