@@ -74,7 +74,7 @@ export function Dashboards(): JSX.Element {
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
                                 </Tooltip>
                             )}
-                            {is_primary && (
+                            {isPrimary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
                                     <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
                                 </Tooltip>
