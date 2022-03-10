@@ -18,13 +18,15 @@ import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 interface Props {
     view: InsightType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insightProps, insightMode } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
+    const { insightProps } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {

@@ -65,6 +65,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -108,15 +110,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            [
-                'filters',
-                'insight',
-                'insightLoading',
-                'insightMode',
-                'isViewedOnDashboard',
-                'hiddenLegendKeys',
-                'syncWithUrl',
-            ],
+            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1169,9 +1163,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 values.correlationAnalysisAvailable &&
                 insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
                 values.steps?.length > 1 &&
-                values.syncWithUrl
+                insight.short_id &&
+                router.values.location.pathname.includes(urls.insightView(insight.short_id))
             ) {
-                // syncWithUrl implies correlations are loaded only on insight view page
+                // check that correlations are loaded only on insight view page
                 // and not in Experiments or dashboards
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
