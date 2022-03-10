@@ -2,5 +2,28 @@
     max-width: 100%;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+
+    .side-buttons-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+
+        .side-buttons-row-button {
+            position: relative;
+
+            &.side-buttons-row-button-no-hover {
+                &:not(:disabled):hover {
+                    background: unset;
+                }
+            }
+        }
+
+        .side-buttons-row-button-divider {
+            width: 1px;
+            height: 20px;
+            margin-left: 0.25rem;
+            margin-right: 0.25rem;
+            background-color: var(--border);
+        }
+    }
 }
