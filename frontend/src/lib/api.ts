@@ -23,6 +23,7 @@ import {
     EVENT_DEFINITIONS_PER_PAGE,
     PROPERTY_DEFINITIONS_PER_EVENT,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -156,6 +157,10 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
     }
 
     // Request finalization
@@ -340,6 +345,9 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
+        determinePersonsEndpoint(cohortId: CohortType['id']): string {
+            return new ApiRequest().cohortsDetail(cohortId).withAction('persons.csv').assembleEndpointUrl()
+        },
     },
 
     dashboards: {
@@ -362,6 +370,12 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 

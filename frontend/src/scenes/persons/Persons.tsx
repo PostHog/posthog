@@ -10,7 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { toParams } from 'lib/utils'
+import api from '../../lib/api'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -25,7 +25,9 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     const personsLogicProps: PersonLogicProps = { cohort: cohort?.id, syncWithUrl: !cohort }
     const { loadPersons, setListFilters } = useActions(personsLogic(personsLogicProps))
     const { persons, listFilters, personsLoading } = useValues(personsLogic(personsLogicProps))
-    const personHref = cohort?.id ? `/api/cohort/${cohort.id}/persons.csv?` : `/api/person.csv?${toParams(listFilters)}`
+    const personHref = cohort?.id
+        ? api.cohorts.determinePersonsEndpoint(cohort.id)
+        : api.person.determineCSVUrl(listFilters)
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>

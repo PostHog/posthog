@@ -16,7 +16,7 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-interface Filters {
+export interface PersonFilters {
     properties?: AnyPropertyFilter[]
     search?: string
     cohort?: number
@@ -28,7 +28,7 @@ export interface PersonLogicProps {
     urlId?: string
 }
 
-export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps, PersonPaginatedResponse>>({
     props: {} as PersonLogicProps,
     key: (props) => {
         if (!props.cohort && !props.syncWithUrl) {
@@ -45,7 +45,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         setPerson: (person: PersonType | null) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
-        setListFilters: (payload: Filters) => ({ payload }),
+        setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
@@ -53,7 +53,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
     },
     reducers: {
         listFilters: [
-            {} as Filters,
+            {} as PersonFilters,
             {
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
