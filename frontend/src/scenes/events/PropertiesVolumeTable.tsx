@@ -1,5 +1,5 @@
 import React from 'react'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -9,10 +9,6 @@ import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab } from 'scenes/events/EventsTabs'
 import { EventPageHeader } from './EventPageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { EventPropertyDefinitionsTable } from 'scenes/data-management/event-properties/EventPropertyDefinitionsTable'
 
 export const scene: SceneExport = {
     component: PropertiesVolumeTable,
@@ -22,7 +18,6 @@ export const scene: SceneExport = {
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -42,18 +37,12 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                             </>
                         ))
                     )}
-                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
-                        <BindLogic logic={eventPropertyDefinitionsTableLogic} props={{ syncWithUrl: true }}>
-                            <EventPropertyDefinitionsTable />
-                        </BindLogic>
-                    ) : (
-                        <VolumeTable data={propertyDefinitions} type="property" />
-                    )}
+                    <VolumeTable data={propertyDefinitions} type="property" />
                 </>
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
+            <DefinitionDrawer />
         </div>
     )
 }

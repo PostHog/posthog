@@ -11,7 +11,7 @@ interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefin
     page?: number
 }
 
-export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
+interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
     current?: string
     count?: number
     page?: number
@@ -25,15 +25,22 @@ interface Filters {
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
-export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
-    return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
+export function createDefinitionKey(event: EventDefinition, property?: PropertyDefinition): string {
+    return `${event.id}-${property?.id ?? 'event'}`
 }
 
 function normalizePropertyDefinitionEndpointUrl(url: string | null): string | null {
     if (!url) {
         return null
     }
-    return api.propertyDefinitions.determineListEndpoint(combineUrl(url).searchParams)
+    const params = combineUrl(url).searchParams
+    return api.propertyDefinitions.determineListEndpoint(
+        params.event_names,
+        params.excluded_properties,
+        params.is_event_property,
+        params.limit,
+        params.offset
+    )
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -108,7 +115,7 @@ export const eventDefinitionsTableLogic = kea<
                     }
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({})
+                        url = api.eventDefinitions.determineListEndpoint()
                     }
                     const response = await api.get(url)
                     breakpoint()
@@ -154,12 +161,7 @@ export const eventDefinitionsTableLogic = kea<
                     }
 
                     if (!url) {
-                        url = api.propertyDefinitions.determineListEndpoint({
-                            event_names: [definition.name],
-                            excluded_properties: keyMappingKeys,
-                            is_event_property: true,
-                            limit: PROPERTY_DEFINITIONS_PER_EVENT,
-                        })
+                        url = api.propertyDefinitions.determineListEndpoint([definition.name], keyMappingKeys, true)
                     }
                     actions.setEventDefinitionPropertiesLoading(
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])

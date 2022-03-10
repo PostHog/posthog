@@ -2,14 +2,12 @@ import React, { HTMLProps, useState } from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { ExpandableConfig, LemonTableColumns, TableCellRepresentation } from './types'
-import clsx from 'clsx'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
     recordIndex: number
     rowKeyDetermined: string | number
     rowClassNameDetermined: string | undefined
-    rowStatusDetermined: 'success' | 'warning' | 'danger' | 'highlighted' | undefined
     columns: LemonTableColumns<T>
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
@@ -20,7 +18,6 @@ function TableRowRaw<T extends Record<string, any>>({
     recordIndex,
     rowKeyDetermined,
     rowClassNameDetermined,
-    rowStatusDetermined,
     columns,
     onRow,
     expandable,
@@ -34,20 +31,9 @@ function TableRowRaw<T extends Record<string, any>>({
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record)
 
-    console.log(
-        'TABLE ROW',
-        clsx(rowClassNameDetermined, rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`)
-    )
     return (
         <>
-            <tr
-                data-row-key={rowKeyDetermined}
-                {...onRow?.(record)}
-                className={clsx(
-                    rowClassNameDetermined,
-                    rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`
-                )}
-            >
+            <tr data-row-key={rowKeyDetermined} {...onRow?.(record)} className={rowClassNameDetermined}>
                 {!!expandable && rowExpandable >= 0 && (
                     <td>
                         {!!rowExpandable && (

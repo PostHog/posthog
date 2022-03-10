@@ -20,10 +20,13 @@ export const scene: SceneExport = {
     paramsToProps: () => ({ syncWithUrl: true }),
 }
 
-export function EventDefinitionsTable(): JSX.Element {
+interface EventDefinitionsTableProps {
+    compact?: boolean
+}
+
+export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId } = useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition } =
-        useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setOpenedDefinition } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -32,15 +35,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return (
-                    <EventDefinitionHeader
-                        definition={definition}
-                        hideView
-                        updateRemoteItem={(nextEventDefinition) =>
-                            setLocalEventDefinition(nextEventDefinition as EventDefinition)
-                        }
-                    />
-                )
+                return <EventDefinitionHeader definition={definition} hideView />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
@@ -94,9 +89,6 @@ export function EventDefinitionsTable(): JSX.Element {
             data-attr="events-definition-table"
             loading={eventDefinitionsLoading}
             rowKey="id"
-            rowStatus={(row) => {
-                return row.id === openedDefinitionId ? 'highlighted' : undefined
-            }}
             pagination={{
                 controlled: true,
                 currentPage: eventDefinitions?.page ?? 1,
@@ -125,7 +117,7 @@ export function EventDefinitionsTable(): JSX.Element {
             }}
             dataSource={eventDefinitions.results}
             emptyState="No event definitions"
-            nouns={['event', 'events']}
+            nouns={['definition', 'definitions']}
         />
     )
 }
