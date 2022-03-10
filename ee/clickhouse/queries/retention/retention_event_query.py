@@ -31,11 +31,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         aggregate_users_by_distinct_id: Optional[bool] = None,
     ):
         self._event_query_type = event_query_type
-        super().__init__(filter=filter, team=team)
-
-        if aggregate_users_by_distinct_id is not None:
-            self._aggregate_users_by_distinct_id = aggregate_users_by_distinct_id
-            self._determine_should_join_distinct_ids()
+        super().__init__(
+            filter=filter, team=team, override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -168,7 +166,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def _determine_should_join_distinct_ids(self) -> None:
         if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = False
-        elif not self._aggregate_users_by_distinct_id:
+        else:
             self._should_join_distinct_ids = True
 
     def _get_entity_query(self, entity: Entity):
