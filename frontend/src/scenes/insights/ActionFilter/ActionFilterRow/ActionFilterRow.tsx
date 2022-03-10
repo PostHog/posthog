@@ -440,13 +440,7 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div
-                    className={
-                        propertyFilterWrapperClassName
-                            ? `mr property-filter-wrapper ${propertyFilterWrapperClassName}`
-                            : 'mr property-filter-wrapper'
-                    }
-                >
+                <div className={`mr property-filter-wrapper ${propertyFilterWrapperClassName}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}

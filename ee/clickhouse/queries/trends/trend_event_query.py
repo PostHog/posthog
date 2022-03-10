@@ -38,6 +38,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 ]
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
@@ -83,7 +84,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._entity.math == "dau":
+        if self._entity.math == "dau" and not self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = True
 
     def _get_date_filter(self) -> Tuple[str, Dict]:

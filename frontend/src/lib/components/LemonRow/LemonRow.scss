@@ -116,6 +116,10 @@
     &:not(:first-child):last-child {
         margin-right: -0.5rem;
     }
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
+    }
 }
 
 .LemonRow__content {

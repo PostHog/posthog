@@ -442,7 +442,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = self.lifecycle_class().get_people(
             target_date=target_date_parsed,
             filter=filter,
-            team_id=team.pk,
+            team=team,
             lifecycle_type=lifecycle_type,
             request=request,
             limit=limit,
