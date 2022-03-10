@@ -1164,7 +1164,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
                 values.steps?.length > 1 &&
                 insight.short_id &&
-                router.values.location.pathname.includes(urls.insightView(insight.short_id))
+                // TODO: this is bad bad bad, but good enough
+                // TODO: move correlation code into its own logic and decouple from funnelLogic?
+                (router.values.location.pathname.includes(urls.insightView(insight.short_id)) ||
+                    router.values.location.pathname.includes(urls.insightNew()))
             ) {
                 // check that correlations are loaded only on insight view page
                 // and not in Experiments or dashboards

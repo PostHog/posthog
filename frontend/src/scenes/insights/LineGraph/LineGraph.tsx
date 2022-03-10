@@ -47,7 +47,7 @@ interface LineGraphProps {
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    insightId?: number
+    insightNumericId?: number
     inSharedMode?: boolean
     percentage?: boolean
     showPersonsModal?: boolean
@@ -68,7 +68,7 @@ export function LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    insightId,
+    insightNumericId,
     inSharedMode = false,
     percentage = false,
     showPersonsModal = true,
@@ -92,11 +92,11 @@ export function LineGraph({
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
     const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightId }))
+        ? useActions(annotationsLogic({ insightNumericId }))
         : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightId }))
+        ? useValues(annotationsLogic({ insightNumericId }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -651,7 +651,7 @@ export function LineGraph({
                         leftExtent={leftExtent}
                         interval={boundaryInterval}
                         topExtent={topExtent}
-                        insightId={insightId}
+                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused || annotationsFocused
                                 ? selectedDayLabel
@@ -673,7 +673,7 @@ export function LineGraph({
                 )}
                 {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                     <AnnotationMarker
-                        insightId={insightId}
+                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
                         }
@@ -690,7 +690,7 @@ export function LineGraph({
                             const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                             if (date) {
                                 if (applyAll) {
-                                    createGlobalAnnotation(textInput, date, insightId)
+                                    createGlobalAnnotation(textInput, date, insightNumericId)
                                 } else {
                                     createAnnotation(textInput, date)
                                 }

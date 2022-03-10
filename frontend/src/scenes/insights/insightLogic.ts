@@ -610,9 +610,9 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         saveInsight: async ({ setViewMode }) => {
-            const insightId =
+            const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            if (!insightId) {
+            if (!insightNumericId) {
                 throw new Error('Can only save saved insights whose id is known.')
             }
 
@@ -624,7 +624,7 @@ export const insightLogic = kea<insightLogicType>({
                 throw error
             }
             const savedInsight: InsightModel = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
                 {
                     ...values.insight,
                     derived_name: summarizeInsightFilters(

@@ -15,7 +15,6 @@ import {
     InsightLogicProps,
     InsightShortId,
     InsightType,
-    ItemMode,
     TeamType,
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,6 +27,7 @@ import { mockInsight } from '~/test/mocks'
 import { useMocks } from '~/mocks/jest'
 import { useFeatures } from '~/mocks/features'
 
+const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
 
 const funnelResults = [
@@ -69,7 +69,27 @@ describe('funnelLogic', () => {
                         correlation_config: correlationConfig,
                     },
                 ],
-                '/api/projects/:team/insights/': { results: funnelResults },
+                '/api/projects/:team/insights/': (req) => {
+                    if (req.url.searchParams.get('saved')) {
+                        return [
+                            200,
+                            {
+                                results: funnelResults,
+                            },
+                        ]
+                    }
+                    const shortId = req.url.searchParams.get('short_id') || ''
+                    if (shortId === '500') {
+                        return [500, { status: 0, detail: 'error from the API' }]
+                    }
+                    return [
+                        200,
+                        {
+                            results: [mockInsight],
+                        },
+                    ]
+                },
+                // '/api/projects/:team/insights/': { results: funnelResults },
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
@@ -101,7 +121,10 @@ describe('funnelLogic', () => {
                 ],
             },
             post: {
-                '/api/projects/:team/insights': mockInsight,
+                '/api/projects/:team/insights/': (req) => [
+                    200,
+                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                ],
                 '/api/projects/:team/insights/funnel/': {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -436,7 +459,7 @@ describe('funnelLogic', () => {
         it('setFilters calls personsModalLogic.loadPeople', async () => {
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
-                insightLogic({ dashboardItemId: Insight123 }).actions.setInsightMode(ItemMode.Edit, null)
+                router.actions.push(urls.insightEdit(Insight123))
             })
 
             await expectLogic(logic, () => {
@@ -637,7 +660,7 @@ describe('funnelLogic', () => {
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
             }
-            await router.actions.push(urls.insightEdit(Insight123, filters))
+            await router.actions.push(urls.insightNew(filters))
 
             await expectLogic(logic)
                 .toFinishAllListeners()
@@ -808,10 +831,11 @@ describe('funnelLogic', () => {
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
             }
-            await router.actions.push(urls.insightEdit(Insight123, filters))
+            await router.actions.push(urls.insightNew(filters))
 
             await expectLogic(logic)
                 .toFinishAllListeners()
+                .printActions()
                 .toMatchValues({
                     correlationValues: [
                         {
@@ -868,7 +892,8 @@ describe('funnelLogic', () => {
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
             }
-            await router.actions.push(urls.insightEdit(Insight123, filters))
+            await router.actions.push(urls.insightNew(filters))
+            console.log(router.values.location)
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
                 .toFinishAllListeners()

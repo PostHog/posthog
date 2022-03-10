@@ -96,7 +96,7 @@ export function ActionsHorizontalBar({
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            insightId={insight.id}
+            insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
             onClick={

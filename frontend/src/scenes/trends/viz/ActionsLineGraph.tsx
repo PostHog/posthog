@@ -33,7 +33,7 @@ export function ActionsLineGraph({
             color={color}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightId={insight.id}
+            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}

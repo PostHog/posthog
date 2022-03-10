@@ -53,7 +53,7 @@ export function RetentionLineGraph({
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={incompletenessOffsetFromEnd < 0}
-                insightId={insight.id}
+                insightNumericId={insight.id}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}

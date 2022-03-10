@@ -68,7 +68,7 @@ export function ActionsPie({
                         labels={data[0].labels}
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
-                        insightId={insight.id}
+                        insightNumericId={insight.id}
                         showPersonsModal={showPersonsModal}
                         onClick={
                             !showPersonsModal || filtersParam.formula
