@@ -10,6 +10,9 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
+    connect: {
+        logic: [eventUsageLogic],
+    },
     actions: {
         newInsight: (filters: Partial<FilterType>) => ({ filters }),
         setInsightId: (insightId: InsightShortId) => ({ insightId }),

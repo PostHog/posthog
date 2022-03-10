@@ -5,7 +5,6 @@ import { AvailableFeature, InsightShortId, InsightType, ItemMode, PropertyOperat
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/react'
@@ -22,7 +21,6 @@ const API_FILTERS = {
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
-const Insight44 = '44' as InsightShortId
 const Insight500 = '500' as InsightShortId
 
 describe('insightLogic', () => {
@@ -90,7 +88,7 @@ describe('insightLogic', () => {
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
                 '/api/projects/:team/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, name: (req.body as any)?.name },
+                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
             },
             patch: {
@@ -393,166 +391,6 @@ describe('insightLogic', () => {
                     })
                     .delay(1)
                     .toNotHaveDispatchedActions(['loadResults', 'setFilters', 'updateInsight'])
-            })
-        })
-    })
-
-    describe('syncWithUrl: true persists state in the URL', () => {
-        beforeEach(async () => {
-            logic = insightLogic({
-                syncWithUrl: true,
-                dashboardItemId: Insight44,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners().clearHistory()
-        })
-
-        it('redirects when opening /insight/new', async () => {
-            router.actions.push(urls.insightEdit(Insight42))
-            await expectLogic(router)
-                .delay(1)
-                .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    hashParams: {},
-                })
-
-            router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(router)
-                .delay(1)
-                .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit(Insight12) }),
-                    hashParams: { filters: partial({ insight: 'FUNNELS' }) },
-                })
-        })
-
-        it('redirects when opening with legacy filter in searchParams', async () => {
-            // open url with ?insight=FUNNELS
-            router.actions.push(combineUrl(urls.insightEdit(Insight42), { insight: 'RETENTION' }).url)
-            await expectLogic(router)
-                .delay(1)
-                .toMatchValues({
-                    location: partial({ pathname: urls.insightEdit(Insight42) }),
-                    searchParams: {},
-                    hashParams: { filters: partial({ insight: InsightType.RETENTION }) },
-                })
-        })
-
-        it('sets filters from the URL', async () => {
-            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'hour' })
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
-                })
-
-            // setting the same URL twice doesn't call `setFilters`
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url)])
-                .toNotHaveDispatchedActions(['setFilters'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
-                })
-
-            // calls when the values changed
-            const url2 = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'week' })
-            router.actions.push(url2)
-            await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'week' }),
-                })
-        })
-
-        it('takes the dashboardItemId from the URL', async () => {
-            const url = urls.insightView(Insight42, { insight: InsightType.TRENDS })
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])
-                .toNotHaveDispatchedActions(['loadResults'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS }),
-                    insight: partial({ short_id: Insight42, result: ['result from api'] }),
-                })
-
-            // changing the ID, does not query twice
-            router.actions.push(urls.insightView(Insight43, { insight: InsightType.FUNNELS }))
-            await expectLogic(logic)
-                .toDispatchActions(['loadInsight', 'setFilters', 'loadResults', 'loadInsightSuccess'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.FUNNELS }),
-                    insight: partial({ id: 43, result: null }),
-                })
-                .toDispatchActions(['loadResultsSuccess'])
-                .toMatchValues({
-                    insight: partial({ id: 43, result: ['result from api'] }),
-                })
-        })
-
-        it('sets the URL when changing filters', async () => {
-            // make sure we're on the right page
-            router.actions.push(urls.insightNew())
-            await expectLogic(router).toDispatchActions(['push', 'locationChanged', 'replace', 'locationChanged'])
-
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
-            await expectLogic()
-                .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
-                ])
-                .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { hashParams: { filters: partial({ interval: 'hour' }) } })
-
-            // no change in filters, doesn't change the URL
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
-            await expectLogic()
-                .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
-                ])
-                .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { hashParams: { filters: partial({ interval: 'hour' }) } })
-
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'month' })
-            await expectLogic(router)
-                .toDispatchActions(['replace', 'locationChanged'])
-                .toMatchValues({
-                    hashParams: { filters: partial({ insight: InsightType.TRENDS, interval: 'month' }) },
-                })
-        })
-
-        it('persists edit mode in the url', async () => {
-            const viewUrl = combineUrl(urls.insightView(Insight42, cleanFilters({ insight: InsightType.TRENDS })))
-            const editUrl = combineUrl(urls.insightEdit(Insight42, cleanFilters({ insight: InsightType.TRENDS })))
-
-            router.actions.push(viewUrl.url)
-            await expectLogic(logic)
-                .toNotHaveDispatchedActions(['setInsightMode'])
-                .toDispatchActions(['loadInsightSuccess'])
-                .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS }),
-                    insight: partial({ short_id: Insight42, result: ['result from api'] }),
-                    insightMode: ItemMode.View,
-                })
-
-            router.actions.push(editUrl.url)
-            await expectLogic(logic)
-                .toDispatchActions([
-                    ({ type, payload }) =>
-                        type === logic.actionTypes.setFilters && payload.insightMode === ItemMode.Edit,
-                ])
-                .toMatchValues({
-                    insightMode: ItemMode.Edit,
-                })
-
-            logic.actions.setInsightMode(ItemMode.View, null)
-            expectLogic(router).toMatchValues({
-                location: partial({ pathname: viewUrl.pathname, search: viewUrl.search, hash: viewUrl.hash }),
-            })
-
-            logic.actions.setInsightMode(ItemMode.Edit, null)
-            expectLogic(router).toMatchValues({
-                location: partial({ pathname: editUrl.pathname, search: editUrl.search, hash: editUrl.hash }),
             })
         })
     })

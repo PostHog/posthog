@@ -1162,8 +1162,6 @@ export interface ChartParams {
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | null
-    /** enable url handling for this insight */
-    syncWithUrl?: boolean
     /** cached results, avoid making a request */
     cachedResults?: any
     /** cached filters, avoid making a request */
