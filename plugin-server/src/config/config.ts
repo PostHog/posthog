@@ -1,7 +1,7 @@
 import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/utils'
+import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())

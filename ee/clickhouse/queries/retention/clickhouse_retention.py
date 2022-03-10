@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, NamedTuple, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from urllib.parse import urlencode
 
 from ee.clickhouse.client import substitute_params, sync_execute
@@ -141,11 +141,14 @@ class ClickhouseRetention:
         return ClickhouseRetentionActorsByPeriod(team=team, filter=filter).actors()
 
 
-def build_returning_event_query(filter: RetentionFilter, team: Team):
+def build_returning_event_query(
+    filter: RetentionFilter, team: Team, aggregate_users_by_distinct_id: Optional[bool] = None
+):
     returning_event_query_templated, returning_event_params = RetentionEventsQuery(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
         event_query_type=RetentionQueryType.RETURNING,
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
     ).get_query()
 
     query = substitute_params(returning_event_query_templated, returning_event_params)
@@ -153,7 +156,9 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
     return query
 
 
-def build_target_event_query(filter: RetentionFilter, team: Team):
+def build_target_event_query(
+    filter: RetentionFilter, team: Team, aggregate_users_by_distinct_id: Optional[bool] = None
+):
     target_event_query_templated, target_event_params = RetentionEventsQuery(
         filter=filter,
         team=team,
@@ -162,6 +167,7 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
             if (filter.retention_type == RETENTION_FIRST_TIME)
             else RetentionQueryType.TARGET
         ),
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
     ).get_query()
 
     query = substitute_params(target_event_query_templated, target_event_params)

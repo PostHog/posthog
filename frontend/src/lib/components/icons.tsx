@@ -1298,3 +1298,27 @@ export function IconCorporate(props: React.SVGProps<SVGSVGElement>): JSX.Element
         </svg>
     )
 }
+
+/** Material Design Tune icon. */
+export function IconTuning(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M3,17V19H9V17H3M3,5V7H13V5H3M13,21V19H21V17H13V15H11V21H13M7,9V11H3V13H7V15H9V9H7M21,13V11H11V13H21M15,9H17V7H21V5H17V3H15V9Z"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Tray Arrow Down icon. */
+export function IconExport(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                fill="currentColor"
+                d="M2 12H4V17H20V12H22V17C22 18.11 21.11 19 20 19H4C2.9 19 2 18.11 2 17V12M12 15L17.55 9.54L16.13 8.13L13 11.25V2H11V11.25L7.88 8.13L6.46 9.55L12 15Z"
+            />
+        </svg>
+    )
+}
