@@ -213,7 +213,7 @@ def get_event(request):
             else:
                 statsd.incr("invalid_event_uuid")
 
-        event = parse_event(event, distinct_id, ingestion_context)
+        event = parse_event(event, distinct_id, ingestion_context, now)
         if not event:
             continue
 
@@ -264,13 +264,15 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_event(event, distinct_id, ingestion_context):
+def parse_event(event, distinct_id, ingestion_context, ingestion_start):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
 
     if not event.get("properties"):
         event["properties"] = {}
+
+    event["properties"]["$$event_ingestion_start_timestamp"] = ingestion_start
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))

@@ -13,6 +13,10 @@ export async function ingestEvent(
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<void> {
     const eachEventStartTimer = new Date()
+    event.properties = event.properties || {} // TODO: this is silly
+    if (event.properties) {
+        event.properties['$$event_ingestion_plugin_server_start_timestamp'] = eachEventStartTimer
+    }
     const isSnapshot = event.event === '$snapshot'
 
     let processedEvent: PluginEvent | null = event

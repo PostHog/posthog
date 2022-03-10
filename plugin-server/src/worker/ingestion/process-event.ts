@@ -640,11 +640,13 @@ export class EventsProcessor {
         const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+        const props = properties ?? {}
+        props['$$event_ingestion_plugin_server_end_timestamp'] = new Date()
 
         const eventPayload: IEvent = {
             uuid,
             event,
-            properties: JSON.stringify(properties ?? {}),
+            properties: JSON.stringify(props),
             timestamp: timestampString,
             team_id: teamId,
             distinct_id: distinctId,
