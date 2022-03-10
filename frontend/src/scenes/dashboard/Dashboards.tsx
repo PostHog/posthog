@@ -76,7 +76,7 @@ export function Dashboards(): JSX.Element {
                             )}
                             {is_primary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <HomeIcon style={{ marginLeft: 6, height: 12, width: 12 }} />
+                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
                                 </Tooltip>
                             )}
                         </div>
