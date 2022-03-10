@@ -1788,6 +1788,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "Bla",
+      "name": "FT.",
+      "avatar_url": "https://avatars.githubusercontent.com/u/21099480?v=4",
+      "profile": "https://github.com/Bla",
+      "contributions": [
+        "ideas"
+      ]
     }
   ],
   "contributorsPerLine": 7,
