@@ -37,6 +37,7 @@ RUN apk --update --no-cache add \
 #
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
+# `libxml2-dev`, `xmlsec` & `xmlsec-dev` are dependencies for python3-saml
 COPY requirements.txt requirements-dev.txt ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "cargo~=1.52" \
@@ -46,6 +47,9 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "musl-dev~=1.2" \
     "openssl-dev~=1.1" \
     "postgresql-dev~=13" \
+    "libxml2-dev~=2.9" \
+    "xmlsec~=1.2" \
+    "xmlsec-dev~=1.2" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir \
