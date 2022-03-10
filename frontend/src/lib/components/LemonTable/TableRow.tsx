@@ -34,10 +34,6 @@ function TableRowRaw<T extends Record<string, any>>({
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record)
 
-    console.log(
-        'TABLE ROW',
-        clsx(rowClassNameDetermined, rowStatusDetermined && `LemonTable__tr--status-${rowStatusDetermined}`)
-    )
     return (
         <>
             <tr

@@ -67,8 +67,6 @@ export const eventPropertyDefinitionsTableLogic = kea<
             } as PropertyDefinitionsPaginatedResponse,
             {
                 loadEventPropertyDefinitions: async ({ url, includedPropertyIds }, breakpoint) => {
-                    console.log('INCLUDED', includedPropertyIds)
-
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
@@ -122,16 +120,13 @@ export const eventPropertyDefinitionsTableLogic = kea<
             if (props.syncWithUrl) {
                 actions.setFilters(searchParams as Filters)
                 if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                    console.log('LOADING FROM HERE')
                     actions.loadEventPropertyDefinitions()
                 }
             }
         },
         '/events/properties/:id': ({ id }) => {
             if (props.syncWithUrl) {
-                console.log('HELLO', values.eventPropertyDefinitions, !values.eventPropertyDefinitionsLoading)
                 if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                    console.log('id', id, id ? [id] : [])
                     actions.loadEventPropertyDefinitions(null, id ? [id] : [])
                 }
                 if (id) {
@@ -140,12 +135,4 @@ export const eventPropertyDefinitionsTableLogic = kea<
             }
         },
     }),
-    // events: ({ actions, values }) => ({
-    //     afterMount: () => {
-    //         if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-    //             console.log("LOADING FROM HERE 2")
-    //             actions.loadEventPropertyDefinitions()
-    //         }
-    //     },
-    // }),
 })
