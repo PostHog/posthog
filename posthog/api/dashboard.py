@@ -20,8 +20,9 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, Insight, Team
+from posthog.models import Dashboard, Insight, Organization, Team
 from posthog.models.user import User
+from posthog.models.utils import get_deferred_field_set_for_model
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
 
@@ -219,8 +220,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
         if self.action != "update":
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
-        queryset = queryset.select_related("team__organization").prefetch_related(
-            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"))
+
+        deferred_fields = set.union(
+            get_deferred_field_set_for_model(
+                Organization, fields_not_deferred={"available_features"}, field_prefix="team__organization__"
+            ),
+            get_deferred_field_set_for_model(Team, fields_not_deferred={"organization", "name"}, field_prefix="team__"),
+        )
+
+        queryset = (
+            queryset.select_related("team__organization", "created_by")
+            .defer(*deferred_fields)
+            .prefetch_related(Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order")))
         )
         return queryset
 

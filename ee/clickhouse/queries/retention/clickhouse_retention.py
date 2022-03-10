@@ -5,7 +5,6 @@ from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 

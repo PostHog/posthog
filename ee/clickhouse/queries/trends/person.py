@@ -41,7 +41,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         if not entity:
             raise ValueError("Entity is required")
 
-        if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if filter.display != TRENDS_CUMULATIVE and filter.display not in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
         super().__init__(team, filter, entity, **kwargs)

@@ -35,7 +35,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
@@ -389,8 +389,12 @@ export function Experiment_(): JSX.Element {
                                                         pageKey={'EditFunnel-property'}
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
-                                                                ? funnelsFilters.properties
-                                                                : trendsFilters.properties
+                                                                ? convertPropertyGroupToProperties(
+                                                                      funnelsFilters.properties
+                                                                  )
+                                                                : convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({

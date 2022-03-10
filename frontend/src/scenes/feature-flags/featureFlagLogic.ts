@@ -6,10 +6,11 @@ import {
     FeatureFlagType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
+    PropertyFilter,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils'
+import { convertPropertyGroupToProperties, deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -83,7 +84,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                setFeatureFlag: (_, { featureFlag }) => featureFlag,
+                setFeatureFlag: (_, { featureFlag }) => {
+                    if (featureFlag.filters.groups) {
+                        const groups = featureFlag.filters.groups.map((group) => {
+                            if (group.properties) {
+                                return {
+                                    ...group,
+                                    properties: convertPropertyGroupToProperties(group.properties) as PropertyFilter[],
+                                }
+                            }
+                            return group
+                        })
+                        return { ...featureFlag, filters: { ...featureFlag?.filters, groups } }
+                    }
+                    return featureFlag
+                },
                 addConditionSet: (state) => {
                     if (!state) {
                         return state

@@ -11,6 +11,9 @@ describe('Retention', () => {
         // stable. This is to try and avoid an issue where after selecting a
         // filter property, the results section would be blank
         cy.get('[data-attr=retention-table').should('exist')
+        // tests for new property group filters
+        // cy.get('[data-attr=insight-retention-add-filter-group]').click()
+        // cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=new-prop-filter-insight-retention]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')

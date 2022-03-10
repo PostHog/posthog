@@ -24,7 +24,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models import Filter, Team
+from posthog.models import Team
 from posthog.models.filters import Filter
 
 
