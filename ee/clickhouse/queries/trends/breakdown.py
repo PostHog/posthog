@@ -1,7 +1,6 @@
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
@@ -9,7 +8,7 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
 )
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EE_ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -32,6 +31,7 @@ from posthog.constants import (
     WEEKLY_ACTIVE,
     PropertyOperatorType,
 )
+from posthog.models.action import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -42,13 +42,15 @@ from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
-    def __init__(self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[ColumnOptimizer] = None):
+    def __init__(
+        self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EE_ColumnOptimizer] = None
+    ):
         self.entity = entity
         self.filter = filter
         self.team = team
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
-        self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
+        self.column_optimizer = column_optimizer or EE_ColumnOptimizer(self.filter, self.team_id)
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
         interval_annotation = get_trunc_func_ch(self.filter.interval)

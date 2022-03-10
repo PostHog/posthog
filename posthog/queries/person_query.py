@@ -2,7 +2,6 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_grouped_clauses
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.entity import Entity
@@ -11,6 +10,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.column_optimizer import ColumnOptimizer
 
 
 class PersonQuery:

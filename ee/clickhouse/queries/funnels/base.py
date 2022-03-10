@@ -7,7 +7,6 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import (
     box_value,
     get_property_string_expr,
@@ -26,6 +25,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
+from posthog.models.action import format_action_filter
 from posthog.models.property import PropertyName
 from posthog.models.utils import PersonPropertiesMode
 from posthog.utils import relative_date_parse
