@@ -355,12 +355,6 @@ export function EventsTable({
                                 width: '100%',
                             }}
                         >
-                            <LemonEventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
                             <PropertyFilters
                                 propertyFilters={properties}
                                 onChange={setProperties}
@@ -369,6 +363,14 @@ export function EventsTable({
                                 style={{ marginBottom: 0, marginTop: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
                                 useLemonButton
+                                prefixComponent={
+                                    <LemonEventName
+                                        value={eventFilter}
+                                        onChange={(value: string) => {
+                                            setEventFilter(value || '')
+                                        }}
+                                    />
+                                }
                             />
                         </div>
 

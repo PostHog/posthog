@@ -25,6 +25,7 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     useLemonButton?: boolean
+    prefixComponent?: React.ReactNode
 }
 
 export function PropertyFilters({
@@ -42,6 +43,7 @@ export function PropertyFilters({
     orFiltering = false,
     propertyGroupType = null,
     useLemonButton = false,
+    prefixComponent,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -54,6 +56,7 @@ export function PropertyFilters({
 
     return (
         <div className="property-filters" style={style}>
+            {prefixComponent}
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                     return (
