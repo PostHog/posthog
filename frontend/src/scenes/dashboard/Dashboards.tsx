@@ -62,7 +62,7 @@ export function Dashboards(): JSX.Element {
             dataIndex: 'name',
             width: '40%',
             render: function Render(name, { id, description, _highlight, is_shared }) {
-                const is_primary = id === currentTeam?.primary_dashboard
+                const isPrimary = id === currentTeam?.primary_dashboard
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
