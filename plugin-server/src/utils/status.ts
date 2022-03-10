@@ -1,6 +1,6 @@
-import { threadId } from 'worker_threads'
+import { StructuredLogger } from 'structlog'
 
-import { getCaller } from './caller'
+import { determineNodeEnv, NodeEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -11,35 +11,28 @@ export interface StatusBlueprint {
     error: StatusMethod
 }
 
-// generates logs in the following format:
-// 2022-03-07T11:43:11.105Z [info] 👍 ClickHouse (plugin-server/src/utils/status.ts) threadId=MAIN
 export class Status implements StatusBlueprint {
-    prefixOverride?: string
+    mode?: string
+    logger: StructuredLogger
 
-    constructor(prefixOverride?: string) {
-        this.prefixOverride = prefixOverride
+    constructor(mode?: string) {
+        this.mode = mode
+        const loggerOptions: Record<string, any> = {
+            pathStackDepth: 1,
+            useLogIdExtension: true,
+            useThreadTagsExtension: true,
+        }
+        if (determineNodeEnv() !== NodeEnv.Production) {
+            loggerOptions['logFormat'] = '{message}'
+        }
+        this.logger = new StructuredLogger(loggerOptions)
     }
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, ...message: any[]) => {
-            const threadIdentifier = threadId ? threadId.toString().padStart(4, '_') : 'MAIN'
-            const tags = `thread=${threadIdentifier}` // currently tags is static but this could change in the future
-            const isoTimestamp = new Date().toISOString()
-            const logMessage = [...message].filter(Boolean).join(' ')
-            const caller = getCaller()
-            let callerPath = 'unknown location'
-            if (caller) {
-                const parsedFileName = caller.fileName.split('posthog/')[1].replaceAll(/\.[jt]sx?$/g, '')
-                if (caller.methodName) {
-                    callerPath = `${parsedFileName}.${caller.typeName}.${caller.methodName}`
-                } else if (caller.functionName) {
-                    callerPath = `${parsedFileName}.${caller.functionName}`
-                } else {
-                    callerPath = parsedFileName
-                }
-            }
-            const log = `${isoTimestamp} [${type}] ${icon} ${logMessage} [${callerPath}] ${tags} `
-            console[type](log)
+            const singleMessage = [...message].filter(Boolean).join(' ')
+            const logMessage = `${icon} ${singleMessage}`
+            this.logger[type](logMessage, { ...(this.mode ? { mode: this.mode } : {}) })
         }
     }
 
