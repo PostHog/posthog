@@ -64,10 +64,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters }) => {
+            const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
-            if (insightId !== values.insightId) {
-                actions.setSceneState(insightId, mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View)
-                if (shortId === 'new') {
+            const oldInsightId = values.insightId
+            if (insightId !== values.insightId || insightMode !== values.insightMode) {
+                actions.setSceneState(insightId, insightMode)
+                if (insightId !== oldInsightId && insightId === 'new') {
                     actions.createNewInsight(filters)
                 }
             }
