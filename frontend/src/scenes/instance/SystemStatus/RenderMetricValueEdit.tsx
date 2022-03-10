@@ -31,7 +31,7 @@ export function RenderMetricValueEdit({
         <Input
             defaultValue={parsedValue}
             type={value_type === 'int' ? 'number' : 'text'}
-            placeholder={isSecret && value ? 'Enter a new value to change this secret parameter' : undefined}
+            placeholder={isSecret && value ? 'Keep existing secret value' : undefined}
             onBlur={(e) => onValueChanged(key, e.target.value)}
         />
     )

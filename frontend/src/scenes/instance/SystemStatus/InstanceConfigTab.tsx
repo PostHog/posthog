@@ -7,7 +7,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import React, { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
-import { RenderMetricValue } from './RenderMetricValue'
+import { MetricValueInterface, RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { WarningOutlined } from '@ant-design/icons'
@@ -68,7 +68,7 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Value',
             render: function renderValue(_, record) {
-                const props = {
+                const props: MetricValueInterface = {
                     value: record.value,
                     key: record.key,
                     emptyNullLabel: 'Unset',

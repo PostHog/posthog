@@ -20,7 +20,7 @@ export function RenderMetricValue({
     emptyNullLabel,
     isSecret,
 }: MetricValueInterface): JSX.Element | string {
-    if (isSecret) {
+    if (value && isSecret) {
         return (
             <LemonTag
                 style={{ color: 'var(--text-muted)', backgroundColor: '#fee5b3' }}
