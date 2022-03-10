@@ -3,7 +3,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
 import { InstanceSetting } from '~/types'
 import { MetricRow } from './systemStatusLogic'
-import { LockOutlined } from '@ant-design/icons'
+import { IconLock } from 'lib/components/icons'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
@@ -24,7 +24,7 @@ export function RenderMetricValue({
         return (
             <LemonTag
                 style={{ color: 'var(--text-muted)', backgroundColor: '#fee5b3' }}
-                icon={isSecret ? <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} /> : undefined}
+                icon={isSecret ? <IconLock style={{ color: 'var(--warning)' }} /> : undefined}
             >
                 Secret
             </LemonTag>

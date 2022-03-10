@@ -27,8 +27,9 @@
         color: $text_light;
     }
 
-    .lemon-tag-icon {
-        margin-right: 2px;
-        padding-top: 2px;
+    .lemon-tag__icon {
+        font-size: 0.875rem;
+        margin-right: 0.125rem;
+        display: flex;
     }
 }

@@ -12,7 +12,7 @@ interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
 export function LemonTag({ type = 'default', children, className, icon, ...props }: LemonTagProps): JSX.Element {
     return (
         <div className={clsx('lemon-tag', type, className)} {...props}>
-            {icon && <span className="lemon-tag-icon">{icon}</span>}
+            {icon && <span className="lemon-tag__icon">{icon}</span>}
             {children}
         </div>
     )
