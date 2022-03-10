@@ -1,4 +1,5 @@
 import { StructuredLogger } from 'structlog'
+import { threadId } from 'worker_threads'
 
 import { determineNodeEnv, NodeEnv } from './env-utils'
 
@@ -20,7 +21,6 @@ export class Status implements StatusBlueprint {
         const loggerOptions: Record<string, any> = {
             pathStackDepth: 1,
             useLogIdExtension: true,
-            useThreadTagsExtension: true,
         }
         if (determineNodeEnv() !== NodeEnv.Production) {
             loggerOptions['logFormat'] = '{message}'
@@ -31,8 +31,9 @@ export class Status implements StatusBlueprint {
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, ...message: any[]) => {
             const singleMessage = [...message].filter(Boolean).join(' ')
-            const logMessage = `${icon} ${singleMessage}`
-            this.logger[type](logMessage, { ...(this.mode ? { mode: this.mode } : {}) })
+            const prefix = this.mode ?? (threadId ? threadId.toString().padStart(4, '_') : 'MAIN')
+            const logMessage = `(${prefix}) ${icon} ${singleMessage}`
+            this.logger[type](logMessage)
         }
     }
 
