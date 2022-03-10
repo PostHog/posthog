@@ -123,7 +123,6 @@
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^1.0.6",
         "sass": "^1.26.2",
-        "structlog": "^1.0.1",
         "use-debounce": "^6.0.1",
         "use-resize-observer": "^8.0.0",
         "zxcvbn": "^4.4.2"
