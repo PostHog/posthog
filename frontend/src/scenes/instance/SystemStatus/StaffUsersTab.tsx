@@ -1,17 +1,17 @@
-import { Button, Modal } from 'antd'
-import { useValues } from 'kea'
+import { Button, Divider, Modal, Select } from 'antd'
+import { useActions, useValues } from 'kea'
 import { IconClose, IconOpenInNew } from 'lib/components/icons'
 import { LemonTableColumns, LemonTable } from 'lib/components/LemonTable'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
 import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
-import { PlusOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { AddStaffUsersModal } from './AddStaffUsersModal'
 
 export function StaffUsersTab(): JSX.Element {
-    const { staffUsers, staffUsersLoading } = useValues(staffUsersLogic)
+    const { staffUsers, allUsersLoading, nonStaffUsers, staffUsersToBeAdded } = useValues(staffUsersLogic)
+    const { setStaffUsersToBeAdded, addStaffUsers, deleteStaffUser } = useActions(staffUsersLogic)
 
     const columns: LemonTableColumns<UserType> = [
         {
@@ -48,7 +48,7 @@ export function StaffUsersTab(): JSX.Element {
                                 okText: 'Yes, remove',
                                 okType: 'danger',
                                 onOk() {
-                                    console.log('deleted')
+                                    deleteStaffUser(user.uuid)
                                 },
                                 cancelText: 'No, keep',
                             })
@@ -74,14 +74,49 @@ export function StaffUsersTab(): JSX.Element {
                         .
                     </div>
                 </div>
-                <div>
-                    <Button icon={<PlusOutlined />} type="primary">
-                        Add Staff User
+            </div>
+            <Divider style={{ margin: 0, marginBottom: 16 }} />
+            <section>
+                <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
+                    {/* TOOD: Use Lemon instead of Ant components here */}
+                    <Select
+                        mode="multiple"
+                        placeholder="Add staff users here…"
+                        loading={allUsersLoading}
+                        value={staffUsersToBeAdded}
+                        onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
+                        showArrow
+                        showSearch
+                        style={{ flexGrow: 1 }}
+                    >
+                        {nonStaffUsers.map((user) => (
+                            <Select.Option
+                                key={user.uuid}
+                                value={user.uuid}
+                                title={`${user.first_name} (${user.email})`}
+                            >
+                                <ProfilePicture
+                                    name={user.first_name}
+                                    email={user.email}
+                                    size="sm"
+                                    style={{ display: 'inline-flex', marginRight: 8 }}
+                                />
+                                {user.first_name} ({user.email})
+                            </Select.Option>
+                        ))}
+                    </Select>
+                    <Button
+                        type="primary"
+                        style={{ flexShrink: 0, marginLeft: '0.5rem' }}
+                        loading={allUsersLoading}
+                        disabled={staffUsersToBeAdded.length === 0}
+                        onClick={addStaffUsers}
+                    >
+                        Add
                     </Button>
                 </div>
-            </div>
-            <LemonTable dataSource={staffUsers} columns={columns} loading={staffUsersLoading} rowKey="uuid" />
-            <AddStaffUsersModal />
+            </section>
+            <LemonTable dataSource={staffUsers} columns={columns} loading={allUsersLoading} rowKey="uuid" />
         </div>
     )
 }
