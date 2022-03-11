@@ -172,6 +172,7 @@ export function Experiment_(): JSX.Element {
                             description: newExperimentData?.description,
                         }}
                         onFinish={() => createExperiment(true, exposure, sampleSize)}
+                        requiredMark={false}
                         scrollToFirstError
                     >
                         <div>
@@ -183,7 +184,6 @@ export function Experiment_(): JSX.Element {
                                                 label="Name"
                                                 name="name"
                                                 rules={[{ required: true, message: 'You have to enter a name.' }]}
-                                                requiredMark={false}
                                             >
                                                 <Input data-attr="experiment-name" className="ph-ignore-input" />
                                             </Form.Item>
@@ -192,13 +192,12 @@ export function Experiment_(): JSX.Element {
                                                 label={
                                                     <div>
                                                         Feature flag key{' '}
-                                                        <Tooltip title="Choose a unique key. This will create a new feature flag which will be associated with this experiment.">
+                                                        <Tooltip title="Enter a unique key. This will create a new feature flag which will be associated with this experiment.">
                                                             <InfoCircleOutlined />
                                                         </Tooltip>
                                                     </div>
                                                 }
                                                 name="feature_flag_key"
-                                                requiredMark={false}
                                                 rules={[
                                                     {
                                                         required: true,
@@ -311,7 +310,7 @@ export function Experiment_(): JSX.Element {
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '1rem',
+                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
@@ -384,34 +383,28 @@ export function Experiment_(): JSX.Element {
                                                     Select the entities who will participate in this experiment. If no
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
-                                                <div style={{ flex: 3, marginRight: 5 }}>
-                                                    <PropertyFilters
-                                                        pageKey={'EditFunnel-property'}
-                                                        propertyFilters={
-                                                            experimentInsightType === InsightType.FUNNELS
-                                                                ? convertPropertyGroupToProperties(
-                                                                      funnelsFilters.properties
-                                                                  )
-                                                                : convertPropertyGroupToProperties(
-                                                                      trendsFilters.properties
-                                                                  )
-                                                        }
-                                                        onChange={(anyProperties) => {
-                                                            setNewExperimentData({
-                                                                filters: {
-                                                                    properties: anyProperties as PropertyFilter[],
-                                                                },
-                                                            })
-                                                            setFilters({
-                                                                properties: anyProperties.filter(isValidPropertyFilter),
-                                                            })
-                                                        }}
-                                                        style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                        popoverPlacement="top"
-                                                        taxonomicPopoverPlacement="auto"
-                                                    />
-                                                </div>
+                                                <PropertyFilters
+                                                    pageKey={'experiment-participants-property'}
+                                                    propertyFilters={
+                                                        experimentInsightType === InsightType.FUNNELS
+                                                            ? convertPropertyGroupToProperties(
+                                                                  funnelsFilters.properties
+                                                              )
+                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
+                                                    }
+                                                    onChange={(anyProperties) => {
+                                                        setNewExperimentData({
+                                                            filters: {
+                                                                properties: anyProperties as PropertyFilter[],
+                                                            },
+                                                        })
+                                                        setFilters({
+                                                            properties: anyProperties.filter(isValidPropertyFilter),
+                                                        })
+                                                    }}
+                                                    style={{ marginTop: '1rem' }}
+                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                />
                                             </Col>
                                         </Row>
                                         <Row className="metrics-selection">
