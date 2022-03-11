@@ -272,7 +272,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"included_ids": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
         self.assertEqual(response.json()["results"][1]["name"], "rated_app")
 
