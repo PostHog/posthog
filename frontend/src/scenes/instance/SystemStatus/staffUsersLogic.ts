@@ -5,6 +5,18 @@ import { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'staffUsersLogic'],
+    actions: {
+        setStaffUsersToBeAdded: (userIds: string[]) => ({ userIds }),
+        addStaffUsers: true,
+    },
+    reducers: {
+        staffUsersToBeAdded: [
+            [] as string[],
+            {
+                setStaffUsersToBeAdded: (_, { userIds }) => userIds,
+            },
+        ],
+    },
     loaders: {
         staffUsers: [
             [] as UserType[],
@@ -22,6 +34,11 @@ export const staffUsersLogic = kea<staffUsersLogicType>({
                 },
             },
         ],
+    },
+    listeners: {
+        addStaffUsers: async () => {
+            console.log(1)
+        },
     },
     events: ({ actions }) => ({
         afterMount: [actions.loadStaffUsers],

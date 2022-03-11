@@ -8,6 +8,7 @@ import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
 import { PlusOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { AddStaffUsersModal } from './AddStaffUsersModal'
 
 export function StaffUsersTab(): JSX.Element {
     const { staffUsers, staffUsersLoading } = useValues(staffUsersLogic)
@@ -80,6 +81,7 @@ export function StaffUsersTab(): JSX.Element {
                 </div>
             </div>
             <LemonTable dataSource={staffUsers} columns={columns} loading={staffUsersLoading} rowKey="uuid" />
+            <AddStaffUsersModal />
         </div>
     )
 }
