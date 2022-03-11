@@ -378,7 +378,13 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({
                         short_id: undefined,
-                        filters: {},
+                        filters: {
+                            insight: InsightType.FUNNELS,
+                            actions: [
+                                { id: '$pageview', order: 0 },
+                                { id: '$pageview', order: 1 },
+                            ],
+                        },
                         result: null,
                     }),
                     filters: {
