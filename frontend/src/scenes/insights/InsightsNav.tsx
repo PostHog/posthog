@@ -104,8 +104,7 @@ export function InsightsNav(): JSX.Element {
                                 <Link
                                     className={clsx('tab-text', className)}
                                     to={urls.insightNew({ ...filters, insight: type })}
-                                    onClick={(e) => e.preventDefault()}
-                                    target={'none'}
+                                    preventClick
                                     data-attr={dataAttr}
                                 >
                                     <Outer>
