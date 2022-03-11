@@ -153,7 +153,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             {} as Record<string, string | boolean | number>,
             {
                 updateInstanceConfigValue: (s, { key, value }) => {
-                    if (value) {
+                    if (value !== undefined) {
                         return { ...s, [key]: value }
                     }
                     const newState = { ...s }
