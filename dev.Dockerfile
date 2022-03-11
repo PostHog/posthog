@@ -25,7 +25,7 @@ RUN apk --update --no-cache add \
     "libxslt-dev~=1.1" \
     "make~=4.3" \
     "nodejs-current~=16" \
-    "npm~=8" \
+    "npm~=7" \
     && npm install -g yarn@1
 
 # Compile and install Python dependencies.
