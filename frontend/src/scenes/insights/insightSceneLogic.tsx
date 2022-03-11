@@ -139,7 +139,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 if (filters && Object.keys(filters).length > 0) {
                     values.insightCache?.logic.actions.setFilters(filters)
                     router.actions.replace(urls.insightEdit(insightId))
-                    lemonToast.info(`Your insight has unsaved changes! Click "Save" to not lose them.`)
+                    lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
                 }
             }
         },
