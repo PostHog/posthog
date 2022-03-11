@@ -1,10 +1,62 @@
+import { Button, Modal } from 'antd'
 import { useValues } from 'kea'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconClose, IconOpenInNew } from 'lib/components/icons'
+import { LemonTableColumns, LemonTable } from 'lib/components/LemonTable'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
+import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
+import { PlusOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function StaffUsersTab(): JSX.Element {
-    const { staffUsers } = useValues(staffUsersLogic)
+    const { staffUsers, staffUsersLoading } = useValues(staffUsersLogic)
+
+    const columns: LemonTableColumns<UserType> = [
+        {
+            key: 'profile_picture',
+            render: function ProfilePictureRender(_, user) {
+                return <ProfilePicture name={user.first_name} email={user.email} />
+            },
+            width: 32,
+        },
+        {
+            key: 'name',
+            title: 'Name',
+            dataIndex: 'first_name',
+        },
+        {
+            key: 'email',
+            title: 'Email',
+            dataIndex: 'email',
+        },
+        {
+            key: 'actions',
+            width: 32,
+            render: function RenderActions(_, user) {
+                return (
+                    <LemonButton
+                        title="Cancel the invite"
+                        data-attr="invite-delete"
+                        icon={<IconClose />}
+                        status="danger"
+                        onClick={() => {
+                            Modal.confirm({
+                                title: `Are you sure you want to remove ${user.first_name} as a Staff User?`,
+                                icon: <ExclamationCircleOutlined />,
+                                okText: 'Yes, remove',
+                                okType: 'danger',
+                                onOk() {
+                                    console.log('deleted')
+                                },
+                                cancelText: 'No, keep',
+                            })
+                        }}
+                    />
+                )
+            },
+        },
+    ]
 
     return (
         <div>
@@ -21,8 +73,13 @@ export function StaffUsersTab(): JSX.Element {
                         .
                     </div>
                 </div>
+                <div>
+                    <Button icon={<PlusOutlined />} type="primary">
+                        Add Staff User
+                    </Button>
+                </div>
             </div>
-            {JSON.stringify(staffUsers)}
+            <LemonTable dataSource={staffUsers} columns={columns} loading={staffUsersLoading} rowKey="uuid" />
         </div>
     )
 }
