@@ -59,6 +59,12 @@ def backfill_primary_dashboards(apps, _):
         logger.info(f"Successful update of team {i} to {i + batch_size}")
 
 
+# Because of the nature of this backfill, there's no way to reverse it without potentially destroying customer data
+# However, we still need a reverse function, so that we can rollback other migrations
+def reverse(apps, _):
+    pass
+
+
 class Migration(migrations.Migration):
     atomic = False
 
@@ -66,4 +72,4 @@ class Migration(migrations.Migration):
         ("posthog", "0219_migrate_tags_v2"),
     ]
 
-    operations = [migrations.RunPython(backfill_primary_dashboards)]
+    operations = [migrations.RunPython(backfill_primary_dashboards, reverse)]
