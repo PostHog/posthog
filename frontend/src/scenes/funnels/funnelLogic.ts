@@ -65,8 +65,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from 'lib/components/lemonToast'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -1157,23 +1155,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
                     })
             })
-
-            // load correlation table after funnel. Maybe parallel?
-            if (
-                values.correlationAnalysisAvailable &&
-                insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
-                values.steps?.length > 1 &&
-                insight.short_id &&
-                // TODO: this is bad bad bad, but good enough
-                // TODO: move correlation code into its own logic and decouple from funnelLogic?
-                (router.values.location.pathname.includes(urls.insightView(insight.short_id)) ||
-                    router.values.location.pathname.includes(urls.insightNew()))
-            ) {
-                // check that correlations are loaded only on insight view page
-                // and not in Experiments or dashboards
-                actions.loadCorrelations()
-                actions.setPropertyNames(values.allProperties) // select all properties by default
-            }
         },
         loadCorrelationsSuccess: async () => {
             if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
