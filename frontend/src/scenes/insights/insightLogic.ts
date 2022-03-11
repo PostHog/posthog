@@ -39,12 +39,6 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
-/*
-InsightLogic maintains state for changing between insight features
-This includes handling the urls and view state
-*/
-
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export const defaultFilterTestAccounts = (): boolean => {
