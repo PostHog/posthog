@@ -1261,7 +1261,7 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 export function isPropertyGroup(
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
-    if (properties && Object.keys(properties).length !== 0) {
+    if (properties) {
         return (
             (properties as PropertyGroupFilter).type !== undefined &&
             (properties as PropertyGroupFilter).values !== undefined
