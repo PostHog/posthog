@@ -78,9 +78,6 @@
                 }
             }
 
-            &.LemonTable__tr--status {
-            }
-
             &.LemonTable__tr--status-highlighted {
                 background: rgba($primary, 0.1);
                 color: var(--text-default);

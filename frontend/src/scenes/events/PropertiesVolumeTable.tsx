@@ -33,11 +33,12 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                         <UsageDisabledWarning tab="Properties Stats" />
                     ) : (
                         propertyDefinitions.length === 0 ||
-                        (propertyDefinitions[0].volume_30_day === null && (
+                        (propertyDefinitions[0].query_usage_30_day === null && (
                             <>
                                 <Alert
                                     type="warning"
                                     message="We haven't been able to get usage and volume data yet. Please check back later."
+                                    style={{ marginBottom: '1rem' }}
                                 />
                             </>
                         ))

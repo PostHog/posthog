@@ -37,6 +37,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                                 <Alert
                                     type="warning"
                                     message="We haven't been able to get usage and volume data yet. Please check later."
+                                    style={{ marginBottom: '1rem' }}
                                 />
                             </>
                         )

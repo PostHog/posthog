@@ -28,6 +28,13 @@ export function EventDefinitionsTable(): JSX.Element {
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
+            key: 'icon',
+            className: 'definition-column-icon',
+            render: function Render(_, definition: EventDefinition) {
+                return <EventDefinitionHeader definition={definition} hideView hideText />
+            },
+        },
+        {
             title: 'Name',
             key: 'name',
             className: 'definition-column-name',
@@ -36,6 +43,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     <EventDefinitionHeader
                         definition={definition}
                         hideView
+                        hideIcon
                         updateRemoteItem={(nextEventDefinition) =>
                             setLocalEventDefinition(nextEventDefinition as EventDefinition)
                         }
@@ -105,13 +113,11 @@ export function EventDefinitionsTable(): JSX.Element {
                 onForward: !!eventDefinitions.next
                     ? () => {
                           loadEventDefinitions(eventDefinitions.next)
-                          window.scrollTo(0, 0)
                       }
                     : undefined,
                 onBackward: !!eventDefinitions.previous
                     ? () => {
                           loadEventDefinitions(eventDefinitions.previous)
-                          window.scrollTo(0, 0)
                       }
                     : undefined,
             }}

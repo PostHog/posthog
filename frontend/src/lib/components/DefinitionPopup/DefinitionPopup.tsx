@@ -138,27 +138,37 @@ function TimeMeta({
     if (updatedAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(updatedAt))).asSeconds()
         return (
-            <div className="definition-popup-timemeta">
-                Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+            <span className="definition-popup-timemeta">
+                <span className="definition-popup-timemeta-time">
+                    Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                </span>
                 {updatedBy && (
-                    <>
-                        <span className="definition-popup-timemeta-spacer">by</span>{' '}
-                        <Owner user={updatedBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
-                    </>
+                    <span className="definition-popup-timemeta-user">
+                        <span className="definition-popup-timemeta-spacer">by</span>
+                        <Owner
+                            user={updatedBy}
+                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
+                        />
+                    </span>
                 )}
-            </div>
+            </span>
         )
     }
     if (createdAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(createdAt))).asSeconds()
         return (
             <div className="definition-popup-timemeta">
-                Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                <span className="definition-popup-timemeta-time">
+                    Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                </span>
                 {updatedBy && (
-                    <>
+                    <span className="definition-popup-timemeta-user">
                         <span className="definition-popup-timemeta-spacer">by</span>{' '}
-                        <Owner user={createdBy} style={{ fontWeight: 600, paddingLeft: 4 }} />
-                    </>
+                        <Owner
+                            user={createdBy}
+                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
+                        />
+                    </span>
                 )}
             </div>
         )

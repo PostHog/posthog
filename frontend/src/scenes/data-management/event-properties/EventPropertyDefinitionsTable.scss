@@ -1,17 +1,12 @@
 .event-properties-definition-table {
-    margin-top: 1rem;
-
     .LemonTable__content > table > tbody {
-        td.definition-column-name {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
+        td.definition-column-icon {
+            width: 36px;
 
             .definition-column-name-icon {
                 display: flex;
                 align-items: center;
                 justify-content: flex-start;
-                width: 36px;
 
                 svg.taxonomy-icon {
                     flex-shrink: 0;
@@ -28,9 +23,19 @@
                         path {
                             fill: var(--success);
                         }
+
+                        &:not(.taxonomy-icon-ph) {
+                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
+                        }
                     }
                 }
             }
+        }
+
+        td.definition-column-name {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
 
             .definition-column-name-content {
                 display: flex;
@@ -53,7 +58,6 @@
                 }
 
                 .definition-column-name-content-description {
-                    font-style: italic;
                     font-size: 13px;
                     color: var(--text-muted);
                     text-overflow: ellipsis;

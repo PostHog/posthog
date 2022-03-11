@@ -466,6 +466,7 @@ export function ControlledDefinitionPopupContents({
                                 type={isElement ? 'element' : undefined}
                                 disablePopover
                                 disableIcon={!!icon}
+                                ellipsis={false}
                             />
                         }
                         headerTitle={group.getPopupHeader?.(item)}

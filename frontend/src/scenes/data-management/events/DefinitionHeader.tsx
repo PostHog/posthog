@@ -78,6 +78,7 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
 
 interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
+    hideText?: boolean
     hideView?: boolean
     hideEdit?: boolean
     asLink?: boolean
@@ -91,6 +92,7 @@ function RawDefinitionHeader({
     group,
     updateRemoteItem,
     hideIcon = false,
+    hideText = false,
     hideView = false,
     hideEdit = false,
     asLink = false,
@@ -140,33 +142,37 @@ function RawDefinitionHeader({
     return (
         <>
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
-            <div className="definition-column-name-content">
-                <div>
-                    {hoveredDefinition !== definitionKey ? (
-                        linkedInnerContent
-                    ) : (
-                        <DefinitionPopupContents
-                            item={definition}
-                            group={group}
-                            referenceEl={referenceEl}
-                            onMouseLeave={() => {
-                                setHoveredDefinition(null)
-                            }}
-                            onCancel={() => {
-                                setHoveredDefinition(null)
-                            }}
-                            updateRemoteItem={updateRemoteItem}
-                            hideView={hideView}
-                            hideEdit={hideEdit}
-                        >
-                            {linkedInnerContent}
-                        </DefinitionPopupContents>
-                    )}
+            {!hideText && (
+                <div className="definition-column-name-content">
+                    <div>
+                        {hoveredDefinition !== definitionKey ? (
+                            linkedInnerContent
+                        ) : (
+                            <DefinitionPopupContents
+                                item={definition}
+                                group={group}
+                                referenceEl={referenceEl}
+                                onMouseLeave={() => {
+                                    setHoveredDefinition(null)
+                                }}
+                                onCancel={() => {
+                                    setHoveredDefinition(null)
+                                }}
+                                updateRemoteItem={updateRemoteItem}
+                                hideView={hideView}
+                                hideEdit={hideEdit}
+                            >
+                                {linkedInnerContent}
+                            </DefinitionPopupContents>
+                        )}
+                    </div>
+                    <div className="definition-column-name-content-description">
+                        {definition.description || (
+                            <i>There is no description for this ${getSingularType(group.type)}</i>
+                        )}
+                    </div>
                 </div>
-                <div className="definition-column-name-content-description">
-                    {definition.description || `There is no description for this ${getSingularType(group.type)}`}
-                </div>
-            </div>
+            )}
         </>
     )
 }
