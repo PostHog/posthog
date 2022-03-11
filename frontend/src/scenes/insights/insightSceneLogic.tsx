@@ -138,9 +138,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 // Redirect #filters={} to just /edit.
                 if (filters && Object.keys(filters).length > 0) {
                     values.insightCache?.logic.actions.setFilters(filters)
-                    router.actions.replace(
-                        insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-                    )
+                    router.actions.replace(urls.insightEdit(insightId))
                     lemonToast.info(`Your insight has unsaved changes! Click "Save" to not lose them.`)
                 }
             }
