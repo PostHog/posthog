@@ -102,7 +102,6 @@ export function Experiment_(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
-            syncWithUrl: false,
         })
     )
     const {
@@ -978,9 +977,8 @@ export function Experiment_(): JSX.Element {
                                                 display: ChartDisplayType.ActionsLineGraphCumulative,
                                             }),
                                         },
-                                        results: experimentResults.insight,
+                                        result: experimentResults.insight,
                                     },
-                                    syncWithUrl: false,
                                     doNotLoad: true,
                                 }}
                             >
