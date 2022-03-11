@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function SystemStatus(): JSX.Element {
-    const { tab, error, systemStatus } = useValues(systemStatusLogic)
+    const { tab, error } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
@@ -92,22 +92,22 @@ export function SystemStatus(): JSX.Element {
                 <Tabs.TabPane tab="System overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
-                {systemStatus?.internal_metrics.clickhouse && (
-                    <Tabs.TabPane tab="Internal metrics" key="metrics">
-                        <InternalMetricsTab />
-                    </Tabs.TabPane>
-                )}
                 {user?.is_staff && (
-                    <Tabs.TabPane
-                        tab={
-                            <>
-                                Settings <LemonTag type="warning">Beta</LemonTag>
-                            </>
-                        }
-                        key="settings"
-                    >
-                        <InstanceConfigTab />
-                    </Tabs.TabPane>
+                    <>
+                        <Tabs.TabPane tab="Internal metrics" key="metrics">
+                            <InternalMetricsTab />
+                        </Tabs.TabPane>
+                        <Tabs.TabPane
+                            tab={
+                                <>
+                                    Settings <LemonTag type="warning">Beta</LemonTag>
+                                </>
+                            }
+                            key="settings"
+                        >
+                            <InstanceConfigTab />
+                        </Tabs.TabPane>
+                    </>
                 )}
             </Tabs>
         </div>
