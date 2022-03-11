@@ -340,6 +340,14 @@ class TestFeatureFlag(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
+        """
+        NB Feature flags have a soft delete which writes to the "deleted" property.
+
+        This is testing calling the HTTP delete endpoint which is a hard delete,
+        so the "deleted" property captured for history will be false
+        but the model instance will have been deleted from the DB
+        """
+
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
