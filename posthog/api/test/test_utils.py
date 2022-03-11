@@ -149,7 +149,7 @@ class TestUtils(BaseTest):
         expected_ids_list = [[], [], ["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]]
 
         for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
-            ordered_expected_ids = tuple(set(expected_ids))  # type: ignore
+            ordered_expected_ids = list(set(expected_ids))  # type: ignore
             # Property
             query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
             assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
