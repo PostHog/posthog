@@ -15,7 +15,6 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<typeof rest['get']>[] 
         Object.entries(mockHandlers).map(([path, handler]) => {
             response.push(
                 (rest[method] as typeof rest['get'])(path, async (req, res, ctx) => {
-                    // console.log(path)
                     if (typeof handler === 'function') {
                         const [status, resp] = handler(req, res, ctx)
                         return res(ctx.status(status), ctx.json(resp ?? null))
