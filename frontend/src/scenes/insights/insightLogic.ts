@@ -150,7 +150,11 @@ export const insightLogic = kea<insightLogicType>({
                             shortId
                         )}`
                     )
-                    return response.results[0]
+                    if (response?.results?.[0]) {
+                        return response.results[0]
+                    }
+                    lemonToast.error(`Insight "${shortId}" not found`)
+                    throw new Error(`Insight "${shortId}" not found`)
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {

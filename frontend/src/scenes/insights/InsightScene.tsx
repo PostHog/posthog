@@ -6,9 +6,9 @@ import { Insight } from 'scenes/insights/Insight'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 export function InsightScene(): JSX.Element {
-    const { insightId } = useValues(insightSceneLogic)
+    const { insightId, insight } = useValues(insightSceneLogic)
 
-    if (insightId && insightId !== 'new') {
+    if (insightId && insightId !== 'new' && insight && insight.short_id && insight.id) {
         return <Insight insightId={insightId} />
     }
 
