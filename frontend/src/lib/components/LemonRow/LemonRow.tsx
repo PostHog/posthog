@@ -19,7 +19,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
-    status?: 'success' | 'warning' | 'danger' | 'highlighted'
+    status?: 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: React.ReactNode
     loading?: boolean

@@ -285,7 +285,7 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
-export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Element {
+export function FunnelBarGraph(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
@@ -306,11 +306,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div
-            data-attr="funnel-bar-graph"
-            className={clsx('funnel-bar-graph', color && color !== 'white' && 'colored', color)}
-            style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
-        >
+        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
