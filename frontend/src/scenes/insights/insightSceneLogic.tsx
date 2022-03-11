@@ -35,7 +35,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     },
     reducers: {
         insightId: [
-            null as null | InsightShortId,
+            null as null | 'new' | InsightShortId,
             {
                 setInsightId: (_, { insightId }) => insightId,
                 setSceneState: (_, { insightId }) => insightId,
@@ -105,7 +105,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     sharedListeners: ({ actions, values }) => ({
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
-            const insightId = values.insightId ?? null
+            const insightId = values.insightId !== 'new' ? values.insightId ?? null : null
 
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
@@ -138,7 +138,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     }),
     actionToUrl: ({ values }) => {
         const actionToUrl = (): string | undefined =>
-            values.insightId
+            values.insightId && values.insightId !== 'new'
                 ? values.insightMode === ItemMode.View
                     ? urls.insightView(values.insightId)
                     : urls.insightEdit(values.insightId)
