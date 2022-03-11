@@ -53,7 +53,7 @@ export const eventDefinitionsTableLogic = kea<
     props: {} as EventDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventDefinitions: (url: string | null = '') => ({ url }),
+        loadEventDefinitions: (url: string | null = '', includedIds: string[] = []) => ({ url, includedIds }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Filters) => ({ filters }),
@@ -102,13 +102,15 @@ export const eventDefinitionsTableLogic = kea<
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url }, breakpoint) => {
+                loadEventDefinitions: async ({ url, includedIds }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({})
+                        url = api.eventDefinitions.determineListEndpoint({
+                            included_ids: includedIds,
+                        })
                     }
                     const response = await api.get(url)
                     breakpoint()
@@ -246,18 +248,11 @@ export const eventDefinitionsTableLogic = kea<
         '/events/stats/:id': ({ id }) => {
             if (props.syncWithUrl) {
                 if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                    actions.loadEventDefinitions()
+                    actions.loadEventDefinitions(null, id ? [id] : [])
                 }
                 if (id) {
                     actions.setOpenedDefinition(id)
                 }
-            }
-        },
-    }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                actions.loadEventDefinitions()
             }
         },
     }),

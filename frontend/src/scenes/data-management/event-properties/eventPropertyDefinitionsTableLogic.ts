@@ -24,9 +24,9 @@ export const eventPropertyDefinitionsTableLogic = kea<
     props: {} as EventPropertyDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventPropertyDefinitions: (url: string | null = '', includedPropertyIds: string[] = []) => ({
+        loadEventPropertyDefinitions: (url: string | null = '', includedIds: string[] = []) => ({
             url,
-            includedPropertyIds,
+            includedIds,
         }),
         setFilters: (filters: Filters) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
@@ -66,14 +66,14 @@ export const eventPropertyDefinitionsTableLogic = kea<
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url, includedPropertyIds }, breakpoint) => {
+                loadEventPropertyDefinitions: async ({ url, includedIds }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
-                            included_ids: includedPropertyIds,
+                            included_ids: includedIds,
                         })
                     }
                     const response = await api.get(url)
