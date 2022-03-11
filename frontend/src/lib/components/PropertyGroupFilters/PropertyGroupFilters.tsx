@@ -1,26 +1,26 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { PropertyGroupFilter, FilterLogicalOperator, PropertyFilter, PropertyGroupFilterValue } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
+import { CopyOutlined } from '@ant-design/icons'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconDelete, IconPlus } from '../icons'
 import { LemonButton } from '../LemonButton'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
-export function isAndOrFilter(property?: PropertyFilter[] | PropertyGroupFilter): property is PropertyGroupFilter {
-    return (property as PropertyGroupFilter).values !== undefined
-}
 interface PropertyGroupFilters {
     propertyFilters?: PropertyGroupFilter | null
     onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
-    style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
+    setTestFilters: (filters: Partial<FilterType>) => void
+    filters: Partial<FilterType>
 }
 
 export function PropertyGroupFilters({
@@ -28,8 +28,9 @@ export function PropertyGroupFilters({
     onChange,
     pageKey,
     taxonomicGroupTypes,
-    style = {},
     eventNames = [],
+    setTestFilters,
+    filters,
 }: PropertyGroupFilters): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
@@ -40,11 +41,12 @@ export function PropertyGroupFilters({
         setOuterPropertyGroupsType,
         setInnerPropertyGroupType,
         setPropertyFilters,
+        duplicateFilterGroup,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        setFilters(propertyFilters ?? { values: [] })
+        setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
     }, [propertyFilters])
 
     return (
@@ -59,7 +61,7 @@ export function PropertyGroupFilters({
                             style={{ borderBottom: '1px solid var(--border)' }}
                         >
                             <GlobalFiltersTitle orFiltering={true} />
-                            {filtersWithNew.type && (
+                            {filtersWithNew.type && filtersWithNew.values.length > 1 && (
                                 <AndOrFilterSelect
                                     value={filtersWithNew.type}
                                     onChange={(value) => setOuterPropertyGroupsType(value)}
@@ -70,7 +72,7 @@ export function PropertyGroupFilters({
                         {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                             return (
                                 <>
-                                    <div className="mt mb" style={style} key={propertyGroupIndex}>
+                                    <div className="property-group" key={propertyGroupIndex}>
                                         <Row justify="space-between" align="middle" className="mb-05">
                                             <AndOrFilterSelect
                                                 onChange={(type) => setInnerPropertyGroupType(type, propertyGroupIndex)}
@@ -86,6 +88,11 @@ export function PropertyGroupFilters({
                                                 }}
                                             />
                                             <LemonButton
+                                                icon={<CopyOutlined style={{ fontSize: '1rem' }} />}
+                                                type="primary-alt"
+                                                onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                            />
+                                            <LemonButton
                                                 icon={<IconDelete />}
                                                 type="primary-alt"
                                                 onClick={() => removeFilterGroup(propertyGroupIndex)}
@@ -95,6 +102,7 @@ export function PropertyGroupFilters({
                                         <PropertyFilters
                                             orFiltering={true}
                                             propertyFilters={group.values}
+                                            style={{ marginBottom: 0 }}
                                             onChange={(properties) => {
                                                 setPropertyFilters(properties, propertyGroupIndex)
                                             }}
@@ -116,9 +124,32 @@ export function PropertyGroupFilters({
                 </div>
             )}
             <div>
-                <LemonButton className="mb" type="secondary" onClick={() => addFilterGroup()}>
-                    <IconPlus /> Add filter group
-                </LemonButton>
+                <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
+                {filtersWithNew.values.length > 1 ? (
+                    <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
+                        className="mb full-width"
+                        type="secondary"
+                        style={{ fontWeight: 400 }}
+                        onClick={() => addFilterGroup()}
+                    >
+                        <IconPlus className="mr-05" /> Add filter group
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
+                        onClick={() => addFilterGroup()}
+                        className="mb"
+                        style={{
+                            border: 'none',
+                            background: 'none',
+                            fontWeight: 400,
+                        }}
+                        type="default"
+                    >
+                        <IconPlus className="mr-05" /> Add filter group
+                    </LemonButton>
+                )}
             </div>
         </>
     )
@@ -126,7 +157,7 @@ export function PropertyGroupFilters({
 
 interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
-    value: string
+    value: FilterLogicalOperator
     topLevelFilter?: boolean
 }
 
@@ -138,7 +169,7 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={FilterLogicalOperator.And}
+                defaultValue={value || FilterLogicalOperator.And}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}

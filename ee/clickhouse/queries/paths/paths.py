@@ -166,7 +166,7 @@ class ClickhousePaths:
     def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(
             filter=self._filter,
-            team_id=self._team.pk,
+            team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
         ).get_query()

@@ -15,7 +15,8 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { errorToast, isUserLoggedIn, successToast } from 'lib/utils'
+import { isUserLoggedIn } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export enum ConfigMode {
     View = 'view',
@@ -46,6 +47,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_USE_SSL',
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
+    'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
@@ -151,7 +153,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             {} as Record<string, string | boolean | number>,
             {
                 updateInstanceConfigValue: (s, { key, value }) => {
-                    if (value) {
+                    if (value !== undefined) {
                         return { ...s, [key]: value }
                     }
                     const newState = { ...s }
@@ -218,10 +220,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                     })
                     actions.increaseUpdatedInstanceConfigCount()
                 } catch {
-                    errorToast(
-                        'Error updating settings',
-                        'There was an error updating all your settings. Please try again.'
-                    )
+                    lemonToast.error('There was an error updating instance settings – please try again')
                     await breakpoint(1000)
                     actions.loadInstanceSettings()
                 }
@@ -231,10 +230,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                 actions.loadInstanceSettings()
                 actions.clearInstanceConfigEditing()
                 actions.setInstanceConfigMode(ConfigMode.View)
-                successToast(
-                    'Instance settings updated!',
-                    'Your settings have been updated and should take effect soon.'
-                )
+                lemonToast.success('Instance settings updated')
             }
         },
     }),

@@ -1,6 +1,6 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
-import { formatPropertyLabel } from 'lib/utils'
+import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -21,7 +21,13 @@ export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Ele
     const { cohortsById } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
-    return <>{formatPropertyLabel(item, cohortsById, keyMapping, (s) => formatForDisplay(item.key, s))}</>
+    return (
+        <>
+            {formatPropertyLabel(item, cohortsById, keyMapping, (s) =>
+                midEllipsis(formatForDisplay(item.key, s)?.toString() || '', 32)
+            )}
+        </>
+    )
 }
 
 export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {

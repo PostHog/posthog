@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -10,6 +10,7 @@ from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.team import Team
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -23,13 +24,19 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
+def process_math(
+    entity: Entity, team: Team, event_table_alias: Optional[str] = None
+) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
     params: Dict[str, Any] = {}
     if entity.math == "dau":
-        join_condition = EVENT_JOIN_PERSON_SQL
-        aggregate_operation = "count(DISTINCT person_id)"
+        if team.aggregate_users_by_distinct_id:
+            join_condition = ""
+            aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
+        else:
+            join_condition = EVENT_JOIN_PERSON_SQL
+            aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 

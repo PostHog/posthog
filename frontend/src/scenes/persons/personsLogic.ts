@@ -1,15 +1,15 @@
-import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
 import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter, Breadcrumb } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -60,6 +60,11 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     const newFilters = { ...state, ...payload }
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
+                    }
+                    if (newFilters.properties) {
+                        newFilters.properties = convertPropertyGroupToProperties(
+                            newFilters.properties.filter(isValidPropertyFilter)
+                        )
                     }
                     return newFilters
                 },
@@ -128,13 +133,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         deletePersonSuccess: () => {
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
             // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
-            toast.success(
-                <>
-                    Person deleted.
-                    <br />
-                    Their ID(s) will be usable again in an hour or so.
-                </>
-            )
+            lemonToast.success('Person deleted. Their ID(s) will be usable again in an hour or so')
             actions.loadPersons()
             router.actions.push(urls.persons())
         },

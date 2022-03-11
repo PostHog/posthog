@@ -1,14 +1,13 @@
-import React from 'react'
 import { kea } from 'kea'
-import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 import { cohortLogicType } from './cohortLogicType'
 import { CohortGroupType, CohortType, MatchType } from '~/types'
-import { errorToast } from 'lib/utils'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -33,7 +32,17 @@ function determineMatchType(group: Partial<CohortGroupType>): MatchType {
 function processCohortOnSet(cohort: CohortType): CohortType {
     if (cohort.groups) {
         cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
+        cohort.groups = cohort.groups.map((group) => {
+            if (group.properties) {
+                return {
+                    ...group,
+                    properties: convertPropertyGroupToProperties(group.properties),
+                }
+            }
+            return group
+        })
     }
+
     return cohort
 }
 
@@ -153,14 +162,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     cohortsModel.actions.cohortCreated(cohort)
                 }
             } catch (error) {
-                errorToast(
-                    'Error saving your cohort',
-                    'Attempting to save this cohort returned an error:',
-                    error.status !== 0
-                        ? error.detail
-                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                    error.code
-                )
+                lemonToast.error(error.detail || 'Failed to save cohort')
                 return
             }
 
@@ -169,15 +171,9 @@ export const cohortLogic = kea<cohortLogicType>({
             breakpoint()
             delete cohort['csv']
             actions.setCohort(cohort)
-            toast.success(
-                <div data-attr="success-toast">
-                    <h1>Cohort saved successfully!</h1>
-                    <p>Please wait up to a few minutes for the cohort to be calculated.</p>
-                </div>,
-                {
-                    toastId: `cohort-saved-${key}`,
-                }
-            )
+            lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
+                toastId: `cohort-saved-${key}`,
+            })
             actions.checkIfFinishedCalculating(cohort)
         },
         fetchCohort: async ({ cohort }, breakpoint) => {

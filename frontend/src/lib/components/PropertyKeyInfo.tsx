@@ -643,62 +643,49 @@ export function PropertyKeyInfo({
     className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
+
     const data = getKeyMapping(value, type)
-    if (!data) {
-        return (
+    const baseValue = (data ? data.label : value)?.trim() ?? ''
+    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+
+    // By this point, property is a PH defined property
+    const innerContent = (
+        <span className="property-key-info">
+            {!disableIcon && !!data && <span className="property-key-info-logo" />}
             <Typography.Text
                 ellipsis={ellipsis}
                 style={{ color: 'inherit', maxWidth: 400, ...style }}
-                title={value}
+                title={baseValue}
                 className={className}
             >
-                {value !== '' ? value : <i>(empty string)</i>}
+                {baseValueNode}
             </Typography.Text>
-        )
-    }
-    if (disableIcon) {
-        return (
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400 }}
-                title={data.label}
-                className={className}
-            >
-                {data.label !== '' ? data.label : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
-
-    const innerContent = (
-        <span className="property-key-info">
-            <span className="property-key-info-logo" />
-            {data.label}
         </span>
     )
+
+    if (!data || disablePopover) {
+        return innerContent
+    }
+
+    const popoverProps = tooltipPlacement
+        ? {
+              visible: true,
+              placement: tooltipPlacement,
+          }
+        : {
+              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
+          }
 
     const popoverTitle = <PropertyKeyTitle data={data} />
     const popoverContent = <PropertyKeyDescription data={data} value={value} />
 
-    return disablePopover ? (
-        innerContent
-    ) : tooltipPlacement ? (
-        <Popover
-            visible
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            placement={tooltipPlacement}
-            title={popoverTitle}
-            content={popoverContent}
-        >
-            {innerContent}
-        </Popover>
-    ) : (
+    return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
             overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
             title={popoverTitle}
             content={popoverContent}
+            {...popoverProps}
         >
             {innerContent}
         </Popover>

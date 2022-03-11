@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
@@ -17,10 +16,11 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export interface TrendTabProps {
     view: string
@@ -114,11 +114,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? (
+                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
                                 <PropertyGroupFilters
-                                    propertyFilters={null}
-                                    style={{ background: '#FAFAF9', padding: 8, borderRadius: 4 }}
-                                    onChange={() => {}} // TODO: update when ready to refactor FE to use new backend properties
+                                    propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
+                                    onChange={(properties) => {
+                                        setFilters({ properties })
+                                    }}
                                     taxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,
@@ -128,12 +129,14 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     ]}
                                     pageKey="trends-filters"
                                     eventNames={allEventNames}
+                                    filters={filters}
+                                    setTestFilters={(testFilters) => setFilters(testFilters)}
                                 />
                             ) : (
                                 <>
                                     <GlobalFiltersTitle />
                                     <PropertyFilters
-                                        propertyFilters={filters.properties}
+                                        propertyFilters={convertPropertyGroupToProperties(filters.properties)}
                                         onChange={(properties) => setFilters({ properties })}
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
@@ -145,10 +148,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                         pageKey="trends-filters"
                                         eventNames={allEventNames}
                                     />
+                                    <TestAccountFilter filters={filters} onChange={setFilters} />
                                 </>
                             )}
 
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>
                                     <hr />

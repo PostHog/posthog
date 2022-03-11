@@ -2,11 +2,11 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
-import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'domain_whitelist' | 'is_member_join_email_enabled'>
@@ -88,7 +88,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             window.location.href = '/organization/members'
         },
         updateOrganizationSuccess: () => {
-            toast.success('Your configuration has been saved!')
+            lemonToast.success('Your configuration has been saved')
         },
         deleteOrganization: async ({ organization }) => {
             try {
@@ -100,7 +100,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             }
         },
         deleteOrganizationSuccess: () => {
-            toast.success('Organization has been deleted')
+            lemonToast.success('Organization has been deleted')
         },
     }),
     events: ({ actions }) => ({
