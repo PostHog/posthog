@@ -638,7 +638,7 @@ export const insightLogic = kea<insightLogicType>({
             prompt({ key: `save-as-insight` }).actions.prompt({
                 title: 'Save as new insight',
                 placeholder: 'Please enter the new name',
-                value: values.insight.name + ' (copy)',
+                value: `${values.insight.name || values.insight.derived_name} (copy)`,
                 error: 'You must enter a name',
                 success: actions.saveAsNamingSuccess,
             })
