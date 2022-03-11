@@ -1,11 +1,15 @@
 import { initKeaTests } from '~/test/init'
-import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import {
+    eventDefinitionsTableLogic,
+    PROPERTY_DEFINITIONS_PER_EVENT,
+} from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { useMocks } from '~/mocks/jest'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl } from 'kea-router'
+import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -21,7 +25,7 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventDefinitions.slice(0, 50),
                                 count: 50,
                                 previous: null,
-                                next: `api/projects/${MOCK_TEAM_ID}/event_definitions?${
+                                next: `api/projects/${MOCK_TEAM_ID}/event_definitions${
                                     combineUrl(req.url.pathname, {
                                         ...req.url.searchParams,
                                         limit: 50,
@@ -37,7 +41,7 @@ describe('eventDefinitionsTableLogic', () => {
                             {
                                 results: mockEventDefinitions.slice(50, 56),
                                 count: 6,
-                                previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?${
+                                previous: `api/projects/${MOCK_TEAM_ID}/event_definitions${
                                     combineUrl(req.url.pathname, {
                                         ...req.url.searchParams,
                                         limit: 50,
@@ -57,7 +61,7 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventPropertyDefinitions.slice(0, 5),
                                 count: 5,
                                 previous: null,
-                                next: `api/projects/${MOCK_TEAM_ID}/property_definitions?${
+                                next: `api/projects/${MOCK_TEAM_ID}/property_definitions${
                                     combineUrl(req.url.pathname, {
                                         ...req.url.searchParams,
                                         limit: 5,
@@ -73,7 +77,7 @@ describe('eventDefinitionsTableLogic', () => {
                             {
                                 results: mockEventPropertyDefinitions.slice(5, 8),
                                 count: 3,
-                                previous: `api/projects/${MOCK_TEAM_ID}/property_definitions?${
+                                previous: `api/projects/${MOCK_TEAM_ID}/property_definitions${
                                     combineUrl(req.url.pathname, {
                                         ...req.url.searchParams,
                                         limit: 5,
@@ -188,9 +192,16 @@ describe('eventDefinitionsTableLogic', () => {
         })
     })
 
-    // TODO: unbork this
     describe('property definitions', () => {
         const eventDefinition = mockEventDefinitions[0]
+        const startingUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
+            combineUrl('', {
+                limit: PROPERTY_DEFINITIONS_PER_EVENT,
+                event_names: ['event1'],
+                excluded_properties: keyMappingKeys,
+                is_event_property: true,
+            }).search
+        }`
 
         it('load property definitions and cache', async () => {
             await expectLogic(logic, () => {
@@ -203,28 +214,29 @@ describe('eventDefinitionsTableLogic', () => {
                             count: 5,
                             results: mockEventPropertyDefinitions.slice(0, 5),
                             previous: null,
-                            current: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`,
+                            current: startingUrl,
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),
                     apiCache: partial({
-                        [`api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`]: partial({
+                        [startingUrl]: partial({
                             count: 5,
                         }),
-                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
+                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1&orderBy=%5B%22-timestamp%22%5D`]:
+                            partial(mockEvent.properties),
                     }),
                 })
 
             expect(api.get).toBeCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`)
-            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`)
-            expect(api.get).toHaveBeenNthCalledWith(3, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
+            expect(api.get).toHaveBeenNthCalledWith(2, startingUrl)
+            expect(api.get).toHaveBeenNthCalledWith(
+                3,
+                `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1&orderBy=%5B%22-timestamp%22%5D`
+            )
 
             await expectLogic(logic, () => {
-                logic.actions.loadPropertiesForEvent(
-                    eventDefinition,
-                    `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`
-                )
+                logic.actions.loadPropertiesForEvent(eventDefinition, startingUrl)
             }).toDispatchActions(['loadPropertiesForEvent', 'loadPropertiesForEventSuccess'])
 
             // Doesn't call api.get again
@@ -289,10 +301,7 @@ describe('eventDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(4)
             // Backwards
             await expectLogic(logic, () => {
-                logic.actions.loadPropertiesForEvent(
-                    eventDefinition,
-                    `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`
-                )
+                logic.actions.loadPropertiesForEvent(eventDefinition, startingUrl)
             })
                 .toDispatchActions(['loadPropertiesForEvent', 'loadPropertiesForEventSuccess'])
                 .toMatchValues({
