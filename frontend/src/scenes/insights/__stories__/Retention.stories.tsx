@@ -7,7 +7,7 @@ import { rest } from 'msw'
 import React from 'react'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
-import { Insight } from '../Insight'
+import { InsightScene } from '../InsightScene'
 
 export default {
     title: 'PostHog/Scenes/Insights/Retention',
@@ -61,7 +61,7 @@ export const Cohort = (): JSX.Element => {
 
     return (
         <Provider>
-            <Insight />
+            <InsightScene />
         </Provider>
     )
 }
@@ -116,7 +116,7 @@ export const Breakdown = (): JSX.Element => {
 
     return (
         <Provider>
-            <Insight />
+            <InsightScene />
         </Provider>
     )
 }

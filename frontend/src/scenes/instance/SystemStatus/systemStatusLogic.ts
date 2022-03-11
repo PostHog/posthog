@@ -47,6 +47,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_USE_SSL',
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
+    'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
@@ -152,7 +153,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
             {} as Record<string, string | boolean | number>,
             {
                 updateInstanceConfigValue: (s, { key, value }) => {
-                    if (value) {
+                    if (value !== undefined) {
                         return { ...s, [key]: value }
                     }
                     const newState = { ...s }

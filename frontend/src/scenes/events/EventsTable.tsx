@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { DownloadOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
@@ -12,9 +11,8 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
-import { EventName } from 'scenes/actions/EventName'
+import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
@@ -22,13 +20,14 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconSync } from 'lib/components/icons'
+import { IconExport, IconSync } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -340,48 +339,80 @@ export function EventsTable({
                         className="mb"
                         style={{
                             display: 'flex',
-                            gap: '0.75rem',
+                            gap: '1rem',
                             flexWrap: 'wrap',
                             justifyContent: 'space-between',
                             alignItems: 'start',
                         }}
                     >
-                        <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
-                            <EventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '0.5rem',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                width: '100%',
+                            }}
+                        >
                             <PropertyFilters
                                 propertyFilters={properties}
                                 onChange={setProperties}
                                 pageKey={pageKey}
-                                style={{ marginBottom: 0 }}
+                                taxonomicPopoverPlacement="bottom-start"
+                                style={{ marginBottom: 0, marginTop: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
+                                useLemonButton
+                                prefixComponent={
+                                    <LemonEventName
+                                        value={eventFilter}
+                                        onChange={(value: string) => {
+                                            setEventFilter(value || '')
+                                        }}
+                                    />
+                                }
                             />
                         </div>
 
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '1rem',
+                                borderTop: '1px solid var(--border)',
+                                width: '100%',
+                                paddingTop: '1rem',
+                            }}
+                        >
                             <LemonSwitch
+                                type="primary"
                                 id="autoload-switch"
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}
                                 onChange={toggleAutomaticLoad}
+                                wrapperStyle={{ fontWeight: 400, flexGrow: 0 }}
                             />
-                            {!hideTableConfig && (
-                                <TableConfig
-                                    immutableColumns={['event', 'person']}
-                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
-                                />
-                            )}
-                            {exportUrl && (
-                                <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                    <Button icon={<DownloadOutlined />} onClick={startDownload}>
-                                        Export events
-                                    </Button>
-                                </Tooltip>
-                            )}
+                            <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
+                                {!hideTableConfig && (
+                                    <LemonTableConfig
+                                        immutableColumns={['event', 'person']}
+                                        defaultColumns={defaultColumns.map((e) => e.key || '')}
+                                    />
+                                )}
+                                {exportUrl && (
+                                    <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                                            onClick={startDownload}
+                                        >
+                                            Export
+                                        </LemonButton>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

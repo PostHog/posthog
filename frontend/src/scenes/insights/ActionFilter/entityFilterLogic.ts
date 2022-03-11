@@ -4,6 +4,7 @@ import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
 export type LocalFilter = ActionFilter & {
     order: number
@@ -11,13 +12,21 @@ export type LocalFilter = ActionFilter & {
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    return [
+    const localFilters = [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
+    return localFilters.map((filter) =>
+        filter.properties
+            ? {
+                  ...filter,
+                  properties: convertPropertyGroupToProperties(filter.properties),
+              }
+            : filter
+    )
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {

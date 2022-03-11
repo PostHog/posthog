@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
+    ChartParams,
     DashboardType,
     FilterType,
     InsightColor,
@@ -58,7 +59,7 @@ const displayMap: Record<
     DisplayedType,
     {
         className: string
-        element: (props: any) => JSX.Element | null
+        element: (props: ChartParams) => JSX.Element | null
     }
 > = {
     ActionsLineGraph: {
@@ -416,9 +417,7 @@ function InsightViz({
     tooFewFunnelSteps,
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
-    const displayedType = getDisplayedType(filters)
+    const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType].element
 
     return (
@@ -445,14 +444,7 @@ function InsightViz({
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                !apiErrored && (
-                    <VizComponent
-                        dashboardItemId={short_id}
-                        cachedResults={cachedResults}
-                        filters={filters}
-                        showPersonsModal={false}
-                    />
-                )
+                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
             )}
         </div>
     )
@@ -479,12 +471,9 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
     const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: short_id,
-        filters,
-        cachedResults,
+        dashboardItemId: insight.short_id,
+        cachedInsight: insight,
         doNotLoad: true,
     }
 
@@ -494,7 +483,7 @@ function InsightCardInternal(
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
-    if (filters.insight === InsightType.FUNNELS) {
+    if (insight.filters.insight === InsightType.FUNNELS) {
         if (!areFiltersValid) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {

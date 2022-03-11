@@ -6,8 +6,9 @@ import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter, Breadcrumb }
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
 
 interface PersonPaginatedResponse {
@@ -59,6 +60,11 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     const newFilters = { ...state, ...payload }
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
+                    }
+                    if (newFilters.properties) {
+                        newFilters.properties = convertPropertyGroupToProperties(
+                            newFilters.properties.filter(isValidPropertyFilter)
+                        )
                     }
                     return newFilters
                 },

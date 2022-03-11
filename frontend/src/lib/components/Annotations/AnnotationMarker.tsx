@@ -44,7 +44,7 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    insightId?: number
+    insightNumericId?: number
     currentDateMarker?: string | null
     dynamic?: boolean
     graphColor: string | null
@@ -64,7 +64,7 @@ export function AnnotationMarker({
     size = 25,
     color,
     accessoryColor,
-    insightId,
+    insightNumericId,
     currentDateMarker,
     onClose,
     dynamic,
@@ -95,7 +95,7 @@ export function AnnotationMarker({
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightNumericId }))
 
     function closePopup(): void {
         setFocused(false)

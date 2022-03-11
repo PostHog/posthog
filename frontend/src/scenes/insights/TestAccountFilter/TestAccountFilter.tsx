@@ -1,12 +1,10 @@
 import { Row } from 'antd'
 import { useValues } from 'kea'
-import { Link } from 'lib/components/Link'
 import React from 'react'
 import { FilterType } from '~/types'
-import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
-import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function TestAccountFilter({
     filters,
@@ -19,23 +17,9 @@ export function TestAccountFilter({
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     return (
-        <Tooltip
-            title={
-                hasFilters
-                    ? 'Filter out internal test and team members users from this query.'
-                    : "You don't have internal users filtering set up. Click the gear icon to configure it."
-            }
-        >
-            <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                <div>
-                    <Link to="/project/settings#internal-users-filtering">
-                        <SettingOutlined
-                            style={{
-                                marginRight: 4,
-                                fontSize: '0.85em',
-                            }}
-                        />
-                    </Link>
+        <LemonButton className="mb full-width" type="secondary">
+            <Row className="full-width" justify="space-between" style={{ flexWrap: 'nowrap' }}>
+                <div className="text-default">
                     <label
                         style={{
                             marginRight: 6,
@@ -56,6 +40,6 @@ export function TestAccountFilter({
                     id="test-account-filter"
                 />
             </Row>
-        </Tooltip>
+        </LemonButton>
     )
 }

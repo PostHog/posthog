@@ -84,8 +84,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (insightId: number, color: string | null) => ({ insightId, color }),
-        removeItem: (insightId: number) => ({ insightId }),
+        updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
+        removeItem: (insightNumericId: number) => ({ insightNumericId }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -218,16 +218,16 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ),
                     } as DashboardType
                 },
-                updateItemColor: (state, { insightId, color }) => {
+                updateItemColor: (state, { insightNumericId, color }) => {
                     return {
                         ...state,
-                        items: state?.items.map((i) => (i.id === insightId ? { ...i, color } : i)),
+                        items: state?.items.map((i) => (i.id === insightNumericId ? { ...i, color } : i)),
                     } as DashboardType
                 },
-                removeItem: (state, { insightId }) => {
+                removeItem: (state, { insightNumericId }) => {
                     return {
                         ...state,
-                        items: state?.items.filter((i) => i.id !== insightId),
+                        items: state?.items.filter((i) => i.id !== insightNumericId),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -568,11 +568,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     }) || [],
             })
         },
-        updateItemColor: async ({ insightId, color }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { color })
+        updateItemColor: async ({ insightNumericId, color }) => {
+            return api.update(`api/projects/${values.currentTeamId}/insights/${insightNumericId}`, { color })
         },
-        removeItem: async ({ insightId }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, {
+        removeItem: async ({ insightNumericId }) => {
+            return api.update(`api/projects/${values.currentTeamId}/insights/${insightNumericId}`, {
                 dashboard: null,
             } as Partial<InsightModel>)
         },
@@ -611,8 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic({
                             dashboardItemId: dashboardItem.short_id,
-                            filters: dashboardItem.filters,
-                            cachedResults: refreshedDashboardItem.result,
+                            cachedInsight: dashboardItem,
                         })
                         itemResultLogic.actions.setInsight(
                             { ...dashboardItem, result: refreshedDashboardItem.result },

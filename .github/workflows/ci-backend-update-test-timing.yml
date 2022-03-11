@@ -10,7 +10,6 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
-    SAML_DISABLED: 1
     TEST: 1
 
 jobs:
@@ -25,7 +24,6 @@ jobs:
                   python-version: 3.8.5
                   ee: true
                   foss: false
-                  saml: false
                   concurrency: 1
                   group: 1
 
