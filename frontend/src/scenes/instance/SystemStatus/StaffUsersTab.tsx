@@ -8,8 +8,11 @@ import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { userLogic } from 'scenes/userLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function StaffUsersTab(): JSX.Element {
+    const { user: myself } = useValues(userLogic)
     const { staffUsers, allUsersLoading, nonStaffUsers, staffUsersToBeAdded } = useValues(staffUsersLogic)
     const { setStaffUsersToBeAdded, addStaffUsers, deleteStaffUser } = useActions(staffUsersLogic)
 
@@ -25,6 +28,14 @@ export function StaffUsersTab(): JSX.Element {
             key: 'name',
             title: 'Name',
             dataIndex: 'first_name',
+            render: function ProfilePictureRender(_, user) {
+                return (
+                    <>
+                        {user.first_name}
+                        {user.uuid === myself?.uuid && <LemonTag style={{ marginLeft: 4 }}>Me</LemonTag>}
+                    </>
+                )
+            },
         },
         {
             key: 'email',
@@ -43,7 +54,23 @@ export function StaffUsersTab(): JSX.Element {
                         status="danger"
                         onClick={() => {
                             Modal.confirm({
-                                title: `Are you sure you want to remove ${user.first_name} as a Staff User?`,
+                                title:
+                                    myself?.uuid === user.uuid ? (
+                                        <>
+                                            <b style={{ color: 'var(--warning)' }}>Warning!</b> Are you sure you want to{' '}
+                                            <b>remove yourself</b> as a staff user?
+                                            <div
+                                                style={{
+                                                    fontWeight: 'normal',
+                                                    color: 'var(--muted-alt)',
+                                                }}
+                                            >
+                                                Only another staff user will be able to add you again.
+                                            </div>
+                                        </>
+                                    ) : (
+                                        `Are you sure you want to remove ${user.first_name} as a Staff User?`
+                                    ),
                                 icon: <ExclamationCircleOutlined />,
                                 okText: 'Yes, remove',
                                 okType: 'danger',

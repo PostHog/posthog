@@ -1,10 +1,17 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 import { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'staffUsersLogic'],
+    connect: {
+        values: [userLogic, ['user']],
+        actions: [userLogic, ['loadUser']],
+    },
     actions: {
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addStaffUsers: true,
@@ -43,6 +50,10 @@ export const staffUsersLogic = kea<staffUsersLogicType>({
                 },
                 deleteStaffUser: async ({ userUuid }) => {
                     await api.update(`api/users/${userUuid}`, { is_staff: false })
+                    if (values.user?.uuid === userUuid) {
+                        actions.loadUser() // Loads the main user object to properly reflect staff user changes
+                        router.actions.push(urls.projectHomepage())
+                    }
                     const updatedAllUsers = [...values.allUsers]
                     for (const user of updatedAllUsers) {
                         if (user.uuid === userUuid) {
