@@ -6,7 +6,6 @@ import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import {
     ActionType,
-    Breadcrumb,
     FilterType,
     InsightLogicProps,
     InsightModel,
@@ -457,18 +456,6 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.savedFilters, s.filters],
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
-        ],
-        breadcrumbs: [
-            (s) => [s.insight],
-            (insight): Breadcrumb[] => [
-                {
-                    name: 'Insights',
-                    path: urls.savedInsights(),
-                },
-                {
-                    name: insight?.id ? insight.name || 'Unnamed' : null,
-                },
-            ],
         ],
         isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
         allEventNames: [
