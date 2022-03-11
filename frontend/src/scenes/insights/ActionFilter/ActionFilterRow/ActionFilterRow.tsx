@@ -11,7 +11,7 @@ import {
     PropertyFilterValue,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { CloseSquareOutlined, DownOutlined, EditOutlined } from '@ant-design/icons'
+import { CloseSquareOutlined, DownOutlined } from '@ant-design/icons'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -26,7 +26,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
-import { IconCopy, IconDelete, IconFilter } from 'lib/components/icons'
+import { IconCopy, IconDelete, IconEdit, IconFilter } from 'lib/components/icons'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -250,7 +250,7 @@ export function ActionFilterRow({
             title="Show filters"
             style={{ display: 'flex', alignItems: 'center' }}
         >
-            <IconFilter fontSize={'1.25rem'} />
+            <IconFilter fontSize={'1.25em'} />
             {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
         </Button>
     )
@@ -263,10 +263,11 @@ export function ActionFilterRow({
                 onRenameClick()
             }}
             className={`row-action-btn show-rename`}
-            data-attr={'show-prop-rename-' + index}
+            data-attr={`show-prop-rename-${index}`}
             title="Rename graph series"
+            style={{ display: 'flex', alignItems: 'center' }}
         >
-            <EditOutlined />
+            <IconEdit fontSize={'1.25em'} />
         </Button>
     )
 
@@ -281,7 +282,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-duplicate-${index}`}
             title="Duplicate graph series"
         >
-            <IconCopy fontSize={'1.25rem'} />
+            <IconCopy fontSize={'1.25em'} />
         </Button>
     )
 
