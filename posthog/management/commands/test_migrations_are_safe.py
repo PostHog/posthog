@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Automated test to make sure there are no non-null migrations"
+    help = "Automated test to make sure there are no non-null, dropping, renaming, or multiple migrations"
 
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
@@ -20,11 +20,29 @@ class Command(BaseCommand):
                 ):
                     print(
                         f"\n\n\033[91mFound a non-null field added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field",
-                        "red",
+                    )
+                    sys.exit(1)
+
+                if "RENAME" in sql:
+                    print(
+                        f"\n\n\033[91mFound a rename command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns",
+                    )
+                    sys.exit(1)
+
+                if "DROP COLUMN" in sql:
+                    print(
+                        f"\n\n\033[91mFound a drop command. This could lead to unsafe states for the app. Please avoid dropping columns",
                     )
                     sys.exit(1)
             except (IndexError, CommandError):
                 pass
 
-        for data in sys.stdin:
+        migrations = sys.stdin.readlines()
+        if len(migrations) > 1:
+            print(
+                f"\n\n\033[91mFound multiple migrations. Please scope PRs to one migration to promote easy debugging and revertability",
+            )
+            sys.exit(1)
+
+        for data in migrations:
             run_and_check_migration(data)
