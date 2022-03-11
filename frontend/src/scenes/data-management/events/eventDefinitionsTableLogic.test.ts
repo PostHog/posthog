@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { useMocks } from '~/mocks/jest'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { combineUrl } from 'kea-router'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -20,7 +21,13 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventDefinitions.slice(0, 50),
                                 count: 50,
                                 previous: null,
-                                next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50`,
+                                next: `api/projects/${MOCK_TEAM_ID}/event_definitions?${
+                                    combineUrl(req.url.pathname, {
+                                        ...req.url.searchParams,
+                                        limit: 50,
+                                        offset: 50,
+                                    }).search
+                                }`,
                             },
                         ]
                     }
@@ -30,7 +37,13 @@ describe('eventDefinitionsTableLogic', () => {
                             {
                                 results: mockEventDefinitions.slice(50, 56),
                                 count: 6,
-                                previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
+                                previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?${
+                                    combineUrl(req.url.pathname, {
+                                        ...req.url.searchParams,
+                                        limit: 50,
+                                        offset: undefined,
+                                    }).search
+                                }`,
                                 next: null,
                             },
                         ]
@@ -44,7 +57,13 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventPropertyDefinitions.slice(0, 5),
                                 count: 5,
                                 previous: null,
-                                next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
+                                next: `api/projects/${MOCK_TEAM_ID}/property_definitions?${
+                                    combineUrl(req.url.pathname, {
+                                        ...req.url.searchParams,
+                                        limit: 5,
+                                        offset: 5,
+                                    }).search
+                                }`,
                             },
                         ]
                     }
@@ -54,7 +73,13 @@ describe('eventDefinitionsTableLogic', () => {
                             {
                                 results: mockEventPropertyDefinitions.slice(5, 8),
                                 count: 3,
-                                previous: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5`,
+                                previous: `api/projects/${MOCK_TEAM_ID}/property_definitions?${
+                                    combineUrl(req.url.pathname, {
+                                        ...req.url.searchParams,
+                                        limit: 5,
+                                        offset: undefined,
+                                    }).search
+                                }`,
                                 next: null,
                             },
                         ]
