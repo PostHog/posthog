@@ -1,7 +1,7 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Button, Popconfirm, Card } from 'antd'
+import { Row, Col, Button, Card, Alert } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -112,6 +112,29 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
 
     const insightScene = (
         <div className="insights-page">
+            {filtersChanged ? (
+                <Alert
+                    type={'warning'}
+                    message={
+                        <>
+                            This insight has unsaved changes.{' '}
+                            <Button
+                                type="link"
+                                className="btn-reset"
+                                onClick={() => {
+                                    setFilters(savedFilters)
+                                    reportInsightsTabReset()
+                                }}
+                            >
+                                Discard changes
+                            </Button>
+                        </>
+                    }
+                    className="demo-warning"
+                    showIcon
+                    style={{ marginTop: '1.5rem' }}
+                />
+            ) : null}
             <PageHeader
                 title={
                     <EditableField
@@ -135,19 +158,6 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                 }
                 buttons={
                     <div className="insights-tab-actions">
-                        {filtersChanged ? (
-                            <Popconfirm
-                                title="Are you sure? This will discard all unsaved changes in this insight."
-                                onConfirm={() => {
-                                    setFilters(savedFilters)
-                                    reportInsightsTabReset()
-                                }}
-                            >
-                                <Button type="link" className="btn-reset">
-                                    Discard changes
-                                </Button>
-                            </Popconfirm>
-                        ) : null}
                         {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
