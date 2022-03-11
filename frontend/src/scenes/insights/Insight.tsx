@@ -40,6 +40,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
     const {
         insightProps,
         insightLoading,
+        filtersKnown,
         filters,
         canEditInsight,
         activeView,
@@ -95,7 +96,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightLoading && !('insight' in (insight.filters ?? {}))) {
+    if (insightLoading && !filtersKnown) {
         return <InsightSkeleton />
     }
 

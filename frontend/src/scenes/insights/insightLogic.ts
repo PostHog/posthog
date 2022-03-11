@@ -472,6 +472,13 @@ export const insightLogic = kea<insightLogicType>({
                 return filters.hidden_legend_keys ?? {}
             },
         ],
+        filtersKnown: [
+            (s) => [s.insight],
+            ({ filters }) => {
+                // any real filter will have the `insight` key in it
+                return 'insight' in (filters ?? {})
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
