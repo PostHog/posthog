@@ -91,13 +91,17 @@ class PropertyDefinitionViewSet(
             event_names = json.loads(event_names)
 
         # Include by id
-        included_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("included_ids", None), is_property=True
+        included_property_ids_field, included_property_ids = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("included_ids", None),
+            is_property=True,
+            named_key="included_ids",
         )
 
         # Exclude by id
-        excluded_property_ids_field, _ = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=True
+        excluded_property_ids_field, excluded_property_ids = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
+            is_property=True,
+            named_key="excluded_ids",
         )
 
         # Exclude by name
@@ -122,6 +126,8 @@ class PropertyDefinitionViewSet(
             "event_names": tuple(event_names or []),
             "names": names,
             "team_id": self.team_id,
+            "included_ids": included_property_ids,
+            "excluded_ids": excluded_property_ids,
             "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
             **search_kwargs,
         }

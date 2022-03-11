@@ -151,15 +151,11 @@ class TestUtils(BaseTest):
         for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
             ordered_expected_ids = tuple(set(expected_ids))  # type: ignore
             # Property
-            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True)
-            assert query == "(posthog_{table}.id = ANY ('{{{list}}}'::uuid[]))".format(
-                table="propertydefinition", list=",".join(ordered_expected_ids)
-            )
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
             assert ids == ordered_expected_ids
 
             # Event
-            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, False)
-            assert query == "(posthog_{table}.id = ANY ('{{{list}}}'::uuid[]))".format(
-                table="eventdefinition", list=",".join(ordered_expected_ids)
-            )
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, False, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="eventdefinition")
             assert ids == ordered_expected_ids

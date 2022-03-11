@@ -48,12 +48,16 @@ class EventDefinitionViewSet(
     def get_queryset(self):
         # Include by id
         included_event_ids_field, included_event_ids = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("included_ids", None), is_property=False
+            raw_included_definition_ids=self.request.GET.get("included_ids", None),
+            is_property=False,
+            named_key="included_ids",
         )
 
         # Exclude by id
         excluded_event_ids_field, excluded_event_ids = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("excluded_ids", None), is_property=False
+            raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
+            is_property=False,
+            named_key="excluded_ids",
         )
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
@@ -64,6 +68,13 @@ class EventDefinitionViewSet(
             else:
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+
+                params = {
+                    "team_id": self.team_id,
+                    "included_ids": included_event_ids,
+                    "excluded_ids": excluded_event_ids,
+                    **search_kwargs,
+                }
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 event_definition_fields = ", ".join(
@@ -82,7 +93,7 @@ class EventDefinitionViewSet(
                     ) {search_query}
                     ORDER BY is_included_event DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                     """,
-                    params={"team_id": self.team_id, **search_kwargs},
+                    params=params,
                 )
                 return ee_event_definitions.prefetch_related(
                     Prefetch(
