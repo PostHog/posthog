@@ -73,6 +73,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props.2
@@ -218,6 +219,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format
@@ -287,6 +289,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format.2
@@ -395,6 +398,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_filtering_with_group_props
@@ -545,6 +549,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
@@ -644,5 +649,6 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---

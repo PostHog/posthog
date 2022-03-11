@@ -3,11 +3,9 @@ import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
-import { CheckCircleOutlined } from '@ant-design/icons'
-import { toast } from 'react-toastify'
-import React from 'react'
 import { toParams } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
@@ -28,13 +26,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 },
                 deleteExperiment: async (id: number) => {
                     await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
-                    toast(
-                        <div>
-                            <h1 className="text-success">
-                                <CheckCircleOutlined /> Experiment removed
-                            </h1>
-                        </div>
-                    )
+                    lemonToast.info('Experiment removed')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
                 addToExperiments: (experiment: Experiment) => {

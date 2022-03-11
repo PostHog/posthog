@@ -7,7 +7,8 @@
     padding: 0.125rem 0.25rem;
     border-radius: $radius;
     text-transform: uppercase;
-    display: inline;
+    display: inline-flex;
+    align-items: center;
     color: $text_default;
     line-height: 1rem;
     white-space: nowrap;
@@ -24,5 +25,11 @@
     &.success {
         background-color: $success;
         color: $text_light;
+    }
+
+    .lemon-tag__icon {
+        font-size: 0.875rem;
+        margin-right: 0.125rem;
+        display: flex;
     }
 }

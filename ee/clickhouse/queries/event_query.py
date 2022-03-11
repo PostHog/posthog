@@ -17,6 +17,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
+from posthog.models.team import Team
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -37,7 +38,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter],
-        team_id: int,
+        team: Team,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -45,10 +46,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         extra_fields: List[ColumnName] = [],
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
+        override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
         self._filter = filter
-        self._team_id = team_id
+        self._team_id = team.pk
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
@@ -60,6 +62,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
         self._extra_person_fields = extra_person_fields
+
+        if override_aggregate_users_by_distinct_id is not None:
+            self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
+        else:
+            self._aggregate_users_by_distinct_id = team.aggregate_users_by_distinct_id
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()

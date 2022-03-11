@@ -15,6 +15,7 @@ from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_S
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team import Team
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -28,8 +29,8 @@ from posthog.models.filters.mixins.utils import cached_property
 
 
 class ClickhouseLifecycle:
-    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
+    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
 
         return (
             LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
@@ -53,13 +54,13 @@ class ClickhouseLifecycle:
     def get_people(
         self,
         filter: Filter,
-        team_id: int,
+        team: Team,
         target_date: datetime,
         lifecycle_type: str,
         request: Request,
         limit: int = 100,
     ):
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
@@ -71,7 +72,7 @@ class ClickhouseLifecycle:
                 "limit": limit,
             },
         )
-        people = get_persons_by_uuids(team_id=team_id, uuids=[p[0] for p in result])
+        people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer

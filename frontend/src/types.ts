@@ -885,7 +885,7 @@ export interface FilterType {
     interval?: IntervalType
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     event?: string // specify one event
     actions?: Record<string, any>[]
@@ -1455,7 +1455,7 @@ export enum FilterLogicalOperator {
     Or = 'OR',
 }
 export interface PropertyGroupFilter {
-    type?: FilterLogicalOperator
+    type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
 }
 
@@ -1503,7 +1503,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     /** Whether the user was autoswitched to the current item's team. */
-    switched_team: boolean
+    switched_team: TeamType['id'] | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1652,4 +1652,5 @@ export interface InstanceSetting {
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
+    is_secret: boolean
 }
