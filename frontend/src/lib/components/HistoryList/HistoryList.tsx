@@ -8,7 +8,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface HistoryListProps {
     type: 'FeatureFlag'
-    id: number | null
+    id: number
 }
 
 const Empty = (): JSX.Element => (
@@ -24,10 +24,6 @@ const Loading = (): JSX.Element => (
 )
 
 export const HistoryList = ({ type, id }: HistoryListProps): JSX.Element | null => {
-    if (!id) {
-        return <Empty />
-    }
-
     const logic = historyListLogic({ type, id })
     const { history, historyLoading } = useValues(logic)
 

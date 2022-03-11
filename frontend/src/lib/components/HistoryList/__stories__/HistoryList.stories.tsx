@@ -1,6 +1,5 @@
 import React from 'react'
 import { HistoryList } from 'lib/components/HistoryList/HistoryList'
-import { Col, Row } from 'antd'
 import { resetKeaStory } from 'lib/storybook/kea-story'
 import { Provider } from 'kea'
 import { defaultHistoryMocks, emptyHistoryMocks } from 'lib/components/HistoryList/__stories__/historyMocks'
@@ -15,11 +14,7 @@ export const WithData = (): JSX.Element => {
 
     return (
         <Provider>
-            <Row>
-                <Col span={24}>
-                    <HistoryList type={'FeatureFlag'} id={7} />
-                </Col>
-            </Row>
+            <HistoryList type={'FeatureFlag'} id={7} />
         </Provider>
     )
 }
@@ -30,22 +25,7 @@ export const WithNoData = (): JSX.Element => {
 
     return (
         <Provider>
-            <Row>
-                <HistoryList type={'FeatureFlag'} id={6} />
-            </Row>
-        </Provider>
-    )
-}
-
-export const WithNoID = (): JSX.Element => {
-    resetKeaStory()
-    emptyHistoryMocks()
-
-    return (
-        <Provider>
-            <Row>
-                <HistoryList type={'FeatureFlag'} id={null} />
-            </Row>
+            <HistoryList type={'FeatureFlag'} id={6} />
         </Provider>
     )
 }
