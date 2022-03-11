@@ -121,7 +121,7 @@ class EventDefinitionViewSet(
                 )
             )
             .filter(Q(is_ordered_first=True) | Q(is_not_excluded_event=False))
-            .order_by("-is_included_event", "name")
+            .order_by("-is_ordered_first", "name")
         )
 
     def get_object(self):
