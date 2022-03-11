@@ -75,7 +75,8 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         self.verify_table_engines_correct(
             expected_engine_types=(
                 "ReplicatedReplacingMergeTree",
-                "ReplicatedCollapsingMergeTree" "Distributed",
+                "ReplicatedCollapsingMergeTree",
+                "Distributed",
                 "Kafka",
             )
         )
@@ -129,4 +130,4 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         return sync_execute("SELECT count() FROM events")[0][0]
 
     def sanitize(self, engine):
-        return re.sub(r"/clickhouse/tables/[^_]+_", "/clickhouse/tables/", engine)
+        return re.sub(r"/clickhouse/tables/am0004_\d+", "/clickhouse/tables/am0004_20220201000000", engine)

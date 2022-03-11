@@ -6,6 +6,7 @@ from typing import Dict, Optional, cast
 import structlog
 from constance import config
 from django.conf import settings
+from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
@@ -198,7 +199,10 @@ class Migration(AsyncMigrationDefinition):
         Returns new table engine statement for the table.
 
         Note that the engine statement also includes PARTITION BY, ORDER BY, SAMPLE BY and SETTINGS,
-        so we use the current table as a base for that and only replace the
+        so we use the current table as a base for that and only replace the MergeTree engine.
+
+        Also note that we set a unique zookeeper path to avoid conflicts due to rollbacks as zookeeper
+        does not clean up data after a `DROP TABLE`.
         """
         current_engine = cast(str, self.get_current_engine(table.name))
 
@@ -211,6 +215,7 @@ class Migration(AsyncMigrationDefinition):
             """
             )
 
+        table.new_table_engine.set_zookeeper_path_key(now().strftime("am0004_%Y%m%d%H%M%S"))
         # Remove the current engine from the string
         return re.sub(r".*MergeTree\(\w+\)", str(table.new_table_engine), current_engine)
 
