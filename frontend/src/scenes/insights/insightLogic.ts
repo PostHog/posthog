@@ -129,7 +129,6 @@ export const insightLogic = kea<insightLogicType>({
         }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
@@ -680,22 +679,6 @@ export const insightLogic = kea<insightLogicType>({
                     {}
                 )
             }
-        },
-        createAndRedirectToNewInsight: async ({ filters }, breakpoint) => {
-            const newInsight = {
-                name: '',
-                description: '',
-                tags: [],
-                filters: cleanFilters(filters || {}),
-                result: null,
-            }
-            const createdInsight: InsightModel = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
-                newInsight
-            )
-            breakpoint()
-            eventUsageLogic.actions.reportInsightCreated(newInsight.filters?.insight || null)
-            router.actions.replace(urls.insightEdit(createdInsight.short_id))
         },
         toggleInsightLegend: () => {
             actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })

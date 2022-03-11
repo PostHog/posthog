@@ -34,8 +34,8 @@ export const mockInsight = {
     short_id: 'SvoU2bMC',
     name: null,
     filters: {
-        // breakdown: '$browser',
-        // breakdown_type: 'event',
+        breakdown: null,
+        breakdown_type: null,
         display: 'FunnelViz',
         events: [
             {
@@ -170,7 +170,6 @@ describe('funnelLogic', () => {
                         },
                     ]
                 },
-                // '/api/projects/:team/insights/': { results: funnelResults },
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
