@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
+import { traceInternal } from '../../utils/internal-metrics'
 import { status } from '../../utils/status'
 import { Action } from './../../types'
 
@@ -13,10 +14,8 @@ export async function ingestEvent(
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<void> {
     const eachEventStartTimer = new Date()
-    event.properties = event.properties || {} // TODO: this is silly
-    if (event.properties) {
-        event.properties['$$event_ingestion_plugin_server_start_timestamp'] = eachEventStartTimer
-    }
+    traceInternal(event, 'ingestion_start_ts', eachEventStartTimer.toISOString())
+
     const isSnapshot = event.event === '$snapshot'
 
     let processedEvent: PluginEvent | null = event

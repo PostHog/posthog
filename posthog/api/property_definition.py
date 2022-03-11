@@ -25,6 +25,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         "$group_type",
         "$group_key",
         "$group_set",
+        "$$internal_tracing",
     ]
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)],
 )

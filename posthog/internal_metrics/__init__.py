@@ -8,6 +8,18 @@ from statshog.defaults.django import statsd
 from posthog import utils
 from posthog.internal_metrics.team import get_internal_metrics_team_id
 
+TRACING_KEY = "$$internal_tracing"
+
+
+def tracing_start(event):
+    # currently trace every event but we can add sampling here
+    event["properties"][TRACING_KEY] = {}
+
+
+def trace_internal(event, key: str, value):
+    if TRACING_KEY in event["properties"]:
+        event["properties"][TRACING_KEY][key] = value
+
 
 def timing(metric_name: str, ms: float, tags: Tags = None):
     statsd.timing(metric_name, ms, tags=tags)

@@ -19,6 +19,7 @@ from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import EventIngestionContext, get_data, get_event_ingestion_context, get_token
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
+from posthog.internal_metrics import trace_internal, tracing_start
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address
@@ -264,7 +265,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_event(event, distinct_id, ingestion_context, ingestion_start):
+def parse_event(event, distinct_id, ingestion_context, ingestion_start: datetime):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
@@ -272,7 +273,8 @@ def parse_event(event, distinct_id, ingestion_context, ingestion_start):
     if not event.get("properties"):
         event["properties"] = {}
 
-    event["properties"]["$$event_ingestion_start_timestamp"] = ingestion_start
+    tracing_start(event)
+    trace_internal(event, "ingestion_start_ts", ingestion_start.isoformat())
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))

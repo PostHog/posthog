@@ -4609,6 +4609,14 @@
                         "query_usage_30_day": null,
                         "property_type": "String",
                         "is_event_property": null
+                    },
+                    {
+                        "id": "017f7ab6-11ac-0000-7d42-5e0f2007ed1e",
+                        "name": "$ingestion_e2e_ms",
+                        "is_numerical": true,
+                        "query_usage_30_day": null,
+                        "property_type": "Numeric",
+                        "is_event_property": null
                     }
                 ],
                 "next": null

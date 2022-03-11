@@ -29,6 +29,7 @@ import {
     sanitizeEventName,
     timeoutGuard,
 } from '../../utils/db/utils'
+import { traceInternalProperties, traceTimingStatsd } from '../../utils/internal-metrics'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
@@ -640,13 +641,14 @@ export class EventsProcessor {
         const timestampString = castTimestampOrNow(timestamp, timestampFormat)
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
-        const props = properties ?? {}
-        props['$$event_ingestion_plugin_server_end_timestamp'] = new Date()
+
+        traceInternalProperties(properties, 'ingestion_end_ts', new Date())
+        traceTimingStatsd(this.pluginsServer.statsd, properties, 'ingestion_start_ts', 'ingestion_e2e_ms')
 
         const eventPayload: IEvent = {
             uuid,
             event,
-            properties: JSON.stringify(props),
+            properties: JSON.stringify(properties),
             timestamp: timestampString,
             team_id: teamId,
             distinct_id: distinctId,

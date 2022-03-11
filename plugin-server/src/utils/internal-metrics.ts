@@ -1,8 +1,35 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { Hub, TeamId } from '../types'
 import { UUIDT } from './utils'
+
+export const TRACING_KEY = '$$internal_tracing' // TODO some global setting to share with py
+
+export function traceInternalProperties(properties: Properties | undefined, key: string, value: any) {
+    if (properties?.[TRACING_KEY]) {
+        properties[TRACING_KEY]['plugin_server_' + key] = value
+    }
+}
+
+export function traceInternal(event: PluginEvent, key: string, value: any) {
+    traceInternalProperties(event.properties, key, value)
+}
+
+export function traceTimingStatsd(
+    statsd: any | undefined,
+    properties: Properties | undefined,
+    startTimeKey: string,
+    key: string
+) {
+    const ingestionStartts = properties?.[TRACING_KEY]?.[startTimeKey]
+    if (ingestionStartts) {
+        const startTime = new Date(String(ingestionStartts))
+        traceInternalProperties(properties, key, new Date().getTime() - startTime.getTime())
+        properties['$' + key] = new Date().getTime() - startTime.getTime()
+        statsd?.timing(key, startTime)
+    }
+}
 
 export class InternalMetrics {
     metrics: Record<string, number>
