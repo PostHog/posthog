@@ -190,7 +190,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
-    def test_included_ids_filter(self):
+    def test_order_ids_first_filter(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
         )
@@ -205,9 +205,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "first_visit")
         self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
 
-        included_ids_str = f'["{str(ids[0])}"]'
+        order_ids_first_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"included_ids": included_ids_str})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -215,7 +215,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
 
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"included_ids": []})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
@@ -254,7 +254,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "first_visit")
         self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
 
-    def test_included_ids_overrides_excluded_ids_filter(self):
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
         )
@@ -271,7 +271,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         ids_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "included_ids": ids_str})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -279,7 +279,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
 
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "included_ids": []})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie

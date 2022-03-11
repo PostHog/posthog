@@ -152,7 +152,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["watched_movie"])
 
-    def test_included_ids_filter(self):
+    def test_order_ids_first_filter(self):
 
         # rated_app, installed_app
         ids = (
@@ -167,9 +167,9 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
         self.assertEqual(response.json()["results"][1]["name"], "rated_app")
 
-        included_ids_str = f'["{str(ids[0])}"]'
+        order_ids_first_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"included_ids": included_ids_str})}'
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -177,7 +177,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "rated_app")
 
         response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"included_ids": []})}'
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
@@ -216,7 +216,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
         self.assertEqual(response.json()["results"][1]["name"], "rated_app")
 
-    def test_included_ids_overrides_excluded_ids_filter(self):
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
 
         # rated_app, installed_app
         ids = (
@@ -233,7 +233,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         ids_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": ids_str, "included_ids": ids_str})}'
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -241,7 +241,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "rated_app")
 
         response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": [], "included_ids": []})}'
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app

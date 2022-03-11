@@ -171,7 +171,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
 
-    def test_included_ids_filter(self):
+    def test_order_ids_first_filter(self):
 
         # is_first_movie, first_visit
         ids = (
@@ -186,9 +186,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "first_visit")
         self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
 
-        included_ids_str = f'["{str(ids[0])}"]'
+        order_ids_first_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"included_ids": included_ids_str})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -196,7 +196,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
 
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"included_ids": []})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
@@ -235,7 +235,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "first_visit")
         self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
 
-    def test_included_ids_overrides_excluded_ids_filter(self):
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
 
         # is_first_movie, first_visit
         ids = (
@@ -252,7 +252,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         ids_str = f'["{str(ids[0])}"]'
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "included_ids": ids_str})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
@@ -260,7 +260,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
 
         response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "included_ids": []})}'
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie

@@ -90,14 +90,21 @@ class PropertyDefinitionViewSet(
         if event_names:
             event_names = json.loads(event_names)
 
-        # Include by id
-        included_property_ids_field, included_property_ids = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("included_ids", None),
+        # `order_ids_first`
+        #   Any definition ids passed into the `order_ids_first` parameter will make sure that those definitions
+        #   appear at the beginning of the list of definitions. This is used in the app when we want specific
+        #   definitions to show at the top of a table so that they can be highlighted (i.e. viewing an individual
+        #   definition's context).
+        #
+        #   Note that ids included in `order_ids_first` will override the same ids in `excluded_ids`.
+        order_ids_first_field, order_ids_first = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("order_ids_first", None),
             is_property=True,
-            named_key="included_ids",
+            named_key="order_ids_first",
         )
 
-        # Exclude by id
+        # `excluded_ids`
+        #   Any definitions ids specified in the `excluded_ids` parameter will be omitted from the results.
         excluded_property_ids_field, excluded_property_ids = check_definition_ids_inclusion_field_sql(
             raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
             is_property=True,
@@ -126,7 +133,7 @@ class PropertyDefinitionViewSet(
             "event_names": tuple(event_names or []),
             "names": names,
             "team_id": self.team_id,
-            "included_ids": included_property_ids,
+            "order_ids_first": order_ids_first,
             "excluded_ids": excluded_property_ids,
             "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
             **search_kwargs,
@@ -142,14 +149,14 @@ class PropertyDefinitionViewSet(
                 f"""
                             SELECT {property_definition_fields},
                                    {event_property_field} AS is_event_property,
-                                   {included_property_ids_field} AS is_included_property
+                                   {order_ids_first_field} AS is_ordered_first
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                             WHERE team_id = %(team_id)s AND (
-                                {included_property_ids_field} = true
+                                {order_ids_first_field} = true
                                 OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
                             ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
-                            ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                            ORDER BY is_ordered_first DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
                 params=params,
             ).prefetch_related(
@@ -164,13 +171,13 @@ class PropertyDefinitionViewSet(
             f"""
                 SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property,
-                       {included_property_ids_field} AS is_included_property
+                       {order_ids_first_field} AS is_ordered_first
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND (
-                    {included_property_ids_field} = true
+                    {order_ids_first_field} = true
                     OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
                 ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
-                ORDER BY is_included_property DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                ORDER BY is_ordered_first DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,
             params=params,
         )

@@ -46,15 +46,22 @@ class EventDefinitionViewSet(
     search_fields = ["name"]
 
     def get_queryset(self):
-        # Include by id
-        included_event_ids_field, included_event_ids = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("included_ids", None),
+        # `order_ids_first`
+        #   Any definition ids passed into the `order_ids_first` parameter will make sure that those definitions
+        #   appear at the beginning of the list of definitions. This is used in the app when we want specific
+        #   definitions to show at the top of a table so that they can be highlighted (i.e. viewing an individual
+        #   definition's context).
+        #
+        #   Note that ids included in `order_ids_first` will override the same ids in `excluded_ids`.
+        order_ids_first_field, order_ids_first = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("order_ids_first", None),
             is_property=False,
-            named_key="included_ids",
+            named_key="order_ids_first",
         )
 
-        # Exclude by id
-        excluded_event_ids_field, excluded_event_ids = check_definition_ids_inclusion_field_sql(
+        # `excluded_ids`
+        #   Any definitions ids specified in the `excluded_ids` parameter will be omitted from the results.
+        excluded_ids_field, excluded_ids = check_definition_ids_inclusion_field_sql(
             raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
             is_property=False,
             named_key="excluded_ids",
@@ -71,8 +78,8 @@ class EventDefinitionViewSet(
 
                 params = {
                     "team_id": self.team_id,
-                    "included_ids": included_event_ids,
-                    "excluded_ids": excluded_event_ids,
+                    "order_ids_first": order_ids_first,
+                    "excluded_ids": excluded_ids,
                     **search_kwargs,
                 }
 
@@ -84,14 +91,14 @@ class EventDefinitionViewSet(
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
                     SELECT {event_definition_fields},
-                           {included_event_ids_field} AS is_included_event
+                           {order_ids_first_field} AS is_ordered_first
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s AND (
-                        {included_event_ids_field} = true
-                        OR {excluded_event_ids_field} = false
+                        {order_ids_first_field} = true
+                        OR {excluded_ids_field} = false
                     ) {search_query}
-                    ORDER BY is_included_event DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
+                    ORDER BY is_ordered_first DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                     """,
                     params=params,
                 )
@@ -104,16 +111,16 @@ class EventDefinitionViewSet(
         return (
             self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
             .annotate(
-                is_included_event=Case(
-                    When(id__in=included_event_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
+                is_ordered_first=Case(
+                    When(id__in=order_ids_first, then=Value(True)), default=Value(False), output_field=BooleanField()
                 )
             )
             .annotate(
                 is_not_excluded_event=Case(
-                    When(id__in=excluded_event_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
+                    When(id__in=excluded_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
                 )
             )
-            .filter(Q(is_included_event=True) | Q(is_not_excluded_event=False))
+            .filter(Q(is_ordered_first=True) | Q(is_not_excluded_event=False))
             .order_by("-is_included_event", "name")
         )
 

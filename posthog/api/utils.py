@@ -287,10 +287,6 @@ def get_event_ingestion_context_for_personal_api_key(
 def check_definition_ids_inclusion_field_sql(
     raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
 ):
-    included_definition_ids: List = []
-    if raw_included_definition_ids:
-        included_definition_ids = list(json.loads(raw_included_definition_ids))
-    included_definition_ids = list(set(included_definition_ids))
 
     # Create conditional field based on whether id exists in included_properties
     if is_property:
@@ -298,4 +294,7 @@ def check_definition_ids_inclusion_field_sql(
     else:
         included_definitions_sql = f"(posthog_eventdefinition.id = ANY (%({named_key})s::uuid[]))"
 
-    return included_definitions_sql, included_definition_ids
+    if not raw_included_definition_ids:
+        return included_definitions_sql, []
+
+    return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
