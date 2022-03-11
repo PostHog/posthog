@@ -72,13 +72,6 @@ export function InsightsTable({
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
-    const _entityFilterLogic = entityFilterLogic({
-        setFilters,
-        filters,
-        typeKey: filterKey,
-    })
-    const { showModal, selectFilter } = useActions(_entityFilterLogic)
-
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
@@ -91,8 +84,15 @@ export function InsightsTable({
 
     const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
-            selectFilter(item.action)
-            showModal()
+            const entityFitler = entityFilterLogic.findMounted({
+                setFilters,
+                filters,
+                typeKey: filterKey,
+            })
+            if (entityFitler) {
+                entityFitler.actions.selectFilter(item.action)
+                entityFitler.actions.showModal()
+            }
         }
     }
 
