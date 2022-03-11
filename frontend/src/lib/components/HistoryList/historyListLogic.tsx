@@ -84,7 +84,7 @@ function humanize(results: HistoryListItem[]): HumanizedHistoryListItem[] {
 }
 
 export const historyListLogic = kea<historyListLogicType<HistoryListLogicProps, HumanizedHistoryListItem>>({
-    path: ['lib', 'components', 'HistoryList', 'historyList', 'logic'],
+    path: (key) => ['lib', 'components', 'HistoryList', 'historyList', 'logic', key],
     props: {} as HistoryListLogicProps,
     key: ({ id, type }) => `history/${type}/${id}`,
     loaders: ({ props }) => ({
