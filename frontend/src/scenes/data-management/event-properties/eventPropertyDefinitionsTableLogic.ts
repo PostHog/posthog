@@ -14,7 +14,6 @@ export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
 export interface EventPropertyDefinitionsTableLogicProps {
     key: string
-    syncWithUrl?: boolean
 }
 
 export const eventPropertyDefinitionsTableLogic = kea<
@@ -24,9 +23,9 @@ export const eventPropertyDefinitionsTableLogic = kea<
     props: {} as EventPropertyDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventPropertyDefinitions: (url: string | null = '', includedIds: string[] = []) => ({
+        loadEventPropertyDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({
             url,
-            includedIds,
+            orderIdsFirst,
         }),
         setFilters: (filters: Filters) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
@@ -66,14 +65,14 @@ export const eventPropertyDefinitionsTableLogic = kea<
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url, includedIds }, breakpoint) => {
+                loadEventPropertyDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
-                            included_ids: includedIds,
+                            order_ids_first: orderIdsFirst,
                         })
                     }
                     const response = await api.get(url)
@@ -115,23 +114,19 @@ export const eventPropertyDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/events/properties': (_, searchParams) => {
-            if (props.syncWithUrl) {
-                actions.setFilters(searchParams as Filters)
-                if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                    actions.loadEventPropertyDefinitions()
-                }
+            actions.setFilters(searchParams as Filters)
+            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+                actions.loadEventPropertyDefinitions()
             }
         },
         '/events/properties/:id': ({ id }) => {
-            if (props.syncWithUrl) {
-                if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                    actions.loadEventPropertyDefinitions(null, id ? [id] : [])
-                }
-                if (id) {
-                    actions.setOpenedDefinition(id)
-                }
+            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+                actions.loadEventPropertyDefinitions(null, id ? [id] : [])
+            }
+            if (id) {
+                actions.setOpenedDefinition(id)
             }
         },
     }),

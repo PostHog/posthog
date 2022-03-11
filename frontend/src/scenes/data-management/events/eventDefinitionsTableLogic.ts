@@ -38,7 +38,6 @@ function normalizePropertyDefinitionEndpointUrl(url: string | null): string | nu
 
 export interface EventDefinitionsTableLogicProps {
     key: string
-    syncWithUrl?: boolean
 }
 
 export const eventDefinitionsTableLogic = kea<
@@ -53,7 +52,7 @@ export const eventDefinitionsTableLogic = kea<
     props: {} as EventDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventDefinitions: (url: string | null = '', includedIds: string[] = []) => ({ url, includedIds }),
+        loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Filters) => ({ filters }),
@@ -102,14 +101,14 @@ export const eventDefinitionsTableLogic = kea<
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url, includedIds }, breakpoint) => {
+                loadEventDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
-                            included_ids: includedIds,
+                            order_ids_first: orderIdsFirst,
                         })
                     }
                     const response = await api.get(url)
@@ -236,23 +235,19 @@ export const eventDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/events/stats': (_, searchParams) => {
-            if (props.syncWithUrl) {
-                actions.setFilters(searchParams as Filters)
-                if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                    actions.loadEventDefinitions()
-                }
+            actions.setFilters(searchParams as Filters)
+            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.loadEventDefinitions()
             }
         },
         '/events/stats/:id': ({ id }) => {
-            if (props.syncWithUrl) {
-                if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                    actions.loadEventDefinitions(null, id ? [id] : [])
-                }
-                if (id) {
-                    actions.setOpenedDefinition(id)
-                }
+            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.loadEventDefinitions(null, id ? [id] : [])
+            }
+            if (id) {
+                actions.setOpenedDefinition(id)
             }
         },
     }),

@@ -43,7 +43,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                         ))
                     )}
                     {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
-                        <BindLogic logic={eventPropertyDefinitionsTableLogic} props={{ syncWithUrl: true }}>
+                        <BindLogic logic={eventPropertyDefinitionsTableLogic} props={{}}>
                             <EventPropertyDefinitionsTable />
                         </BindLogic>
                     ) : (

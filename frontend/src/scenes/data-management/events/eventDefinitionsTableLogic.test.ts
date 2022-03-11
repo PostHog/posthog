@@ -18,7 +18,7 @@ describe('eventDefinitionsTableLogic', () => {
     const startingUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
-            included_ids: [],
+            order_ids_first: [],
         }).search
     }`
 
@@ -26,7 +26,7 @@ describe('eventDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': (req) => {
-                    if (req.url.searchParams.get('included_ids')?.includes('uuid-5-foobar')) {
+                    if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
                         return [
                             200,
                             {
@@ -185,7 +185,7 @@ describe('eventDefinitionsTableLogic', () => {
             const startingDefinitionUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
                 combineUrl('', {
                     limit: EVENT_DEFINITIONS_PER_PAGE,
-                    included_ids: ['uuid-5-foobar'],
+                    order_ids_first: ['uuid-5-foobar'],
                 }).search
             }`
 

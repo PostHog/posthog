@@ -276,7 +276,7 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            included_ids?: string[]
+            order_ids_first?: string[]
             excluded_ids?: string[]
             limit?: number
             offset?: number
@@ -292,7 +292,7 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            included_ids?: string[]
+            order_ids_first?: string[]
             excluded_ids?: string[]
             limit?: number
             offset?: number
@@ -312,7 +312,7 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            included_ids?: string[]
+            order_ids_first?: string[]
             excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
@@ -336,7 +336,7 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            included_ids?: string[]
+            order_ids_first?: string[]
             excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
