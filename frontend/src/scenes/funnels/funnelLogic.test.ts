@@ -14,7 +14,6 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightShortId,
-    InsightModel,
     InsightType,
     TeamType,
 } from '~/types'
@@ -30,7 +29,7 @@ import { useFeatures } from '~/mocks/features'
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
 
-export const mockInsight: InsightModel = {
+export const mockInsight = {
     id: Insight123,
     short_id: 'SvoU2bMC',
     name: null,
