@@ -6,7 +6,6 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
 import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -54,26 +53,31 @@ export function StaffUsersTab(): JSX.Element {
                         status="danger"
                         onClick={() => {
                             Modal.confirm({
-                                title:
-                                    myself?.uuid === user.uuid ? (
-                                        <>
-                                            <b style={{ color: 'var(--warning)' }}>Warning!</b> Are you sure you want to{' '}
-                                            <b>remove yourself</b> as a staff user?
-                                            <div
-                                                style={{
-                                                    fontWeight: 'normal',
-                                                    color: 'var(--muted-alt)',
-                                                }}
-                                            >
-                                                Only another staff user will be able to add you again.
-                                            </div>
-                                        </>
-                                    ) : (
-                                        `Are you sure you want to remove ${user.first_name} as a Staff User?`
-                                    ),
-                                icon: <ExclamationCircleOutlined />,
+                                title: `Remove ${
+                                    myself?.uuid === user.uuid ? 'yourself' : user.first_name
+                                } as a Staff User?`,
+                                icon: null,
                                 okText: 'Yes, remove',
-                                okType: 'danger',
+                                okType: 'primary',
+                                content: (
+                                    <div style={{ border: '' }}>
+                                        {myself?.uuid === user.uuid ? (
+                                            <>
+                                                Please confirm you want to <b>remove yourself</b> as a staff user.
+                                                <div
+                                                    style={{
+                                                        fontWeight: 'normal',
+                                                        color: 'var(--muted-alt)',
+                                                    }}
+                                                >
+                                                    Only another staff user will be able to add you again.
+                                                </div>
+                                            </>
+                                        ) : (
+                                            `Are you sure you want to remove ${user.first_name} as a Staff User?`
+                                        )}
+                                    </div>
+                                ),
                                 onOk() {
                                     deleteStaffUser(user.uuid)
                                 },
@@ -94,8 +98,12 @@ export function StaffUsersTab(): JSX.Element {
                         Staff Users
                     </h3>
                     <div className="mb">
-                        Users who have permissions to change instance-wide settings.{' '}
-                        <a href="https://posthog.com/docs/self-host/configure/instance-settings" target="_blank">
+                        Users who have permissions to manage instance-wide settings. Staff user permissions are set at
+                        the <b>instance-level and are independent of any organization or project permissions.</b>{' '}
+                        <a
+                            href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users"
+                            target="_blank"
+                        >
                             Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                         </a>
                         .
