@@ -67,7 +67,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
-            if (insightId !== values.insightId || insightMode !== values.insightMode) {
+            if (insightId !== oldInsightId || insightMode !== values.insightMode) {
                 actions.setSceneState(insightId, insightMode)
                 if (insightId !== oldInsightId && insightId === 'new') {
                     actions.createNewInsight(filters)
