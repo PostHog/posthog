@@ -10,12 +10,12 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
  * @param sceneKey
  */
 export const keyForInsightLogicProps =
-    (defaultKey = 'new', sceneKey = 'scene') =>
+    (defaultKey = 'new') =>
     (props: InsightLogicProps): string | number => {
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.syncWithUrl ? sceneKey : props.dashboardItemId || defaultKey
+        return props.dashboardItemId || defaultKey
     }
 
 export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {

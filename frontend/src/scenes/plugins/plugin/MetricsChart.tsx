@@ -43,7 +43,7 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
     return (
         <div className="metrics-chart-wrapper">
             <BindLogic logic={insightLogic} props={{ filters, dashboardItemId: null, doNotPersist: true }}>
-                <ActionsLineGraph filters={filters} showPersonsModal={false} />
+                <ActionsLineGraph showPersonsModal={false} />
             </BindLogic>
         </div>
     )

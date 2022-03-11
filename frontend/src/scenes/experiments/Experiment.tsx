@@ -102,7 +102,6 @@ export function Experiment_(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
-            syncWithUrl: false,
         })
     )
     const {
@@ -957,20 +956,22 @@ export function Experiment_(): JSX.Element {
                                 logic={insightLogic}
                                 props={{
                                     dashboardItemId: experimentResults.itemID,
-                                    filters: {
-                                        ...experimentResults.filters,
-                                        insight: experimentInsightType,
-                                        display: experimentData.filters.display,
-                                        ...(experimentInsightType === InsightType.FUNNELS && {
-                                            layout: FunnelLayout.vertical,
-                                            funnel_viz_type: FunnelVizType.Steps,
-                                        }),
-                                        ...(experimentInsightType === InsightType.TRENDS && {
-                                            display: ChartDisplayType.ActionsLineGraphCumulative,
-                                        }),
+                                    cachedInsight: {
+                                        short_id: experimentResults.itemID,
+                                        filters: {
+                                            ...experimentResults.filters,
+                                            insight: experimentInsightType,
+                                            display: experimentData.filters.display,
+                                            ...(experimentInsightType === InsightType.FUNNELS && {
+                                                layout: FunnelLayout.vertical,
+                                                funnel_viz_type: FunnelVizType.Steps,
+                                            }),
+                                            ...(experimentInsightType === InsightType.TRENDS && {
+                                                display: ChartDisplayType.ActionsLineGraphCumulative,
+                                            }),
+                                        },
+                                        result: experimentResults.insight,
                                     },
-                                    cachedResults: experimentResults.insight,
-                                    syncWithUrl: false,
                                     doNotLoad: true,
                                 }}
                             >
