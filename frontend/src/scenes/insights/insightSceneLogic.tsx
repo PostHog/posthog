@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
@@ -132,6 +133,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 actions.setSceneState(insightId, insightMode)
                 if (insightId !== oldInsightId && insightId === 'new') {
                     actions.createNewInsight(filters)
+                    return
+                }
+                // Redirect #filters={} to just /edit.
+                if (filters && Object.keys(filters).length > 0) {
+                    values.insightCache?.logic.actions.setFilters(filters)
+                    router.actions.replace(urls.insightEdit(insightId))
+                    lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
                 }
             }
         },
