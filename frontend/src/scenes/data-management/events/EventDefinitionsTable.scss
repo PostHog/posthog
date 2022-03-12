@@ -45,12 +45,14 @@
                 .definition-column-name-content-title {
                     font-weight: 600;
                     cursor: pointer;
+                    position: relative;
+                    overflow: visible;
 
                     &:before {
                         content: '';
                         position: absolute;
                         top: -5px;
-                        //bottom: -5px;
+                        bottom: -5px;
                         left: -10px;
                         right: -50px;
                         height: 22px;
@@ -58,7 +60,6 @@
                 }
 
                 .definition-column-name-content-description {
-                    font-style: italic;
                     font-size: 13px;
                     color: var(--text-muted);
                     text-overflow: ellipsis;
