@@ -148,7 +148,7 @@ describe('eventDefinitionsTableLogic', () => {
 
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
-            const url = urls.eventStats()
+            const url = urls.eventDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([
@@ -189,7 +189,7 @@ describe('eventDefinitionsTableLogic', () => {
                 }).search
             }`
 
-            const url = urls.eventStat('uuid-5-foobar')
+            const url = urls.eventDefinition('uuid-5-foobar')
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActionsInAnyOrder([
@@ -218,7 +218,7 @@ describe('eventDefinitionsTableLogic', () => {
         })
 
         it('pagination forwards and backwards', async () => {
-            const url = urls.eventStats()
+            const url = urls.eventDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([
@@ -272,7 +272,7 @@ describe('eventDefinitionsTableLogic', () => {
                 is_event_property: true,
             }).search
         }`
-        const url = urls.eventStats()
+        const url = urls.eventDefinitions()
 
         beforeEach(() => {
             router.actions.push(url)

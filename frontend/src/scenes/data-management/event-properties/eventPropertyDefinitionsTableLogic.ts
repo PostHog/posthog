@@ -115,13 +115,13 @@ export const eventPropertyDefinitionsTableLogic = kea<
         apiCache: [() => [], () => cache.apiCache],
     }),
     urlToAction: ({ actions, values }) => ({
-        '/events/properties': (_, searchParams) => {
+        '/data-management/event-properties': (_, searchParams) => {
             actions.setFilters(searchParams as Filters)
             if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
                 actions.loadEventPropertyDefinitions()
             }
         },
-        '/events/properties/:id': ({ id }) => {
+        '/data-management/event-properties/:id': ({ id }) => {
             if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
                 actions.loadEventPropertyDefinitions(null, id ? [id] : [])
             }

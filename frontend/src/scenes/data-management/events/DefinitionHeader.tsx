@@ -227,7 +227,7 @@ export function PropertyDefinitionHeader({
                 getPopupHeader: () => 'Property',
                 getIcon: getPropertyDefinitionIcon,
                 getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
-                    urls.eventPropertyStat(propertyDefinition.id),
+                    urls.eventPropertyDefinition(propertyDefinition.id),
             }}
             {...props}
         />

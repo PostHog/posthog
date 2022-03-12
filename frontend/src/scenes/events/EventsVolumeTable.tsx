@@ -7,12 +7,12 @@ import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
 import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab } from 'scenes/events/EventsTabs'
-import { EventPageHeader } from './EventPageHeader'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EventDefinitionsTable } from 'scenes/data-management/events/EventDefinitionsTable'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
 
 export const scene: SceneExport = {
     component: EventsVolumeTable,
@@ -26,7 +26,7 @@ export function EventsVolumeTable(): JSX.Element | null {
 
     return (
         <div data-attr="manage-events-table">
-            <EventPageHeader activeTab={EventsTab.EventStats} />
+            <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (

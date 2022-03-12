@@ -249,7 +249,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_action_of_another_accessible_team(self):
         action = Action.objects.create(team=self.second_team)
 
-        response_app = self.client.get(f"/action/{action.id}")
+        response_app = self.client.get(f"/data-management/actions/{action.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
