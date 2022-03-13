@@ -398,21 +398,21 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing only SAML disables regular API password login
-        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "type": "validation_error",
-                "code": "saml_enforced",
+                "code": "sso_enforced",
                 "detail": "This instance only allows SAML login.",
                 "attr": None,
             },
         )
 
         # Client is automatically redirected to SAML login
-        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
             response = self.client.get("/login")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/login/saml/?idp=posthog_custom")

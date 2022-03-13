@@ -44,10 +44,14 @@ def home(request, *args, **kwargs):
 
 def login_view(request):
     """
-    Checks if SAML is enforced and prevents using password authentication if it's the case.
+    Checks if SSO is enforced and prevents using password authentication if it's the case.
     """
-    if getattr(settings, "SAML_ENFORCED", False):
-        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+    if getattr(settings, "SSO_ENFORCEMENT", None):
+        if settings.SSO_ENFORCEMENT == "saml":
+            return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+        else:
+            return redirect(reverse("social:begin", kwargs={"backend": settings.SSO_ENFORCEMENT}))
+
     return home(request)
 
 

@@ -57,8 +57,8 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
-        if getattr(settings, "SAML_ENFORCED", False):
-            raise serializers.ValidationError("This instance only allows SAML login.", code="saml_enforced")
+        if getattr(settings, "SSO_ENFORCEMENT", None):
+            raise serializers.ValidationError("This instance only allows SAML login.", code="sso_enforced")
 
         request = self.context["request"]
         user = cast(
@@ -95,9 +95,9 @@ class PasswordResetSerializer(serializers.Serializer):
 
     def create(self, validated_data):
 
-        if getattr(settings, "SAML_ENFORCED", False):
+        if getattr(settings, "SSO_ENFORCEMENT", False):
             raise serializers.ValidationError(
-                "Password reset is disabled because SAML login is enforced.", code="saml_enforced"
+                "Password reset is disabled because SAML login is enforced.", code="sso_enforced"
             )
 
         if not is_email_available():
