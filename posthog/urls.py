@@ -25,7 +25,7 @@ from posthog.api import (
 from posthog.demo import demo
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -106,6 +106,7 @@ urlpatterns = [
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
     opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path("security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),

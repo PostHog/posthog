@@ -27,10 +27,6 @@ from posthog.utils import (
 )
 from posthog.version import VERSION
 
-ROBOTS_TXT_CONTENT = (
-    "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
-)
-
 
 def noop(*args, **kwargs) -> None:
     return None
@@ -76,7 +72,18 @@ def stats(request):
 
 
 def robots_txt(request):
+    ROBOTS_TXT_CONTENT = (
+        "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
+    )
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
+
+
+def security_txt(request):
+    SECURITY_TXT_CONTENT = """
+        Contact: engineering@posthog.com
+        Hiring: https://posthog.com/careers
+        """
+    return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
 
 
 @never_cache
