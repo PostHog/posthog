@@ -1,4 +1,5 @@
 import copy
+import datetime
 import os
 import uuid
 from typing import Dict, cast
@@ -6,6 +7,7 @@ from typing import Dict, cast
 import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
@@ -56,6 +58,16 @@ CURRENT_FOLDER = os.path.dirname(__file__)
 @pytest.mark.ee
 @pytest.mark.skip_on_multitenancy
 class TestEEAuthenticationAPI(APILicensedTest):
+    def test_can_enforce_sso(self):
+        pass
+
+    def test_cannot_enforce_sso_without_a_license(self):
+        pass
+
+
+@pytest.mark.ee
+@pytest.mark.skip_on_multitenancy
+class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # SAML Metadata
 
@@ -406,7 +418,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "type": "validation_error",
                 "code": "sso_enforced",
-                "detail": "This instance only allows SAML login.",
+                "detail": "This instance only allows SSO login.",
                 "attr": None,
             },
         )
@@ -416,3 +428,26 @@ YotAcSbU3p5bzd11wpyebYHB"""
             response = self.client.get("/login")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/login/saml/?idp=posthog_custom")
+
+    def test_cannot_use_saml_without_enterprise_license(self):
+        self.client.logout()
+        self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
+        self.license.save()
+
+        # Enforcement is ignored
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Client is not redirected to SAML login (even though it's enforced), enforcement is ignored
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
+            response = self.client.get("/login")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Attempting to use SAML fails
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])

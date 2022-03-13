@@ -24,8 +24,8 @@ from posthog.api import (
 )
 from posthog.demo import demo
 
-from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, stats
+from .utils import get_sso_enforced_provider, render_template
+from .views import health, login_required, preflight_check, robots_txt, sso_login, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -46,11 +46,12 @@ def login_view(request):
     """
     Checks if SSO is enforced and prevents using password authentication if it's the case.
     """
-    if getattr(settings, "SSO_ENFORCEMENT", None):
-        if settings.SSO_ENFORCEMENT == "saml":
+    enforced_sso = get_sso_enforced_provider()
+    if enforced_sso:
+        if enforced_sso == "saml":
             return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
         else:
-            return redirect(reverse("social:begin", kwargs={"backend": settings.SSO_ENFORCEMENT}))
+            return redirect(reverse("social:begin", kwargs={"backend": enforced_sso}))
 
     return home(request)
 
@@ -109,10 +110,13 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
-    opt_slash_path("robots.txt", robots_txt),
+    path("robots.txt", robots_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
+    path(
+        "login/<str:backend>/", sso_login, name="social_begin"
+    ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("login", login_view),
 ]
