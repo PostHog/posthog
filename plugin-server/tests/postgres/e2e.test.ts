@@ -248,7 +248,7 @@ describe('e2e', () => {
         })
     })
 
-    describe('e2e export historical events', () => {
+    describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
