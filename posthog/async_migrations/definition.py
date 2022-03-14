@@ -37,7 +37,8 @@ class AsyncMigrationOperation:
 class AsyncMigrationOperationSQL(AsyncMigrationOperation):
     def __init__(
         self,
-        *sql: str,
+        *,
+        sql: str,
         rollback: Optional[str],
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
