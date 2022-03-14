@@ -13,7 +13,7 @@ import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 export const scene: SceneExport = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id), onComplete: () => {} }),
+    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id) }),
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
