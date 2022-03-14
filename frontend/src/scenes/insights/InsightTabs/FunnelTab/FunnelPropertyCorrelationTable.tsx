@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
@@ -37,9 +37,18 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         aggregationTargetLabel,
     } = useValues(logic)
 
-    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
+        useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+
+    // Load correlations only if this component is mounted, and then reload if filters change
+    useEffect(() => {
+        if (propertyNames.length === 0) {
+            setPropertyNames(allProperties)
+        }
+        loadPropertyCorrelations()
+    }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {

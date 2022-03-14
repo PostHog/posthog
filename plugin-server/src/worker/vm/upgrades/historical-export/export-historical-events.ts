@@ -18,7 +18,7 @@ import {
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
-const EVENTS_PER_RUN = 100
+const EVENTS_PER_RUN = 500
 
 const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor'
 const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
@@ -207,7 +207,7 @@ export function addHistoricalEventsExportCapability(
                     intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
                     batchId: payload.batchId,
                 })
-                .runNow()
+                .runIn(1, 'seconds')
         }
 
         let exportEventsError: Error | unknown | null = null

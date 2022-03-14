@@ -139,13 +139,15 @@
     }
 
     .definition-popup-timemeta {
-        display: flex;
+        display: inline;
         margin-top: 4px;
         margin-bottom: 4px;
 
-        span.definition-popup-timemeta-spacer {
+        .definition-popup-timemeta-user {
+            display: inline-flex;
+        }
+        .definition-popup-timemeta-spacer {
             margin-right: 4px;
-            margin-left: 4px;
         }
     }
 
