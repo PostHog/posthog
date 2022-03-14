@@ -235,7 +235,7 @@ function Pages(): JSX.Element {
             )}
             <LemonSpacer />
             <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
-            <PageButton icon={<EventStackGearIcon />} identifier={Scene.DataManagement} to={urls.eventDefinitions()} />
+            <PageButton icon={<EventStackGearIcon />} identifier={Scene.Events} to={urls.eventDefinitions()} />
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
