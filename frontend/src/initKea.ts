@@ -6,6 +6,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/components/lemonToast'
+import { subscriptionsPlugin } from '~/subscriptionsPlugin'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -73,6 +74,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),
+            subscriptionsPlugin,
             waitForPlugin,
         ],
         defaults: state,
