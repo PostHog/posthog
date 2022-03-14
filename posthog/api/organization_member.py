@@ -75,7 +75,7 @@ class OrganizationMemberViewSet(
         user__is_active=True,
     )
     lookup_field = "user__uuid"
-    ordering = ["level", "-joined_at"]
+    ordering = ["user__first_name", "-joined_at"]
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
