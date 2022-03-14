@@ -12,11 +12,13 @@ describe('loginLogic', () => {
         const matches = [
             [null, '/'],
             ['/', '/'],
+            ['asdf', ''],
+            ['?next=javascript:something', ''],
+            ['javascript:something', ''],
             ['/bla', '/bla'],
-            ['asdf', '/'],
-            ['http://hahaha/bla', '/bla'],
-            ['javascript:something', '/'],
-            ['?next=javascript:something', '/'],
+            [`${origin}/bla`, '/bla'],
+            [`http://some-other.origin/bla`, '/bla'],
+            ['//foo.bar', '//foo.bar'],
             ['/bla?haha', '/bla?haha'],
             ['/bla?haha#hoho', '/bla?haha#hoho'],
         ]
@@ -24,7 +26,10 @@ describe('loginLogic', () => {
         for (const [next, result] of matches) {
             it(`for next param "${next}" it returns "${result}"`, () => {
                 router.actions.push(next ? `${origin}/?next=${encodeURIComponent(next)}` : origin)
-                expect(afterLoginRedirect()).toEqual(result)
+
+                // ensure origin remains the same each time
+                const expectedResult = origin + result
+                expect(afterLoginRedirect()).toEqual(expectedResult)
             })
         }
     })

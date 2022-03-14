@@ -1150,24 +1150,17 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: InsightShortId
-    color?: string
-    filters: Partial<FilterType>
+    inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult[]
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | null
-    /** enable url handling for this insight */
-    syncWithUrl?: boolean
-    /** cached results, avoid making a request */
-    cachedResults?: any
-    /** cached filters, avoid making a request */
-    filters?: Partial<FilterType> | null
+    /** cached insight */
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
     /** enable this to avoid API requests */

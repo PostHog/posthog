@@ -14,7 +14,7 @@ function PythonSetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Python}>
             {`import posthog
 
-posthog.api_key = '${currentTeam?.api_token}'
+posthog.project_api_key = '${currentTeam?.api_token}'
 posthog.host = '${window.location.origin}'`}
         </CodeSnippet>
     )

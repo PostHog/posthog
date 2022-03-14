@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
@@ -42,9 +42,15 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
         openCorrelationPersonsModal,
+        loadCorrelations,
     } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+
+    // Load correlations only if this component is mounted, and then reload if filters change
+    useEffect(() => {
+        loadCorrelations()
+    }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {

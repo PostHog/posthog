@@ -8,7 +8,7 @@ import { funnelLogic } from './funnelLogic'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function Funnel(props: Omit<ChartParams, 'filters'>): JSX.Element | null {
+export function Funnel(props: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { funnel_viz_type } = filters
@@ -22,5 +22,5 @@ export function Funnel(props: Omit<ChartParams, 'filters'>): JSX.Element | null 
         return <FunnelHistogram />
     }
 
-    return <FunnelBarGraph {...props} />
+    return <FunnelBarGraph />
 }
