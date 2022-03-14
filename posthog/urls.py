@@ -16,6 +16,7 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    organizations_router,
     project_dashboards_router,
     projects_router,
     router,
@@ -35,6 +36,14 @@ except ImportError:
     pass
 else:
     extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+
+
+try:
+    from multi_tenancy.router import extend_api_router as multi_tenancy_api_router  # type: ignore
+except ImportError:
+    pass
+else:
+    multi_tenancy_api_router(router, organizations_router=organizations_router)
 
 
 @csrf.ensure_csrf_cookie
