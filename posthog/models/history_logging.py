@@ -104,8 +104,8 @@ def compute_history(
         if current.action == "create":
             history.append(
                 HistoryListItem(
-                    email=safely_read_email(current),
-                    name=safely_read_first_name(current),
+                    email=_safely_read_email(current),
+                    name=_safely_read_first_name(current),
                     action=f"{history_type}_created",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
@@ -114,8 +114,8 @@ def compute_history(
         elif current.action == "delete":
             history.append(
                 HistoryListItem(
-                    email=safely_read_email(current),
-                    name=safely_read_first_name(current),
+                    email=_safely_read_email(current),
+                    name=_safely_read_first_name(current),
                     action=f"{history_type}_deleted",
                     detail={"id": current.item_id, "key": current.state["key"]},
                     created_at=current.versioned_at.isoformat(),
@@ -126,8 +126,8 @@ def compute_history(
                 if current_key not in previous.state:
                     history.append(
                         HistoryListItem(
-                            email=safely_read_email(current),
-                            name=safely_read_first_name(current),
+                            email=_safely_read_email(current),
+                            name=_safely_read_first_name(current),
                             action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
@@ -140,8 +140,8 @@ def compute_history(
                 elif current.state[current_key] != previous.state[current_key]:
                     history.append(
                         HistoryListItem(
-                            email=safely_read_email(current),
-                            name=safely_read_first_name(current),
+                            email=_safely_read_email(current),
+                            name=_safely_read_first_name(current),
                             action=f"{history_type}_{current_key}_changed",
                             detail={
                                 "id": current.item_id,
@@ -157,8 +157,8 @@ def compute_history(
                 if previous_key not in current.state:
                     history.append(
                         HistoryListItem(
-                            email=safely_read_email(current),
-                            name=safely_read_first_name(current),
+                            email=_safely_read_email(current),
+                            name=_safely_read_first_name(current),
                             action=f"{history_type}_{previous_key}_deleted",
                             detail={
                                 "id": current.item_id,
@@ -182,14 +182,14 @@ def compute_history(
     return history
 
 
-def safely_read_email(version: Optional[HistoricalVersion]) -> Optional[str]:
+def _safely_read_email(version: Optional[HistoricalVersion]) -> Optional[str]:
     if version and version.created_by:
         return version.created_by.email
 
     return None
 
 
-def safely_read_first_name(version: Optional[HistoricalVersion]) -> str:
+def _safely_read_first_name(version: Optional[HistoricalVersion]) -> str:
     if version and version.created_by:
         return version.created_by.first_name
 
