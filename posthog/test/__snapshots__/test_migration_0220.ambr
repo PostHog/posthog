@@ -32,9 +32,8 @@
                                     ELSE NULL
                                 END)) AS primary_dashboard_id
   FROM posthog_team
-  LEFT JOIN posthog_dashboard ON posthog_dashboard.team_id = posthog_team.id
+  INNER JOIN posthog_dashboard ON posthog_dashboard.team_id = posthog_team.id
   WHERE posthog_team.primary_dashboard_id IS NULL
-    AND posthog_dashboard.id IS NOT NULL
   GROUP BY posthog_team.id
   '
 ---
