@@ -69,6 +69,11 @@ def load_history(history_type: str, team_id: int, item_id: int, instance, serial
 
 
 def _get_history_hog():
+    """
+    For models created before history logging began we don't know who created them or last updated them.
+
+    Instead of displaying them as "unknown user" we'll say "History Hog" has imported them
+    """
     return User.objects.get_or_create(first_name="history hog", email="history.hog@posthog.com")[0]
 
 
