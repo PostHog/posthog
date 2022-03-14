@@ -120,7 +120,7 @@ class TestAuthenticationAPI(APIBaseTest):
                 {
                     "type": "authentication_error",
                     "code": "too_many_failed_attempts",
-                    "detail": "Too many failed login attempts. Please try again in 15 minutes.",
+                    "detail": "Too many failed login attempts. Please try again in 10 minutes.",
                     "attr": None,
                 },
             )

@@ -53,7 +53,7 @@ MOCK_SETTINGS = {
 CURRENT_FOLDER = os.path.dirname(__file__)
 
 
-@pytest.mark.saml_only
+@pytest.mark.ee
 @pytest.mark.skip_on_multitenancy
 class TestEEAuthenticationAPI(APILicensedTest):
 

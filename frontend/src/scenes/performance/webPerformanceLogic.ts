@@ -7,12 +7,10 @@ import { getChartColors } from 'lib/colors'
 import { webPerformanceLogicType } from './webPerformanceLogicType'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { router } from 'kea-router'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
 const eventApiProps: Partial<FilterType> = {
-    properties: [
-        { key: '$performance_page_loaded', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
-        { key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
-    ],
+    properties: [{ key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' }],
 }
 
 export interface EventPerformanceMeasure {
@@ -330,7 +328,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
     loaders: ({ values }) => ({
         pageViewEvents: {
             loadEvents: async () => {
-                const combinedProperties = [...(eventApiProps.properties || []), ...values.properties]
+                const flattenedPropertyGroup = convertPropertyGroupToProperties(eventApiProps.properties)
+                const combinedProperties = [...(flattenedPropertyGroup || []), ...values.properties]
                 const loadResult = await api.events.list({ properties: combinedProperties }, 10)
                 return loadResult?.results || []
             },

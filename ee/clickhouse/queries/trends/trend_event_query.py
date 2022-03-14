@@ -10,7 +10,6 @@ from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorTyp
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import PropertyGroup
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
@@ -39,6 +38,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 ]
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
@@ -56,7 +56,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups.combine_properties(PropertyOperatorType.AND, self._entity.properties)
+            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups)
         )
 
         self.params.update(prop_params)
@@ -84,7 +84,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._entity.math == "dau":
+        if self._entity.math == "dau" and not self._aggregate_users_by_distinct_id:
             self._should_join_distinct_ids = True
 
     def _get_date_filter(self) -> Tuple[str, Dict]:

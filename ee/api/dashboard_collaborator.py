@@ -58,7 +58,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
         dashboard: Dashboard = self.context["dashboard"]
         user_uuid = validated_data.pop("user_uuid")
         try:
-            validated_data["user"] = User.objects.get(uuid=user_uuid)
+            validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
         if cast(Team, dashboard.team).get_effective_membership_level(validated_data["user"].id) is None:
@@ -83,7 +83,7 @@ class DashboardCollaboratorViewSet(
 ):
     permission_classes = [IsAuthenticated, TeamMemberAccessPermission, CanEditDashboardCollaborator]
     pagination_class = None
-    queryset = DashboardPrivilege.objects.all().select_related("dashboard")
+    queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
     lookup_field = "user__uuid"
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}

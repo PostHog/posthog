@@ -1,5 +1,4 @@
 # Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
-
 from typing import Literal
 
 from django.conf import settings
@@ -52,3 +51,7 @@ def kafka_engine(
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
     return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+
+
+def trim_quotes_expr(expr: str) -> str:
+    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

@@ -16,7 +16,6 @@ from posthog.helpers.session_recording import (
     compress_and_chunk_snapshots,
 )
 from posthog.models import Filter
-from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.test.base import BaseTest

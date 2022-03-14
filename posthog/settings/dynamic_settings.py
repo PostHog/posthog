@@ -21,6 +21,11 @@ CONSTANCE_CONFIG = {
         "Whether materialized columns should be created or updated (existing columns will still be used at query time).",
         bool,
     ),
+    "AGGREGATE_BY_DISTINCT_IDS_TEAMS": (
+        get_from_env("AGGREGATE_BY_DISTINCT_IDS_TEAMS", ""),
+        "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
+        str,
+    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
@@ -47,7 +52,7 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "EMAIL_HOST": (
-        get_from_env("EMAIL_HOST", optional=True),
+        get_from_env("EMAIL_HOST", default=""),
         "Hostname to connect to for establishing SMTP connections.",
         str,
     ),
@@ -57,12 +62,14 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "EMAIL_HOST_USER": (
-        get_from_env("EMAIL_HOST_USER", optional=True),
+        get_from_env(
+            "EMAIL_HOST_USER", default=""
+        ),  # we use default='' so an unconfigured value is an empty string, not a `None`
         "Credentials to connect to the email host.",
         str,
     ),
     "EMAIL_HOST_PASSWORD": (
-        get_from_env("EMAIL_HOST_PASSWORD", optional=True),
+        get_from_env("EMAIL_HOST_PASSWORD", default=""),
         "Credentials to connect to the email host.",
         str,
     ),
@@ -82,7 +89,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "EMAIL_REPLY_TO": (
-        get_from_env("EMAIL_REPLY_TO", ""),
+        get_from_env("EMAIL_REPLY_TO", default=""),
         "Reply address to which email clients should send responses.",
         str,
     ),
@@ -96,6 +103,7 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
+    "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",

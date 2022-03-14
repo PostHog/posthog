@@ -69,4 +69,15 @@ export interface ExpandableConfig<T extends Record<string, any>> {
     rowExpandable?: (record: T) => boolean | number
     /** Called when row is expanded */
     onRowExpand?: (record: T) => void
+    /** Called when row is collapsed */
+    onRowCollapse?: (record: T) => void
+    /** Disable indentation */
+    noIndent?: boolean
+    /**
+     * Callback that checks if a row expandable state should be overridden
+     * A positive value (like true or 1) means that the row is expanded.
+     * A zero (like 0 or false) means that the row is collapsed.
+     * A negative value (like -1) means that the row is uncontrolled.
+     */
+    isRowExpanded?: (record: T) => boolean | number
 }

@@ -69,3 +69,15 @@ class TestActionApi(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 20)
+
+    def test_actions_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

@@ -2,9 +2,7 @@ import { kea } from 'kea'
 import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { errorToast } from 'lib/utils'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
-import { toast } from 'react-toastify'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,6 +36,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -229,14 +228,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
             } catch (error) {
-                errorToast(
-                    'Error creating your experiment',
-                    'Attempting to create this experiment returned an error:',
-                    error.status !== 0
-                        ? error.detail
-                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                    error.code
-                )
+                lemonToast.error(error.detail || 'Failed to create experiment')
                 return
             }
 
@@ -244,21 +236,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 const experimentId = response.id
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
-                toast.success(
-                    <div data-attr="success-toast">
-                        <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
-                        {!isUpdate && <p>Click here to view this experiment.</p>}
-                    </div>,
-                    {
-                        onClick: () => {
+                lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
+                    button: {
+                        label: 'View it',
+                        action: () => {
                             router.actions.push(urls.experiment(experimentId))
                         },
-                        closeOnClick: true,
-                        onClose: () => {
-                            router.actions.push(urls.experiment(experimentId))
-                        },
-                    }
-                )
+                    },
+                })
             }
         },
         createNewExperimentInsight: async ({ filters }) => {
@@ -383,14 +368,7 @@ export const experimentLogic = kea<experimentLogicType>({
                             return null
                         }
 
-                        errorToast(
-                            'Error loading experiment results',
-                            'Attempting to load results returned an error:',
-                            error.status !== 0
-                                ? error.detail
-                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                            error.code
-                        )
+                        lemonToast.error(error.detail || 'Failed to load experiment results')
                         return null
                     }
                 },

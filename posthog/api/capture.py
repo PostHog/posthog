@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception, configure_scope
+from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
@@ -19,7 +19,6 @@ from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import EventIngestionContext, get_data, get_event_ingestion_context, get_token
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
-from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address

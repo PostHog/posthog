@@ -15,7 +15,6 @@ import {
     EntityType,
     InsightModel,
     InsightType,
-    PropertyFilter,
     HelpType,
     SessionPlayerData,
     AvailableFeature,
@@ -24,11 +23,13 @@ import {
     ItemMode,
     AnyPropertyFilter,
     Experiment,
+    PropertyGroupFilter,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -83,10 +84,10 @@ interface RecordingViewedProps {
     source: RecordingWatchedSource
 }
 
-function flattenProperties(properties: PropertyFilter[]): string[] {
+function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (isPostHogProp(prop.key)) {
+        if (prop.key && isPostHogProp(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -95,8 +96,9 @@ function flattenProperties(properties: PropertyFilter[]): string[] {
     return output
 }
 
-function hasGroupProperties(properties: AnyPropertyFilter[] | undefined): boolean {
-    return !!properties && properties.some((property) => property.group_type_index != undefined)
+function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
 /*
@@ -529,7 +531,7 @@ export const eventUsageLogic = kea<
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
-            const { created_at, is_shared, pinned, creation_mode } = dashboard
+            const { created_at, is_shared, pinned, creation_mode, id } = dashboard
             const properties: Record<string, any> = {
                 created_at,
                 is_shared,
@@ -539,6 +541,7 @@ export const eventUsageLogic = kea<
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
                 has_share_token: hasShareToken,
+                dashboard_id: id,
             }
 
             for (const item of dashboard.items) {

@@ -80,12 +80,6 @@
     }
 }
 
-.Toastify .drag-items-toast {
-    @media (max-width: 480px) {
-        border-radius: 0;
-    }
-}
-
 // All dropdowns must be below top navigation
 .ant-dropdown {
     z-index: 700;

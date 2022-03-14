@@ -18,13 +18,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LastModified } from 'lib/components/InsightCard/LastModified'
 import { IconLock } from 'lib/components/icons'
+import { summarizeInsightFilters } from './utils'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -34,8 +39,17 @@ export const scene: SceneExport = {
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const { insightProps, canEditInsight, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
-        useValues(logic)
+    const {
+        insightProps,
+        filters,
+        canEditInsight,
+        activeView,
+        insight,
+        insightMode,
+        filtersChanged,
+        savedFilters,
+        tagLoading,
+    } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -43,6 +57,10 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Whether to display the control tab on the side instead of on top
     const verticalLayout = activeView === InsightType.FUNNELS
@@ -94,9 +112,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={UNNAMED_INSIGHT_NAME}
+                        placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
-                        minLength={1}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}
                         data-attr="insight-name"
@@ -204,8 +221,14 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         <InsightsNav />
                     </Row>
 
-                    <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
-                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
+                    <Row
+                        gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}
+                        style={verticalLayout ? { marginBottom: 64 } : undefined}
+                    >
+                        <Col
+                            span={24}
+                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8) : undefined}
+                        >
                             {verticalLayout ? (
                                 insightTab
                             ) : (
@@ -217,7 +240,10 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 </Card>
                             )}
                         </Col>
-                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
+                        <Col
+                            span={24}
+                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16) : undefined}
+                        >
                             <InsightContainer />
                         </Col>
                     </Row>

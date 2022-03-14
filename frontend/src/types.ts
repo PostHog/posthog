@@ -209,8 +209,8 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
-
     has_group_types: boolean
+    primary_dashboard: number // Dashboard shown on the project homepage
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -482,6 +482,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    is_identified?: boolean
 }
 
 interface MatchedRecordingEvents {
@@ -670,6 +671,7 @@ export interface InsightModel {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
+    derived_name?: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -883,8 +885,9 @@ export interface FilterType {
     interval?: IntervalType
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
+    event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1280,12 +1283,17 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
+export enum DashboardPlacement {
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
+    ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    Dashboard = 'dashboard', // When on the standard dashboard page
+}
+
 export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
-    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 // Reserved hotkeys globally available
@@ -1369,6 +1377,7 @@ export interface PropertyDefinition {
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
+    example?: string
 }
 
 export interface PersonProperty {
@@ -1446,7 +1455,7 @@ export enum FilterLogicalOperator {
     Or = 'OR',
 }
 export interface PropertyGroupFilter {
-    type?: FilterLogicalOperator
+    type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
 }
 
@@ -1494,7 +1503,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     /** Whether the user was autoswitched to the current item's team. */
-    switched_team: boolean
+    switched_team: TeamType['id'] | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1639,7 +1648,7 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number
+    value: boolean | string | number | null
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean

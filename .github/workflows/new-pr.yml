@@ -1,4 +1,4 @@
-name: New PR
+name: Lint new PR
 
 on:
     pull_request:
