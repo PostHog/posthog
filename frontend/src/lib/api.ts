@@ -237,7 +237,7 @@ const api = {
                 .withAction('people')
                 .withQueryString(
                     parsePeopleParams(peopleParams, filters) +
-                    (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
+                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
                 )
                 .get()
         },
