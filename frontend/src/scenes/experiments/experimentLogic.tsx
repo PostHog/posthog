@@ -349,9 +349,6 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                         `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`,
                         update
                     )
-                    router.actions.push(urls.experiment(response.id))
-                    // TODO: check this is ok
-                    // actions.setExperimentId(response.id || 'new')
                     return response
                 },
             },
@@ -361,12 +358,6 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             {
                 loadExperimentResults: async (_, breakpoint) => {
                     await breakpoint(10)
-
-                    if (props.experimentId === 'new') {
-                        throw new Error('Cannot load results for new experiment')
-                        // TODO: check this is ok
-                        return null
-                    }
 
                     try {
                         const response = await api.get(
@@ -389,8 +380,6 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             {
                 loadSecondaryMetricResults: async (_, breakpoint) => {
                     await breakpoint(10)
-
-                    // TODO: check props.experimentId exists
 
                     const results = []
                     for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
@@ -647,7 +636,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             },
         ],
     },
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/experiments/:id': ({ id }) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
@@ -655,8 +644,6 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             }
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
-                // TODO: optimise loading if already loaded Experiment
-                // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
@@ -665,7 +652,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
 
                 actions.setEditExperiment(false)
 
-                if (parsedId !== 'new') {
+                if (parsedId !== 'new' && parsedId === props.experimentId) {
                     actions.loadExperiment()
                 }
             }

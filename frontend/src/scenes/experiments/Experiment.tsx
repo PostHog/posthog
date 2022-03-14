@@ -51,7 +51,9 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 export const scene: SceneExport = {
     component: Experiment_,
     logic: experimentLogic,
-    paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({ experimentId: id }),
+    paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
+        experimentId: id === 'new' ? 'new' : parseInt(id),
+    }),
 }
 
 export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
