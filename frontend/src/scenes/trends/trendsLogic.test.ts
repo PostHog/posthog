@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightShortId } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,10 +23,13 @@ describe('trendsLogic', () => {
 
     describe('core assumptions', () => {
         beforeEach(() => {
-            logic = trendsLogic({ dashboardItemId: undefined })
+            logic = trendsLogic({
+                dashboardItemId: undefined,
+                cachedInsight: { filters: { insight: InsightType.TRENDS } },
+            })
             logic.mount()
         })
-        it('loads results on mount', async () => {
+        it('loads results on mount if with filters', async () => {
             await expectLogic(logic).toDispatchActions([
                 insightLogic({ dashboardItemId: undefined }).actionTypes.loadResults,
             ])

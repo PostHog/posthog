@@ -249,21 +249,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
-                const insightId = parseInt(hashParams.fromItem)
+                const insightNumericId = parseInt(hashParams.fromItem)
                 try {
                     const { short_id }: InsightModel = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`
                     )
                     if (!short_id) {
                         throw new Error('Could not find short_id')
                     }
-                    router.actions.replace(
-                        hashParams.edit
-                            ? urls.insightEdit(short_id, searchParams)
-                            : urls.insightView(short_id, searchParams)
-                    )
+                    router.actions.replace(hashParams.edit ? urls.insightEdit(short_id) : urls.insightView(short_id))
                 } catch (e) {
-                    lemonToast.error(`Insight ID ${insightId} couldn't be retrieved`)
+                    lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }
                 return

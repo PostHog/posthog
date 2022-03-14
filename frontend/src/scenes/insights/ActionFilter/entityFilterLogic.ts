@@ -20,7 +20,7 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
     return localFilters.map((filter) =>
-        filter.properties
+        filter.properties && Array.isArray(filter.properties)
             ? {
                   ...filter,
                   properties: convertPropertyGroupToProperties(filter.properties),
