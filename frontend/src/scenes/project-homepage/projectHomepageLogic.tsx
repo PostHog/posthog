@@ -26,4 +26,10 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>({
             cache.unmount = logic ? logic.mount() : null
         },
     }),
+
+    events: ({ cache }) => ({
+        afterMount: () => {
+            cache.unmount?.()
+        },
+    }),
 })
