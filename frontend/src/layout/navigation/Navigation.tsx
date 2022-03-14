@@ -1,3 +1,4 @@
+import './Navigation.scss'
 import { Layout } from 'antd'
 import { useValues } from 'kea'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
@@ -7,6 +8,8 @@ import { Breadcrumbs } from './Breadcrumbs/Breadcrumbs'
 import { DemoWarnings } from './DemoWarnings/DemoWarnings'
 import { SideBar } from './SideBar/SideBar'
 import { TopBar } from './TopBar/TopBar'
+import { LayoutButtonsTarget } from '~/layout/LayoutButtons'
+import { LayoutHeaderTarget } from '~/layout/LayoutHeader'
 
 export function Navigation({ children }: { children: any }): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
@@ -20,7 +23,15 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                         <>
                             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
                             <BillingAlerts />
-                            <Breadcrumbs />
+                            <div className="Navigation-Header">
+                                <div className="Navigation-Header-Left">
+                                    <Breadcrumbs />
+                                    <LayoutHeaderTarget />
+                                </div>
+                                <div className="Navigation-Header-Right">
+                                    <LayoutButtonsTarget />
+                                </div>
+                            </div>
                         </>
                     )}
                     {children}

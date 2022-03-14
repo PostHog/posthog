@@ -1,0 +1,24 @@
+.Navigation-Header {
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    align-items: flex-start;
+}
+
+.Navigation-Header-Left {
+    width: 100%;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    .Breadcrumbs {
+        width: 100%;
+    }
+}
+
+.Navigation-Header-Right {
+    width: 100%;
+    margin-top: 1.5rem;
+    flex: 1;
+    text-align: right;
+}

@@ -31,6 +31,8 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { LayoutButtons } from '~/layout/LayoutButtons'
+import { LayoutHeader } from '~/layout/LayoutHeader'
 
 export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -112,51 +114,8 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
 
     const insightScene = (
         <div className="insights-page">
-            {filtersChanged ? (
-                <Alert
-                    type={'warning'}
-                    message={
-                        <>
-                            This insight has unsaved changes.{' '}
-                            <Button
-                                type="link"
-                                className="btn-reset"
-                                onClick={() => {
-                                    setFilters(savedFilters)
-                                    reportInsightsTabReset()
-                                }}
-                            >
-                                Discard changes
-                            </Button>
-                        </>
-                    }
-                    className="demo-warning"
-                    showIcon
-                    style={{ marginTop: '1.5rem' }}
-                />
-            ) : null}
-            <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={insight.name || ''}
-                        placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
-                        onSave={(value) => setInsightMetadata({ name: value })}
-                        maxLength={400} // Sync with Insight model
-                        mode={!canEditInsight ? 'view' : undefined}
-                        data-attr="insight-name"
-                        notice={
-                            !canEditInsight
-                                ? {
-                                      icon: <IconLock />,
-                                      tooltip:
-                                          "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                  }
-                                : undefined
-                        }
-                    />
-                }
-                buttons={
+            <LayoutButtons>
+                <>
                     <div className="insights-tab-actions">
                         {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
@@ -175,55 +134,107 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                             <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
                     </div>
-                }
-                caption={
-                    <>
-                        {!!(canEditInsight || insight.description) && (
-                            <EditableField
-                                multiline
-                                name="description"
-                                value={insight.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => setInsightMetadata({ description: value })}
-                                maxLength={400} // Sync with Insight model
-                                mode={!canEditInsight ? 'view' : undefined}
-                                data-attr="insight-description"
-                                compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                                notice={
-                                    !canEditInsight
-                                        ? {
-                                              icon: <IconLock />,
-                                              tooltip:
-                                                  "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                          }
-                                        : undefined
-                                }
-                            />
-                        )}
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            (canEditInsight ? (
-                                <ObjectTags
-                                    tags={insight.tags ?? []}
-                                    onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                    saving={tagLoading}
-                                    tagsAvailable={[]}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
+                    {filtersChanged ? (
+                        <Alert
+                            type={'info'}
+                            message={
+                                <>
+                                    There are unsaved changes.{' '}
+                                    <Button
+                                        type="link"
+                                        className="btn-reset"
+                                        onClick={() => {
+                                            setFilters(savedFilters)
+                                            reportInsightsTabReset()
+                                        }}
+                                    >
+                                        Discard changes
+                                    </Button>
+                                </>
+                            }
+                            className="demo-warning"
+                            showIcon
+                            style={{ marginTop: '1.5rem' }}
+                        />
+                    ) : null}
+                </>
+            </LayoutButtons>
+            <LayoutHeader>
+                <PageHeader
+                    title={
+                        <EditableField
+                            name="name"
+                            value={insight.name || ''}
+                            placeholder={summarizeInsightFilters(
+                                filters,
+                                aggregationLabel,
+                                cohortsById,
+                                mathDefinitions
+                            )}
+                            onSave={(value) => setInsightMetadata({ name: value })}
+                            maxLength={400} // Sync with Insight model
+                            mode={!canEditInsight ? 'view' : undefined}
+                            data-attr="insight-name"
+                            notice={
+                                !canEditInsight
+                                    ? {
+                                          icon: <IconLock />,
+                                          tooltip:
+                                              "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                      }
+                                    : undefined
+                            }
+                        />
+                    }
+                    caption={
+                        <>
+                            {!!(canEditInsight || insight.description) && (
+                                <EditableField
+                                    multiline
+                                    name="description"
+                                    value={insight.description || ''}
+                                    placeholder="Description (optional)"
+                                    onSave={(value) => setInsightMetadata({ description: value })}
+                                    maxLength={400} // Sync with Insight model
+                                    mode={!canEditInsight ? 'view' : undefined}
+                                    data-attr="insight-description"
+                                    compactButtons
+                                    paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                    notice={
+                                        !canEditInsight
+                                            ? {
+                                                  icon: <IconLock />,
+                                                  tooltip:
+                                                      "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                              }
+                                            : undefined
+                                    }
                                 />
-                            ) : insight.tags?.length ? (
-                                <ObjectTags
-                                    tags={insight.tags}
-                                    saving={tagLoading}
-                                    className="insight-metadata-tags"
-                                    data-attr="insight-tags"
-                                    staticOnly
-                                />
-                            ) : null)}
-                        <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
-                    </>
-                }
-            />
+                            )}
+                            {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                                (canEditInsight ? (
+                                    <ObjectTags
+                                        tags={insight.tags ?? []}
+                                        onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                        saving={tagLoading}
+                                        tagsAvailable={[]}
+                                        className="insight-metadata-tags"
+                                        data-attr="insight-tags"
+                                    />
+                                ) : insight.tags?.length ? (
+                                    <ObjectTags
+                                        tags={insight.tags}
+                                        saving={tagLoading}
+                                        className="insight-metadata-tags"
+                                        data-attr="insight-tags"
+                                        staticOnly
+                                    />
+                                ) : null)}
+                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        </>
+                    }
+                />
+            </LayoutHeader>
             {insightMode === ItemMode.View ? (
                 <Row style={{ marginTop: 16 }}>
                     <Col span={24}>
