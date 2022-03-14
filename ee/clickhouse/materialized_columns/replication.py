@@ -1,4 +1,5 @@
 from posthog.models.async_migration import is_async_migration_complete
+from posthog.settings import TEST
 
 _is_replicated = False
 
@@ -11,4 +12,4 @@ def clickhouse_is_replicated() -> bool:
         return True
 
     _is_replicated = is_async_migration_complete("0004_replicated_schema")
-    return _is_replicated
+    return _is_replicated or TEST
