@@ -22,56 +22,18 @@ class HistoricalVersionJSONEncoder(json.JSONEncoder):
 
 class HistoricalVersion(UUIDModel):
     """
-    There are two ways to capture the history of changes to a thing
-
-    1) capture the changes as they occur
-
-    -> created flag with key blah
-    -> changed name from "" to "something"
-    -> set flag percentage to 25%
-    -> etc
-
-    With that set of changes you can start from item 0
-    and read each change (left fold in functional language) to create the current state
-
-    That isn't necessary as django stores the current state of the models for us
-
-    Or you can start with the current state and apply the reverse of each change
-    reading backwards over the set (right fold in functional language)
-    to build the state at a given moment in time
-
-    This makes showing the list of changes trivial. You would simply load (a page of) the list
-
-    2) capture the state after the change at the time changes occur
-
-    (you can capture the state before and after a change)
-
-    -> created with state {"stuff": "here"}
-    -> changed with state {"stuff": "here"}
-    -> changed with state {"stuff": "here"}
-    -> changed with state {"stuff": "here"}
-    -> deleted with state {"stuff": "here"}
-
-    With that stream of changes you can get the current state by reading the most recent item
-
-    That isn't necessary as django stores the current state of the models for us
-
-    Or you can directly read the state at a particular time
-
-    In order to show the list of changes you have to read (a page of) the list of states
-    and compute the change by comparing them
-
-    ## How to choose between them
-
-    When calling delete lifecycle hooks in django rest framework
+     When calling delete lifecycle hooks in django rest framework
     (see "Save and deletion hooks" in https://www.django-rest-framework.org/api-guide/generic-views/)
 
-    You are not provided with the before and after states, so storing before and after
-    or computing and storing the change would require complication or extra DB reads
+    With Django Rest Framework you are not provided with the before and after states, so:
+     * storing the before and after of the model
+     * or computing and storing the change that occurs to the model
+    would require complication or extra DB reads
 
-    -> it is simpler in this context to store the state and compute changes later
-    (see history_logging.py for the change computation)
-
+    Django Rest Framework provides the state of the model _after_ the change.
+    So, this history log stores that state and uses it to compute what changed
+    when reading the history log
+    (see history_logging.py for how change is computed)
     """
 
     class Action(models.TextChoices):
