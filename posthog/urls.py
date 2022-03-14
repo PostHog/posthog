@@ -39,11 +39,11 @@ else:
 
 
 try:
-    from multi_tenancy.router import extend_api_router as multi_tenancy_api_router  # type: ignore
+    from multi_tenancy.router import extend_api_router as multi_tenancy_api_router  # noqa
 except ImportError:
     pass
 else:
-    multi_tenancy_api_router(router, organizations_router=organizations_router)
+    multi_tenancy_api_router(router, organizations_router=organizations_router, projects_router=projects_router)
 
 
 @csrf.ensure_csrf_cookie
