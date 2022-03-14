@@ -28,6 +28,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -88,6 +90,7 @@ export function EventsTable({
         setPollingActive,
         setProperties,
     } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -333,7 +336,18 @@ export function EventsTable({
 
     return (
         <div data-attr="manage-events-table">
-            <div className="events" data-attr="events-table">
+            <div
+                className="events"
+                data-attr="events-table"
+                style={
+                    featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                        ? {
+                              paddingTop: '1rem',
+                              borderTop: '1px solid var(--border)',
+                          }
+                        : {}
+                }
+            >
                 {!disableActions && (
                     <div
                         className="mb"

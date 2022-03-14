@@ -236,13 +236,13 @@ export const eventDefinitionsTableLogic = kea<
         apiCache: [() => [], () => cache.apiCache],
     }),
     urlToAction: ({ actions, values }) => ({
-        '/events/stats': (_, searchParams) => {
+        '/data-management/events': (_, searchParams) => {
             actions.setFilters(searchParams as Filters)
             if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                 actions.loadEventDefinitions()
             }
         },
-        '/events/stats/:id': ({ id }) => {
+        '/data-management/events/:id': ({ id }) => {
             if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                 actions.loadEventDefinitions(null, id ? [id] : [])
             }

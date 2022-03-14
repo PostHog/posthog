@@ -18,10 +18,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.Events,
-    [Scene.Actions]: Scene.Events,
-    [Scene.EventStats]: Scene.Events,
-    [Scene.EventPropertyStats]: Scene.Events,
+    [Scene.Action]: Scene.DataManagement,
+    [Scene.Actions]: Scene.DataManagement,
+    [Scene.EventDefinitions]: Scene.DataManagement,
+    [Scene.EventPropertyDefinitions]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
     [Scene.Group]: Scene.Persons,

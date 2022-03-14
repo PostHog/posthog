@@ -7,8 +7,8 @@ import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
 import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab } from 'scenes/events/EventsTabs'
-import { EventPageHeader } from './EventPageHeader'
+import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
@@ -26,7 +26,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
 
     return (
         <div data-attr="manage-events-table">
-            <EventPageHeader activeTab={EventsTab.EventPropertyStats} />
+            <DataManagementPageHeader activeTab={DataManagementTab.EventPropertyDefinitions} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (

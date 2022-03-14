@@ -173,10 +173,10 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     return urls.action((definition as ActionType).id)
                 } else if (isEvent) {
                     // Event Definitions
-                    return urls.eventStat((definition as EventDefinition).id)
+                    return urls.eventDefinition((definition as EventDefinition).id)
                 } else if (isProperty) {
                     // Property Definitions
-                    return urls.eventPropertyStat((definition as PropertyDefinition).id)
+                    return urls.eventPropertyDefinition((definition as PropertyDefinition).id)
                 } else if (isCohort) {
                     // Cohort
                     return urls.cohort((definition as CohortType).id)
