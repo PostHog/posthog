@@ -232,7 +232,7 @@ class Migration(AsyncMigrationDefinition):
         ), f"No merges should be running on tables while partitions are being moved. table={from_table}"
 
         partitions = sync_execute(
-            "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s AND is_active",
+            "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s AND active",
             {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
         )
 
