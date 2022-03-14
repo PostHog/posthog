@@ -1,5 +1,5 @@
 import structlog
-from django.db import connection, migrations, transaction
+from django.db import connection, migrations
 
 
 def backfill_primary_dashboards(apps, _):
@@ -44,17 +44,12 @@ def backfill_primary_dashboards(apps, _):
 
     num_teams_to_update = len(team_dashboards)
     logger.info(f"fetched {num_teams_to_update} teams")
-    batch_size = 500
 
-    # From the list fetched above, we now update the teams in batches of 500
-    for i in range(0, num_teams_to_update, batch_size):
-        team_dashboards_batch = team_dashboards[i : i + batch_size]
-        logger.info(f"Updating team {i} to {i + batch_size}")
-        # transaction.atomic() reduces our database overhead
-        with transaction.atomic():
-            for team_id, primary_dashboard_id in team_dashboards_batch:
-                Team.objects.filter(id=team_id).update(primary_dashboard_id=primary_dashboard_id)
-        logger.info(f"Successful update of team {i} to {i + batch_size}")
+    # Now iterate the list of teams and update the primary dashboard
+    for team_id, primary_dashboard_id in team_dashboards:
+        Team.objects.filter(id=team_id).update(primary_dashboard_id=primary_dashboard_id)
+
+    logger.info(f"Successful update of {num_teams_to_update} teams")
 
 
 # Because of the nature of this backfill, there's no way to reverse it without potentially destroying customer data
