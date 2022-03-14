@@ -21,6 +21,8 @@ GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
 
+# The kafka_engine automatically adds these columns to the kafka tables. We use
+# this string to add them to the other tables as well.
 KAFKA_COLUMNS = """
 , _timestamp DateTime
 , _offset UInt64

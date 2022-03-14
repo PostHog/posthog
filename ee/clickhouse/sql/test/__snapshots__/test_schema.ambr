@@ -164,9 +164,6 @@
       created_at DateTime64(6, 'UTC')
       
       
-  , _timestamp DateTime
-  , _offset UInt64
-  
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -514,9 +511,6 @@
       created_at DateTime64(6, 'UTC')
       
       
-  , _timestamp DateTime
-  , _offset UInt64
-  
   ) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
