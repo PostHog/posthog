@@ -12,8 +12,8 @@ export function DataManagementPageHeader({
     return (
         <>
             <PageHeader
-                title="Events & Actions"
-                caption="See events being sent to this project and manage custom actions. Event history is limited to the last twelve months."
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
             />
             {!hideTabs && <DataManagementPageTabs tab={activeTab} />}

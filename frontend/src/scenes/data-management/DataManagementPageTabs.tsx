@@ -3,6 +3,8 @@ import { kea, useActions } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import { eventsTabsLogicType } from './DataManagementPageTabsType'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -50,9 +52,32 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
     const { setTab } = useActions(eventsTabsLogic)
     return (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as DataManagementTab)}>
-            <Tabs.TabPane tab="Events" key={DataManagementTab.EventDefinitions} />
-            <Tabs.TabPane tab="Event Properties" key={DataManagementTab.EventPropertyDefinitions} />
-            <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key={DataManagementTab.Actions} />
+            <Tabs.TabPane
+                tab={<span data-attr="data-management-events-tab">Events</span>}
+                key={DataManagementTab.EventDefinitions}
+            />
+            <Tabs.TabPane
+                tab={
+                    <span data-attr="data-management-actions-tab">
+                        Actions
+                        <Tooltip title="Actions consist of one or more events that you have decided to put into a deliberately-labeled bucket. They're used in insights and dashboards.">
+                            <InfoCircleOutlined style={{ marginLeft: 8, marginRight: 0 }} />
+                        </Tooltip>
+                    </span>
+                }
+                key={DataManagementTab.Actions}
+            />
+            <Tabs.TabPane
+                tab={
+                    <span data-attr="data-management-event-properties-tab">
+                        Properties
+                        <Tooltip title="Properties are additional data sent along with an event capture. Use properties to understand additional information about events and the actors that generate them.">
+                            <InfoCircleOutlined style={{ marginLeft: 8, marginRight: 0 }} />
+                        </Tooltip>
+                    </span>
+                }
+                key={DataManagementTab.EventPropertyDefinitions}
+            />
         </Tabs>
     )
 }
