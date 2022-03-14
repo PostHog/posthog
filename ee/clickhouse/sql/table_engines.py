@@ -1,5 +1,6 @@
 import uuid
 from enum import Enum
+from typing import Optional
 
 from django.conf import settings
 
@@ -23,7 +24,7 @@ class MergeTreeEngine:
         self.replication_scheme = replication_scheme
         self.kwargs = kwargs
 
-        self.zookeeper_path_key = None
+        self.zookeeper_path_key: Optional[str] = None
 
     def set_zookeeper_path_key(self, zookeeper_path_key: str):
         "Used in situations where a unique zookeeper path is needed"
