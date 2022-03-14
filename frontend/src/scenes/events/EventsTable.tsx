@@ -340,7 +340,7 @@ export function EventsTable({
                 className="events"
                 data-attr="events-table"
                 style={
-                    featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                    featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]
                         ? {
                               paddingTop: '1rem',
                               borderTop: '1px solid var(--border)',

@@ -108,7 +108,7 @@ export const FEATURE_FLAGS = {
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
+    DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron

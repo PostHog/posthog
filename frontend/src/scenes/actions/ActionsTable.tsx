@@ -212,7 +212,7 @@ export function ActionsTable(): JSX.Element {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.Actions} />
-            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
+            {!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && (
                 <div>
                     <div className="tutorial-container">
                         <div className="t-element">

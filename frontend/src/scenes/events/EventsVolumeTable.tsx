@@ -27,10 +27,10 @@ export function EventsVolumeTable(): JSX.Element | null {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
-            {loaded ? (
+            {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
-                        <UsageDisabledWarning tab="Events Stats" />
+                        <UsageDisabledWarning tab="Event Definitions" />
                     ) : (
                         (eventDefinitions.length === 0 || eventDefinitions[0].volume_30_day === null) && (
                             <>
@@ -42,18 +42,35 @@ export function EventsVolumeTable(): JSX.Element | null {
                             </>
                         )
                     )}
-                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
-                        <BindLogic logic={eventDefinitionsTableLogic} props={{}}>
-                            <EventDefinitionsTable />
-                        </BindLogic>
-                    ) : (
-                        <VolumeTable data={eventDefinitions} type="event" />
-                    )}
+                    <BindLogic logic={eventDefinitionsTableLogic} props={{}}>
+                        <EventDefinitionsTable />
+                    </BindLogic>
                 </>
             ) : (
-                <Skeleton active paragraph={{ rows: 5 }} />
+                <>
+                    {loaded ? (
+                        <>
+                            {preflight && !preflight?.is_event_property_usage_enabled ? (
+                                <UsageDisabledWarning tab="Properties Stats" />
+                            ) : (
+                                (eventDefinitions.length === 0 || eventDefinitions[0].volume_30_day === null) && (
+                                    <>
+                                        <Alert
+                                            type="warning"
+                                            message="We haven't been able to get usage and volume data yet. Please check later."
+                                            style={{ marginBottom: '1rem' }}
+                                        />
+                                    </>
+                                )
+                            )}
+                            <VolumeTable data={eventDefinitions} type="event" />
+                        </>
+                    ) : (
+                        <Skeleton active paragraph={{ rows: 5 }} />
+                    )}
+                </>
             )}
-            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
+            {!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && <DefinitionDrawer />}
         </div>
     )
 }
