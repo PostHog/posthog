@@ -687,7 +687,6 @@ export interface InsightModel {
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
-    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags?: string[]
