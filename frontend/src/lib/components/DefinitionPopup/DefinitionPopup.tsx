@@ -29,8 +29,6 @@ interface HeaderProps {
     headerTitle: React.ReactNode
     editHeaderTitle: React.ReactNode
     icon: React.ReactNode
-    hideEdit?: boolean
-    hideView?: boolean
     onEdit?: () => void
     onView?: () => void
 }
@@ -40,12 +38,11 @@ function Header({
     headerTitle,
     editHeaderTitle,
     icon,
-    hideEdit = false,
-    hideView = false,
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, viewFullDetailUrl, hasTaxonomyFeatures } = useValues(definitionPopupLogic)
+    const { state, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+        useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
     const onEdit = (): void => {
         if (hasTaxonomyFeatures) {
@@ -67,6 +64,7 @@ function Header({
                 {state === DefinitionPopupState.View && (
                     <div className="definition-popup-header-row-buttons click-outside-block">
                         {!hideEdit &&
+                            isViewable &&
                             (hasTaxonomyFeatures ? (
                                 <a onClick={onEdit}>Edit</a>
                             ) : (
@@ -76,8 +74,12 @@ function Header({
                                     </a>
                                 </Tooltip>
                             ))}
-                        {!hideView && (
-                            <Link target="_blank" to={viewFullDetailUrl} onClick={onView}>
+                        {!hideView && isViewable && (
+                            <Link
+                                target={openDetailInNewTab ? '_blank' : undefined}
+                                to={viewFullDetailUrl}
+                                onClick={onView}
+                            >
                                 View
                             </Link>
                         )}

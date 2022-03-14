@@ -26,6 +26,10 @@ import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import {
+    eventTaxonomicGroupProps,
+    propertyTaxonomicGroupProps,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 export enum DefinitionType {
     Event = 'event',
@@ -161,6 +165,7 @@ function RawDefinitionHeader({
                                 updateRemoteItem={updateRemoteItem}
                                 hideView={hideView}
                                 hideEdit={hideEdit}
+                                openDetailInNewTab={openDetailInNewTab}
                             >
                                 {linkedInnerContent}
                             </DefinitionPopupContents>
@@ -193,13 +198,7 @@ export function EventDefinitionHeader({
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                getPopupHeader: (eventDefinition: EventDefinition): string => {
-                    if (!!keyMapping.event[eventDefinition.name]) {
-                        return 'Default Event'
-                    }
-                    return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
-                },
-                getIcon: getEventDefinitionIcon,
+                ...eventTaxonomicGroupProps,
             }}
             {...props}
         />
@@ -224,10 +223,9 @@ export function PropertyDefinitionHeader({
                 type: TaxonomicFilterGroupType.EventProperties,
                 getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                getPopupHeader: () => 'Property',
-                getIcon: getPropertyDefinitionIcon,
                 getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
                     urls.eventPropertyStat(propertyDefinition.id),
+                ...propertyTaxonomicGroupProps(),
             }}
             {...props}
         />

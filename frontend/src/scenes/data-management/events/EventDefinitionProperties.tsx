@@ -10,6 +10,10 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonButton } from 'lib/components/LemonButton'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent, setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
@@ -31,8 +35,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                         definition={_definition}
                         event={definition}
                         hideIcon
-                        hideView
-                        asLink
                         openDetailInNewTab={false}
                         updateRemoteItem={(nextPropertyDefinition) => {
                             setLocalPropertyDefinition(definition, nextPropertyDefinition as PropertyDefinition)
@@ -97,6 +99,30 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 )
             },
         },
+        {
+            key: 'actions',
+            width: 0,
+            render: function Render(_, _definition: PropertyDefinition) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => {
+                                        router.actions.push(urls.eventPropertyStat(_definition.id))
+                                    }}
+                                    fullWidth
+                                    data-attr="event-properties-definition-property-detail"
+                                >
+                                    Show property in list
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
@@ -108,6 +134,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             </p>
             <LemonTable
                 id={`event-properties-definition-table-${definition.id}`}
+                data-attr="event-properties-definition-nested-table"
                 columns={columns}
                 className={`event-properties-definition-table-${definition.id}`}
                 dataSource={eventPropertiesCacheMap?.[definition.id]?.results ?? []}
