@@ -206,18 +206,9 @@ class Migration(AsyncMigrationDefinition):
         """
         current_engine = cast(str, self.get_current_engine(table.name))
 
-        if "Replicated" in current_engine or "Distributed" in current_engine:
-            raise ValueError(
-                f"""
-                Table engine of incorrect type, cannot be replicated or distributed.
-
-                table={table.name}, current_engine={current_engine}
-            """
-            )
-
         table.new_table_engine.set_zookeeper_path_key(now().strftime("am0004_%Y%m%d%H%M%S"))
         # Remove the current engine from the string
-        return re.sub(r".*MergeTree\(\w+\)", str(table.new_table_engine), current_engine)
+        return re.sub(r".*MergeTree\([^\)]+\)", str(table.new_table_engine), current_engine)
 
     def move_partitions(self, from_table: str, to_table: str):
         """
