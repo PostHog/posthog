@@ -27,7 +27,7 @@ export function EventsVolumeTable(): JSX.Element | null {
     return (
         <div data-attr="manage-events-table">
             <EventPageHeader activeTab={EventsTab.EventStats} />
-            {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
+            {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
                         <UsageDisabledWarning tab="Event Definitions" />
@@ -70,7 +70,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     )}
                 </>
             )}
-            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
+            {!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && <DefinitionDrawer />}
         </div>
     )
 }
