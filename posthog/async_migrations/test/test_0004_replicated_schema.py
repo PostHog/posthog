@@ -16,6 +16,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.conftest import create_clickhouse_tables
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
@@ -98,6 +99,7 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertFalse(migration_successful)
+        self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
 
         self.verify_table_engines_correct(expected_engine_types=("ReplacingMergeTree", "CollapsingMergeTree", "Kafka"))
 
