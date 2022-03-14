@@ -79,7 +79,7 @@ export const PerformanceBlockWithPerformanceDetails = keaStory(
                                 },
                             },
                             entry: {
-                                name: 'http://127.0.0.1:8000/events/stats',
+                                name: 'http://127.0.0.1:8000/data-management/events',
                                 entryType: 'navigation',
                                 duration: 510,
                                 initiatorType: 'navigation',
