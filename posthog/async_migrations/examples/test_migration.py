@@ -47,7 +47,7 @@ class Migration(AsyncMigrationDefinition):
             sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
             rollback="TRUNCATE TABLE test_async_migration",
         ),
-        AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)"),
+        AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback=None),
         AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.POSTGRES,

@@ -174,7 +174,7 @@ class Migration(AsyncMigrationDefinition):
                 yield AsyncMigrationOperationSQL(sql=create_table_query, rollback=f"DROP TABLE IF EXISTS {table_name}")
 
         if isinstance(table, ShardedTableMigrationData) and table.materialized_view_name is not None:
-            yield AsyncMigrationOperationSQL(sql=f"DROP TABLE IF EXISTS {table.materialized_view_name}",)
+            yield AsyncMigrationOperationSQL(sql=f"DROP TABLE IF EXISTS {table.materialized_view_name}", rollback=None)
 
         if table.kafka_table_name is not None:
             yield AsyncMigrationOperationSQL(

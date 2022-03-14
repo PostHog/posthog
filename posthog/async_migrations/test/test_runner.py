@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from django.db import connection
 
-from posthog.async_migrations.examples.test import Migration
+from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import (
     attempt_migration_rollback,
     run_async_migration_next_op,
