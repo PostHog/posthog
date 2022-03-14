@@ -1,9 +1,8 @@
+import structlog
 from django.db import connection, migrations, transaction
 
 
 def backfill_primary_dashboards(apps, _):
-    import structlog
-
     logger = structlog.get_logger(__name__)
     logger.info("starting 0220_set_primary_dashboard")
 
@@ -36,9 +35,8 @@ def backfill_primary_dashboards(apps, _):
                     )
                 ) AS primary_dashboard_id
             FROM posthog_team
-            LEFT JOIN posthog_dashboard ON posthog_dashboard.team_id = posthog_team.id
+            INNER JOIN posthog_dashboard ON posthog_dashboard.team_id = posthog_team.id
             WHERE posthog_team.primary_dashboard_id IS NULL
-            AND posthog_dashboard.id IS NOT NULL
             GROUP BY posthog_team.id
             """
         )
