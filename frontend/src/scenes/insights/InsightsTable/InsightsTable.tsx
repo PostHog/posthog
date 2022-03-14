@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu } from 'antd'
+import { Button, Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -11,7 +11,7 @@ import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined, EditOutlined, DownloadOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -66,7 +66,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, csvExportURL } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -118,6 +118,11 @@ export function InsightsTable({
 
     if (isLegend) {
         columns.push({
+            title: (
+                <Tooltip title="Export this table as a .csv file">
+                    <Button href={csvExportURL} target="_blank" icon={<DownloadOutlined />} />
+                </Tooltip>
+            ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
