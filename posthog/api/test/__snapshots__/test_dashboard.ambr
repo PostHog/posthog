@@ -159,7 +159,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -181,6 +180,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -196,7 +196,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -218,6 +217,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -488,7 +488,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -510,6 +509,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."dashboard_id" = 2
@@ -732,7 +732,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -754,6 +753,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -876,7 +876,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -898,6 +897,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."dashboard_id" = 2
@@ -1155,7 +1155,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -1177,6 +1176,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -1415,7 +1415,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -1437,6 +1436,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."dashboard_id" = 2
@@ -1700,7 +1700,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -1722,6 +1721,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."dashboard_id" = 2
@@ -1936,7 +1936,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -1958,6 +1957,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -2024,7 +2024,6 @@
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."dashboard_id",
-         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
          "posthog_dashboarditem"."description",
@@ -2046,6 +2045,7 @@
          "posthog_dashboarditem"."refresh_attempt",
          "posthog_dashboarditem"."last_modified_at",
          "posthog_dashboarditem"."last_modified_by_id",
+         "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at"
   FROM "posthog_dashboarditem"
   WHERE ("posthog_dashboarditem"."dashboard_id" = 2
