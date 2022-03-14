@@ -386,6 +386,7 @@ class TestFeatureFlag(APIBaseTest):
                 "name": "",
                 "_state": None,
                 "active": True,
+                # this property is for soft delete, and false here because this test is for hard delete
                 "deleted": False,
                 "filters": {},
                 "team_id": self.team.id,
