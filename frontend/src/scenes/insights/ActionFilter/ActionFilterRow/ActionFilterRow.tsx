@@ -295,7 +295,7 @@ export function ActionFilterRow({
             data-attr={`delete-prop-filter-${index}`}
             title="Delete graph series"
         >
-            <IconDelete fontSize={'1.25rem'} />
+            <IconDelete fontSize={'1.25em'} />
         </Button>
     )
 

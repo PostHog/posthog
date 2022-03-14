@@ -179,7 +179,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 </div>
                 {!showFilters && (
                     <LemonButton
-                        type="stealth"
+                        type="secondary"
+                        compact
                         icon={<IconFilter />}
                         onClick={() => {
                             enableFilter()

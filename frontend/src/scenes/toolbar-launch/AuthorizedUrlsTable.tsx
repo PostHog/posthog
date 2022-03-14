@@ -4,13 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { PlusOutlined, DeleteOutlined, CheckCircleFilled } from '@ant-design/icons'
+import { PlusOutlined, CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
 import { isMobile, isURL } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
-import { IconEdit } from 'lib/components/icons'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -108,8 +107,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                             <LemonButton
                                                 fullWidth
                                                 type="stealth"
-                                                compact
-                                                icon={<IconEdit />}
                                                 onClick={() => setEditUrlIndex(record.originalIndex)}
                                             >
                                                 Edit authorized URL
@@ -120,7 +117,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                 type="stealth"
                                                 onClick={() => removeUrl(index)}
                                             >
-                                                <DeleteOutlined style={{ marginRight: 4 }} />
                                                 Remove authorized URL
                                             </LemonButton>
                                         </>
