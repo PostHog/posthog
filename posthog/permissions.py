@@ -122,8 +122,8 @@ class OrganizationAdminWritePermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
-        if view.basename == "organizations" and view.action not in ["list", "create"]:
+        # When request is not creating (or listing) an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
