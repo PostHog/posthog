@@ -232,14 +232,14 @@ class Migration(AsyncMigrationDefinition):
         ), f"No merges should be running on tables while partitions are being moved. table={from_table}"
 
         partitions = sync_execute(
-            "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s",
+            "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s AND is_active",
             {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
         )
 
         for (partition,) in partitions:
             logger.info("Moving partitions between tables", from_table=from_table, to_table=to_table, id=partition)
             # :KLUDGE: Partition IDs are special and cannot be passed as arguments
-            sync_execute(f"ALTER TABLE {to_table} REPLACE PARTITION {partition} FROM {from_table}")
+            sync_execute(f"ALTER TABLE {to_table} ATTACH PARTITION {partition} FROM {from_table}")
             sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
 
     def rename_tables(self, rename_1, rename_2, verify_table_exists=None):
