@@ -188,7 +188,7 @@ export function VolumeTable({
             <Input.Search
                 allowClear
                 enterButton
-                style={{ marginTop: '1.5rem', maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
                 }}

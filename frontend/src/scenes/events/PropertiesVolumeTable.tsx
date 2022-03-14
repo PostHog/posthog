@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -9,6 +9,10 @@ import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab } from 'scenes/events/EventsTabs'
 import { EventPageHeader } from './EventPageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { EventPropertyDefinitionsTable } from 'scenes/data-management/event-properties/EventPropertyDefinitionsTable'
 
 export const scene: SceneExport = {
     component: PropertiesVolumeTable,
@@ -18,6 +22,7 @@ export const scene: SceneExport = {
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -28,21 +33,28 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                         <UsageDisabledWarning tab="Properties Stats" />
                     ) : (
                         propertyDefinitions.length === 0 ||
-                        (propertyDefinitions[0].volume_30_day === null && (
+                        (propertyDefinitions[0].query_usage_30_day === null && (
                             <>
                                 <Alert
                                     type="warning"
                                     message="We haven't been able to get usage and volume data yet. Please check back later."
+                                    style={{ marginBottom: '1rem' }}
                                 />
                             </>
                         ))
                     )}
-                    <VolumeTable data={propertyDefinitions} type="property" />
+                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
+                        <BindLogic logic={eventPropertyDefinitionsTableLogic} props={{}}>
+                            <EventPropertyDefinitionsTable />
+                        </BindLogic>
+                    ) : (
+                        <VolumeTable data={propertyDefinitions} type="property" />
+                    )}
                 </>
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />
             )}
-            <DefinitionDrawer />
+            {!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && <DefinitionDrawer />}
         </div>
     )
 }

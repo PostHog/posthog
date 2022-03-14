@@ -11,7 +11,7 @@ interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefin
     page?: number
 }
 
-interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
+export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
     current?: string
     count?: number
     page?: number
@@ -25,27 +25,19 @@ interface Filters {
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
-export function createDefinitionKey(event: EventDefinition, property?: PropertyDefinition): string {
-    return `${event.id}-${property?.id ?? 'event'}`
+export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
+    return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
 function normalizePropertyDefinitionEndpointUrl(url: string | null): string | null {
     if (!url) {
         return null
     }
-    const params = combineUrl(url).searchParams
-    return api.propertyDefinitions.determineListEndpoint(
-        params.event_names,
-        params.excluded_properties,
-        params.is_event_property,
-        params.limit,
-        params.offset
-    )
+    return api.propertyDefinitions.determineListEndpoint(combineUrl(url).searchParams)
 }
 
 export interface EventDefinitionsTableLogicProps {
     key: string
-    syncWithUrl?: boolean
 }
 
 export const eventDefinitionsTableLogic = kea<
@@ -60,7 +52,7 @@ export const eventDefinitionsTableLogic = kea<
     props: {} as EventDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {
-        loadEventDefinitions: (url: string | null = '') => ({ url }),
+        loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Filters) => ({ filters }),
@@ -109,13 +101,15 @@ export const eventDefinitionsTableLogic = kea<
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url }, breakpoint) => {
+                loadEventDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint()
+                        url = api.eventDefinitions.determineListEndpoint({
+                            order_ids_first: orderIdsFirst,
+                        })
                     }
                     const response = await api.get(url)
                     breakpoint()
@@ -161,7 +155,12 @@ export const eventDefinitionsTableLogic = kea<
                     }
 
                     if (!url) {
-                        url = api.propertyDefinitions.determineListEndpoint([definition.name], keyMappingKeys, true)
+                        url = api.propertyDefinitions.determineListEndpoint({
+                            event_names: [definition.name],
+                            excluded_properties: keyMappingKeys,
+                            is_event_property: true,
+                            limit: PROPERTY_DEFINITIONS_PER_EVENT,
+                        })
                     }
                     actions.setEventDefinitionPropertiesLoading(
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
@@ -236,30 +235,19 @@ export const eventDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/events/stats': (_, searchParams) => {
-            if (props.syncWithUrl) {
-                actions.setFilters(searchParams as Filters)
-                if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                    actions.loadEventDefinitions()
-                }
+            actions.setFilters(searchParams as Filters)
+            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.loadEventDefinitions()
             }
         },
         '/events/stats/:id': ({ id }) => {
-            if (props.syncWithUrl) {
-                if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                    actions.loadEventDefinitions()
-                }
-                if (id) {
-                    actions.setOpenedDefinition(id)
-                }
-            }
-        },
-    }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
             if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                actions.loadEventDefinitions()
+                actions.loadEventDefinitions(null, id ? [id] : [])
+            }
+            if (id) {
+                actions.setOpenedDefinition(id)
             }
         },
     }),
