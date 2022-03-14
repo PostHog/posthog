@@ -80,8 +80,9 @@ def robots_txt(request):
 
 def security_txt(request):
     SECURITY_TXT_CONTENT = """
-        Contact: engineering@posthog.com
+        Contact: mailto:engineering@posthog.com
         Hiring: https://posthog.com/careers
+        Expires: 2024-03-14T00:00:00.000Z
         """
     return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
 
