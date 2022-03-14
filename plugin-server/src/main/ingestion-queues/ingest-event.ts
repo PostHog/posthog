@@ -56,6 +56,8 @@ export async function ingestEvent(
             }),
         ])
 
+        server.statsd?.increment('kafka_queue_single_event_processed_and_ingested')
+
         if (actionMatches.length > 0) {
             const promises = []
             for (const actionMatch of actionMatches) {
@@ -106,6 +108,7 @@ async function runInstrumentedFunction({
         Sentry.captureException(error)
         throw error
     } finally {
+        server.statsd?.increment(`${statsKey}_total`)
         server.statsd?.timing(statsKey, timer)
         clearTimeout(timeout)
     }

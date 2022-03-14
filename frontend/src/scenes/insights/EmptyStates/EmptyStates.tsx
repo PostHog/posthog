@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IllustrationDanger, IconTrendUp, IconOpenInNew } from 'lib/components/icons'
+import { IconTrendUp, IconOpenInNew, IconErrorOutline } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -16,11 +16,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export const UNNAMED_INSIGHT_NAME = 'Name this insight'
-
-export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
+export function InsightEmptyState(): JSX.Element {
     return (
-        <div className={clsx('insight-empty-state', color)}>
+        <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
@@ -33,7 +31,6 @@ export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
 }
 
 export function InsightDeprecatedState({
-    color,
     itemId,
     itemName,
     deleteCallback,
@@ -41,11 +38,10 @@ export function InsightDeprecatedState({
     itemId: number
     itemName: string
     deleteCallback?: () => void
-    color?: string
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     return (
-        <div className={clsx('insight-empty-state', color)}>
+        <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <WarningOutlined />
@@ -80,7 +76,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IllustrationDanger />}</div>
+                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IconErrorOutline />}</div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
                     <>
@@ -142,7 +138,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
         <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <IllustrationDanger />
+                    <IconErrorOutline />
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
                 {!excludeDetail && (

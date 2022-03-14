@@ -440,13 +440,7 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div
-                    className={
-                        propertyFilterWrapperClassName
-                            ? `mr property-filter-wrapper ${propertyFilterWrapperClassName}`
-                            : 'mr property-filter-wrapper'
-                    }
-                >
+                <div className={`mr property-filter-wrapper ${propertyFilterWrapperClassName}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
@@ -473,7 +467,7 @@ interface MathSelectorProps {
     math?: string
     mathGroupTypeIndex?: number | null
     index: number
-    onMathSelect: (index: number, value: any) => any // TODO
+    onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
 
@@ -490,6 +484,7 @@ function MathSelector({ math, mathGroupTypeIndex, index, onMathSelect, style }: 
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
             dropdownStyle={{ maxWidth: 320 }}
+            listHeight={280}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
                 {eventMathEntries.map(([key, { name, description, onProperty }]) => {

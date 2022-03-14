@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 from django.apps import apps
-from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from rest_framework import authentication
@@ -96,7 +95,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 )
         if request.GET.get("temporary_token"):
             User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
+            user = User.objects.filter(is_active=True, temporary_token=request.GET.get("temporary_token"))
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)

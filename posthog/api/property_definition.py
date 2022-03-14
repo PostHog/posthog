@@ -6,6 +6,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import check_definition_ids_inclusion_field_sql
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -26,7 +27,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         "$group_key",
         "$group_set",
     ]
-    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
+    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)],
 )
 
 
@@ -89,6 +90,32 @@ class PropertyDefinitionViewSet(
         if event_names:
             event_names = json.loads(event_names)
 
+        # `order_ids_first`
+        #   Any definition ids passed into the `order_ids_first` parameter will make sure that those definitions
+        #   appear at the beginning of the list of definitions. This is used in the app when we want specific
+        #   definitions to show at the top of a table so that they can be highlighted (i.e. viewing an individual
+        #   definition's context).
+        #
+        #   Note that ids included in `order_ids_first` will override the same ids in `excluded_ids`.
+        order_ids_first_field, order_ids_first = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("order_ids_first", None),
+            is_property=True,
+            named_key="order_ids_first",
+        )
+
+        # `excluded_ids`
+        #   Any definitions ids specified in the `excluded_ids` parameter will be omitted from the results.
+        excluded_property_ids_field, excluded_property_ids = check_definition_ids_inclusion_field_sql(
+            raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
+            is_property=True,
+            named_key="excluded_ids",
+        )
+
+        # Exclude by name
+        excluded_properties = self.request.GET.get("excluded_properties", None)
+        if excluded_properties:
+            excluded_properties = json.loads(excluded_properties)
+
         event_property_filter = ""
         if event_names and len(event_names) > 0:
             event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
@@ -106,41 +133,51 @@ class PropertyDefinitionViewSet(
             "event_names": tuple(event_names or []),
             "names": names,
             "team_id": self.team_id,
-            "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
+            "order_ids_first": order_ids_first,
+            "excluded_ids": excluded_property_ids,
+            "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
             **search_kwargs,
         }
 
         if use_entreprise_taxonomy:
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
             property_definition_fields = ", ".join(
-                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
+                [f'"{f.column}"' for f in EnterprisePropertyDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"],  # type: ignore
             )
 
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
                             SELECT {property_definition_fields},
-                                   {event_property_field} AS is_event_property
+                                   {event_property_field} AS is_event_property,
+                                   {order_ids_first_field} AS is_ordered_first
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                            WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
-                            ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                            WHERE team_id = %(team_id)s AND (
+                                {order_ids_first_field} = true
+                                OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
+                            ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
+                            ORDER BY is_ordered_first DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
                 params=params,
             ).prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
             )
 
         property_definition_fields = ", ".join(
-            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
+            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")],  # type: ignore
         )
 
         return PropertyDefinition.objects.raw(
             f"""
                 SELECT {property_definition_fields},
-                       {event_property_field} AS is_event_property
+                       {event_property_field} AS is_event_property,
+                       {order_ids_first_field} AS is_ordered_first
                 FROM posthog_propertydefinition
-                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
-                ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                WHERE team_id = %(team_id)s AND (
+                    {order_ids_first_field} = true
+                    OR (name NOT IN %(excluded_properties)s AND {excluded_property_ids_field} = false)
+                ) {name_filter} {numerical_filter} {search_query} {event_property_filter}
+                ORDER BY is_ordered_first DESC, is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,
             params=params,
         )
@@ -169,7 +206,7 @@ class PropertyDefinitionViewSet(
                     return enterprise_property
                 non_enterprise_property = PropertyDefinition.objects.get(id=id)
                 new_enterprise_property = EnterprisePropertyDefinition(
-                    propertydefinition_ptr_id=non_enterprise_property.id, description=""
+                    propertydefinition_ptr_id=non_enterprise_property.id, description="",
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()

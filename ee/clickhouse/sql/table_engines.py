@@ -1,3 +1,4 @@
+import uuid
 from enum import Enum
 
 from django.conf import settings
@@ -35,6 +36,10 @@ class MergeTreeEngine:
             shard_key, replica_key = "{shard}", "{replica}"
         else:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
+
+        # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
+        if settings.TEST:
+            shard_key = f"{str(uuid.uuid4())}_{shard_key}"
 
         zk_path = f"/clickhouse/tables/{shard_key}/posthog.{self.table}"
         return self.REPLICATED_ENGINE.format(zk_path=zk_path, replica_key=replica_key, **self.kwargs)

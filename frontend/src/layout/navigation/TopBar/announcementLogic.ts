@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 
@@ -29,6 +30,8 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             ['user'],
             navigationLogic,
             ['asyncMigrationsOk'],
+            teamLogic,
+            ['currentTeam'],
         ],
     },
     actions: {
@@ -74,12 +77,15 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
+            (s) => [s.currentTeam, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (currentTeam, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
+                } else if (!currentTeam || !currentTeam.completed_snippet_onboarding) {
+                    // Hide announcements during onboarding
+                    return null
                 } else if (
                     !asyncMigrationsOk &&
                     (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)

@@ -43,7 +43,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             bin_count_identifier = "bin_count"
             bin_count_expression = f"""
                 count() AS sample_count,
-                least(60, greatest(3, ceil(cbrt(sample_count)))) AS {bin_count_identifier},
+                ifNull(least(60, greatest(3, ceil(cbrt(sample_count)))), 0) AS {bin_count_identifier},
             """
 
         if not (0 < to_step < len(self._filter.entities)):
@@ -108,7 +108,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             RIGHT OUTER JOIN (
                 /* Making sure bin_count bins are returned */
                 /* Those not present in the results query due to lack of data simply get person_count 0 */
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT ifNull({bin_count_identifier}, 0) + 1
             ) fill
             USING (bin_from_seconds)
             ORDER BY bin_from_seconds

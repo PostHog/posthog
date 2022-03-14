@@ -2,7 +2,6 @@ import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
@@ -14,23 +13,16 @@ import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 export const scene: SceneExport = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id), onComplete: () => {} }),
+    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id) }),
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { fetchEvents } = useActions(
-        eventsTableLogic({
-            fixedFilters,
-            sceneUrl: id ? urls.action(id) : urls.actions(),
-            key: 'Action',
-            disableActions: true,
-        })
-    )
-    const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
-    const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
+
+    const { action, isComplete } = useValues(actionLogic({ id }))
+    const { loadAction } = useActions(actionLogic({ id }))
 
     return (
         <>
@@ -73,7 +65,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         fixedFilters={fixedFilters}
                         sceneUrl={urls.action(id)}
                         fetchMonths={3}
-                        pageKey="Action"
+                        pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
                     />
                 </div>
             )}

@@ -29,7 +29,7 @@ from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS, LIMIT
 from posthog.event_usage import report_user_action
 from posthog.models import Cohort
-from posthog.models.cohort import CohortPeople, get_and_update_pending_version
+from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter

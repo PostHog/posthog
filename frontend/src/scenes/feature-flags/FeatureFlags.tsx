@@ -122,7 +122,7 @@ export function FeatureFlags(): JSX.Element {
                                         onClick={() => {
                                             deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
-                                                object: { name: featureFlag.name, id: featureFlag.id },
+                                                object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
                                             })
                                         }}

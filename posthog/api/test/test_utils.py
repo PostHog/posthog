@@ -11,6 +11,7 @@ from posthog.api.test.test_capture import mocked_get_ingest_context_from_token
 from posthog.api.utils import (
     EventIngestionContext,
     PaginationMode,
+    check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
     get_event_ingestion_context,
@@ -136,3 +137,25 @@ class TestUtils(BaseTest):
         assert entity.id == "$pageview"
         assert entity.type == "events"
         assert entity.math == "unique_group"
+
+    def test_check_definition_ids_inclusion_field_sql(self):
+
+        definition_ids = [
+            "",
+            None,
+            '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]',
+        ]
+
+        expected_ids_list = [[], [], ["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]]
+
+        for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
+            ordered_expected_ids = list(set(expected_ids))  # type: ignore
+            # Property
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
+            assert ids == ordered_expected_ids
+
+            # Event
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, False, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="eventdefinition")
+            assert ids == ordered_expected_ids

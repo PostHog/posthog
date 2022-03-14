@@ -15,6 +15,12 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
+/*
+ by default the pop-up starts open for the first item in the list
+ this can be used with actions.setIndex to allow a caller to override that
+ */
+export const NO_ITEM_SELECTED = -1
+
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
         return [...array, ...items]
@@ -35,8 +41,8 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-const apiCache: Record<string, ListStorage> = {}
-const apiCacheTimers: Record<string, number> = {}
+let apiCache: Record<string, ListStorage> = {}
+let apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
@@ -77,14 +83,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         expand: true,
     },
 
-    reducers: {
+    reducers: ({ props }) => ({
         index: [
-            0 as number,
+            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
             },
         ],
+        showPopover: [props.popoverEnabled !== false, {}],
         limit: [
             100,
             {
@@ -94,7 +101,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
-    },
+    }),
 
     loaders: ({ values }) => ({
         remoteItems: [
@@ -155,6 +162,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                 },
                 updateRemoteItem: ({ item }) => {
+                    // On updating item, invalidate cache
+                    apiCache = {}
+                    apiCacheTimers = {}
                     return {
                         ...values.remoteItems,
                         results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),

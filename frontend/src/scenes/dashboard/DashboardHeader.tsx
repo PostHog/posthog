@@ -15,11 +15,10 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Button } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
@@ -31,7 +30,6 @@ export function DashboardHeader(): JSX.Element | null {
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
 
@@ -185,7 +183,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }
                                 />
                                 <LemonSpacer vertical />
-                                {dashboard && featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
+                                {dashboard && (
                                     <CollaboratorBubbles
                                         dashboard={dashboard}
                                         onClick={() => setIsShareModalVisible((state) => !state)}

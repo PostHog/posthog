@@ -70,6 +70,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
             "access_control",
             "has_group_types",
+            "primary_dashboard",
         )
         read_only_fields = (
             "id",
@@ -91,6 +92,9 @@ class TeamSerializer(serializers.ModelSerializer):
         return GroupTypeMapping.objects.filter(team=team).exists()
 
     def validate(self, attrs: Any) -> Any:
+        if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
+            raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private
             # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it

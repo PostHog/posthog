@@ -1,6 +1,6 @@
 .LemonButton {
-    color: var(--primary);
     font-weight: 600;
+    color: var(--primary);
     cursor: pointer;
     &:not(:disabled):hover,
     &.LemonButton--active {
@@ -67,6 +67,13 @@
     color: var(--text-default);
     .LemonRow__icon {
         color: var(--primary);
+    }
+}
+
+.LemonButton--primary-alt {
+    color: var(--primary-alt);
+    .LemonRow__icon {
+        color: var(--primary-alt);
     }
 }
 

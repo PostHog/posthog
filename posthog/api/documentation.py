@@ -2,10 +2,10 @@ import re
 from typing import Dict, get_args
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field  # for easy import
+from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
 from rest_framework import serializers
 
-from posthog.models.property import OperatorType, Property, PropertyType
+from posthog.models.property import OperatorType, PropertyType
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -25,7 +25,7 @@ class PropertySerializer(serializers.Serializer):
         help_text='Value of your filter. Can be an array. For example `test@example.com` or `https://example.com/test/`. Can be an array, like `["test@example.com","ok@example.com"]`'
     )
     operator = serializers.ChoiceField(
-        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact"
+        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact", allow_null=True
     )
     type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False, allow_blank=True)
 

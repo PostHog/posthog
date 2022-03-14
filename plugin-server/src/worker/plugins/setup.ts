@@ -35,7 +35,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
         } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
-            pluginConfig.vm = new LazyPluginVM()
+            pluginConfig.vm = new LazyPluginVM(server, pluginConfig)
             pluginVMLoadPromises.push(loadPlugin(server, pluginConfig))
 
             if (prevConfig) {

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { definitionPopupLogicType } from './definitionPopupLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter, errorToast, successToast } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
@@ -12,6 +12,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from '../lemonToast'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -22,11 +23,19 @@ export interface DefinitionPopupLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
-    updateRemoteItem?: (item: Partial<TaxonomicDefinitionTypes>) => void
+    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
+    onMouseLeave?: () => void
+    onCancel?: () => void
+    onSave?: () => void
+    hideView?: boolean
+    hideEdit?: boolean
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
-    props: {} as DefinitionPopupLogicProps,
+    props: {
+        hideView: false,
+        hideEdit: false,
+    } as DefinitionPopupLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature']],
     },
@@ -65,7 +74,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     let definition = {
                         ...values.definition,
                         ...values.localDefinition,
-                    } as Partial<TaxonomicDefinitionTypes>
+                    } as TaxonomicDefinitionTypes
                     try {
                         if (values.isAction) {
                             // Action Definitions
@@ -100,15 +109,11 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
                     } catch (error) {
-                        errorToast(
-                            'Error saving your definition',
-                            'Attempting to save this definition returned an error:',
-                            error.message
-                        )
+                        lemonToast.error(error.message)
                     }
                     breakpoint()
                     // Disregard save attempts for any other types of taxonomy groups
-                    successToast(`${capitalizeFirstLetter(values.singularType)} definition saved`)
+                    lemonToast.success(`${capitalizeFirstLetter(values.singularType)} definition saved`)
                     // Update item in infinite list
                     props.updateRemoteItem?.(definition)
                     return definition
@@ -118,6 +123,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
     }),
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
+        onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
+        hideView: [() => [(_, props) => props.hideView], (hideView) => hideView],
+        hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit],
         singularType: [(s) => [s.type], (type) => getSingularType(type)],
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],
@@ -175,7 +183,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             },
         ],
     },
-    listeners: ({ actions, selectors, values }) => ({
+    listeners: ({ actions, selectors, values, props }) => ({
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (
@@ -187,10 +195,12 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         },
         handleSave: () => {
             actions.setPopupState(DefinitionPopupState.View)
+            props?.onSave?.()
         },
         handleCancel: () => {
             actions.setPopupState(DefinitionPopupState.View)
             actions.setLocalDefinition(values.definition)
+            props?.onCancel?.()
         },
     }),
 })

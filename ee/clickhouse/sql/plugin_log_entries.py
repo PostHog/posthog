@@ -7,7 +7,7 @@ from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     team_id Int64,
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+PLUGIN_LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp")
 PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY plugin_id ORDER BY (team_id, id)
@@ -32,7 +33,7 @@ SETTINGS index_granularity=512
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp"),
+    engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", TTL_WEEKS),
 )
 
@@ -44,7 +45,7 @@ KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.f
 )
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 id,
@@ -69,5 +70,5 @@ INSERT INTO plugin_log_entries SELECT %(id)s, %(team_id)s, %(plugin_id)s, %(plug
 """
 
 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {PLUGIN_LOG_ENTRIES_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+    f"TRUNCATE TABLE IF EXISTS {PLUGIN_LOG_ENTRIES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )

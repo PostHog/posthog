@@ -3,51 +3,79 @@ import {
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 describe('sessionRecordingsTableLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/session_recordings`) {
-            if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
-                return {
-                    results: ['List of recordings filtered by events'],
-                }
-            } else if (searchParams['person_uuid'] === 'cool_user_99') {
-                return {
-                    results: ["List of specific user's recordings from server"],
-                }
-            } else if (searchParams['offset'] === 50) {
-                return {
-                    results: ['List of recordings offset by 50'],
-                }
-            } else if (searchParams['date_from'] === '2021-10-05' && searchParams['date_to'] === '2021-10-20') {
-                return {
-                    results: ['Recordings filtered by date'],
-                }
-            } else if (searchParams['session_recording_duration']['value'] === 600) {
-                return {
-                    results: ['Recordings filtered by duration'],
-                }
-            }
-            return {
-                results: ['List of recordings from server'],
-            }
-        }
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/session_recordings': (req) => {
+                    const { searchParams } = req.url
+                    if (
+                        (searchParams.get('events')?.length || 0) > 0 &&
+                        JSON.parse(searchParams.get('events') || '[]')[0]?.['id'] === '$autocapture'
+                    ) {
+                        return [
+                            200,
+                            {
+                                results: ['List of recordings filtered by events'],
+                            },
+                        ]
+                    } else if (searchParams.get('person_uuid') === 'cool_user_99') {
+                        return [
+                            200,
+                            {
+                                results: ["List of specific user's recordings from server"],
+                            },
+                        ]
+                    } else if (searchParams.get('offset') === '50') {
+                        return [
+                            200,
+                            {
+                                results: ['List of recordings offset by 50'],
+                            },
+                        ]
+                    } else if (
+                        searchParams.get('date_from') === '2021-10-05' &&
+                        searchParams.get('date_to') === '2021-10-20'
+                    ) {
+                        return [
+                            200,
+                            {
+                                results: ['Recordings filtered by date'],
+                            },
+                        ]
+                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                        return [
+                            200,
+                            {
+                                results: ['Recordings filtered by duration'],
+                            },
+                        ]
+                    }
+                    return [
+                        200,
+                        {
+                            results: ['List of recordings from server'],
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
     })
 
     describe('global logic', () => {
-        initKeaTestLogic({
-            logic: sessionRecordingsTableLogic,
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = sessionRecordingsTableLogic({})
+            logic.mount()
         })
 
         describe('core assumptions', () => {
@@ -265,12 +293,9 @@ describe('sessionRecordingsTableLogic', () => {
         })
     })
     describe('person specific logic', () => {
-        initKeaTestLogic({
-            logic: sessionRecordingsTableLogic,
-            props: {
-                personUUID: 'cool_user_99',
-            },
-            onLogic: (l) => (logic = l),
+        beforeEach(() => {
+            logic = sessionRecordingsTableLogic({ personUUID: 'cool_user_99' })
+            logic.mount()
         })
 
         it('loads session recordings for a specific user', async () => {

@@ -22,15 +22,15 @@ describe('Merge person', () => {
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.get('.ant-input-search-button').click()
         cy.contains('deborah.fernandez@gmail.com').click()
-        cy.wait(100)
+        cy.wait(1000)
     })
 
     it('Should merge person', () => {
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')
-        cy.get('span:contains(Pageview)').should('have.length', 1)
-        cy.get('span:contains(clicked)').should('have.length', 1)
+        cy.get('span.property-key-info:contains(Pageview)').should('have.length', 1)
+        cy.get('span.property-key-info:contains(clicked)').should('have.length', 1)
 
         // Merge people
         cy.get('[data-attr=merge-person-button]').click()

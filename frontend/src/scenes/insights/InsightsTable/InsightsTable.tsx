@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, FilterType, InsightShortId, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -48,16 +48,11 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 /**
  * InsightsTable for use in a dashboard.
  */
-export function DashboardInsightsTable({
-    filters,
-    dashboardItemId,
-}: {
-    filters: FilterType
-    dashboardItemId: InsightShortId
-}): JSX.Element {
+export function DashboardInsightsTable(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     return (
-        <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} embedded />
+        <BindLogic logic={trendsLogic} props={insightProps}>
+            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -77,13 +72,6 @@ export function InsightsTable({
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
-    const _entityFilterLogic = entityFilterLogic({
-        setFilters,
-        filters,
-        typeKey: filterKey,
-    })
-    const { showModal, selectFilter } = useActions(_entityFilterLogic)
-
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
@@ -96,8 +84,15 @@ export function InsightsTable({
 
     const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
-            selectFilter(item.action)
-            showModal()
+            const entityFitler = entityFilterLogic.findMounted({
+                setFilters,
+                filters,
+                typeKey: filterKey,
+            })
+            if (entityFitler) {
+                entityFitler.actions.selectFilter(item.action)
+                entityFitler.actions.showModal()
+            }
         }
     }
 

@@ -1,6 +1,15 @@
 @import '~/vars';
 
 .events {
+    .events-table-button-clear {
+        padding: 0 4px;
+        margin-left: 4px;
+        &:hover,
+        &:focus,
+        &.visible {
+            border: 1px solid $primary;
+        }
+    }
     .event-row-new {
         height: 2.5rem;
     }
