@@ -119,6 +119,9 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
 
+        if request.method in SAFE_METHODS:
+            return True
+
         # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
         if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
