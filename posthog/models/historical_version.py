@@ -81,9 +81,6 @@ class HistoricalVersion(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["organization_id", "team_id", "name", "versioned_at"], name="unique_version"
-            ),
             models.CheckConstraint(
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
                 name="must_have_team_or_organization_id",
