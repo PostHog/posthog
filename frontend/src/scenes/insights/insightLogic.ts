@@ -399,6 +399,7 @@ export const insightLogic = kea<insightLogicType>({
             null as string | null,
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                loadInsightSuccess: (_, { insight }) => insight.last_refresh,
                 setActiveView: () => null,
             },
         ],
