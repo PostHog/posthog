@@ -1395,7 +1395,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string

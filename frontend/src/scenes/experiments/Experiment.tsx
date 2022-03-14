@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
+    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -19,7 +20,7 @@ import {
     PropertyFilter,
 } from '~/types'
 import './Experiment.scss'
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript } from 'lib/components/icons'
 import {
@@ -50,9 +51,10 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 export const scene: SceneExport = {
     component: Experiment_,
     logic: experimentLogic,
+    paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({ experimentId: id }),
 }
 
-export function Experiment_(): JSX.Element {
+export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
     const {
         newExperimentData,
         experimentData,
@@ -67,7 +69,6 @@ export function Experiment_(): JSX.Element {
         experimentResultsLoading,
         parsedSecondaryMetrics,
         areResultsSignificant,
-        experimentId,
         conversionRateForVariant,
         getIndexForVariant,
         significanceBannerDetails,
@@ -77,7 +78,7 @@ export function Experiment_(): JSX.Element {
         aggregationLabel,
         secondaryMetricResults,
         experimentDataLoading,
-    } = useValues(experimentLogic)
+    } = useValues(experimentLogic({ experimentId: id }))
     const {
         setNewExperimentData,
         createExperiment,
@@ -92,7 +93,7 @@ export function Experiment_(): JSX.Element {
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic)
+    } = useActions(experimentLogic({ experimentId: id }))
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -151,7 +152,7 @@ export function Experiment_(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' || editingExistingExperiment ? (
+            {id === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
