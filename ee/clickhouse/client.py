@@ -113,7 +113,7 @@ else:
 
     ch_pool = make_ch_pool()
 
-    def async_execute(query, args=None, settings=None, with_column_types=False):
+    def async_execute(query, args=None, settings=None, with_column_types=False):  # type: ignore
         return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
 
 
