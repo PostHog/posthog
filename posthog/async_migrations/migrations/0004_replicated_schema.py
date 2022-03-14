@@ -4,11 +4,13 @@ from functools import cached_property
 from typing import Dict, Optional, cast
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from constance import config
 from django.conf import settings
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.errors import lookup_error_code
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -56,6 +58,7 @@ Constraints:
     5. This migration depends on the person_distinct_id2 async migration to have completed.
     6. We can't stop ingestion by dropping/detaching materialized view as we can't restore to the right (non-replicated) schema afterwards.
     7. Async migrations might fail _before_ a step executes and rollbacks need to account for that, which complicates renaming logic.
+    8. For person_distinct_id2 table moving parts might fail due to upstream issues with zookeeper parts being created automatically. We retry up to 3 times.
 """
 
 
@@ -96,6 +99,8 @@ class Migration(AsyncMigrationDefinition):
     description = "Replace tables with replicated counterparts"
 
     depends_on = "0003_fill_person_distinct_id2"
+
+    MOVE_PARTS_RETRIES = 3
 
     def is_required(self):
         return "Distributed" not in cast(str, self.get_current_engine("events"))
@@ -231,19 +236,35 @@ class Migration(AsyncMigrationDefinition):
             running_merges == 0
         ), f"No merges should be running on tables while partitions are being moved. table={from_table}"
 
-        partitions = sync_execute(
-            "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s AND active",
-            {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
-        )
-
-        for (partition,) in partitions:
-            logger.info("Moving partitions between tables", from_table=from_table, to_table=to_table, id=partition)
-            # :KLUDGE: Partition IDs are special and cannot be passed as arguments
-            # :KLUDGE: For an unknown reason, person_distinct_id2 table causes trouble without prefixing tables with the database.
-            sync_execute(
-                f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{to_table} REPLACE PARTITION {partition} FROM {settings.CLICKHOUSE_DATABASE}.{from_table}"
+        retry = 0
+        while True:
+            partitions = sync_execute(
+                "SELECT DISTINCT partition FROM system.parts WHERE database = %(database)s AND table = %(table)s AND active",
+                {"database": settings.CLICKHOUSE_DATABASE, "table": from_table},
             )
-            sync_execute(f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{from_table} DROP PARTITION {partition}")
+
+            try:
+                for (partition,) in partitions:
+                    logger.info(
+                        "Moving partitions between tables", from_table=from_table, to_table=to_table, id=partition
+                    )
+                    # :KLUDGE: Partition IDs are special and cannot be passed as arguments
+                    sync_execute(f"ALTER TABLE {to_table} REPLACE PARTITION {partition} FROM {from_table}")
+                    sync_execute(f"ALTER TABLE {from_table} DROP PARTITION {partition}")
+                break
+            # :KLUDGE: Logic to retry moving parts for person_distinct_id2 table
+            except ServerException as err:
+                error_code = lookup_error_code(err)
+                if error_code != "KEEPER_EXCEPTION" or retry > self.MOVE_PARTS_RETRIES:
+                    raise err
+                else:
+                    retry += 1
+                    logger.warning(
+                        "Moving part failed due to (potentially) sporatic zookeeper exception. Retrying...",
+                        from_table=from_table,
+                        to_table=to_table,
+                        retry=retry,
+                    )
 
     def rename_tables(self, rename_1, rename_2, verify_table_exists=None):
         # :KLUDGE: Due to how async migrations rollback works, we need to check whether backup table exists even if the rename failed
