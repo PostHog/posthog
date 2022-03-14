@@ -453,40 +453,12 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        # fails because /api/projects/X/feature_flags/instance_id 404s before the /history path part is taken into account
-        # self.assert_feature_flag_history(
-        #     instance.pk,
-        #     [
-        #         {
-        #             "action": "FeatureFlag_created",
-        #             "created_at": "2021-08-25T22:09:14.252000+00:00",
-        #             "detail": {"id": str(instance.pk), "key": "alpha-feature"},
-        #             "email": "user1@posthog.com",
-        #             "name": "",
-        #         }
-        #     ],
-        # )
-        # historical_flags = HistoricalVersion.objects.filter(team_id=self.team.id, name="FeatureFlag")
-        # self.assertEqual(len(historical_flags), 1)
-        # self.maxDiff = None
-        # self.assertEqual(
-        #     historical_flags[0].state,
-        #     {
-        #         "id": None,
-        #         "key": "potato",
-        #         "name": "",
-        #         "_state": None,
-        #         "active": True,
-        #         # this property is for soft delete, and false here because this test is for hard delete
-        #         "deleted": False,
-        #         "filters": {},
-        #         "team_id": self.team.id,
-        #         "created_at": "2021-08-25T22:09:14.252000+00:00",
-        #         "created_by_id": self.user.id,
-        #         "rollout_percentage": None,
-        #     },
-        # )
-        # self.assertEqual(historical_flags[0].action, "delete")
+        # 404 when trying to get the deleted feature flag's history
+        # because /api/projects/X/feature_flags/instance_id 404s
+        # before the /history part of the path is taken into account
+        self._get_feature_flag_history(
+            instance.pk, expected_status=status.HTTP_404_NOT_FOUND,
+        )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_get_feature_flag_that_needs_importing(self):
@@ -978,11 +950,15 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
 
-    def assert_feature_flag_history(self, flag_id, expected):
+    def _get_feature_flag_history(self, flag_id: int, expected_status: int = status.HTTP_200_OK):
         history_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/history")
-        self.assertEqual(history_response.status_code, status.HTTP_200_OK)
-        history = history_response.json()["results"]
+        self.assertEqual(history_response.status_code, expected_status)
+        return history_response.json()
 
+    def assert_feature_flag_history(self, flag_id: int, expected):
+        history_response = self._get_feature_flag_history(flag_id)
+
+        history = history_response["results"]
         self.maxDiff = None
         self.assertEqual(
             history, expected,
