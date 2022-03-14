@@ -77,18 +77,18 @@ class HistoricalVersion(UUIDModel):
 
     @staticmethod
     def save_version(serializer, action: str) -> None:
-        HistoricalVersion(
+        HistoricalVersion.objects.create(
             state=serializer.data,
             name=serializer.instance.__class__.__name__,
             item_id=serializer.instance.id,
             action=action,
             created_by=serializer.context["request"].user,
             team_id=serializer.context["team_id"],
-        ).save()
+        )
 
     @staticmethod
     def save_deletion(instance, item_id: int, team_id: int, user) -> None:
-        version = HistoricalVersion(
+        HistoricalVersion.objects.create(
             state=instance,
             name=instance.__class__.__name__,
             action="delete",
@@ -96,7 +96,6 @@ class HistoricalVersion(UUIDModel):
             created_by=user,
             team_id=team_id,
         )
-        version.save()
 
 
 class HistoryLoggingMixin:
