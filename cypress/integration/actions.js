@@ -16,7 +16,7 @@ const createAction = (actionName) => {
 }
 
 function navigateToActionsTab() {
-    cy.clickNavMenu('events')
+    cy.clickNavMenu('data management')
     cy.get('[data-attr=data-management-actions-tab]').click()
 }
 
