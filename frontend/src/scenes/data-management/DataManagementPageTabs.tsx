@@ -6,7 +6,7 @@ import { eventsTabsLogicType } from './DataManagementPageTabsType'
 
 export enum DataManagementTab {
     Actions = 'actions',
-    EventDefinitions = 'stats',
+    EventDefinitions = 'events',
     EventPropertyDefinitions = 'properties',
 }
 
@@ -50,9 +50,9 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
     const { setTab } = useActions(eventsTabsLogic)
     return (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as DataManagementTab)}>
-            <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions" />
-            <Tabs.TabPane tab="Events" key="stats" />
-            <Tabs.TabPane tab="Event Properties" key="properties" />
+            <Tabs.TabPane tab="Events" key={DataManagementTab.EventDefinitions} />
+            <Tabs.TabPane tab="Event Properties" key={DataManagementTab.EventPropertyDefinitions} />
+            <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key={DataManagementTab.Actions} />
         </Tabs>
     )
 }

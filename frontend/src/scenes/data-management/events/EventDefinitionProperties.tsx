@@ -110,7 +110,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                                 <LemonButton
                                     type="stealth"
                                     onClick={() => {
-                                        router.actions.push(urls.eventPropertyStat(_definition.id))
+                                        router.actions.push(urls.eventPropertyDefinition(_definition.id))
                                     }}
                                     fullWidth
                                     data-attr="event-properties-definition-property-detail"
