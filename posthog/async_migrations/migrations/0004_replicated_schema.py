@@ -160,13 +160,14 @@ class Migration(AsyncMigrationDefinition):
 
         if table.materialized_view_name is not None:
             yield AsyncMigrationOperationSQL(
-                sql=table.create_materialized_view, rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
+                sql=cast(str, table.create_materialized_view),
+                rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
             )
 
         # NOTE: Relies on IF NOT EXISTS on the query
         if isinstance(table, ShardedTableMigrationData):
             for create_table_query in table.extra_tables:
-                yield AsyncMigrationOperationSQL(sql=create_table_query)
+                yield AsyncMigrationOperationSQL(sql=create_table_query, rollback=None)
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(
