@@ -29,7 +29,7 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-m
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
-            return 'Default Event'
+            return 'Verified Event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
@@ -40,11 +40,8 @@ export const propertyTaxonomicGroupProps = (
     verified: boolean = false
 ): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> => ({
     getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (verified) {
-            return 'Default Property'
-        }
-        if (!!keyMapping.event[propertyDefinition.name]) {
-            return 'Default Property'
+        if (verified || !!keyMapping.event[propertyDefinition.name]) {
+            return 'Verified Property'
         }
         return 'Property'
     },
