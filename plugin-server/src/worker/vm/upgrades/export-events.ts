@@ -6,7 +6,7 @@ import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'
 import { ExportEventsBuffer } from './utils/export-events-buffer'
 
-export const MAXIMUM_RETRIES = 10
+export const MAXIMUM_RETRIES = 3
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
 const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024

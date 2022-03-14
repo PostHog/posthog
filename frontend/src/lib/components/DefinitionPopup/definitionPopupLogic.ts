@@ -29,13 +29,11 @@ export interface DefinitionPopupLogicProps {
     onSave?: () => void
     hideView?: boolean
     hideEdit?: boolean
+    openDetailInNewTab?: boolean
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
-    props: {
-        hideView: false,
-        hideEdit: false,
-    } as DefinitionPopupLogicProps,
+    props: {} as DefinitionPopupLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature']],
     },
@@ -124,8 +122,12 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
         onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
-        hideView: [() => [(_, props) => props.hideView], (hideView) => hideView],
-        hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit],
+        hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
+        hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
+        openDetailInNewTab: [
+            () => [(_, props) => props.openDetailInNewTab],
+            (openDetailInNewTab) => openDetailInNewTab ?? true,
+        ],
         singularType: [(s) => [s.type], (type) => getSingularType(type)],
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],

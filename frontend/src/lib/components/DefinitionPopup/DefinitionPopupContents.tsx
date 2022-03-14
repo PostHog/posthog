@@ -406,8 +406,7 @@ export function ControlledDefinitionPopupContents({
         return <></>
     }
 
-    const { state, singularType, isElement, isViewable, definition, onMouseLeave, hideView, hideEdit } =
-        useValues(definitionPopupLogic)
+    const { state, singularType, isElement, definition, onMouseLeave } = useValues(definitionPopupLogic)
     const { setDefinition } = useActions(definitionPopupLogic)
     const icon = group.getIcon?.(definition || item)
 
@@ -472,8 +471,6 @@ export function ControlledDefinitionPopupContents({
                         headerTitle={group.getPopupHeader?.(item)}
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
-                        hideEdit={hideEdit || !isViewable}
-                        hideView={hideView || !isViewable}
                     />
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
@@ -491,6 +488,7 @@ interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps 
     onSave?: () => void
     hideView?: boolean
     hideEdit?: boolean
+    openDetailInNewTab?: boolean
 }
 
 export function DefinitionPopupContents({
@@ -504,6 +502,7 @@ export function DefinitionPopupContents({
     onSave,
     hideView = false,
     hideEdit = false,
+    openDetailInNewTab = true,
 }: DefinitionPopupContentsProps): JSX.Element {
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
@@ -539,6 +538,7 @@ export function DefinitionPopupContents({
                             onCancel,
                             hideView,
                             hideEdit,
+                            openDetailInNewTab,
                         }}
                     >
                         <ControlledDefinitionPopupContents
