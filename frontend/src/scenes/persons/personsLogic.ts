@@ -51,6 +51,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
+        exportCsv: true,
     },
     reducers: {
         listFilters: [
@@ -93,7 +94,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
             setPerson: (_, { person }): PersonType | null => person,
         },
     },
-    selectors: {
+    selectors: ({ props }) => ({
         showSessionRecordings: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => {
@@ -128,7 +129,12 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                 return breadcrumbs
             },
         ],
-    },
+        exportUrl: [
+            (s) => [s.listFilters],
+            (listFilters): string =>
+                props.cohort ? `/api/cohort/${props.cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
+        ],
+    }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
@@ -183,6 +189,10 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         },
         navigateToCohort: ({ cohort }) => {
             router.actions.push(urls.cohort(cohort.id))
+        },
+        exportCsv: () => {
+            lemonToast.success('The export is starting. It should finish soon')
+            window.location.href = values.exportUrl
         },
     }),
     loaders: ({ values, actions, props }) => ({
