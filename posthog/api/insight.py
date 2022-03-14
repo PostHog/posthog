@@ -103,7 +103,6 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "order",
             "deleted",
             "dashboard",
-            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -140,7 +139,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
-        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
+        if not validated_data.get("dashboard", None):
             dashboard_item = Insight.objects.create(
                 team=team, created_by=request.user, last_modified_by=request.user, **validated_data
             )

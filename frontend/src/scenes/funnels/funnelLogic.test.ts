@@ -90,7 +90,6 @@ export const mockInsight = {
     order: null,
     deleted: false,
     dashboard: null,
-    dive_dashboard: null,
     layouts: {},
     color: null,
     last_refresh: null,

@@ -93,7 +93,6 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
