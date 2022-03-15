@@ -3,7 +3,6 @@ import { ComponentMeta } from '@storybook/react'
 
 import { EditableField as EditableFieldComponent } from './EditableField'
 import { PageHeader } from '../PageHeader'
-import { KeaStory } from 'lib/storybook/kea-story'
 
 export default {
     title: 'Forms/EditableField',
@@ -16,20 +15,16 @@ export function TitleAndDescription(): JSX.Element {
     const [savedDescription, setSavedDescription] = React.useState('Lorem ipsum dolor sit amet.')
 
     return (
-        <KeaStory>
-            <PageHeader
-                title={
-                    <EditableFieldComponent name="title" value={savedTitle} onSave={(value) => setSavedTitle(value)} />
-                }
-                caption={
-                    <EditableFieldComponent
-                        name="description"
-                        value={savedDescription}
-                        onSave={(value) => setSavedDescription(value)}
-                        multiline
-                    />
-                }
-            />
-        </KeaStory>
+        <PageHeader
+            title={<EditableFieldComponent name="title" value={savedTitle} onSave={(value) => setSavedTitle(value)} />}
+            caption={
+                <EditableFieldComponent
+                    name="description"
+                    value={savedDescription}
+                    onSave={(value) => setSavedDescription(value)}
+                    multiline
+                />
+            }
+        />
     )
 }

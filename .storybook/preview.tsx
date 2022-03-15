@@ -1,8 +1,8 @@
-import React from 'react'
-import { getContext } from 'kea'
+import * as React from 'react'
 import '~/styles'
 import { worker } from '../frontend/src/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { KeaStory } from '../frontend/src/lib/storybook/kea-story'
 
 const setupMsw = () => {
     // Make sure the msw worker is started, if we're running in browser
@@ -27,8 +27,6 @@ const setupPosthogJs = () => {
 
 setupPosthogJs()
 
-window.getReduxState = () => getContext().store.getState()
-
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
 export const parameters = {
     actions: { argTypesRegex: '^on[A-Z].*' },
@@ -49,8 +47,12 @@ export const parameters = {
 export const decorators = [
     // Make sure the msw service worker is started, and reset the handlers to
     // defaults.
-    (Story) => {
+    (Story: any) => {
         worker.resetHandlers()
-        return <Story />
+        return (
+            <KeaStory>
+                <Story />
+            </KeaStory>
+        )
     },
 ]
