@@ -13,6 +13,13 @@ interface Filters {
     property: string
 }
 
+function cleanFilters(filter: Partial<Filters>): Filters {
+    return {
+        property: '',
+        ...filter,
+    }
+}
+
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
 export interface EventPropertyDefinitionsTableLogicProps {
@@ -80,6 +87,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    console.log('TRIGGER', url)
                     await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
@@ -126,16 +134,21 @@ export const eventPropertyDefinitionsTableLogic = kea<
     listeners: ({ actions, values }) => ({
         setFilters: () => {
             actions.loadEventPropertyDefinitions(
-                normalizePropertyDefinitionEndpointUrl(values.eventPropertyDefinitions.current, {
-                    search: values.filters.property,
-                })
+                normalizePropertyDefinitionEndpointUrl(
+                    values.eventPropertyDefinitions.current,
+                    {
+                        search: values.filters.property,
+                    },
+                    true
+                )
             )
         },
     }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/event-properties': (_, searchParams) => {
-            actions.setFilters(searchParams as Filters)
-            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
+                actions.setFilters(searchParams as Filters)
+            } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
                 actions.loadEventPropertyDefinitions()
             }
         },
@@ -150,8 +163,8 @@ export const eventPropertyDefinitionsTableLogic = kea<
     }),
     actionToUrl: ({ values }) => ({
         setFilters: () => {
-            const nextValues = values.filters
-            const urlValues = router.values.searchParams
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
                 return [router.values.location.pathname, nextValues]
             }

@@ -23,6 +23,14 @@ interface Filters {
     properties: AnyPropertyFilter[]
 }
 
+function cleanFilters(filter: Partial<Filters>): Filters {
+    return {
+        event: '',
+        properties: [],
+        ...filter,
+    }
+}
+
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
@@ -32,22 +40,27 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
 
 export function normalizePropertyDefinitionEndpointUrl(
     url: string | null | undefined,
-    searchParams: Record<string, any> = {}
+    searchParams: Record<string, any> = {},
+    full: boolean = false
 ): string | null {
-    if (!url) {
+    if (!full && !url) {
         return null
     }
-    return api.propertyDefinitions.determineListEndpoint({ ...combineUrl(url).searchParams, ...searchParams })
+    return api.propertyDefinitions.determineListEndpoint({
+        ...(url ? combineUrl(url).searchParams : {}),
+        ...searchParams,
+    })
 }
 
 function normalizeEventDefinitionEndpointUrl(
     url: string | null | undefined,
-    searchParams: Record<string, any> = {}
+    searchParams: Record<string, any> = {},
+    full: boolean = false
 ): string | null {
-    if (!url) {
+    if (!full && !url) {
         return null
     }
-    return api.eventDefinitions.determineListEndpoint({ ...combineUrl(url).searchParams, ...searchParams })
+    return api.eventDefinitions.determineListEndpoint({ ...(url ? combineUrl(url).searchParams : {}), ...searchParams })
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -78,10 +91,7 @@ export const eventDefinitionsTableLogic = kea<
     },
     reducers: {
         filters: [
-            {
-                event: '',
-                properties: [],
-            } as Filters,
+            cleanFilters({}) as Filters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -129,6 +139,7 @@ export const eventDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    console.log('TRIGGER', url)
                     await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
@@ -263,14 +274,19 @@ export const eventDefinitionsTableLogic = kea<
     listeners: ({ actions, values }) => ({
         setFilters: () => {
             actions.loadEventDefinitions(
-                normalizeEventDefinitionEndpointUrl(values.eventDefinitions.current, { search: values.filters.event })
+                normalizeEventDefinitionEndpointUrl(
+                    values.eventDefinitions.current,
+                    { search: values.filters.event },
+                    true
+                )
             )
         },
     }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
-            actions.setFilters(searchParams as Filters)
-            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
+                actions.setFilters(searchParams as Filters)
+            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                 actions.loadEventDefinitions()
             }
         },
@@ -285,8 +301,8 @@ export const eventDefinitionsTableLogic = kea<
     }),
     actionToUrl: ({ values }) => ({
         setFilters: () => {
-            const nextValues = values.filters
-            const urlValues = router.values.searchParams
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
                 return [router.values.location.pathname, nextValues]
             }
