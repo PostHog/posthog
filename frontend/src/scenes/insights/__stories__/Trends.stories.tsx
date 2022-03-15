@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 import { rest } from 'msw'
 import { worker } from '~/mocks/browser'
 import { InsightScene } from '../InsightScene'
@@ -8,7 +8,7 @@ import { InsightScene } from '../InsightScene'
 import trendsJson from './trends.json'
 
 export default {
-    title: 'PostHog/Scenes/Insights/Trends',
+    title: 'Scenes/Insights/Trends',
 } as Meta
 
 export const Base = keaStory(InsightScene, trendsJson)

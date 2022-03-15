@@ -9,7 +9,7 @@ import { Provider } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export default {
-    title: 'PostHog/Components/PayCard',
+    title: 'DataDisplay/PayCard',
     component: PayCard,
     // parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PayCard>
