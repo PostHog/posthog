@@ -3,11 +3,13 @@ import '~/styles'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start()
     ;(window as any).__mockServiceWorker = worker
+    ;(window as any).POSTHOG_APP_CONTEXT = { current_team: { ...MOCK_DEFAULT_TEAM, id: 1 } }
 }
 setupMsw()
 
