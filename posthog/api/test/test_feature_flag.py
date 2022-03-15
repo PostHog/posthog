@@ -1012,7 +1012,16 @@ class TestFeatureFlag(APIBaseTest):
         return history_response.json()
 
     def assert_feature_flag_history(self, flag_id: int, expected: List[Dict]):
-        history_response = self._get_feature_flag_history(flag_id)
+        """
+        should have 5 queries
+        select django_session
+        select user
+        select team
+        select organization
+        select historical versions (with user details)
+        """
+        with self.assertNumQueries(5):
+            history_response = self._get_feature_flag_history(flag_id)
 
         history: List[Dict] = history_response["results"]
         self.maxDiff = None

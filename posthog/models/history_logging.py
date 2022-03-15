@@ -71,9 +71,9 @@ def load_history(history_type: Literal["FeatureFlag"], team_id: int, item_id: in
 
     # In order to make a page of up to 10 we need to get up to 11 as we need N-1 to determine what changed
     versions = list(
-        HistoricalVersion.objects.filter(team_id=team_id, name=history_type, item_id=item_id).order_by("-versioned_at")[
-            :11
-        ]
+        HistoricalVersion.objects.select_related("created_by")
+        .filter(team_id=team_id, name=history_type, item_id=item_id)
+        .order_by("-versioned_at")[:11]
     )
 
     return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
