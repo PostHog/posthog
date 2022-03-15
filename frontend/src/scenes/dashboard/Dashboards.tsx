@@ -215,7 +215,6 @@ export function Dashboards(): JSX.Element {
                     columns={columns}
                     loading={dashboardsLoading}
                     defaultSorting={{ columnKey: 'name', order: 1 }}
-                    loadingSkeletonRows={1}
                     emptyState={
                         searchTerm ? (
                             `No ${
