@@ -1,12 +1,11 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'storybook/kea-story'
 
 import { IngestionWizard } from '../IngestionWizard'
 
-import ingestionState from './ingestion.json'
+import React from 'react'
 
 export default {
-    title: '___TO CLEAN/Onboarding/Ingestion',
+    title: 'Scenes/Onboarding',
 } as Meta
 
-export const Initial = keaStory(IngestionWizard, ingestionState)
+export const Ingestion = (): JSX.Element => <IngestionWizard />
