@@ -513,6 +513,22 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
                                                 </Card>
                                             </Row>
+                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                                <Col className="secondary-metrics">
+                                                    <div>
+                                                        <b>Secondary metrics</b>
+                                                        <span className="text-muted ml-05">(optional)</span>
+                                                    </div>
+                                                    <div className="text-muted" style={{ marginTop: 4 }}>
+                                                        Use secondary metrics to monitor metrics related to your
+                                                        experiment goal. You can add up to three secondary metrics.{' '}
+                                                    </div>
+                                                    <SecondaryMetrics
+                                                        onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                        initialMetrics={parsedSecondaryMetrics}
+                                                    />
+                                                </Col>
+                                            )}
                                         </Col>
                                         <Col span={12} className="pl">
                                             <div className="card-secondary mb">Goal preview</div>
@@ -522,22 +538,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             />
                                         </Col>
                                     </Row>
-                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                        <Col className="secondary-metrics" span={12}>
-                                            <div>
-                                                <b>Secondary metrics</b>
-                                                <span className="text-muted ml-05">(optional)</span>
-                                            </div>
-                                            <div className="text-muted" style={{ marginTop: 4 }}>
-                                                Use secondary metrics to monitor metrics related to your experiment
-                                                goal. You can add up to three secondary metrics.{' '}
-                                            </div>
-                                            <SecondaryMetrics
-                                                onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                initialMetrics={parsedSecondaryMetrics}
-                                            />
-                                        </Col>
-                                    )}
                                 </Row>
                                 <Row>
                                     <Card className="experiment-preview">
