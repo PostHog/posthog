@@ -23,14 +23,7 @@ import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript } from 'lib/components/icons'
-import {
-    CaretDownOutlined,
-    PlusOutlined,
-    DeleteOutlined,
-    InfoCircleOutlined,
-    SaveOutlined,
-    CloseOutlined,
-} from '@ant-design/icons'
+import { CaretDownOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -47,6 +40,8 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { LemonButton } from 'lib/components/LemonButton'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -162,6 +157,18 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
                         <PageHeader title={'New Experiment'} />
+                        <Row>
+                            <LemonButton
+                                type="secondary"
+                                className="mr-05"
+                                onClick={() => router.actions.push(urls.experiments())}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton type="primary" htmlType="submit">
+                                Save
+                            </LemonButton>
+                        </Row>
                     </Row>
                     <Form
                         name="new-experiment"
@@ -553,9 +560,9 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                 </Row>
                             </BindLogic>
                         </div>
-                        <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
+                        <LemonButton className="float-right" type="primary" htmlType="submit">
                             Save
-                        </Button>
+                        </LemonButton>
                     </Form>
                 </>
             ) : !experimentDataLoading && experimentData ? (
