@@ -494,7 +494,7 @@ def get_single_or_multi_property_string_expr(
     if query_alias is None:
         return expression
 
-    return f"{expression} AS {query_alias}"
+    return f'{expression} AS "{query_alias}"'
 
 
 def get_property_string_expr(

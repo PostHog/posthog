@@ -33,7 +33,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 [
                     ", "
                     + get_property_string_expr("events", property, f"'{property}'", "properties", table_alias="e")[0]
-                    + f" as {property}"
+                    + f' as "{property}"'
                     for property in self._extra_event_properties
                 ]
             )

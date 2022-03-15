@@ -59,7 +59,7 @@ class ClickhousePersonQuery:
 
     def get_query(self) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
-            f', argMax("{column_name}", _timestamp) as {alias}' for column_name, alias in self._get_fields()
+            f', argMax("{column_name}", _timestamp) as "{alias}"' for column_name, alias in self._get_fields()
         )
 
         person_filters, params = self._get_person_filters()
