@@ -126,7 +126,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        ...('page' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page or view that's being updated
+                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
