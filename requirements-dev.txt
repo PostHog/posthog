@@ -45,7 +45,7 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django==3.2.5
+django==3.2.12
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -73,6 +73,8 @@ flake8==3.9.2
     #   flake8-colors
     #   flake8-comprehensions
     #   flake8-print
+flaky==3.7.0
+    # via -r requirements-dev.in
 freezegun==0.3.15
     # via -r requirements-dev.in
 idna==2.8
@@ -133,7 +135,7 @@ pytest-env==0.6.2
     # via -r requirements-dev.in
 pytest-mock==3.5.1
     # via -r requirements-dev.in
-pytest-split==0.3.3
+pytest-split==0.6.0
     # via -r requirements-dev.in
 pytest==6.2.2
     # via

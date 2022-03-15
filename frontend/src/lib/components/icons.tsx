@@ -1360,3 +1360,12 @@ export function IconExport(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         </svg>
     )
 }
+
+/** Material Design Filter List icon. */
+export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
+            <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
+        </svg>
+    )
+}
