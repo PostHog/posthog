@@ -423,6 +423,7 @@ export function EventsTable({
                     columns={columns}
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
+                    loadingSkeletonRows={20}
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
                           eventFilter ? (
