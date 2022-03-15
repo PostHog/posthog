@@ -8,11 +8,18 @@ from rest_framework import serializers
 from posthog.models import HistoricalVersion
 
 
+class DetailSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
+    key = serializers.CharField(read_only=True)
+    before = serializers.JSONField(read_only=True)
+    after = serializers.JSONField(read_only=True)
+
+
 class ChangeSerializer(serializers.Serializer):
     type = serializers.CharField(read_only=True)
     key = serializers.CharField(read_only=True)
     action = serializers.CharField(read_only=True)
-    detail = serializers.DictField(read_only=True)
+    detail = DetailSerializer()
 
 
 class HistoryListItemSerializer(serializers.Serializer):
@@ -24,11 +31,19 @@ class HistoryListItemSerializer(serializers.Serializer):
 
 
 @dataclasses.dataclass(frozen=True)
+class Detail:
+    id: Optional[Union[int, str]] = None
+    key: Optional[str] = None
+    before: Optional[Union[int, str, Dict]] = None
+    after: Optional[Union[int, str, Dict]] = None
+
+
+@dataclasses.dataclass(frozen=True)
 class Change:
     type: Literal["FeatureFlag"]
     key: Optional[str]
     action: Literal["imported", "changed", "created", "deleted"]
-    detail: Dict[str, Union[int, str, Dict]]
+    detail: Detail
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,7 +98,7 @@ def bare_import(history_type: Literal["FeatureFlag"]) -> HistoryListItem:
         email=_safely_read_email(None, True),
         name=_safely_read_first_name(None, True),
         created_at=datetime.datetime.now().isoformat(),
-        changes=[Change(type=history_type, key=None, action="imported", detail={},)],
+        changes=[Change(type=history_type, key=None, action="imported", detail=Detail())],
     )
 
 
@@ -120,7 +135,7 @@ def compute_history(
                     type=history_type,
                     key=None,
                     action="created",
-                    detail={"id": current.item_id, "key": current.state["key"]},
+                    detail=Detail(id=current.item_id, key=current.state["key"]),
                 )
             )
         elif current.action == "delete":
@@ -129,7 +144,7 @@ def compute_history(
                     type=history_type,
                     key=None,
                     action="deleted",
-                    detail={"id": current.item_id, "key": current.state["key"]},
+                    detail=Detail(id=current.item_id, key=current.state["key"]),
                 )
             )
         elif current.action == "update" and previous is not None:
@@ -140,11 +155,9 @@ def compute_history(
                             type=history_type,
                             key=current_key,
                             action="changed",
-                            detail={
-                                "id": current.item_id,
-                                "key": current.state["key"],
-                                "to": current.state[current_key],
-                            },
+                            detail=Detail(
+                                id=current.item_id, key=current.state["key"], after=current.state[current_key],
+                            ),
                         )
                     )
                 elif current.state[current_key] != previous.state[current_key]:
@@ -153,12 +166,12 @@ def compute_history(
                             type=history_type,
                             key=current_key,
                             action="changed",
-                            detail={
-                                "id": current.item_id,
-                                "key": current.state["key"],
-                                "from": previous.state[current_key],
-                                "to": current.state[current_key],
-                            },
+                            detail=Detail(
+                                id=current.item_id,
+                                key=current.state["key"],
+                                before=previous.state[current_key],
+                                after=current.state[current_key],
+                            ),
                         )
                     )
 
@@ -169,11 +182,9 @@ def compute_history(
                             type=history_type,
                             key=previous_key,
                             action="deleted",
-                            detail={
-                                "id": current.item_id,
-                                "key": current.state["key"],
-                                "deleted": previous.state[previous_key],
-                            },
+                            detail=Detail(
+                                id=current.item_id, key=current.state["key"], before=previous.state[previous_key],
+                            ),
                         )
                     )
         elif previous is None and current.action != "create":
@@ -182,7 +193,7 @@ def compute_history(
                     type=history_type,
                     key=None,
                     action="imported",
-                    detail={"id": current.item_id, "key": current.state["key"]},
+                    detail=Detail(id=current.item_id, key=current.state["key"]),
                 )
             )
 

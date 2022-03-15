@@ -3,7 +3,7 @@ from datetime import datetime
 from freezegun.api import freeze_time
 
 from posthog.models import HistoricalVersion, User
-from posthog.models.history_logging import Change, HistoryListItem, compute_history, pairwise
+from posthog.models.history_logging import Change, Detail, HistoryListItem, compute_history, pairwise
 
 
 @freeze_time("2021-08-25T22:09:14.252Z")
@@ -13,7 +13,7 @@ def test_no_history_shows_updated_by_history_hog():
         HistoryListItem(
             email="history.hog@posthog.com",
             name="History Hog",
-            changes=[Change(type="FeatureFlag", key=None, action="imported", detail={})],
+            changes=[Change(type="FeatureFlag", key=None, action="imported", detail=Detail())],
             created_at="2021-08-25T22:09:14.252000",
         )
     ]
@@ -34,7 +34,7 @@ def test_a_single_update_shows_updated_by_history_hog():
         HistoryListItem(
             email="history.hog@posthog.com",
             name="History Hog",
-            changes=[Change(type="FeatureFlag", key=None, action="imported", detail={"id": 4, "key": "the-key"})],
+            changes=[Change(type="FeatureFlag", key=None, action="imported", detail=Detail(id=4, key="the-key"))],
             created_at="2020-04-01T12:34:56",
         )
     ]
@@ -172,12 +172,9 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="filters",
                     action="changed",
-                    detail={
-                        "id": 4,
-                        "key": "the-new-key",
-                        "from": {"some": "json"},
-                        "to": {"some": "json", "and": "more"},
-                    },
+                    detail=Detail(
+                        id=4, key="the-new-key", before={"some": "json"}, after={"some": "json", "and": "more"},
+                    ),
                 )
             ],
             created_at="2020-04-04T12:53:56",
@@ -190,13 +187,13 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="deleted",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "from": True, "to": False},
+                    detail=Detail(id=4, key="the-new-key", before=True, after=False),
                 ),
                 Change(
                     type="FeatureFlag",
                     key="filters",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "to": {"some": "json"}},
+                    detail=Detail(id=4, key="the-new-key", after={"some": "json"}),
                 ),
             ],
             created_at="2020-04-04T12:52:56",
@@ -209,7 +206,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="deleted",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "to": True},
+                    detail=Detail(id=4, key="the-new-key", after=True),
                 )
             ],
             created_at="2020-04-04T12:51:56",
@@ -222,7 +219,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="rollout_percentage",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "from": 50, "to": 25},
+                    detail=Detail(id=4, key="the-new-key", before=50, after=25),
                 )
             ],
             created_at="2020-04-04T12:50:56",
@@ -235,7 +232,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="rollout_percentage",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "to": 50},
+                    detail=Detail(id=4, key="the-new-key", after=50),
                 )
             ],
             created_at="2020-04-04T12:49:56",
@@ -248,7 +245,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="active",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "from": False, "to": True},
+                    detail=Detail(id=4, key="the-new-key", before=False, after=True),
                 )
             ],
             created_at="2020-04-04T12:48:56",
@@ -261,7 +258,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="active",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "to": False},
+                    detail=Detail(id=4, key="the-new-key", after=False),
                 )
             ],
             created_at="2020-04-04T12:47:56",
@@ -274,7 +271,7 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="name",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "from": "a description", "to": "a new description"},
+                    detail=Detail(id=4, key="the-new-key", before="a description", after="a new description"),
                 )
             ],
             created_at="2020-04-04T12:46:56",
@@ -287,13 +284,13 @@ def test_possible_feature_flag_changes():
                     type="FeatureFlag",
                     key="key",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "from": "the-key", "to": "the-new-key"},
+                    detail=Detail(id=4, key="the-new-key", before="the-key", after="the-new-key"),
                 ),
                 Change(
                     type="FeatureFlag",
                     key="name",
                     action="changed",
-                    detail={"id": 4, "key": "the-new-key", "to": "a description"},
+                    detail=Detail(id=4, key="the-new-key", after="a description"),
                 ),
             ],
             created_at="2020-04-04T12:45:56",
@@ -301,7 +298,7 @@ def test_possible_feature_flag_changes():
         HistoryListItem(  # original creation
             email="han.solo@posthog.com",
             name="han",
-            changes=[Change(type="FeatureFlag", key=None, action="created", detail={"id": 4, "key": "the-key"},)],
+            changes=[Change(type="FeatureFlag", key=None, action="created", detail=Detail(id=4, key="the-key"))],
             created_at="2020-04-04T12:44:56",
         ),
     ]

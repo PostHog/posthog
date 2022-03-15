@@ -1,6 +1,7 @@
 import datetime
 import json
 from dataclasses import asdict
+from typing import Dict, List
 from unittest.mock import patch
 
 from freezegun.api import freeze_time
@@ -9,7 +10,7 @@ from rest_framework import status
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.history_logging import Change, HistoryListItem
+from posthog.models.history_logging import Change, Detail, HistoryListItem
 from posthog.test.base import APIBaseTest
 
 
@@ -167,7 +168,7 @@ class TestFeatureFlag(APIBaseTest):
                             "type": "FeatureFlag",
                             "action": "created",
                             "key": None,
-                            "detail": {"id": str(flag_id), "key": "alpha-feature"},
+                            "detail": {"after": None, "before": None, "id": str(flag_id), "key": "alpha-feature"},
                         }
                     ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
@@ -376,10 +377,10 @@ class TestFeatureFlag(APIBaseTest):
                             "action": "changed",
                             "key": "name",
                             "detail": {
+                                "before": "original name",
                                 "id": str(flag_id),
                                 "key": "a-feature-flag-that-is-updated",
-                                "from": "original name",
-                                "to": "Updated name",
+                                "after": "Updated name",
                             },
                         },
                         {
@@ -387,10 +388,10 @@ class TestFeatureFlag(APIBaseTest):
                             "action": "changed",
                             "key": "filters",
                             "detail": {
+                                "before": {"groups": [{"properties": [], "rollout_percentage": None}]},
                                 "id": str(flag_id),
                                 "key": "a-feature-flag-that-is-updated",
-                                "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
-                                "to": {
+                                "after": {
                                     "groups": [
                                         {
                                             "properties": [
@@ -412,10 +413,10 @@ class TestFeatureFlag(APIBaseTest):
                             "action": "changed",
                             "key": "is_simple_flag",
                             "detail": {
+                                "before": True,
                                 "id": str(flag_id),
                                 "key": "a-feature-flag-that-is-updated",
-                                "from": True,
-                                "to": False,
+                                "after": False,
                             },
                         },
                     ],
@@ -429,7 +430,12 @@ class TestFeatureFlag(APIBaseTest):
                             "type": "FeatureFlag",
                             "key": None,
                             "action": "created",
-                            "detail": {"id": str(flag_id), "key": "a-feature-flag-that-is-updated"},
+                            "detail": {
+                                "id": str(flag_id),
+                                "key": "a-feature-flag-that-is-updated",
+                                "before": None,
+                                "after": None,
+                            },
                         }
                     ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
@@ -483,7 +489,7 @@ class TestFeatureFlag(APIBaseTest):
                     "changes": [
                         {
                             "action": "deleted",
-                            "detail": {"id": str(instance.pk), "key": "potato"},
+                            "detail": {"after": None, "before": None, "id": str(instance.pk), "key": "potato"},
                             "key": None,
                             "type": "FeatureFlag",
                         }
@@ -517,7 +523,7 @@ class TestFeatureFlag(APIBaseTest):
                 HistoryListItem(
                     email="history.hog@posthog.com",
                     name="History Hog",
-                    changes=[Change(type="FeatureFlag", key=None, action="imported", detail={})],
+                    changes=[Change(type="FeatureFlag", key=None, action="imported", detail=Detail())],
                     created_at="2021-08-25T22:09:14.252000",
                 )
             )
@@ -573,15 +579,15 @@ class TestFeatureFlag(APIBaseTest):
                             "detail": {
                                 "id": str(flag_id),
                                 "key": "feature_with_history",
-                                "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
-                                "to": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "before": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
                         },
                         {
                             "type": "FeatureFlag",
                             "key": "rollout_percentage",
                             "action": "changed",
-                            "detail": {"id": str(flag_id), "key": "feature_with_history", "from": None, "to": 74},
+                            "detail": {"id": str(flag_id), "key": "feature_with_history", "before": None, "after": 74},
                         },
                     ],
                     "created_at": "2021-08-25T22:19:14.252000+00:00",
@@ -594,7 +600,12 @@ class TestFeatureFlag(APIBaseTest):
                             "type": "FeatureFlag",
                             "key": None,
                             "action": "created",
-                            "detail": {"id": str(flag_id), "key": "feature_with_history"},
+                            "detail": {
+                                "after": None,
+                                "before": None,
+                                "id": str(flag_id),
+                                "key": "feature_with_history",
+                            },
                         }
                     ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
@@ -1000,10 +1011,10 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(history_response.status_code, expected_status)
         return history_response.json()
 
-    def assert_feature_flag_history(self, flag_id: int, expected):
+    def assert_feature_flag_history(self, flag_id: int, expected: List[Dict]):
         history_response = self._get_feature_flag_history(flag_id)
 
-        history = history_response["results"]
+        history: List[Dict] = history_response["results"]
         self.maxDiff = None
         self.assertEqual(
             history, expected,
