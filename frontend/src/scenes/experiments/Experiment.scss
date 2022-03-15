@@ -112,15 +112,22 @@
     }
 
     .variants {
-        // border: 1px solid $border;
-        // border-radius: 4px;
-        // padding-left: $default_spacing;
         margin-top: $default_spacing / 2;
-        // margin-bottom: $default_spacing;
         padding-bottom: 1rem;
         .ant-form-horizontal {
             min-height: 32px;
         }
+
+        .border-top {
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+
+        .border-bottom {
+            border-bottom-left-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
         .feature-flag-variant {
             // margin-top: 20px;
             flex-direction: row;
@@ -134,45 +141,6 @@
             border-top-style: solid;
             border-left-style: solid;
             border-right-style: solid;
-
-            /* Inside auto layout */
-            flex: none;
-            order: 0;
-            align-self: stretch;
-            flex-grow: 0;
-            margin: 0px 0px;
-
-            &-top {
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-
-            &-bottom {
-                border-bottom-left-radius: 4px;
-                border-bottom-right-radius: 4px;
-            }
-
-            .variant-value {
-                height: 40px;
-                width: 380px;
-                left: 68px;
-                top: 12px;
-                border-radius: 4px;
-                padding: 8px, 8px, 8px, 16px;
-                background: #ffffff;
-                /* border/default */
-
-                border: 1px solid #d9d9d9;
-                box-sizing: border-box;
-                border-radius: 4px;
-
-                /* Inside auto layout */
-
-                flex: none;
-                order: 1;
-                flex-grow: 1;
-                margin: 0px 8px;
-            }
 
             .ant-form-item-explain {
                 z-index: 1;
@@ -196,6 +164,12 @@
             color: #ffffff;
             width: 52px;
             height: 24px;
+            margin-right: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 16px;
+            letter-spacing: 0.01em;
+            text-align: center;
         }
     }
 

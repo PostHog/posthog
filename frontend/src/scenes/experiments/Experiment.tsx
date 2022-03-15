@@ -152,6 +152,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         return 'complete'
     }
 
+    const variantLabelColors = [
+        { background: '#35416b', color: '#fff' },
+        { background: '#C278CE66', color: '#35416B' },
+        { background: '#FFE6AE', color: '#35416B' },
+        { background: '#8DA9E74D', color: '#35416B' },
+    ]
+
     return (
         <>
             {id === 'new' || editingExistingExperiment ? (
@@ -245,11 +252,20 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         (variant: MultivariateFlagVariant, idx: number) => (
                                                             <Row
                                                                 key={`${variant}-${idx}`}
-                                                                className={`feature-flag-variant${
-                                                                    idx === 0 ? '-top' : ''
+                                                                className={`feature-flag-variant ${
+                                                                    idx === 0
+                                                                        ? 'border-top'
+                                                                        : idx >= 3
+                                                                        ? 'border-bottom'
+                                                                        : ''
                                                                 }`}
                                                             >
-                                                                <div className="variant-label">Control</div>
+                                                                <div
+                                                                    className="variant-label"
+                                                                    style={{ ...variantLabelColors[idx] }}
+                                                                >
+                                                                    {idx === 0 ? 'Control' : 'Test'}
+                                                                </div>
                                                                 <div>
                                                                     <Input
                                                                         disabled={idx === 0}
@@ -263,7 +279,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                         autoCorrect="off"
                                                                         spellCheck={false}
                                                                         pattern="^([A-z]|[a-z]|[0-9]|-|_)+$"
-                                                                        title="Must contain at least one  number and one uppercase and lowercase letter, and at least 8 or more characters"
+                                                                        title="Only letters, numbers, hyphens (-) & underscores (_) are allowed."
+                                                                        required
                                                                         value={variant.key}
                                                                         onChange={(e) => {
                                                                             updateExperimentGroup(
@@ -304,13 +321,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div>
+                                                        <div className="feature-flag-variant border-bottom">
                                                             <Button
                                                                 style={{
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
