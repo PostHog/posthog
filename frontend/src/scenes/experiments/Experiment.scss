@@ -5,6 +5,7 @@
         width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
+        margin-bottom: $default_spacing;
 
         .action-filters-bordered {
             .draggable-action-filter {
@@ -20,9 +21,8 @@
 
     .person-selection {
         width: 100%;
-        border-top: 1px solid $border;
-        padding-top: $default_spacing;
-        margin-top: $default_spacing;
+        border-bottom: 1px solid $border;
+        margin-bottom: $default_spacing * 2;
         align-items: center;
         justify-content: space-between;
     }
@@ -132,6 +132,13 @@
                 background-color: white;
             }
         }
+    }
+
+    .secondary-metrics {
+        margin-top: $default_spacing;
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+        margin-bottom: $default_spacing;
     }
 
     .ant-input-number-disabled {

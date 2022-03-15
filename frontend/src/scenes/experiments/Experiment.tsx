@@ -326,90 +326,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 </Col>
                                             </Col>
                                         )}
-                                        <Row className="person-selection">
-                                            <span>
-                                                <b>Select Participants</b>
-                                            </span>
-                                            <span>
-                                                <b>Participant Type</b>
-                                                <Select
-                                                    value={
-                                                        newExperimentData?.filters?.aggregation_group_type_index !=
-                                                        undefined
-                                                            ? newExperimentData.filters.aggregation_group_type_index
-                                                            : -1
-                                                    }
-                                                    onChange={(value) => {
-                                                        const groupTypeIndex = value !== -1 ? value : undefined
-                                                        if (
-                                                            groupTypeIndex !=
-                                                            newExperimentData?.filters?.aggregation_group_type_index
-                                                        ) {
-                                                            setFilters({
-                                                                properties: [],
-                                                                aggregation_group_type_index: groupTypeIndex,
-                                                            })
-                                                            setNewExperimentData({
-                                                                filters: {
-                                                                    aggregation_group_type_index: groupTypeIndex,
-                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
-                                                                    properties: [],
-                                                                },
-                                                            })
-                                                        }
-                                                    }}
-                                                    style={{ marginLeft: 8 }}
-                                                    data-attr="participant-aggregation-filter"
-                                                    dropdownMatchSelectWidth={false}
-                                                    dropdownAlign={{
-                                                        // Align this dropdown by the right-hand-side of button
-                                                        points: ['tr', 'br'],
-                                                    }}
-                                                >
-                                                    <Select.Option key={-1} value={-1}>
-                                                        Users
-                                                    </Select.Option>
-                                                    {groupTypes.map((groupType) => (
-                                                        <Select.Option
-                                                            key={groupType.group_type_index}
-                                                            value={groupType.group_type_index}
-                                                        >
-                                                            {capitalizeFirstLetter(
-                                                                aggregationLabel(groupType.group_type_index).plural
-                                                            )}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            </span>
-                                            <Col>
-                                                <div className="text-muted">
-                                                    Select the entities who will participate in this experiment. If no
-                                                    filters are set, 100% of participants will be targeted.
-                                                </div>
-                                                <PropertyFilters
-                                                    pageKey={'experiment-participants-property'}
-                                                    propertyFilters={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? convertPropertyGroupToProperties(
-                                                                  funnelsFilters.properties
-                                                              )
-                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
-                                                    }
-                                                    onChange={(anyProperties) => {
-                                                        setNewExperimentData({
-                                                            filters: {
-                                                                properties: anyProperties as PropertyFilter[],
-                                                            },
-                                                        })
-                                                        setFilters({
-                                                            properties: anyProperties.filter(isValidPropertyFilter),
-                                                        })
-                                                    }}
-                                                    style={{ marginTop: '1rem' }}
-                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                />
-                                            </Col>
-                                        </Row>
                                         <Row className="metrics-selection">
                                             <Col style={{ paddingRight: 8 }}>
                                                 <div className="mb-05">
@@ -517,7 +433,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             </Col>
                                         </Row>
                                         {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                            <Row className="mt">
+                                            <Row className="secondary-metrics">
                                                 <Col>
                                                     <div>
                                                         <b>Secondary metrics</b>
@@ -536,21 +452,108 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                         )}
                                     </Col>
                                     <Col span={12}>
-                                        <Card className="experiment-preview">
-                                            <ExperimentPreview
-                                                experiment={newExperimentData}
-                                                trendCount={trendCount}
-                                                trendExposure={exposure}
-                                                funnelSampleSize={sampleSize}
-                                                funnelEntrants={entrants}
-                                                funnelConversionRate={conversionRate}
-                                            />
-                                            <InsightContainer
-                                                disableHeader={experimentInsightType === InsightType.TRENDS}
-                                                disableTable={true}
-                                            />
-                                        </Card>
+                                        <Row className="person-selection">
+                                            <span>
+                                                <b>Select Participants</b>
+                                            </span>
+                                            <span>
+                                                <b>Participant Type</b>
+                                                <Select
+                                                    value={
+                                                        newExperimentData?.filters?.aggregation_group_type_index !=
+                                                        undefined
+                                                            ? newExperimentData.filters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    onChange={(value) => {
+                                                        const groupTypeIndex = value !== -1 ? value : undefined
+                                                        if (
+                                                            groupTypeIndex !=
+                                                            newExperimentData?.filters?.aggregation_group_type_index
+                                                        ) {
+                                                            setFilters({
+                                                                properties: [],
+                                                                aggregation_group_type_index: groupTypeIndex,
+                                                            })
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    aggregation_group_type_index: groupTypeIndex,
+                                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                                                                    properties: [],
+                                                                },
+                                                            })
+                                                        }
+                                                    }}
+                                                    style={{ marginLeft: 8 }}
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    dropdownAlign={{
+                                                        // Align this dropdown by the right-hand-side of button
+                                                        points: ['tr', 'br'],
+                                                    }}
+                                                >
+                                                    <Select.Option key={-1} value={-1}>
+                                                        Users
+                                                    </Select.Option>
+                                                    {groupTypes.map((groupType) => (
+                                                        <Select.Option
+                                                            key={groupType.group_type_index}
+                                                            value={groupType.group_type_index}
+                                                        >
+                                                            {capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            )}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </span>
+                                            <Col>
+                                                <div className="text-muted">
+                                                    Select the entities who will participate in this experiment. If no
+                                                    filters are set, 100% of participants will be targeted.
+                                                </div>
+                                                <PropertyFilters
+                                                    pageKey={'experiment-participants-property'}
+                                                    propertyFilters={
+                                                        experimentInsightType === InsightType.FUNNELS
+                                                            ? convertPropertyGroupToProperties(
+                                                                  funnelsFilters.properties
+                                                              )
+                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
+                                                    }
+                                                    onChange={(anyProperties) => {
+                                                        setNewExperimentData({
+                                                            filters: {
+                                                                properties: anyProperties as PropertyFilter[],
+                                                            },
+                                                        })
+                                                        setFilters({
+                                                            properties: anyProperties.filter(isValidPropertyFilter),
+                                                        })
+                                                    }}
+                                                    style={{ marginTop: '1rem' }}
+                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                />
+                                            </Col>
+                                        </Row>
+                                        <div className="card-secondary mb">Goal preview</div>
+                                        <InsightContainer
+                                            disableHeader={experimentInsightType === InsightType.TRENDS}
+                                            disableTable={true}
+                                        />
                                     </Col>
+                                </Row>
+                                <Row>
+                                    <Card className="experiment-preview">
+                                        <ExperimentPreview
+                                            experiment={newExperimentData}
+                                            trendCount={trendCount}
+                                            trendExposure={exposure}
+                                            funnelSampleSize={sampleSize}
+                                            funnelEntrants={entrants}
+                                            funnelConversionRate={conversionRate}
+                                        />
+                                    </Card>
                                 </Row>
                             </BindLogic>
                         </div>
