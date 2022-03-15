@@ -20,7 +20,7 @@ import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
 const HELP_URL =
-    'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
+    'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
 
 export function ToolbarButton(): JSX.Element {
     const {
