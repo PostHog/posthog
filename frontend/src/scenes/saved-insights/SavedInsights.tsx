@@ -470,6 +470,7 @@ export function SavedInsights(): JSX.Element {
                                 })
                             }
                             rowKey="id"
+                            loadingSkeletonRows={15}
                             nouns={['insight', 'insights']}
                         />
                     ) : (
