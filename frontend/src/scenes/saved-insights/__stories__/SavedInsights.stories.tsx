@@ -7,7 +7,7 @@ import savedInsightsListState from './saved-insights-list.json'
 import savedInsightsCardState from './saved-insights-card.json'
 
 export default {
-    title: 'PostHog/Scenes/SavedInsights',
+    title: 'Scenes/SavedInsights',
 } as Meta
 
 export const AllInsightsList = keaStory(SavedInsights, savedInsightsListState)

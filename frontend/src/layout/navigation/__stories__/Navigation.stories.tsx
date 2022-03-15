@@ -7,7 +7,7 @@ import { TopBar } from '../TopBar/TopBar'
 import { SideBar } from '../SideBar/SideBar'
 
 export default {
-    title: 'PostHog/Navigation',
+    title: 'Layout/Navigation',
     parameters: {
         layout: 'fullscreen',
     },

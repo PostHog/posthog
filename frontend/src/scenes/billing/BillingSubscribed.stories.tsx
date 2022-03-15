@@ -10,7 +10,7 @@ import failedState from './billing-subscribed-failed.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Scenes/Billing',
+    title: 'Scenes/Billing',
 } as Meta
 
 // export more stories with different state

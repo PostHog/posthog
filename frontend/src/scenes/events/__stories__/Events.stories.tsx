@@ -5,7 +5,7 @@ import eventsState from './events.json'
 import { EventsTable } from 'scenes/events'
 
 export default {
-    title: 'PostHog/Scenes/Events',
+    title: 'Scenes/Events',
 } as Meta
 
 export const AllEvents = keaStory(EventsTable, eventsState)

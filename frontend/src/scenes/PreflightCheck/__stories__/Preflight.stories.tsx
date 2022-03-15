@@ -6,7 +6,7 @@ import { PreflightCheck } from '../index'
 import preflightInitial from './preflight.initial.json'
 
 export default {
-    title: 'PostHog/Onboarding/1 Preflight',
+    title: 'Scenes/Onboarding/Preflight',
 } as Meta
 
 export const Initial = keaStory(PreflightCheck, preflightInitial)

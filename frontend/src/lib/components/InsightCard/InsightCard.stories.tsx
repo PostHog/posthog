@@ -297,7 +297,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 }
 
 export default {
-    title: 'PostHog/Components',
+    title: 'DataDisplay/InsightCard',
     parameters: { options: { showPanel: true } },
     argTypes: {
         insightName: {

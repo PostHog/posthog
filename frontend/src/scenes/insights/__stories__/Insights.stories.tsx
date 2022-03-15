@@ -10,7 +10,7 @@ import pathsJson from './paths.json'
 import stickinessJson from './stickiness.json'
 
 export default {
-    title: 'PostHog/Scenes/Insights',
+    title: 'Scenes/Insights',
 } as Meta
 
 export const Retention = keaStory(InsightScene, retentionJson)

@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 import { defaultHistoryMocks, emptyHistoryMocks } from 'lib/components/HistoryList/__stories__/historyMocks'
 
 export default {
-    title: 'PostHog/Components/HistoryList',
+    title: 'DataDisplay/HistoryList',
 }
 
 export const WithData = (): JSX.Element => {

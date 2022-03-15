@@ -34,7 +34,7 @@ const dashboardState = {
 //;(dashboardState.scenes.dashboard.dashboardLogic['1'].allItems as any) = [pageviews])
 
 export default {
-    title: 'PostHog/Scenes/Dashboard',
+    title: 'Scenes/Dashboard',
     decorators: [
         (Story) => {
             worker.use(

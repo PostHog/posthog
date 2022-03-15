@@ -9,7 +9,7 @@ import { eventDefinitionsModel, EventDefinitionStorage } from '~/models/eventDef
 import { EventSelect } from './EventSelect'
 
 export default {
-    title: 'PostHog/Components/EventSelect',
+    title: 'Filters/EventSelect',
     decorators: [
         (Story) => {
             worker.use(

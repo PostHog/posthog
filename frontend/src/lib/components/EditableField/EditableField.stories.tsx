@@ -6,7 +6,7 @@ import { PageHeader } from '../PageHeader'
 import { KeaStory } from 'lib/storybook/kea-story'
 
 export default {
-    title: 'PostHog/Components/EditableField',
+    title: 'Forms/EditableField',
     component: EditableFieldComponent,
     parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof EditableFieldComponent>

@@ -8,7 +8,7 @@ import { InsightScene } from '../InsightScene'
 import trendsJson from './trends.json'
 
 export default {
-    title: 'PostHog/Scenes/Insights/Trends',
+    title: 'Scenes/Insights/Trends',
 } as Meta
 
 export const Base = keaStory(InsightScene, trendsJson)

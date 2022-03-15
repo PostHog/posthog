@@ -6,7 +6,7 @@ import { IngestionWizard } from '../IngestionWizard'
 import ingestionState from './ingestion.json'
 
 export default {
-    title: 'PostHog/Onboarding/3 Ingestion',
+    title: 'Scenes/Onboarding/Ingestion',
 } as Meta
 
 export const Initial = keaStory(IngestionWizard, ingestionState)

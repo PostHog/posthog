@@ -8,7 +8,7 @@ import { KeaStory } from 'lib/storybook/kea-story'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export default {
-    title: 'PostHog/Components/TaxonomicPopup',
+    title: 'Filters/TaxonomicPopup',
 }
 
 export const TaxonomicStringPopupOneCategory = (): JSX.Element => {

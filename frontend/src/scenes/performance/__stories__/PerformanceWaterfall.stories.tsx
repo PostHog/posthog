@@ -8,7 +8,7 @@ import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 
 export default {
-    title: 'PostHog/Scenes/WebPerformance',
+    title: 'Scenes/WebPerformance',
 } as Meta
 
 export const WebPerformanceStory = keaStory(WebPerformance, eventsState)

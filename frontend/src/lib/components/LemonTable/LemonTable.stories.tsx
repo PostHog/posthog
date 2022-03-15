@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonTable as _LemonTable } from './LemonTable'
 
 export default {
-    title: 'PostHog/Components/LemonTable',
+    title: 'DataDisplay',
     component: _LemonTable,
     parameters: { options: { showPanel: true } },
     argTypes: {

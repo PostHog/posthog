@@ -10,7 +10,7 @@ import state from './recordings.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Scenes/Recordings',
+    title: 'Scenes/Recordings',
 } as Meta
 
 // export more stories with different state

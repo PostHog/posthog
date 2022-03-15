@@ -10,7 +10,7 @@ import { worker } from '~/mocks/browser'
 import { InsightScene } from '../InsightScene'
 
 export default {
-    title: 'PostHog/Scenes/Insights/Retention',
+    title: 'Scenes/Insights/Retention',
 } as Meta
 
 export const Cohort = (): JSX.Element => {

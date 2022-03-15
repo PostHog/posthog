@@ -12,7 +12,7 @@ import cloudState from './login-cloud.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Authentication/Login',
+    title: 'Scenes/Authentication/Login',
 } as Meta
 
 // export more stories with different state

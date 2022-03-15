@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonSwitch as _LemonSwitch } from './LemonSwitch'
 
 export default {
-    title: 'PostHog/Components/LemonSwitch',
+    title: 'DataDisplay',
     component: _LemonSwitch,
     parameters: { options: { showPanel: true } },
     argTypes: {

@@ -8,7 +8,7 @@ import { defaultFilterMocks } from 'lib/components/TaxonomicFilter/__stories__/m
 import { resetKeaStory } from 'lib/storybook/kea-story'
 
 export default {
-    title: 'PostHog/Components/TaxonomicFilter',
+    title: 'Filters/TaxonomicFilter',
 }
 
 export const AllGroups = (): JSX.Element => {

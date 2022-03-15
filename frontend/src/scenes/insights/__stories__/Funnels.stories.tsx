@@ -16,7 +16,7 @@ import { InsightScene } from 'scenes/insights/InsightScene'
 let correlationConfig: any = null
 
 export default {
-    title: 'PostHog/Scenes/Insights/Funnels',
+    title: 'Scenes/Insights/Funnels',
     decorators: [
         (Story) => {
             worker.use(
