@@ -1,36 +1,15 @@
 import { Meta } from '@storybook/react'
-import { Provider } from 'kea'
-import { ResponseResolver, RestRequest, RestContext, rest } from 'msw'
 import React from 'react'
-import { teamLogic } from 'scenes/teamLogic'
-import { initKea } from '~/initKea'
-import { worker } from '~/mocks/browser'
-import { eventDefinitionsModel, EventDefinitionStorage } from '~/models/eventDefinitionsModel'
+import { mswDecorator } from '~/mocks/browser'
 import { EventSelect } from './EventSelect'
 
 export default {
     title: 'Filters/EventSelect',
     decorators: [
-        (Story) => {
-            worker.use(
-                rest.get('/api/projects/:projectId', (_, res, ctx) => {
-                    return res(ctx.json({ id: 2 }))
-                })
-            )
-
-            return <Story />
-        },
-    ],
-} as Meta
-
-export const Default = (): JSX.Element => {
-    const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
-
-    worker.use(
-        mockGetEventDefinitions((_, res, ctx) =>
-            res(
-                ctx.delay(1500),
-                ctx.json({
+        mswDecorator({
+            get: {
+                '/api/projects/:projectId': { id: 2 },
+                '/api/projects/:projectId/event_definitions': {
                     count: 3,
                     next: null,
                     previous: null,
@@ -57,39 +36,20 @@ export const Default = (): JSX.Element => {
                             description: '',
                         },
                     ],
-                })
-            )
-        )
-    )
+                },
+            },
+        }),
+    ],
+} as Meta
 
-    initKea()
-    eventDefinitionsModel.mount()
-
-    // Need to mount teamLogic otherwise we get erros regarding not being able
-    // to find the storre for team. It also makes some API calls to
-    // `/api/projects/@current` and `/api/organizations/@current` although I
-    // haven't mocked these as the component still works without doing so
-    teamLogic.mount()
+export const Default = (): JSX.Element => {
+    const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
 
     return (
-        <Provider>
-            <EventSelect
-                selectedEvents={selectedEvents}
-                onChange={setSelectedEvents}
-                addElement={<span>add events</span>}
-            />
-        </Provider>
+        <EventSelect
+            selectedEvents={selectedEvents}
+            onChange={setSelectedEvents}
+            addElement={<span>add events</span>}
+        />
     )
 }
-
-type GetEventDefinitionsResponse = EventDefinitionStorage
-type GetEventDefinitionsRequest = undefined
-
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/explicit-function-return-type
-const mockGetEventDefinitions = (
-    handler: ResponseResolver<RestRequest<GetEventDefinitionsRequest, any>, RestContext, GetEventDefinitionsResponse>
-) =>
-    rest.get<GetEventDefinitionsRequest, GetEventDefinitionsResponse>(
-        '/api/projects/:projectId/event_definitions',
-        handler
-    )
