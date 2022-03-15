@@ -11,14 +11,7 @@ import {
     PropertyFilterValue,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import {
-    CloseSquareOutlined,
-    CopyOutlined,
-    DeleteOutlined,
-    DownOutlined,
-    EditOutlined,
-    FilterOutlined,
-} from '@ant-design/icons'
+import { CloseSquareOutlined, DownOutlined } from '@ant-design/icons'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -33,6 +26,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { IconCopy, IconDelete, IconEdit, IconFilter } from 'lib/components/icons'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -252,10 +246,11 @@ export function ActionFilterRow({
                 typeof filter.order === 'number' ? setEntityFilterVisibility(filter.order, !visible) : undefined
             }}
             className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
-            data-attr={'show-prop-filter-' + index}
+            data-attr={`show-prop-filter-${index}`}
             title="Show filters"
+            style={{ display: 'flex', alignItems: 'center' }}
         >
-            <FilterOutlined />
+            <IconFilter fontSize={'1.25em'} />
             {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
         </Button>
     )
@@ -268,10 +263,11 @@ export function ActionFilterRow({
                 onRenameClick()
             }}
             className={`row-action-btn show-rename`}
-            data-attr={'show-prop-rename-' + index}
+            data-attr={`show-prop-rename-${index}`}
             title="Rename graph series"
+            style={{ display: 'flex', alignItems: 'center' }}
         >
-            <EditOutlined />
+            <IconEdit fontSize={'1.25em'} />
         </Button>
     )
 
@@ -281,11 +277,12 @@ export function ActionFilterRow({
             onClick={() => {
                 duplicateFilter(filter)
             }}
-            className={`row-action-btn show-duplicabe`}
-            data-attr={'show-prop-duplicate-' + index}
+            style={{ display: 'flex', alignItems: 'center' }}
+            className={'row-action-btn'}
+            data-attr={`show-prop-duplicate-${index}`}
             title="Duplicate graph series"
         >
-            <CopyOutlined />
+            <IconCopy fontSize={'1.25em'} />
         </Button>
     )
 
@@ -293,11 +290,12 @@ export function ActionFilterRow({
         <Button
             type="link"
             onClick={onClose}
+            style={{ display: 'flex', alignItems: 'center' }}
             className="row-action-btn delete"
-            data-attr={'delete-prop-filter-' + index}
+            data-attr={`delete-prop-filter-${index}`}
             title="Delete graph series"
         >
-            <DeleteOutlined />
+            <IconDelete fontSize={'1.25em'} />
         </Button>
     )
 

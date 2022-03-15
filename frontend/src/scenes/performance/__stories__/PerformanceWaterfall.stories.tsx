@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 import eventsState from './events.json'
 import { PerfBlock, WebPerformance } from 'scenes/performance/WebPerformance'
@@ -8,7 +8,7 @@ import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 
 export default {
-    title: 'PostHog/Scenes/WebPerformance',
+    title: 'Scenes/WebPerformance',
 } as Meta
 
 export const WebPerformanceStory = keaStory(WebPerformance, eventsState)

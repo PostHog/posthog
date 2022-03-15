@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -209,18 +208,12 @@ export function Dashboards(): JSX.Element {
                 />
             </div>
             <LemonSpacer large />
-            {dashboardsLoading ? (
-                <div className="flex-center" style={{ flexDirection: 'column' }}>
-                    <Spinner />
-                    <div className="mt">
-                        <b>Loading dashboards</b>
-                    </div>
-                </div>
-            ) : dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
                     columns={columns}
+                    loading={dashboardsLoading}
                     defaultSorting={{ columnKey: 'name', order: 1 }}
                     emptyState={
                         searchTerm ? (

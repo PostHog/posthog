@@ -1,31 +1,28 @@
 import React from 'react'
 import { HistoryList } from 'lib/components/HistoryList/HistoryList'
-import { resetKeaStory } from 'lib/storybook/kea-story'
-import { Provider } from 'kea'
-import { defaultHistoryMocks, emptyHistoryMocks } from 'lib/components/HistoryList/__stories__/historyMocks'
+import { featureFlagsHistoryResponseJson } from 'lib/components/HistoryList/__stories__/historyMocks'
+import { useStorybookMocks } from '~/mocks/browser'
 
 export default {
-    title: 'PostHog/Components/HistoryList',
+    title: 'DataDisplay/HistoryList',
 }
 
 export const WithData = (): JSX.Element => {
-    resetKeaStory()
-    defaultHistoryMocks()
+    useStorybookMocks({
+        get: {
+            '/api/projects/@current/feature_flags/7/history': { results: featureFlagsHistoryResponseJson },
+        },
+    })
 
-    return (
-        <Provider>
-            <HistoryList type={'FeatureFlag'} id={7} />
-        </Provider>
-    )
+    return <HistoryList type={'FeatureFlag'} id={7} />
 }
 
 export const WithNoData = (): JSX.Element => {
-    resetKeaStory()
-    emptyHistoryMocks()
+    useStorybookMocks({
+        get: {
+            '/api/projects/@current/feature_flags/6/history': { results: [] },
+        },
+    })
 
-    return (
-        <Provider>
-            <HistoryList type={'FeatureFlag'} id={6} />
-        </Provider>
-    )
+    return <HistoryList type={'FeatureFlag'} id={6} />
 }

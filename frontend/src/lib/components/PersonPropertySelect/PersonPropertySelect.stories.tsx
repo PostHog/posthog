@@ -9,7 +9,7 @@ import { mockGetPersonProperties } from '../TaxonomicFilter/__stories__/mocks'
 import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {
-    title: 'PostHog/Components/PersonPropertySelect',
+    title: 'Filters/PersonPropertySelect',
 } as Meta
 
 export const Default = (): JSX.Element => {

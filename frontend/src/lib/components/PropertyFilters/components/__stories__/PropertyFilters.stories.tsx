@@ -6,7 +6,7 @@ import { PropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 export default {
-    title: 'PostHog/Components/PropertyFilters',
+    title: 'Filters/PropertyFilters',
     Component: PropertyFilters,
 } as ComponentMeta<typeof PropertyFilters>
 

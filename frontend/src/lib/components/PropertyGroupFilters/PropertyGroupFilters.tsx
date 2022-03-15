@@ -4,12 +4,11 @@ import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
-import { CopyOutlined } from '@ant-design/icons'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { IconDelete, IconPlus } from '../icons'
+import { IconCopy, IconDelete, IconPlus } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
@@ -88,9 +87,10 @@ export function PropertyGroupFilters({
                                                 }}
                                             />
                                             <LemonButton
-                                                icon={<CopyOutlined style={{ fontSize: '1rem' }} />}
+                                                icon={<IconCopy />}
                                                 type="primary-alt"
                                                 onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                                compact
                                             />
                                             <LemonButton
                                                 icon={<IconDelete />}
