@@ -1,34 +1,33 @@
-.console-log {
+@import '~/vars';
+
+.console-log-container {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
-.log-line {
-    border-bottom: 1px solid rgb(248, 248, 248);
-    font-size: 10px;
-    white-space: nowrap;
-    cursor: pointer;
-    height: 21px;
-    padding: 2px;
-    display: flex;
-    align-items: center;
-    padding: 10px;
-    margin: 30px 0;
+.console-log {
+    flex: 1;
+    border: 1px solid $border;
+    border-radius: $radius;
+}
 
-    div {
-        flex: 1;
-        min-width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+.log-line {
+    border-bottom: 1px solid $border;
+    font-size: 12px;
+    cursor: pointer;
+    padding: $default_spacing/4 $default_spacing/2;
+    width: 100%;
+
+    .log-text {
+        margin: 0px;
     }
 
-    a {
-        color: grey;
-        text-decoration: underline;
-        white-space: nowrap;
-        border-radius: 10px;
-        display: inline-block;
+    .trace-string {
+        float: right;
+        margin-left: $default_spacing/4;
+        a {
+            text-decoration: underline;
+        }
     }
 
     &.level-error {
@@ -42,4 +41,14 @@
     &:hover {
         background: rgba(83, 117, 255, 0.1);
     }
+}
+.more-logs-available {
+    text-align: center;
+    margin: $default_spacing/2;
+}
+.console-feedback-container {
+    border: 1px solid $border;
+    border-radius: $radius;
+    padding: $default_spacing;
+    margin-top: $default_spacing;
 }

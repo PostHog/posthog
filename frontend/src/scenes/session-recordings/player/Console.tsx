@@ -1,91 +1,123 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import './Console.scss'
-import { eventWithTime } from 'rrweb/typings/types'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import List, { ListRowProps } from 'react-virtualized/dist/es/List'
+import { RecordingConsoleLog } from '~/types'
+import { LemonButton } from 'lib/components/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function Console(): JSX.Element | null {
-    const { sessionPlayerData } = useValues(sessionRecordingLogic)
-    const { currentPlayerPosition } = useValues(sessionRecordingPlayerLogic)
+    const { orderedConsoleLogs, areAllSnapshotsLoaded } = useValues(sessionRecordingLogic)
+    const { reportRecordingConsoleFeedback } = useActions(eventUsageLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
-    if (!currentPlayerPosition?.windowId || !sessionPlayerData) {
-        return <>No logs found for this recording.</>
-    }
-    const logs = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition?.windowId || '']?.filter(
-        (item: eventWithTime) => item.type === 6
-    )
-    if (!logs || logs.length === 0) {
-        return <>No logs found for this recording.</>
-    }
+    const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
 
-    // const rowRenderer = useCallback(
-    const rowRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
-        const log = logs[index]
-        const { level, payload, trace } = log.data.payload
-
-        let splitTrace
-        try {
-            splitTrace = [...trace[0].matchAll(/(.*):([0-9]+):[0-9]+/g)][0]
-        } catch (e) {}
-        let path = ''
-        try {
-            path = new URL(splitTrace[1]).pathname.split('/').slice(-1)[0]
-        } catch (e) {}
-
+    const renderLogLine = (log: RecordingConsoleLog, index: number): JSX.Element => {
         return (
             <div
-                className={`log-line level-${level}`}
-                style={{ ...style }}
-                key={key}
+                className={`log-line level-${log.level}`}
+                key={index}
                 onClick={() => {
-                    seek({
-                        time:
-                            log.timestamp -
-                            sessionPlayerData.metadata.startAndEndTimesByWindowId[currentPlayerPosition.windowId]
-                                .startTimeEpochMs -
-                            1000,
-                        windowId: currentPlayerPosition.windowId,
-                    })
+                    seek(log.playerPosition)
                 }}
             >
-                <div>
-                    {payload
-                        .map((item: string) => (item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
-                        .join(' ')}
+                <div className="trace-string">
+                    {log.parsedTraceURL ? (
+                        <a className="text-muted" href={log.parsedTraceURL} target="_blank">
+                            {log.parsedTraceString}
+                        </a>
+                    ) : (
+                        <span className="text-muted">{log.parsedTraceString}</span>
+                    )}
                 </div>
-                <a href={splitTrace[1]} target="_blank">
-                    {path}:{splitTrace[2]}
-                </a>
-                <br />
+                <p className="log-text">{log.parsedPayload}</p>
             </div>
         )
     }
 
     return (
-        <div className="console-log">
-            <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => {
-                    return (
-                        <List
-                            // ref={listRef}
-                            className="event-list-virtual"
-                            height={height}
-                            width={width}
-                            // onRowsRendered={setRenderedRows}
-                            // noRowsRenderer={noRowsRenderer}
-                            // cellRangeRenderer={cellRangeRenderer}
-                            // overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
-                            // overscanIndicesGetter={overscanIndicesGetter}
-                            rowCount={logs.length}
-                            rowRenderer={rowRenderer}
-                            rowHeight={21}
-                        />
+        <div className="console-log-container">
+            <div className="console-log">
+                {areAllSnapshotsLoaded ? (
+                    orderedConsoleLogs.length > 0 ? (
+                        <AutoSizer>
+                            {({ height, width }: { height: number; width: number }) => (
+                                <div style={{ height: height, width: width, overflowY: 'scroll', paddingBottom: 5 }}>
+                                    {/* Only display the first 150 logs because the list ins't virtualized */}
+                                    {orderedConsoleLogs.slice(0, 150).map((log, index) => renderLogLine(log, index))}
+                                    <div>
+                                        {orderedConsoleLogs.length > 150 && (
+                                            <div className="more-logs-available">
+                                                While console logs are in beta, only 150 logs are displayed.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </AutoSizer>
+                    ) : (
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                height: '100%',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                margin: 20,
+                            }}
+                        >
+                            <h3 style={{ textAlign: 'center' }}>There are no console logs for this recording</h3>
+
+                            <p className="text-muted" style={{ textAlign: 'center' }}>
+                                For logs to appear, the feature must first be enabled in <code>posthog-js</code>.
+                            </p>
+                            <LemonButton
+                                type="secondary"
+                                style={{ margin: '0 8px' }}
+                                href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
+                            >
+                                Learn more
+                            </LemonButton>
+                        </div>
                     )
-                }}
-            </AutoSizer>
+                ) : (
+                    <div style={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                        <Spinner size="lg" />
+                    </div>
+                )}
+            </div>
+            <div className="console-feedback-container">
+                <p style={{ marginBottom: 8, textAlign: 'center' }}>Are you excited about this console log feature?</p>
+                {feedbackSubmitted ? (
+                    <p className="text-muted" style={{ marginBottom: 8, textAlign: 'center' }}>
+                        Thanks for the input!
+                    </p>
+                ) : (
+                    <div style={{ display: 'flex', width: '100%', justifyContent: 'center' }}>
+                        {(
+                            [
+                                ['Yes', '😍 Yes!'],
+                                ['No', '👎 Ehh... no'],
+                            ] as const
+                        ).map((content, index) => (
+                            <LemonButton
+                                type="secondary"
+                                key={index}
+                                style={{ margin: '0 8px' }}
+                                onClick={() => {
+                                    setFeedbackSubmitted(true)
+                                    reportRecordingConsoleFeedback(orderedConsoleLogs.length, content[0])
+                                }}
+                            >
+                                {content[1]}
+                            </LemonButton>
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

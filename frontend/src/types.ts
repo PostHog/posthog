@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogLevel } from 'rrweb'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -371,6 +372,20 @@ export type SessionRecordingId = string
 export interface PlayerPosition {
     time: number
     windowId: string
+}
+
+export interface RRWebRecordingConsoleLogPayload {
+    level: LogLevel
+    payload: string[]
+    trace: string[]
+}
+
+export interface RecordingConsoleLog {
+    playerPosition: PlayerPosition | null
+    parsedPayload: string
+    parsedTraceURL?: string
+    parsedTraceString?: string
+    level: LogLevel
 }
 
 export interface RecordingSegment {

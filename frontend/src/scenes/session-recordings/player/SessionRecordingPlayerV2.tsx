@@ -10,6 +10,8 @@ import { PlayerMeta } from './PlayerMeta'
 import { Console } from './Console'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
@@ -65,6 +67,8 @@ const { TabPane } = Tabs
 
 function PlayerSidebar(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { orderedConsoleLogs } = useValues(sessionRecordingLogic)
+    const { reportRecordingConsoleViewed } = useActions(eventUsageLogic)
     const sessionConsoleEnabled = featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
     return (
         <Col className="player-sidebar">
@@ -79,12 +83,17 @@ function PlayerSidebar(): JSX.Element {
                         data-attr="event-details"
                         defaultActiveKey="events"
                         style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
-                        tabBarStyle={{ margin: 0 }}
+                        tabBarStyle={{ margin: 0, marginBottom: 8 }}
+                        onChange={(key) => {
+                            if (key === 'console') {
+                                reportRecordingConsoleViewed(orderedConsoleLogs.length)
+                            }
+                        }}
                     >
                         <TabPane tab="Events" key="events">
                             <PlayerEvents />
                         </TabPane>
-                        <TabPane tab="Console" key="console">
+                        <TabPane tab="Console (beta)" key="console">
                             <Console />
                         </TabPane>
                     </Tabs>
