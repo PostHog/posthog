@@ -25,7 +25,7 @@ def wrap_query_error(err: Exception) -> Exception:
 
 def lookup_error_code(error: ServerException) -> str:
     code = getattr(error, "code", None)
-    return CLICKHOUSE_ERROR_CODE_LOOKUP.get(code, "UNKNOWN_EXCEPTION")
+    return CLICKHOUSE_ERROR_CODE_LOOKUP.get(code, "UNKNOWN_EXCEPTION")  # type: ignore
 
 
 # From https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/ErrorCodes.cpp#L15
