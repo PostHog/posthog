@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from '../../../../../.storybook/kea-story'
 import { rest } from 'msw'
 import { worker } from '~/mocks/browser'
 import { InsightScene } from '../InsightScene'

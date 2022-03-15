@@ -1,6 +1,6 @@
 import React from 'react'
 import { HistoryList } from 'lib/components/HistoryList/HistoryList'
-import { resetKeaStory } from 'lib/storybook/kea-story'
+import { resetKeaStory } from '../../../../../../.storybook/kea-story'
 import { Provider } from 'kea'
 import { defaultHistoryMocks, emptyHistoryMocks } from 'lib/components/HistoryList/__stories__/historyMocks'
 

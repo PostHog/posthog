@@ -2,7 +2,7 @@ import * as React from 'react'
 import '~/styles'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { KeaStory } from 'lib/storybook/kea-story'
+import { KeaStory } from './kea-story'
 
 const setupMsw = () => {
     // Make sure the msw worker is started

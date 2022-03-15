@@ -1,7 +1,7 @@
 // EmptyStates.stories.tsx
 import React from 'react'
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from '../../../../../.storybook/kea-story'
 
 // import the insight container
 import { InsightScene } from '../InsightScene'

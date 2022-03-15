@@ -4,7 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { getContext, Provider } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
-import { featureFlagLogic } from '../logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { worker } from '~/mocks/browser'
 
 export function resetKeaStory(url?: string, state?: Record<string, any>): void {
