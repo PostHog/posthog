@@ -267,8 +267,8 @@ class Migration(AsyncMigrationDefinition):
                     )
 
     def rename_tables(self, rename_1, rename_2, verification_table=None):
-        # :KLUDGE: Due to how async migrations rollback works, we need to check whether backup table exists even if the rename failed
-        #   in the first place
+        # :KLUDGE: Due to how async migrations rollback works, we need to check whether verification table exists even
+        # if the rename failed in the first place
         if verification_table and self.get_current_engine(verification_table) is None:
             logger.info(
                 "(Rollback) Source table doesn't exist, skipping renaming.", rename_1=rename_1, rename_2=rename_2
