@@ -10,6 +10,7 @@ import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
+import { Skeleton } from 'antd'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -64,6 +65,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
+    loadingSkeletonRows?: number
     /** What to show when there's no data. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
@@ -92,6 +95,7 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
+    loadingSkeletonRows = 1,
     emptyState,
     nouns = ['entry', 'entries'],
     className,
@@ -343,10 +347,22 @@ export function LemonTable<T extends Record<string, any>>({
                                         />
                                     )
                                 })
+                            ) : loading ? (
+                                Array(loadingSkeletonRows)
+                                    .fill(null)
+                                    .map((_, rowIndex) => (
+                                        <tr key={rowIndex}>
+                                            {columns.map((column, columnIndex) => (
+                                                <td key={columnIndex} className={column.className}>
+                                                    <Skeleton title paragraph={false} active />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))
                             ) : (
                                 <tr className="LemonTable__empty-state">
                                     <td colSpan={columns.length + Number(!!expandable)}>
-                                        {!loading ? emptyState || `No ${nouns[1]}` : `Loading ${nouns[1]}…`}
+                                        {emptyState || `No ${nouns[1]}`}
                                     </td>
                                 </tr>
                             )}
