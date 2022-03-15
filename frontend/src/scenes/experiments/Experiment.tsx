@@ -453,11 +453,17 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     </Col>
                                     <Col span={12}>
                                         <Row className="person-selection">
-                                            <span>
-                                                <b>Select Participants</b>
-                                            </span>
-                                            <span>
-                                                <b>Participant Type</b>
+                                            <div className="mb-05">
+                                                <strong>Select Participants</strong>
+                                            </div>
+                                            <Col>
+                                                <div className="text-muted">
+                                                    Select the entities who will participate in this experiment. If no
+                                                    filters are set, 100% of participants will be targeted.
+                                                </div>
+                                                <div className="mt mb-05">
+                                                    <strong>Participant Type</strong>
+                                                </div>
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
@@ -484,16 +490,11 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             })
                                                         }
                                                     }}
-                                                    style={{ marginLeft: 8 }}
                                                     data-attr="participant-aggregation-filter"
                                                     dropdownMatchSelectWidth={false}
-                                                    dropdownAlign={{
-                                                        // Align this dropdown by the right-hand-side of button
-                                                        points: ['tr', 'br'],
-                                                    }}
                                                 >
                                                     <Select.Option key={-1} value={-1}>
-                                                        Users
+                                                        Persons
                                                     </Select.Option>
                                                     {groupTypes.map((groupType) => (
                                                         <Select.Option
@@ -506,11 +507,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                            </span>
-                                            <Col>
-                                                <div className="text-muted">
-                                                    Select the entities who will participate in this experiment. If no
-                                                    filters are set, 100% of participants will be targeted.
+                                                <div className="mt">
+                                                    <strong>Filters</strong>
                                                 </div>
                                                 <PropertyFilters
                                                     pageKey={'experiment-participants-property'}
@@ -531,7 +529,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             properties: anyProperties.filter(isValidPropertyFilter),
                                                         })
                                                     }}
-                                                    style={{ marginTop: '1rem' }}
                                                     taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                 />
                                             </Col>
