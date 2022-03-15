@@ -24,6 +24,7 @@ import {
     AnyPropertyFilter,
     Experiment,
     PropertyGroupFilter,
+    FilterLogicalOperator,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -372,6 +373,9 @@ export const eventUsageLogic = kea<
             duration,
             significant,
         }),
+        reportPropertyGroupFilterAdded: true,
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator) => ({ type }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator) => ({ type }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -862,6 +866,15 @@ export const eventUsageLogic = kea<
                 duration,
                 significant,
             })
+        },
+        reportPropertyGroupFilterAdded: () => {
+            posthog.capture('property group filter added')
+        },
+        reportChangeOuterPropertyGroupFiltersType: ({ type }) => {
+            posthog.capture('outer match property groups type changed', { type })
+        },
+        reportChangeInnerPropertyGroupFiltersType: ({ type }) => {
+            posthog.capture('inner match property group filters type changed', { type })
         },
     }),
 })
