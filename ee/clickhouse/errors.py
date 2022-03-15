@@ -24,7 +24,7 @@ def wrap_query_error(err: Exception) -> Exception:
 
 
 def lookup_error_code(error: ServerException) -> str:
-    code = getattr(error, "code", 1002)
+    code = getattr(error, "code", None)
     return CLICKHOUSE_ERROR_CODE_LOOKUP.get(code, "UNKNOWN_EXCEPTION")
 
 
