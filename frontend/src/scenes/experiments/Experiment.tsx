@@ -423,6 +423,10 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 />
                                             </Col>
                                         </Row>
+                                    </Col>
+                                </Row>
+                                <Row>
+                                    <Col span={12}>
                                         <Row className="metrics-selection">
                                             <Col style={{ paddingRight: 8 }}>
                                                 <div className="mb-05">
@@ -549,21 +553,23 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                         )}
                                     </Col>
                                     <Col span={12}>
-                                        <Card className="experiment-preview">
-                                            <ExperimentPreview
-                                                experiment={newExperimentData}
-                                                trendCount={trendCount}
-                                                trendExposure={exposure}
-                                                funnelSampleSize={sampleSize}
-                                                funnelEntrants={entrants}
-                                                funnelConversionRate={conversionRate}
-                                            />
-                                            <InsightContainer
-                                                disableHeader={experimentInsightType === InsightType.TRENDS}
-                                                disableTable={true}
-                                            />
-                                        </Card>
+                                        <InsightContainer
+                                            disableHeader={experimentInsightType === InsightType.TRENDS}
+                                            disableTable={true}
+                                        />
                                     </Col>
+                                </Row>
+                                <Row>
+                                    <Card className="experiment-preview">
+                                        <ExperimentPreview
+                                            experiment={newExperimentData}
+                                            trendCount={trendCount}
+                                            trendExposure={exposure}
+                                            funnelSampleSize={sampleSize}
+                                            funnelEntrants={entrants}
+                                            funnelConversionRate={conversionRate}
+                                        />
+                                    </Card>
                                 </Row>
                             </BindLogic>
                         </div>
