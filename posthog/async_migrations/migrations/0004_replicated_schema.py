@@ -9,7 +9,11 @@ from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.table_engines import MergeTreeEngine
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -109,7 +113,7 @@ class Migration(AsyncMigrationDefinition):
         ]
 
         return [
-            AsyncMigrationOperation.simple_op(sql="SYSTEM STOP MERGES", rollback="SYSTEM START MERGES"),
+            AsyncMigrationOperationSQL(sql="SYSTEM STOP MERGES", rollback="SYSTEM START MERGES"),
             AsyncMigrationOperation(
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
@@ -119,11 +123,11 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
-            AsyncMigrationOperation.simple_op(sql="SYSTEM START MERGES", rollback="SYSTEM STOP MERGES",),
+            AsyncMigrationOperationSQL(sql="SYSTEM START MERGES", rollback="SYSTEM STOP MERGES",),
         ]
 
     def replicated_table_operations(self, table: TableMigrationData):
-        yield AsyncMigrationOperation.simple_op(
+        yield AsyncMigrationOperationSQL(
             sql=f"""
             CREATE TABLE {table.tmp_table_name} AS {table.name}
             ENGINE = {self.get_new_engine(table)}
@@ -132,7 +136,7 @@ class Migration(AsyncMigrationDefinition):
         )
 
         if table.materialized_view_name is not None:
-            yield AsyncMigrationOperation.simple_op(
+            yield AsyncMigrationOperationSQL(
                 sql=f"DROP TABLE IF EXISTS {table.materialized_view_name}", rollback=table.create_materialized_view,
             )
 
@@ -155,14 +159,15 @@ class Migration(AsyncMigrationDefinition):
         )
 
         if table.materialized_view_name is not None:
-            yield AsyncMigrationOperation.simple_op(
-                sql=table.create_materialized_view, rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
+            yield AsyncMigrationOperationSQL(
+                sql=cast(str, table.create_materialized_view),
+                rollback=f"DROP TABLE IF EXISTS {table.materialized_view_name}",
             )
 
         # NOTE: Relies on IF NOT EXISTS on the query
         if isinstance(table, ShardedTableMigrationData):
             for create_table_query in table.extra_tables:
-                yield AsyncMigrationOperation.simple_op(sql=create_table_query)
+                yield AsyncMigrationOperationSQL(sql=create_table_query, rollback=None)
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(
