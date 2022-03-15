@@ -19,7 +19,6 @@ import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     DeleteOutlined,
-    CopyOutlined,
     SaveOutlined,
     PlusOutlined,
     ApiFilled,
@@ -29,7 +28,7 @@ import {
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -40,6 +39,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -551,26 +551,24 @@ export function FeatureFlag(): JSX.Element {
                                                 </>
                                             )}
                                         </div>
-                                        <div>
+                                        <Row align="middle">
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
-                                                <Button
-                                                    type="link"
-                                                    icon={<CopyOutlined />}
-                                                    style={{ width: 24, height: 24 }}
+                                                <LemonButton
+                                                    icon={<IconCopy />}
+                                                    compact
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
                                             {featureFlag.filters.groups.length > 1 && (
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
-                                                    <Button
-                                                        type="link"
-                                                        icon={<DeleteOutlined />}
-                                                        style={{ width: 24, height: 24 }}
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        compact
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>
                                             )}
-                                        </div>
+                                        </Row>
                                     </div>
 
                                     <LemonSpacer large />
