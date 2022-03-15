@@ -4,6 +4,7 @@ import React from 'react'
 import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'
 import { useActions } from 'kea'
+import clsx from 'clsx'
 
 function SkeletonOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
     return (
@@ -40,7 +41,7 @@ function SkeletonOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
 
 function SkeletonTwo({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
     return (
-        <Card>
+        <Card className={clsx('ant-skeleton', active && 'ant-skeleton-active')}>
             <Row>
                 <Col span={12}>
                     <Skeleton active={active} paragraph={{ rows: 1 }} />
@@ -52,14 +53,14 @@ function SkeletonTwo({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
                     </div>
                 </Col>
             </Row>
-            <div className="bar-chart">
+            <div className="bar-chart ant-skeleton-content">
                 {Array(8)
                     .fill(0)
                     .map((_, index) => {
                         const max = 200
                         const min = 40
                         const height = Math.floor(Math.random() * (max - min + 1)) + min
-                        return <div className="bar-el" key={index} style={{ height: height }} />
+                        return <div className="bar-el ant-skeleton-title" key={index} style={{ height: height }} />
                     })}
             </div>
         </Card>
