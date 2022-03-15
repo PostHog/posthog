@@ -479,7 +479,7 @@ export const insightLogic = kea<insightLogicType>({
                 return 'insight' in (filters ?? {})
             },
         ],
-        csvExportURL: [
+        csvExportUrl: [
             (s) => [s.insight, s.currentTeamId],
             (insight: Partial<InsightModel>, currentTeamId: number) => {
                 const { filters, name, short_id, derived_name } = insight
