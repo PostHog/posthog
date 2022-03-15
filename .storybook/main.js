@@ -1,12 +1,11 @@
-import { createEntry } from '../webpack.config'
-import * as babelConfig from '../babel.config'
+const { createEntry } = require('../webpack.config')
+const babelConfig = require('../babel.config')
 
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: [
         '@storybook/addon-links',
         '@storybook/addon-essentials',
-        './ApiSelector/register.js',
         {
             name: 'storybook-addon-turbo-build',
             options: {
@@ -17,15 +16,15 @@ module.exports = {
     staticDirs: ['public'],
     babel: async () => {
         // compile babel to "defaults" target (ES5)
-        const envPreset = (babelConfig as any).presets.find(
-            (preset: any) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
+        const envPreset = babelConfig.presets.find(
+            (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
         )
         envPreset[1].targets = 'defaults'
         return babelConfig
     },
-    webpackFinal: (config: any) => {
+    webpackFinal: (config) => {
         const mainConfig = createEntry('main')
-        const newConfig: any = {
+        return {
             ...config,
             resolve: {
                 ...config.resolve,
@@ -36,11 +35,10 @@ module.exports = {
                 ...config.module,
                 rules: [
                     ...mainConfig.module.rules,
-                    ...config.module.rules.filter((rule: any) => rule.test.toString().includes('.mdx')),
+                    ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
                 ],
             },
         }
-        return newConfig
     },
     features: {
         postcss: false,
