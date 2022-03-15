@@ -35,7 +35,10 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
-Chart.register(...registerables)
+if (registerables) {
+    // required for storybook to work, not found in esbuild
+    Chart.register(...registerables)
+}
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
