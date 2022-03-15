@@ -4,7 +4,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { defaultFilterMocks } from 'lib/components/TaxonomicFilter/__stories__/mocks'
-import { KeaStory } from '../../../../../../.storybook/kea-story'
+import { KeaStory } from 'storybook/kea-story'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export default {

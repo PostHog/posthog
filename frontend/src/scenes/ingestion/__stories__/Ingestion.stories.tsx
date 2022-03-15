@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from '../../../../../.storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 import { IngestionWizard } from '../IngestionWizard'
 
