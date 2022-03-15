@@ -28,7 +28,7 @@
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*"],
     "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"],
     "ts-node": {
         "compilerOptions": {

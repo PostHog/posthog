@@ -1,8 +1,8 @@
 import * as React from 'react'
 import '~/styles'
-import { worker } from '../frontend/src/mocks/browser'
+import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { KeaStory } from '../frontend/src/lib/storybook/kea-story'
+import { KeaStory } from 'lib/storybook/kea-story'
 
 const setupMsw = () => {
     // Make sure the msw worker is started, if we're running in browser
