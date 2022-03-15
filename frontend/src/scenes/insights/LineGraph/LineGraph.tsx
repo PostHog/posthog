@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext, useActions, useValues } from 'kea'
 import {
+    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -34,6 +35,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
+Chart.register(...registerables)
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
