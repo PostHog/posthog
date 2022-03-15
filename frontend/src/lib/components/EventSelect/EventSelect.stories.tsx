@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import React from 'react'
 import { mswDecorator } from '~/mocks/browser'
-import { EventSelect } from './EventSelect'
+import { EventSelect as _EventSelect } from './EventSelect'
 
 const eventDefinitions = [
     {
@@ -28,7 +28,7 @@ const eventDefinitions = [
 ]
 
 export default {
-    title: 'Filters/EventSelect',
+    title: 'Filters',
     decorators: [
         mswDecorator({
             get: {
@@ -44,14 +44,14 @@ export default {
     ],
 } as Meta
 
-export const Default = (): JSX.Element => {
+export const EventSelect = (): JSX.Element => {
     const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
 
     return (
-        <EventSelect
+        <_EventSelect
             selectedEvents={selectedEvents}
             onChange={setSelectedEvents}
-            addElement={<span>add events</span>}
+            addElement={<button>add events</button>}
         />
     )
 }
