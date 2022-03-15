@@ -609,11 +609,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
                     // reload the cached results inside the insight's logic
                     if (dashboardItem.filters.insight) {
-                        const itemResultLogic = insightLogic({
+                        const itemResultLogic = insightLogic?.findMounted({
                             dashboardItemId: dashboardItem.short_id,
                             cachedInsight: dashboardItem,
                         })
-                        itemResultLogic.actions.setInsight(
+                        itemResultLogic?.actions.setInsight(
                             { ...dashboardItem, result: refreshedDashboardItem.result },
                             { fromPersistentApi: true }
                         )
