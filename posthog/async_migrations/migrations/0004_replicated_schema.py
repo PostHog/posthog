@@ -255,7 +255,7 @@ class Migration(AsyncMigrationDefinition):
             # :KLUDGE: Logic to retry moving parts for person_distinct_id2 table
             except ServerException as err:
                 error_code = lookup_error_code(err)
-                if error_code != "KEEPER_EXCEPTION" or retry > self.MOVE_PARTS_RETRIES:
+                if error_code != "KEEPER_EXCEPTION" or retry >= self.MOVE_PARTS_RETRIES:
                     raise err
                 else:
                     retry += 1
