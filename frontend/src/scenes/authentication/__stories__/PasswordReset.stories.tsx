@@ -12,7 +12,7 @@ import successState from './reset-success.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Authentication/Password reset/Request',
+    title: '___TO CLEAN/Authentication/Password reset/Request',
 } as Meta
 
 // export more stories with different state

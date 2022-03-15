@@ -12,7 +12,7 @@ import toolbarJson from './__stories__/toolbar.json'
 import { EditorProps } from '~/types'
 
 export default {
-    title: 'Toolbar/Authenticated',
+    title: '___TO CLEAN/Toolbar',
 } as Meta
 
 const toolbarStory = (json: Record<string, any>): (() => JSX.Element) => {

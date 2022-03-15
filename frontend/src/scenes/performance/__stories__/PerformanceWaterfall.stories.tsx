@@ -8,7 +8,7 @@ import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 
 export default {
-    title: 'Scenes/WebPerformance',
+    title: '___TO CLEAN/WebPerformance',
 } as Meta
 
 export const WebPerformanceStory = keaStory(WebPerformance, eventsState)

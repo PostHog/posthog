@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 import { mswDecorator } from '~/mocks/browser'
 
 export default {
-    title: 'Scenes/SavedInsights',
+    title: '___TO CLEAN/SavedInsights',
     decorators: [
         mswDecorator({
             get: {

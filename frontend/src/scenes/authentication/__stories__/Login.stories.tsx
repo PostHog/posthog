@@ -12,7 +12,7 @@ import cloudState from './login-cloud.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Authentication/Login',
+    title: '___TO CLEAN/Authentication/Login',
 } as Meta
 
 // export more stories with different state
