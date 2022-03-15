@@ -6,6 +6,8 @@ import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { worker } from '~/mocks/browser'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function resetKeaStory(url?: string, state?: Record<string, any>): void {
     worker.resetHandlers()
@@ -16,6 +18,8 @@ export function resetKeaStory(url?: string, state?: Record<string, any>): void {
     ;(history as any).replaceState = history.replace
     initKea({ state, routerLocation: history.location, routerHistory: history })
     featureFlagLogic.mount()
+    teamLogic.mount()
+    userLogic.mount()
     router.mount()
     const { store } = getContext()
     store.dispatch({ type: 'storybook init' })
