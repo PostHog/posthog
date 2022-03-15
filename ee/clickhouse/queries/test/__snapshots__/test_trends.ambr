@@ -227,7 +227,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -297,7 +297,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -326,7 +326,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      INNER JOIN
@@ -457,7 +457,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      INNER JOIN
@@ -469,7 +469,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id,
-               argMax("properties", _timestamp) as person_props
+               argMax("properties", _timestamp) as "person_props"
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -528,7 +528,7 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            INNER JOIN
              (SELECT id,
-                     argMax("properties", _timestamp) as person_props
+                     argMax("properties", _timestamp) as "person_props"
               FROM person
               WHERE team_id = 2
               GROUP BY id
@@ -557,7 +557,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      INNER JOIN
@@ -569,7 +569,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id,
-               argMax("properties", _timestamp) as person_props
+               argMax("properties", _timestamp) as "person_props"
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -628,7 +628,7 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            INNER JOIN
              (SELECT id,
-                     argMax("properties", _timestamp) as person_props
+                     argMax("properties", _timestamp) as "person_props"
               FROM person
               WHERE team_id = 2
               GROUP BY id

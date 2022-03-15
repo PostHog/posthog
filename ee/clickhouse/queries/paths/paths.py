@@ -128,7 +128,7 @@ class ClickhousePaths:
         joined_path_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
-                f', joined_path_tuple."{index+4}" as "final_{field}"'
+                f', joined_path_tuple.{index+4} as "final_{field}"'
                 for index, field in enumerate(self.extra_event_fields_and_properties)
             ]
         )
@@ -144,7 +144,7 @@ class ClickhousePaths:
         path_time_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
-                f', path_time_tuple."{index+4}" as "{field}"'
+                f', path_time_tuple.{index+4} as "{field}"'
                 for index, field in enumerate(self.extra_event_fields_and_properties)
             ]
         )
@@ -357,7 +357,7 @@ class ClickhousePaths:
 
     def get_filtered_path_ordering(self) -> Tuple[str, ...]:
         fields_to_include = ["filtered_path", "filtered_timings"] + [
-            f'"filtered_{field}s"' for field in self.extra_event_fields_and_properties
+            f"filtered_{field}s" for field in self.extra_event_fields_and_properties
         ]
 
         if self._filter.end_point:

@@ -3,7 +3,7 @@
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_secondary_results_?$ (ClickhouseExperimentsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS "value",
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -69,7 +69,7 @@
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_secondary_results_?$ (ClickhouseExperimentsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
+    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS "value",
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -128,7 +128,7 @@
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = '$pageleave_funnel', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
-                        array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop
+                        array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS "prop"
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,

@@ -185,7 +185,7 @@
      FROM funnel_actors
      JOIN
        (SELECT id,
-               argMax("properties", _timestamp) as person_props
+               argMax("properties", _timestamp) as "person_props"
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -634,7 +634,7 @@
      FROM funnel_actors
      JOIN
        (SELECT id,
-               argMax("pmat_$browser", _timestamp) as pmat_$browser
+               argMax("pmat_$browser", _timestamp) as "pmat_$browser"
         FROM person
         WHERE team_id = 2
         GROUP BY id

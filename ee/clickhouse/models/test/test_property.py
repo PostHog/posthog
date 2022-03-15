@@ -654,18 +654,23 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
 
 
 TEST_BREAKDOWN_PROCESSING = [
-    ("$browser", "events", "prop", "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop"),
+    (
+        "$browser",
+        "events",
+        "prop",
+        "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS \"prop\"",
+    ),
     (
         ["$browser"],
         "events",
         "value",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS \"value\"",
     ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) \"AS prop\"",
     ),
 ]
 
