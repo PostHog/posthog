@@ -34,6 +34,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     <PersonsSearch autoFocus={!cohort} />
                     <div>
                         <Popconfirm
+                            placement="topRight"
                             title={
                                 <>
                                     Exporting by csv is limited to 10,000 users.
