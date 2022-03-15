@@ -1,6 +1,6 @@
 import React from 'react'
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 import { worker } from '../../../mocks/browser'
 import { rest } from 'msw'
 import { Dashboard } from '../Dashboard'
@@ -34,7 +34,7 @@ const dashboardState = {
 //;(dashboardState.scenes.dashboard.dashboardLogic['1'].allItems as any) = [pageviews])
 
 export default {
-    title: 'PostHog/Scenes/Dashboard',
+    title: 'Scenes/Dashboard',
     decorators: [
         (Story) => {
             worker.use(

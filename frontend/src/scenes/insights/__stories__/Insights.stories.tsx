@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 import { InsightScene } from '../InsightScene'
 
@@ -10,7 +10,7 @@ import pathsJson from './paths.json'
 import stickinessJson from './stickiness.json'
 
 export default {
-    title: 'PostHog/Scenes/Insights',
+    title: 'Scenes/Insights',
 } as Meta
 
 export const Retention = keaStory(InsightScene, retentionJson)

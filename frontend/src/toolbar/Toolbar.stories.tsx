@@ -4,7 +4,7 @@ import '~/toolbar/styles.scss'
 
 import React, { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import toolbarJson from './__stories__/toolbar.json'

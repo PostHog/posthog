@@ -6,7 +6,7 @@ import { Table } from 'antd'
 const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: Icon }))
 
 export default {
-    title: 'PostHog/Icons',
+    title: 'Layout/Icons',
 } as Meta
 
 export function Icons(): JSX.Element {
