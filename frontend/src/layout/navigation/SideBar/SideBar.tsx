@@ -235,6 +235,7 @@ function Pages(): JSX.Element {
             )}
             <LemonSpacer />
             <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<EventStackGearIcon />} identifier={Scene.DataManagement} to={urls.eventDefinitions()} />
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
@@ -244,7 +245,6 @@ function Pages(): JSX.Element {
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
             <LemonSpacer />
-            <PageButton icon={<EventStackGearIcon />} identifier={Scene.DataManagement} to={urls.eventDefinitions()} />
             {canViewPlugins(currentOrganization) && (
                 <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}

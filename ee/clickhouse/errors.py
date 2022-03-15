@@ -17,10 +17,15 @@ def wrap_query_error(err: Exception) -> Exception:
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
-        name = CLICKHOUSE_ERROR_CODE_LOOKUP.get(err.code, "UNKNOWN")
+        name = CLICKHOUSE_ERROR_CODE_LOOKUP.get(err.code, "UNKNOWN_EXCEPTION")
         name = f"CHQueryError{name.replace('_', ' ').title().replace(' ', '')}"
         return type(name, (ServerException,), {})(err.message, code=err.code)
     return err
+
+
+def lookup_error_code(error: ServerException) -> str:
+    code = getattr(error, "code", None)
+    return CLICKHOUSE_ERROR_CODE_LOOKUP.get(code, "UNKNOWN_EXCEPTION")  # type: ignore
 
 
 # From https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/ErrorCodes.cpp#L15
