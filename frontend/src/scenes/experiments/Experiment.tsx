@@ -326,132 +326,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 </Col>
                                             </Col>
                                         )}
-                                        <Row className="metrics-selection">
-                                            <Col style={{ paddingRight: 8 }}>
-                                                <div className="mb-05">
-                                                    <b>Goal type</b>
-                                                    <div className="text-muted">
-                                                        {experimentInsightType === InsightType.TRENDS
-                                                            ? 'Track counts of a specific event or action'
-                                                            : 'Track how many persons complete a sequence of actions and or events'}
-                                                    </div>
-                                                </div>
-                                                <Select
-                                                    style={{ display: 'flex' }}
-                                                    value={experimentInsightType}
-                                                    onChange={setExperimentInsightType}
-                                                    suffixIcon={<CaretDownOutlined />}
-                                                    dropdownMatchSelectWidth={false}
-                                                >
-                                                    <Select.Option value={InsightType.TRENDS}>
-                                                        <Col>
-                                                            <span>
-                                                                <b>Trend</b>
-                                                            </span>
-                                                        </Col>
-                                                    </Select.Option>
-                                                    <Select.Option value={InsightType.FUNNELS}>
-                                                        <Col>
-                                                            <span>
-                                                                <b>Conversion funnel</b>
-                                                            </span>
-                                                        </Col>
-                                                    </Select.Option>
-                                                </Select>
-                                                <div className="mb mt">
-                                                    <b>Experiment goal</b>
-                                                    {experimentInsightType === InsightType.TRENDS && (
-                                                        <div className="text-muted">
-                                                            Trend-based experiments can have at most one graph series.
-                                                            This metric is used to track the progress of your
-                                                            experiment.
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <Row>
-                                                    <Card
-                                                        className="action-filters-bordered"
-                                                        style={{ width: '100%', marginRight: 8 }}
-                                                        bodyStyle={{ padding: 0 }}
-                                                    >
-                                                        {experimentInsightType === InsightType.FUNNELS && (
-                                                            <ActionFilter
-                                                                filters={funnelsFilters}
-                                                                setFilters={(payload) => {
-                                                                    setNewExperimentData({ filters: payload })
-                                                                    setFilters(payload)
-                                                                }}
-                                                                typeKey={`EditFunnel-action`}
-                                                                hideMathSelector={true}
-                                                                hideDeleteBtn={filterSteps.length === 1}
-                                                                buttonCopy="Add funnel step"
-                                                                buttonType="link"
-                                                                showSeriesIndicator={!isStepsEmpty}
-                                                                seriesIndicatorType="numeric"
-                                                                fullWidth
-                                                                sortable
-                                                                showNestedArrow={true}
-                                                                propertiesTaxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.EventProperties,
-                                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                                    TaxonomicFilterGroupType.Cohorts,
-                                                                    TaxonomicFilterGroupType.Elements,
-                                                                ]}
-                                                                rowClassName="action-filters-bordered"
-                                                            />
-                                                        )}
-                                                        {experimentInsightType === InsightType.TRENDS && (
-                                                            <ActionFilter
-                                                                horizontalUI
-                                                                filters={trendsFilters}
-                                                                setFilters={(payload: Partial<FilterType>) => {
-                                                                    setNewExperimentData({ filters: payload })
-                                                                    setFilters(payload)
-                                                                }}
-                                                                typeKey={`experiment-trends`}
-                                                                buttonCopy="Add graph series"
-                                                                showSeriesIndicator
-                                                                entitiesLimit={1}
-                                                                hideMathSelector={false}
-                                                                propertiesTaxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.EventProperties,
-                                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                                    TaxonomicFilterGroupType.Cohorts,
-                                                                    TaxonomicFilterGroupType.Elements,
-                                                                ]}
-                                                                customRowPrefix={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE ? (
-                                                                        <>
-                                                                            Showing <b>Unique users</b> who did
-                                                                        </>
-                                                                    ) : undefined
-                                                                }
-                                                            />
-                                                        )}
-                                                    </Card>
-                                                </Row>
-                                            </Col>
-                                        </Row>
-                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                            <Row className="secondary-metrics">
-                                                <Col>
-                                                    <div>
-                                                        <b>Secondary metrics</b>
-                                                        <span className="text-muted ml-05">(optional)</span>
-                                                    </div>
-                                                    <div className="text-muted" style={{ marginTop: 4 }}>
-                                                        Use secondary metrics to monitor metrics related to your
-                                                        experiment goal. You can add up to three secondary metrics.{' '}
-                                                    </div>
-                                                </Col>
-                                                <SecondaryMetrics
-                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                    initialMetrics={parsedSecondaryMetrics}
-                                                />
-                                            </Row>
-                                        )}
-                                    </Col>
-                                    <Col span={12}>
+
                                         <Row className="person-selection">
                                             <div className="mb-05">
                                                 <strong>Select Participants</strong>
@@ -533,12 +408,136 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 />
                                             </Col>
                                         </Row>
-                                        <div className="card-secondary mb">Goal preview</div>
-                                        <InsightContainer
-                                            disableHeader={experimentInsightType === InsightType.TRENDS}
-                                            disableTable={true}
-                                        />
                                     </Col>
+
+                                    <Row className="metrics-selection">
+                                        <Col span={12} className="goal-select">
+                                            <div className="mb-05">
+                                                <b>Goal type</b>
+                                                <div className="text-muted">
+                                                    {experimentInsightType === InsightType.TRENDS
+                                                        ? 'Track counts of a specific event or action'
+                                                        : 'Track how many persons complete a sequence of actions and or events'}
+                                                </div>
+                                            </div>
+                                            <Select
+                                                style={{ display: 'flex' }}
+                                                value={experimentInsightType}
+                                                onChange={setExperimentInsightType}
+                                                suffixIcon={<CaretDownOutlined />}
+                                                dropdownMatchSelectWidth={false}
+                                            >
+                                                <Select.Option value={InsightType.TRENDS}>
+                                                    <Col>
+                                                        <span>
+                                                            <b>Trend</b>
+                                                        </span>
+                                                    </Col>
+                                                </Select.Option>
+                                                <Select.Option value={InsightType.FUNNELS}>
+                                                    <Col>
+                                                        <span>
+                                                            <b>Conversion funnel</b>
+                                                        </span>
+                                                    </Col>
+                                                </Select.Option>
+                                            </Select>
+                                            <div className="mb mt">
+                                                <b>Experiment goal</b>
+                                                {experimentInsightType === InsightType.TRENDS && (
+                                                    <div className="text-muted">
+                                                        Trend-based experiments can have at most one graph series. This
+                                                        metric is used to track the progress of your experiment.
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <Row>
+                                                <Card
+                                                    className="action-filters-bordered"
+                                                    style={{ width: '100%', marginRight: 8 }}
+                                                    bodyStyle={{ padding: 0 }}
+                                                >
+                                                    {experimentInsightType === InsightType.FUNNELS && (
+                                                        <ActionFilter
+                                                            filters={funnelsFilters}
+                                                            setFilters={(payload) => {
+                                                                setNewExperimentData({ filters: payload })
+                                                                setFilters(payload)
+                                                            }}
+                                                            typeKey={`EditFunnel-action`}
+                                                            hideMathSelector={true}
+                                                            hideDeleteBtn={filterSteps.length === 1}
+                                                            buttonCopy="Add funnel step"
+                                                            buttonType="link"
+                                                            showSeriesIndicator={!isStepsEmpty}
+                                                            seriesIndicatorType="numeric"
+                                                            fullWidth
+                                                            sortable
+                                                            showNestedArrow={true}
+                                                            propertiesTaxonomicGroupTypes={[
+                                                                TaxonomicFilterGroupType.EventProperties,
+                                                                TaxonomicFilterGroupType.PersonProperties,
+                                                                TaxonomicFilterGroupType.Cohorts,
+                                                                TaxonomicFilterGroupType.Elements,
+                                                            ]}
+                                                            rowClassName="action-filters-bordered"
+                                                        />
+                                                    )}
+                                                    {experimentInsightType === InsightType.TRENDS && (
+                                                        <ActionFilter
+                                                            horizontalUI
+                                                            filters={trendsFilters}
+                                                            setFilters={(payload: Partial<FilterType>) => {
+                                                                setNewExperimentData({ filters: payload })
+                                                                setFilters(payload)
+                                                            }}
+                                                            typeKey={`experiment-trends`}
+                                                            buttonCopy="Add graph series"
+                                                            showSeriesIndicator
+                                                            entitiesLimit={1}
+                                                            hideMathSelector={false}
+                                                            propertiesTaxonomicGroupTypes={[
+                                                                TaxonomicFilterGroupType.EventProperties,
+                                                                TaxonomicFilterGroupType.PersonProperties,
+                                                                TaxonomicFilterGroupType.Cohorts,
+                                                                TaxonomicFilterGroupType.Elements,
+                                                            ]}
+                                                            customRowPrefix={
+                                                                trendsFilters.insight === InsightType.LIFECYCLE ? (
+                                                                    <>
+                                                                        Showing <b>Unique users</b> who did
+                                                                    </>
+                                                                ) : undefined
+                                                            }
+                                                        />
+                                                    )}
+                                                </Card>
+                                            </Row>
+                                        </Col>
+                                        <Col span={12} className="pl">
+                                            <div className="card-secondary mb">Goal preview</div>
+                                            <InsightContainer
+                                                disableHeader={experimentInsightType === InsightType.TRENDS}
+                                                disableTable={true}
+                                            />
+                                        </Col>
+                                    </Row>
+                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                        <Col className="secondary-metrics" span={12}>
+                                            <div>
+                                                <b>Secondary metrics</b>
+                                                <span className="text-muted ml-05">(optional)</span>
+                                            </div>
+                                            <div className="text-muted" style={{ marginTop: 4 }}>
+                                                Use secondary metrics to monitor metrics related to your experiment
+                                                goal. You can add up to three secondary metrics.{' '}
+                                            </div>
+                                            <SecondaryMetrics
+                                                onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                initialMetrics={parsedSecondaryMetrics}
+                                            />
+                                        </Col>
+                                    )}
                                 </Row>
                                 <Row>
                                     <Card className="experiment-preview">
