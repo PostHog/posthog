@@ -149,10 +149,10 @@ export const userLogic = kea<userLogicType>({
             (user): OrganizationBasicType[] =>
                 user
                     ? user.organizations
-                          .filter((organization) => organization.id !== user.organization?.id)
+                          ?.filter((organization) => organization.id !== user.organization?.id)
                           .sort((orgA, orgB) =>
                               orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                          )
+                          ) || []
                     : [],
         ],
     },
