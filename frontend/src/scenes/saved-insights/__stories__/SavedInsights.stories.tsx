@@ -7,12 +7,25 @@ import React, { useEffect } from 'react'
 import { router } from 'kea-router'
 import { mswDecorator } from '~/mocks/browser'
 
+import trendsBarBreakdown from '../../insights/__stories__/trendsBarBreakdown.json'
+import trendsPieBreakdown from '../../insights/__stories__/trendsPieBreakdown.json'
+import funnelTopToBottom from '../../insights/__stories__/funnelTopToBottom.json'
+
+const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
+
 export default {
-    title: '___TO CLEAN/SavedInsights',
+    title: 'Scenes/Saved Insights',
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/1/insights': insightsJson,
+                '/api/projects/1/insights': {
+                    ...insightsJson,
+                    results: insightsJson.results.map((result, i) => ({
+                        ...result,
+                        filters: insights[i % insights.length].filters,
+                        result: insights[i % insights.length].result,
+                    })),
+                },
             },
         }),
     ],
