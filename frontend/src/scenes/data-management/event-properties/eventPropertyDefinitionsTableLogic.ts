@@ -1,12 +1,13 @@
 import { kea } from 'kea'
 import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
+import { objectsEqual } from 'lib/utils'
 
 interface Filters {
     property: string
@@ -79,6 +80,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
 
@@ -143,6 +145,15 @@ export const eventPropertyDefinitionsTableLogic = kea<
             }
             if (id) {
                 actions.setOpenedDefinition(id)
+            }
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setFilters: () => {
+            const nextValues = values.filters
+            const urlValues = router.values.searchParams
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [router.values.location.pathname, nextValues]
             }
         },
     }),

@@ -13,7 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { LemonEventName } from 'scenes/actions/EventName'
+import { Input } from 'antd'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -110,10 +110,14 @@ export function EventDefinitionsTable(): JSX.Element {
                     marginBottom: '1rem',
                 }}
             >
-                <LemonEventName
+                <Input.Search
+                    placeholder="Search for events"
+                    allowClear
+                    enterButton
                     value={filters.event}
-                    onChange={(value: string) => {
-                        setFilters({ event: value || '' })
+                    style={{ maxWidth: 600, width: 'initial' }}
+                    onChange={(e) => {
+                        setFilters({ event: e.target.value || '' })
                     }}
                 />
             </div>

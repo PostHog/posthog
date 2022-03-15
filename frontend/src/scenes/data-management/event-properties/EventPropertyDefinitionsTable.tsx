@@ -12,7 +12,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { LemonPropertyName } from 'scenes/actions/EventName'
+import { Input } from 'antd'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -99,10 +99,14 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     marginBottom: '1rem',
                 }}
             >
-                <LemonPropertyName
+                <Input.Search
+                    placeholder="Search for properties"
+                    allowClear
+                    enterButton
                     value={filters.property}
-                    onChange={(value: string) => {
-                        setFilters({ property: value || '' })
+                    style={{ maxWidth: 600, width: 'initial' }}
+                    onChange={(e) => {
+                        setFilters({ property: e.target.value || '' })
                     }}
                 />
             </div>

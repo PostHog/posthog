@@ -3,8 +3,8 @@ import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
-import { combineUrl } from 'kea-router'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import { combineUrl, router } from 'kea-router'
+import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -129,6 +129,7 @@ export const eventDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
 
@@ -279,6 +280,15 @@ export const eventDefinitionsTableLogic = kea<
             }
             if (id) {
                 actions.setOpenedDefinition(id)
+            }
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setFilters: () => {
+            const nextValues = values.filters
+            const urlValues = router.values.searchParams
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [router.values.location.pathname, nextValues]
             }
         },
     }),

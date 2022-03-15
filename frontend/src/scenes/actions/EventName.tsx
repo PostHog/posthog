@@ -38,18 +38,3 @@ export function LemonEventName({ value, onChange }: EventNameInterface): JSX.Ele
         />
     )
 }
-
-export function LemonPropertyName({ value, onChange }: EventNameInterface): JSX.Element {
-    return (
-        <LemonTaxonomicStringPopup
-            groupType={TaxonomicFilterGroupType.EventProperties}
-            onChange={onChange}
-            value={value}
-            type="secondary"
-            placeholder="Select a property"
-            dataAttr="event-property-name-box"
-            renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}
-            allowClear
-        />
-    )
-}
