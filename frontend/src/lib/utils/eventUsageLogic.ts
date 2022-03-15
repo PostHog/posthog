@@ -374,8 +374,14 @@ export const eventUsageLogic = kea<
             significant,
         }),
         reportPropertyGroupFilterAdded: true,
-        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator) => ({ type }),
-        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator) => ({ type }),
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
+            type,
+            groupsLength,
+        }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
+            type,
+            filtersLength,
+        }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -870,11 +876,11 @@ export const eventUsageLogic = kea<
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
-        reportChangeOuterPropertyGroupFiltersType: ({ type }) => {
-            posthog.capture('outer match property groups type changed', { type })
+        reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
+            posthog.capture('outer match property groups type changed', { type, groupsLength })
         },
-        reportChangeInnerPropertyGroupFiltersType: ({ type }) => {
-            posthog.capture('inner match property group filters type changed', { type })
+        reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
+            posthog.capture('inner match property group filters type changed', { type, filtersLength })
         },
     }),
 })

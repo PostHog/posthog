@@ -75,12 +75,15 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
     listeners: ({ actions, props, values }) => ({
         setFilters: () => actions.update(),
         setPropertyFilters: () => actions.update(),
-        setInnerPropertyGroupType: ({ type }) => {
-            eventUsageLogic.actions.reportChangeInnerPropertyGroupFiltersType(type)
+        setInnerPropertyGroupType: ({ type, index }) => {
+            eventUsageLogic.actions.reportChangeInnerPropertyGroupFiltersType(
+                type,
+                values.filters.values[index].values.length
+            )
             actions.update()
         },
         setOuterPropertyGroupsType: ({ type }) => {
-            eventUsageLogic.actions.reportChangeOuterPropertyGroupFiltersType(type)
+            eventUsageLogic.actions.reportChangeOuterPropertyGroupFiltersType(type, values.filters.values.length)
             actions.update()
         },
         removeFilterGroup: () => actions.update(),
