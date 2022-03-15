@@ -42,4 +42,7 @@ module.exports = {
         }
         return newConfig
     },
+    features: {
+        postcss: false,
+    },
 }
