@@ -1,13 +1,15 @@
 import { kea } from 'kea'
-import { AnyPropertyFilter, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { combineUrl } from 'kea-router'
-import { PropertyDefinitionsPaginatedResponse } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import {
+    normalizePropertyDefinitionEndpointUrl,
+    PropertyDefinitionsPaginatedResponse,
+} from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 
 interface Filters {
-    event: string
-    properties: AnyPropertyFilter[]
+    property: string
 }
 
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
@@ -27,7 +29,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
             url,
             orderIdsFirst,
         }),
-        setFilters: (filters: Filters) => ({ filters }),
+        setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
@@ -35,11 +37,13 @@ export const eventPropertyDefinitionsTableLogic = kea<
     reducers: {
         filters: [
             {
-                event: '',
-                properties: [],
+                property: '',
             } as Filters,
             {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
             },
         ],
         hoveredDefinition: [
@@ -78,11 +82,14 @@ export const eventPropertyDefinitionsTableLogic = kea<
                     const response = await api.get(url)
                     breakpoint()
 
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             ...response,
-                            current: url,
+                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
+                            next: normalizePropertyDefinitionEndpointUrl(response.next),
+                            current: currentUrl,
                             page:
                                 Math.floor(
                                     (combineUrl(url).searchParams.offset ?? 0) / EVENT_PROPERTY_DEFINITIONS_PER_PAGE
@@ -113,6 +120,15 @@ export const eventPropertyDefinitionsTableLogic = kea<
     selectors: ({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+    }),
+    listeners: ({ actions, values }) => ({
+        setFilters: () => {
+            actions.loadEventPropertyDefinitions(
+                normalizePropertyDefinitionEndpointUrl(values.eventPropertyDefinitions.current, {
+                    search: values.filters.property,
+                })
+            )
+        },
     }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/event-properties': (_, searchParams) => {

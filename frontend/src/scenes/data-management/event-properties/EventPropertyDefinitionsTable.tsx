@@ -12,6 +12,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { LemonPropertyName } from 'scenes/actions/EventName'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -20,10 +21,10 @@ export const scene: SceneExport = {
 }
 
 export function EventPropertyDefinitionsTable(): JSX.Element {
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId } = useValues(
+    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
-    const { loadEventPropertyDefinitions, setLocalEventPropertyDefinition } = useActions(
+    const { loadEventPropertyDefinitions, setLocalEventPropertyDefinition, setFilters } = useActions(
         eventPropertyDefinitionsTableLogic
     )
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
@@ -86,34 +87,54 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            className="event-properties-definition-table"
-            data-attr="event-properties-definition-table"
-            loading={eventPropertyDefinitionsLoading}
-            rowKey="id"
-            rowStatus={(row) => {
-                return row.id === openedDefinitionId ? 'highlighted' : undefined
-            }}
-            pagination={{
-                controlled: true,
-                currentPage: eventPropertyDefinitions?.page ?? 1,
-                entryCount: eventPropertyDefinitions?.count ?? 0,
-                pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                onForward: !!eventPropertyDefinitions.next
-                    ? () => {
-                          loadEventPropertyDefinitions(eventPropertyDefinitions.next)
-                      }
-                    : undefined,
-                onBackward: !!eventPropertyDefinitions.previous
-                    ? () => {
-                          loadEventPropertyDefinitions(eventPropertyDefinitions.previous)
-                      }
-                    : undefined,
-            }}
-            dataSource={eventPropertyDefinitions.results}
-            emptyState="No event property definitions"
-            nouns={['property', 'properties']}
-        />
+        <>
+            <div
+                style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    width: '100%',
+                    marginBottom: '1rem',
+                }}
+            >
+                <LemonPropertyName
+                    value={filters.property}
+                    onChange={(value: string) => {
+                        setFilters({ property: value || '' })
+                    }}
+                />
+            </div>
+            <LemonTable
+                columns={columns}
+                className="event-properties-definition-table"
+                data-attr="event-properties-definition-table"
+                loading={eventPropertyDefinitionsLoading}
+                rowKey="id"
+                rowStatus={(row) => {
+                    return row.id === openedDefinitionId ? 'highlighted' : undefined
+                }}
+                pagination={{
+                    controlled: true,
+                    currentPage: eventPropertyDefinitions?.page ?? 1,
+                    entryCount: eventPropertyDefinitions?.count ?? 0,
+                    pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+                    onForward: !!eventPropertyDefinitions.next
+                        ? () => {
+                              loadEventPropertyDefinitions(eventPropertyDefinitions.next)
+                          }
+                        : undefined,
+                    onBackward: !!eventPropertyDefinitions.previous
+                        ? () => {
+                              loadEventPropertyDefinitions(eventPropertyDefinitions.previous)
+                          }
+                        : undefined,
+                }}
+                dataSource={eventPropertyDefinitions.results}
+                emptyState="No event property definitions"
+                nouns={['property', 'properties']}
+            />
+        </>
     )
 }

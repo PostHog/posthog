@@ -4,6 +4,7 @@ import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { combineUrl } from 'kea-router'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -29,11 +30,24 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
-function normalizePropertyDefinitionEndpointUrl(url: string | null): string | null {
+export function normalizePropertyDefinitionEndpointUrl(
+    url: string | null | undefined,
+    searchParams: Record<string, any> = {}
+): string | null {
     if (!url) {
         return null
     }
-    return api.propertyDefinitions.determineListEndpoint(combineUrl(url).searchParams)
+    return api.propertyDefinitions.determineListEndpoint({ ...combineUrl(url).searchParams, ...searchParams })
+}
+
+function normalizeEventDefinitionEndpointUrl(
+    url: string | null | undefined,
+    searchParams: Record<string, any> = {}
+): string | null {
+    if (!url) {
+        return null
+    }
+    return api.eventDefinitions.determineListEndpoint({ ...combineUrl(url).searchParams, ...searchParams })
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -55,7 +69,7 @@ export const eventDefinitionsTableLogic = kea<
         loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
-        setFilters: (filters: Filters) => ({ filters }),
+        setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
@@ -69,7 +83,11 @@ export const eventDefinitionsTableLogic = kea<
                 properties: [],
             } as Filters,
             {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                    properties: convertPropertyGroupToProperties(filters.properties) ?? [],
+                }),
             },
         ],
         hoveredDefinition: [
@@ -114,16 +132,21 @@ export const eventDefinitionsTableLogic = kea<
                     const response = await api.get(url)
                     breakpoint()
 
+                    const currentUrl = `${normalizeEventDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             ...response,
-                            current: url,
+                            previous: normalizeEventDefinitionEndpointUrl(response.previous),
+                            next: normalizeEventDefinitionEndpointUrl(response.next),
+                            current: currentUrl,
                             page:
-                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
+                                Math.floor(
+                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE
+                                ) + 1,
                         },
                     }
-                    return cache.apiCache[url]
+                    return cache.apiCache[currentUrl]
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
@@ -181,16 +204,17 @@ export const eventDefinitionsTableLogic = kea<
                         }
                     }
 
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             count: response.count,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
                             next: normalizePropertyDefinitionEndpointUrl(response.next),
-                            current: url,
+                            current: currentUrl,
                             page:
                                 Math.floor(
-                                    (combineUrl(url).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
+                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
                                 ) + 1,
                             results: response.results.map((prop: PropertyDefinition) => ({
                                 ...prop,
@@ -204,7 +228,7 @@ export const eventDefinitionsTableLogic = kea<
                     )
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [definition.id]: cache.apiCache[url],
+                        [definition.id]: cache.apiCache[currentUrl],
                     }
                 },
                 setLocalPropertyDefinition: ({ event, definition }) => {
@@ -234,6 +258,13 @@ export const eventDefinitionsTableLogic = kea<
     selectors: ({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+    }),
+    listeners: ({ actions, values }) => ({
+        setFilters: () => {
+            actions.loadEventDefinitions(
+                normalizeEventDefinitionEndpointUrl(values.eventDefinitions.current, { search: values.filters.event })
+            )
+        },
     }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
