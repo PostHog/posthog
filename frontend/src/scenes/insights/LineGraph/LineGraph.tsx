@@ -31,6 +31,7 @@ import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
@@ -58,7 +59,15 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
-export function LineGraph({
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            <LineGraph_ {...props} />
+        </ErrorBoundary>
+    )
+}
+
+export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
     labels,
