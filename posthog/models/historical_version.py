@@ -96,13 +96,3 @@ class HistoricalVersion(UUIDModel):
             created_by=user,
             team_id=team_id,
         )
-
-
-class HistoryLoggingMixin:
-    def perform_create(self, serializer):
-        serializer.save()
-        HistoricalVersion.save_version(serializer, "create")
-
-    def perform_update(self, serializer):
-        serializer.save()
-        HistoricalVersion.save_version(serializer, "update")
