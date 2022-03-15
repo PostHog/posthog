@@ -329,7 +329,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             response = HttpResponse(export)
             response[
                 "Content-Disposition"
-            ] = 'attachment; filename="posthog - {name} ({date_from} - {date_to}).csv"'.format(
+            ] = 'attachment; filename="{name} ({date_from}-{date_to}) from PostHog.csv"'.format(
                 name=slugify(request.GET.get("export_name", "export")),
                 date_from=filter.date_from.strftime("%Y-%m-%d") if filter.date_from else "all time",
                 date_to=filter.date_to.strftime("%Y-%m-%d"),
