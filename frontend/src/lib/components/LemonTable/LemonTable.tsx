@@ -35,6 +35,13 @@ export interface LemonTableProps<T extends Record<string, any>> {
     rowKey?: keyof T | ((record: T) => string | number)
     /** Class name to append to each row */
     rowClassName?: string | ((record: T) => string)
+    /** Status of each row. Defaults no status. */
+    rowStatus?:
+        | 'success'
+        | 'warning'
+        | 'danger'
+        | 'highlighted'
+        | ((record: T) => 'success' | 'warning' | 'danger' | 'highlighted' | undefined)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** Whether the header should be shown. The default value is `"middle"`. */
@@ -75,6 +82,7 @@ export function LemonTable<T extends Record<string, any>>({
     dataSource = [],
     rowKey,
     rowClassName,
+    rowStatus,
     onRow,
     size,
     embedded = false,
@@ -323,6 +331,8 @@ export function LemonTable<T extends Record<string, any>>({
                                         : currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                    const rowStatusDetermined =
+                                        typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
                                         <TableRow
                                             key={`LemonTable-row-${rowKeyDetermined}`}
@@ -330,6 +340,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             recordIndex={currentStartIndex + rowIndex}
                                             rowKeyDetermined={rowKeyDetermined}
                                             rowClassNameDetermined={rowClassNameDetermined}
+                                            rowStatusDetermined={rowStatusDetermined}
                                             columns={columns}
                                             onRow={onRow}
                                             expandable={expandable}

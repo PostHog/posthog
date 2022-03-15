@@ -161,7 +161,7 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { members } = useValues(membersLogic)
+    const { meFirstMembers } = useValues(membersLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -384,7 +384,7 @@ export function SavedInsights(): JSX.Element {
                                 }}
                             >
                                 <Select.Option value={'All users'}>All users</Select.Option>
-                                {members.map((member) => (
+                                {meFirstMembers.map((member) => (
                                     <Select.Option key={member.user.id} value={member.user.id}>
                                         {member.user.first_name}
                                     </Select.Option>

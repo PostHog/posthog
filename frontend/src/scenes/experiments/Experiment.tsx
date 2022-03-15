@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
+    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -19,7 +20,7 @@ import {
     PropertyFilter,
 } from '~/types'
 import './Experiment.scss'
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript } from 'lib/components/icons'
 import {
@@ -50,9 +51,12 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 export const scene: SceneExport = {
     component: Experiment_,
     logic: experimentLogic,
+    paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
+        experimentId: id === 'new' ? 'new' : parseInt(id),
+    }),
 }
 
-export function Experiment_(): JSX.Element {
+export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
     const {
         newExperimentData,
         experimentData,
@@ -67,7 +71,6 @@ export function Experiment_(): JSX.Element {
         experimentResultsLoading,
         parsedSecondaryMetrics,
         areResultsSignificant,
-        experimentId,
         conversionRateForVariant,
         getIndexForVariant,
         significanceBannerDetails,
@@ -76,7 +79,8 @@ export function Experiment_(): JSX.Element {
         groupTypes,
         aggregationLabel,
         secondaryMetricResults,
-    } = useValues(experimentLogic)
+        experimentDataLoading,
+    } = useValues(experimentLogic({ experimentId: id }))
     const {
         setNewExperimentData,
         createExperiment,
@@ -91,7 +95,7 @@ export function Experiment_(): JSX.Element {
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic)
+    } = useActions(experimentLogic({ experimentId: id }))
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -126,7 +130,7 @@ export function Experiment_(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
                   0
               )
             : 0
@@ -150,7 +154,7 @@ export function Experiment_(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' || editingExistingExperiment ? (
+            {id === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
@@ -555,7 +559,7 @@ export function Experiment_(): JSX.Element {
                         </Button>
                     </Form>
                 </>
-            ) : experimentData ? (
+            ) : !experimentDataLoading && experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width pb">
@@ -709,7 +713,7 @@ export function Experiment_(): JSX.Element {
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
                                     )}
-                                    {(experimentResults || experimentData.secondary_metrics.length > 0) && (
+                                    {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
                                             {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
                                                 !!experimentData?.secondary_metrics.length && (
@@ -822,12 +826,28 @@ export function Experiment_(): JSX.Element {
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experimentData.start_date && (
                                                             <Row justify="space-between" className="mt-05">
-                                                                <div>
-                                                                    <b>
-                                                                        {dayjs().diff(experimentData.start_date, 'day')}
-                                                                    </b>{' '}
-                                                                    days running
-                                                                </div>
+                                                                {experimentData.end_date ? (
+                                                                    <div>
+                                                                        Ran for
+                                                                        <b>
+                                                                            {dayjs(experimentData.end_date).diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days
+                                                                    </div>
+                                                                ) : (
+                                                                    <div>
+                                                                        <b>
+                                                                            {dayjs().diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days running
+                                                                    </div>
+                                                                )}
                                                                 <div>
                                                                     Goal:{' '}
                                                                     <b>
@@ -842,9 +862,15 @@ export function Experiment_(): JSX.Element {
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
                                                         <Row justify="space-between" className="mt-05">
-                                                            <div>
-                                                                <b>{funnelResultsPersonsTotal}</b> participants seen
-                                                            </div>
+                                                            {experimentData.end_date ? (
+                                                                <div>
+                                                                    Saw <b>{funnelResultsPersonsTotal}</b> participants
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                                </div>
+                                                            )}
                                                             <div>
                                                                 Goal:{' '}
                                                                 <b>

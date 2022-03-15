@@ -27,15 +27,15 @@ export function ExperimentPreview({
     funnelSampleSize,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
+    const experimentId = experiment?.id || 'new'
     const {
         experimentInsightType,
-        experimentId,
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
         aggregationLabel,
-    } = useValues(experimentLogic)
-    const { setNewExperimentData } = useActions(experimentLogic)
+    } = useValues(experimentLogic({ experimentId }))
+    const { setNewExperimentData } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50

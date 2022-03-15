@@ -248,27 +248,27 @@ describe('definitionPopupLogic', () => {
                 },
                 {
                     type: TaxonomicFilterGroupType.CustomEvents,
-                    url: urls.eventStat(mockDefinitionId),
+                    url: urls.eventDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.Events,
-                    url: urls.eventStat(mockDefinitionId),
+                    url: urls.eventDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.PersonProperties,
-                    url: urls.eventPropertyStat(mockDefinitionId),
+                    url: urls.eventPropertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.EventProperties,
-                    url: urls.eventPropertyStat(mockDefinitionId),
+                    url: urls.eventPropertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.NumericalEventProperties,
-                    url: urls.eventPropertyStat(mockDefinitionId),
+                    url: urls.eventPropertyDefinition(mockDefinitionId),
                 },
                 {
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_0`,
-                    url: urls.eventPropertyStat(mockDefinitionId),
+                    url: urls.eventPropertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.Cohorts,
