@@ -313,12 +313,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             csvexport = []
             for item in result["result"]:
                 line = {"series": item["label"]}
-                total_sum = 0
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
-                    total_sum += data
-
-                line["total sum"] = total_sum
                 csvexport.append(line)
             renderer = csvrenderers.CSVRenderer()
             renderer.header = csvexport[0].keys()
@@ -329,9 +325,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             response = HttpResponse(export)
             response[
                 "Content-Disposition"
-            ] = 'attachment; filename="{name} ({date_from}-{date_to}) from PostHog.csv"'.format(
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
                 name=slugify(request.GET.get("export_name", "export")),
-                date_from=filter.date_from.strftime("%Y-%m-%d") if filter.date_from else "all time",
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
                 date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response

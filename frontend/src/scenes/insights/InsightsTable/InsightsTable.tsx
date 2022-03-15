@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Dropdown, Menu } from 'antd'
+import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -11,7 +11,7 @@ import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined, DownloadOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -23,6 +23,8 @@ import './InsightsTable.scss'
 import clsx from 'clsx'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport } from 'lib/components/icons'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -66,7 +68,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, csvExportURL } = useValues(insightLogic)
+    const { insightProps, csvExportUrl } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -118,11 +120,6 @@ export function InsightsTable({
 
     if (isLegend) {
         columns.push({
-            title: (
-                <Tooltip title="Export this table as a .csv file">
-                    <Button href={csvExportURL} target="_blank" icon={<DownloadOutlined />} />
-                </Tooltip>
-            ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
@@ -270,17 +267,29 @@ export function InsightsTable({
     }
 
     return (
-        <LemonTable
-            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-            embedded={embedded}
-            columns={columns}
-            rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            loading={resultsLoading}
-            emptyState="No insight results"
-            data-attr="insights-table-graph"
-            className="insights-table"
-        />
+        <>
+            <Tooltip title="Export this table as csv." placement="left">
+                <LemonButton
+                    type="secondary"
+                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                    href={csvExportUrl}
+                    style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
+                >
+                    Export
+                </LemonButton>
+            </Tooltip>
+            <LemonTable
+                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+                embedded={embedded}
+                columns={columns}
+                rowKey="id"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                loading={resultsLoading}
+                emptyState="No insight results"
+                data-attr="insights-table-graph"
+                className="insights-table"
+            />
+        </>
     )
 }
 
