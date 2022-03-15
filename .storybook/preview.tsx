@@ -5,13 +5,10 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from 'lib/storybook/kea-story'
 
 const setupMsw = () => {
-    // Make sure the msw worker is started, if we're running in browser
-    // NOTE: we could be running in node for instance
-    if (typeof window.process === 'undefined') {
-        worker.start()
-    }
+    // Make sure the msw worker is started
+    worker.start()
+    ;(window as any).__mockServiceWorker = worker
 }
-
 setupMsw()
 
 const setupPosthogJs = () => {
@@ -48,7 +45,6 @@ export const decorators = [
     // Make sure the msw service worker is started, and reset the handlers to
     // defaults.
     (Story: any) => {
-        worker.resetHandlers()
         return (
             <KeaStory>
                 <Story />
