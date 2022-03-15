@@ -672,7 +672,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         addGraph: () => {
             if (values.dashboard) {
-                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
+                router.actions.push(
+                    urls.insightNew({ insight: InsightType.TRENDS, from_dashboard: values.dashboard.id })
+                )
             }
         },
         setAutoRefresh: () => {

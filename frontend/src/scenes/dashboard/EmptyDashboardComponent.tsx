@@ -92,7 +92,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                                 icon={<PlusOutlined />}
                                 hotkey="n"
                             >
-                                New insight
+                                Add Insight
                             </HotkeyButton>
                         </div>
                     </Card>

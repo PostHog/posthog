@@ -93,6 +93,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     description: '',
                     tags: [],
                     filters: cleanFilters(filters || {}),
+                    dashboard: filters.from_dashboard,
                     result: null,
                 }
             )
