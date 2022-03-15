@@ -1,5 +1,5 @@
-const { createEntry } = require('../webpack.config')
-const babelConfig = require('../babel.config')
+import { createEntry } from '../webpack.config'
+import * as babelConfig from '../babel.config'
 
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
@@ -14,17 +14,18 @@ module.exports = {
             },
         },
     ],
-    babel: async (options) => {
+    staticDirs: ['public'],
+    babel: async () => {
         // compile babel to "defaults" target (ES5)
-        const envPreset = babelConfig.presets.find(
-            (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
+        const envPreset = (babelConfig as any).presets.find(
+            (preset: any) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
         )
         envPreset[1].targets = 'defaults'
         return babelConfig
     },
-    webpackFinal: (config) => {
+    webpackFinal: (config: any) => {
         const mainConfig = createEntry('main')
-        const newConfig = {
+        const newConfig: any = {
             ...config,
             resolve: {
                 ...config.resolve,
@@ -35,7 +36,7 @@ module.exports = {
                 ...config.module,
                 rules: [
                     ...mainConfig.module.rules,
-                    ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
+                    ...config.module.rules.filter((rule: any) => rule.test.toString().includes('.mdx')),
                 ],
             },
         }
