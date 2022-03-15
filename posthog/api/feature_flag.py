@@ -201,7 +201,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     @action(methods=["GET"], detail=True)
     def history(self, request: request.Request, **kwargs):
-        history = load_history(history_type="FeatureFlag", team_id=self.team_id, item_id=kwargs["pk"],)
+        item_id = kwargs["pk"]
+        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        history = load_history(history_type="FeatureFlag", team_id=self.team_id, item_id=item_id,)
         return Response(
             {"results": HistoryListItemSerializer(history, many=True,).data, "next": None, "previous": None,},
             status=status.HTTP_200_OK,

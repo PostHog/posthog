@@ -1,7 +1,7 @@
 import datetime
 import json
 from dataclasses import asdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 from freezegun.api import freeze_time
@@ -480,26 +480,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        flag_history = self._get_feature_flag_history(instance.pk)["results"]
-
-        self.assertEqual(
-            flag_history,
-            [
-                {
-                    "changes": [
-                        {
-                            "action": "deleted",
-                            "detail": {"after": None, "before": None, "id": str(instance.pk), "key": "potato"},
-                            "key": None,
-                            "type": "FeatureFlag",
-                        }
-                    ],
-                    "created_at": "2021-08-25T22:09:14.252000+00:00",
-                    "email": "new_annotations@posthog.com",
-                    "name": "",
-                }
-            ],
-        )
+        self._get_feature_flag_history(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_get_feature_flag_that_needs_importing(self):
@@ -534,10 +515,6 @@ class TestFeatureFlag(APIBaseTest):
         )
 
     def test_get_feature_flag_history(self):
-        """
-        The first time we load history for a feature flag that existed before starting history logging
-        Import its current state
-        """
         new_user = User.objects.create_and_join(
             self.organization, "person_acting_and_then_viewing_history@posthog.com", None
         )
@@ -611,6 +588,64 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
                 },
             ],
+        )
+
+    def test_get_feature_flag_history_only_from_own_team(self):
+        # two users in two teams
+        _, org_one_team, org_one_user = User.objects.bootstrap(
+            organization_name="Org 1", email="org1@posthog.com", password=None
+        )
+
+        _, org_two_team, org_two_user = User.objects.bootstrap(
+            organization_name="Org 2", email="org2@posthog.com", password=None
+        )
+
+        # two flags in team 1
+        self.client.force_login(org_one_user)
+        team_one_flag_one = self._create_flag_with_properties(
+            name="team-1-flag-1", team_id=org_one_team.id, properties=[],
+        ).json()["id"]
+        team_one_flag_two = self._create_flag_with_properties(
+            name="team-1-flag-2", team_id=org_one_team.id, properties=[],
+        ).json()["id"]
+
+        # two flags in team 2
+        self.client.force_login(org_two_user)
+        team_two_flag_one = self._create_flag_with_properties(
+            name="team-2-flag-1", team_id=org_two_team.id, properties=[],
+        ).json()["id"]
+        team_two_flag_two = self._create_flag_with_properties(
+            name="team-2-flag-2", team_id=org_two_team.id, properties=[],
+        ).json()["id"]
+
+        # user in org 1 gets history
+        self.client.force_login(org_one_user)
+        self._get_feature_flag_history(
+            flag_id=team_one_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_history(
+            flag_id=team_one_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_history(
+            flag_id=team_two_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_history(
+            flag_id=team_two_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+
+        # user in org 2 gets history
+        self.client.force_login(org_two_user)
+        self._get_feature_flag_history(
+            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_history(
+            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self._get_feature_flag_history(
+            flag_id=team_two_flag_one, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+        )
+        self._get_feature_flag_history(
+            flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -920,8 +955,9 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
 
-        event_request = self._create_flag_with_properties("illegal-event-flag", [{"key": "id", "value": 5},])
-        self.assertEqual(event_request.status_code, status.HTTP_400_BAD_REQUEST)
+        event_request = self._create_flag_with_properties(
+            "illegal-event-flag", [{"key": "id", "value": 5},], expected_status=status.HTTP_400_BAD_REQUEST
+        )
         self.assertEqual(
             event_request.json(),
             {
@@ -933,9 +969,10 @@ class TestFeatureFlag(APIBaseTest):
         )
 
         groups_request = self._create_flag_with_properties(
-            "illegal-groups-flag", [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]
+            "illegal-groups-flag",
+            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(groups_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             groups_request.json(),
             {
@@ -971,8 +1008,8 @@ class TestFeatureFlag(APIBaseTest):
             "illegal-groups-flag",
             [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
             aggregation_group_type_index=3,
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(illegal_groups_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             illegal_groups_request.json(),
             {
@@ -987,8 +1024,8 @@ class TestFeatureFlag(APIBaseTest):
             "person-flag",
             [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},],
             aggregation_group_type_index=0,
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(person_request.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             person_request.json(),
             {
@@ -999,15 +1036,32 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    def _create_flag_with_properties(self, name, properties, **kwargs):
-        return self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
+    def _create_flag_with_properties(
+        self,
+        name: str,
+        properties,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+        **kwargs,
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        create_response = self.client.post(
+            f"/api/projects/{team_id}/feature_flags/",
             data={"name": name, "key": name, "filters": {**kwargs, "groups": [{"properties": properties,}],},},
             format="json",
         )
+        self.assertEqual(create_response.status_code, expected_status)
+        return create_response
 
-    def _get_feature_flag_history(self, flag_id: int, expected_status: int = status.HTTP_200_OK):
-        history_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/history")
+    def _get_feature_flag_history(
+        self, flag_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        history_response = self.client.get(f"/api/projects/{team_id}/feature_flags/{flag_id}/history")
         self.assertEqual(history_response.status_code, expected_status)
         return history_response.json()
 
@@ -1018,9 +1072,10 @@ class TestFeatureFlag(APIBaseTest):
         select user
         select team
         select organization
+        check flag exists
         select historical versions (with user details)
         """
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             history_response = self._get_feature_flag_history(flag_id)
 
         history: List[Dict] = history_response["results"]
