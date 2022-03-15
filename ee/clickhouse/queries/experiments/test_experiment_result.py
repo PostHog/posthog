@@ -132,7 +132,7 @@ def probability_D_beats_A_B_and_C(
     )
 
 
-@flaky(max_runs=3, min_passes=1)
+@flaky(max_runs=10, min_passes=1)
 class TestFunnelExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
 
@@ -378,7 +378,7 @@ def probability_C_beats_A_and_B_count_data(
     )
 
 
-@flaky(max_runs=3, min_passes=1)
+@flaky(max_runs=10, min_passes=1)
 class TestTrendExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
         variant_a = CountVariant("A", 20, 1, 200)
