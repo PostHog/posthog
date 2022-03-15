@@ -25,15 +25,19 @@ export interface PaginationManual extends PaginationBase {
 
 export type PaginationState<T> = {
     pagination: PaginationAuto | PaginationManual | undefined
-    dataSourcePage: T[]
-    currentStartIndex: number
-    currentEndIndex: number
     /**
      * Page adjusted for `pageCount` possibly having gotten smaller since last page param update.
      * Note: `pageCount` can logically only be null if pagination is controlled.
      */
     currentPage: number | null
-    pageCount: number | null
+    /** Push a new browing history item to keep track of the current page. */
     setCurrentPage: (newPage: number) => void
+    currentStartIndex: number
+    currentEndIndex: number
+    /** Contents of the current page. */
+    dataSourcePage: T[]
+    /** Number of pages. */
+    pageCount: number | null
+    /** Number of entries in total. */
     entryCount: number | null
 }

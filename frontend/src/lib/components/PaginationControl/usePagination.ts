@@ -14,15 +14,12 @@ export function usePagination<T>(
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
-    /** Push a new browing history item to keep track of the current page */
     const setCurrentPage = useCallback(
         (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
         [location, searchParams, hashParams, push]
     )
 
-    /** Number of entries in total. */
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
-    /** Number of pages. */
     const pageCount: number | null =
         entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     const currentPage: number | null = pagination?.controlled
