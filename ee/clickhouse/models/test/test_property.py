@@ -670,7 +670,7 @@ TEST_BREAKDOWN_PROCESSING = [
         ["$browser", "$browser_version"],
         "events",
         "prop",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) \"AS prop\"",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS \"prop\"",
     ),
 ]
 
