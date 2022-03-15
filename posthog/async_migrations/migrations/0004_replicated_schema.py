@@ -260,7 +260,7 @@ class Migration(AsyncMigrationDefinition):
                 else:
                     retry += 1
                     logger.warning(
-                        "Moving part failed due to (potentially) sporatic zookeeper exception. Retrying...",
+                        "Moving part failed. This is potentially due to a sporadic zookeeper exception. Retrying...",
                         from_table=from_table,
                         to_table=to_table,
                         retry=retry,
