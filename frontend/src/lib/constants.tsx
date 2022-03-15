@@ -93,7 +93,6 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
@@ -109,7 +108,7 @@ export const FEATURE_FLAGS = {
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
+    DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron

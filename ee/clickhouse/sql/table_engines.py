@@ -1,5 +1,6 @@
 import uuid
 from enum import Enum
+from typing import Optional
 
 from django.conf import settings
 
@@ -23,6 +24,12 @@ class MergeTreeEngine:
         self.replication_scheme = replication_scheme
         self.kwargs = kwargs
 
+        self.zookeeper_path_key: Optional[str] = None
+
+    def set_zookeeper_path_key(self, zookeeper_path_key: str):
+        "Used in situations where a unique zookeeper path is needed"
+        self.zookeeper_path_key = zookeeper_path_key
+
     def __str__(self):
         replication_scheme = self.replication_scheme
 
@@ -38,8 +45,11 @@ class MergeTreeEngine:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
 
         # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
-        if settings.TEST:
-            shard_key = f"{str(uuid.uuid4())}_{shard_key}"
+        if settings.TEST and self.zookeeper_path_key is None:
+            self.set_zookeeper_path_key(str(uuid.uuid4()))
+
+        if self.zookeeper_path_key is not None:
+            shard_key = f"{self.zookeeper_path_key}_{shard_key}"
 
         zk_path = f"/clickhouse/tables/{shard_key}/posthog.{self.table}"
         return self.REPLICATED_ENGINE.format(zk_path=zk_path, replica_key=replica_key, **self.kwargs)

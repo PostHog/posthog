@@ -6,7 +6,6 @@ import { urls } from 'scenes/urls'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
-    onComplete: () => void
 }
 
 export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
@@ -38,7 +37,7 @@ export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
             (s) => [s.action],
             (action): Breadcrumb[] => [
                 {
-                    name: 'Events & Actions',
+                    name: 'Data Management',
                     path: urls.actions(),
                 },
                 {
@@ -61,12 +60,11 @@ export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
             },
         },
     }),
-    listeners: ({ actions, props, values }) => ({
+    listeners: ({ actions, values }) => ({
         checkIsFinished: ({ action }) => {
             if (action.is_calculating) {
                 actions.setPollTimeout(setTimeout(() => actions.loadAction(), 1000))
             } else {
-                props.onComplete()
                 actions.setIsComplete(new Date())
                 values.pollTimeout && clearTimeout(values.pollTimeout)
             }

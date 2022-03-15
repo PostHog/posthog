@@ -6,6 +6,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
+    EventStackGearIcon,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -13,12 +14,12 @@ import {
     IconExtension,
     IconFlag,
     IconGauge,
-    IconGroupedEvents,
     IconPerson,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
+    LiveIcon,
 } from 'lib/components/icons'
 import {
     LemonButton,
@@ -233,7 +234,8 @@ function Pages(): JSX.Element {
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
-            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<EventStackGearIcon />} identifier={Scene.DataManagement} to={urls.eventDefinitions()} />
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}

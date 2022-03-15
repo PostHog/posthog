@@ -11,15 +11,15 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { HomeIcon } from 'lib/components/icons'
+import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 
 export function ProjectHomepage(): JSX.Element {
+    const { dashboardLogic } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const dashboardLogicInstance = dashboardLogic({ id: currentTeam?.primary_dashboard ?? undefined })
-    const { dashboard } = useValues(dashboardLogicInstance)
+    const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
 
@@ -99,4 +99,5 @@ export function ProjectHomepage(): JSX.Element {
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
+    logic: projectHomepageLogic,
 }

@@ -687,7 +687,6 @@ export interface InsightModel {
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
-    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags?: string[]
@@ -1395,7 +1394,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string

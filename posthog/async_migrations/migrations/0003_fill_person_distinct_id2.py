@@ -1,7 +1,7 @@
 from functools import cached_property
 
 from ee.clickhouse.client import sync_execute
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_DATABASE
 
@@ -56,7 +56,7 @@ class Migration(AsyncMigrationDefinition):
         return [self.migrate_team_operation(team_id) for team_id in self._team_ids]
 
     def migrate_team_operation(self, team_id: int):
-        return AsyncMigrationOperation.simple_op(
+        return AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 INSERT INTO person_distinct_id2(team_id, distinct_id, person_id, is_deleted, version)
@@ -84,6 +84,7 @@ class Migration(AsyncMigrationDefinition):
                 )
                 GROUP BY team_id, distinct_id
             """,
+            rollback=None,
         )
 
     @cached_property

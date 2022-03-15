@@ -11,6 +11,9 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 export const membersLogic = kea<membersLogicType>({
     path: ['scenes', 'organization', 'Settings', 'membersLogic'],
+    connect: {
+        values: [userLogic, ['user']],
+    },
     actions: {
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
@@ -36,6 +39,21 @@ export const membersLogic = kea<membersLogicType>({
             },
         },
     }),
+    selectors: {
+        meFirstMembers: [
+            (s) => [s.members, s.user],
+            (members, user) => {
+                const me = user && members.find((member) => member.user.uuid === user.uuid)
+                const result: OrganizationMemberType[] = me ? [me] : []
+                for (const member of members) {
+                    if (!user || member.user.uuid !== user.uuid) {
+                        result.push(member)
+                    }
+                }
+                return result
+            },
+        ],
+    },
     listeners: ({ actions }) => ({
         changeMemberAccessLevel: async ({ member, level }) => {
             await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })

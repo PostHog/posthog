@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .LemonTable {
     position: relative;
     width: 100%;
@@ -73,6 +75,36 @@
                 background: var(--bg-side);
                 > td {
                     padding: 0; // Disable padding inside the expansion for better tailored placement of contents
+                }
+            }
+
+            &.LemonTable__tr--status-highlighted {
+                background: rgba($primary, 0.1);
+                color: var(--text-default);
+                font-weight: 600;
+
+                .LemonTable__tr__icon {
+                    color: var(--primary);
+                }
+            }
+
+            &.LemonTable__tr--status-danger {
+                color: var(--danger);
+
+                .LemonTable__tr__icon {
+                    color: var(--danger);
+                }
+            }
+
+            &.LemonTable__tr--status-warning {
+                .LemonTable__tr__icon {
+                    color: var(--warning);
+                }
+            }
+
+            &.LemonTable__tr--status-success {
+                .LemonTable__tr__icon {
+                    color: var(--success);
                 }
             }
             > td {

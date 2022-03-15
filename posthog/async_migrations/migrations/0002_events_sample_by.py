@@ -1,10 +1,15 @@
 from functools import cached_property
+from typing import List
 
 from constance import config
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import (
@@ -41,7 +46,7 @@ Migration Summary
 
 def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
     lt_expression = f"AND toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
-    op = AsyncMigrationOperation.simple_op(
+    op = AsyncMigrationOperationSQL(
         database=AnalyticsDBMS.CLICKHOUSE,
         sql=f"""
         INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -77,8 +82,8 @@ class Migration(AsyncMigrationDefinition):
             # Note: This _should_ be impossible but hard to ensure.
             raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
 
-        create_table_op = [
-            AsyncMigrationOperation.simple_op(
+        create_table_op: List[AsyncMigrationOperation] = [
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                 CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}' AS {EVENTS_TABLE_NAME}
@@ -102,7 +107,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
                 rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
@@ -127,7 +132,7 @@ class Migration(AsyncMigrationDefinition):
                 pass
 
         post_insert_ops = [
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                     RENAME TABLE
@@ -142,7 +147,7 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
                 """,
             ),
-            AsyncMigrationOperation.simple_op(
+            AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
