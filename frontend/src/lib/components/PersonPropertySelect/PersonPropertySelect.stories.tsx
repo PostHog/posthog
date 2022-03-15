@@ -3,7 +3,7 @@ import { useMountedLogic } from 'kea'
 import React from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { PersonPropertySelect as _PersonPropertySelect } from './PersonPropertySelect'
+import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {
     title: 'Filters',
@@ -28,7 +28,7 @@ export default {
     ],
 } as Meta
 
-export const PersonPropertySelect = (): JSX.Element => {
+export const PersonPropertySelect_ = (): JSX.Element => {
     useMountedLogic(personPropertiesModel)
     const [selectedProperties, setSelectProperties] = React.useState<string[]>([
         '$initial_geoip_postal_code',
@@ -51,5 +51,5 @@ export const PersonPropertySelect = (): JSX.Element => {
         '$initial_geoip_subdivision_name',
     ])
 
-    return <_PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} />
+    return <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} />
 }

@@ -1,6 +1,6 @@
 import React from 'react'
 import { mswDecorator } from '~/mocks/browser'
-import { PropertyNamesSelect as _PropertyNamesSelect } from '../PropertyNamesSelect'
+import { PropertyNamesSelect } from '../PropertyNamesSelect'
 import { useValues } from 'kea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 
@@ -27,10 +27,10 @@ export default {
     ],
 }
 
-export const PropertyNamesSelect = (): JSX.Element => {
+export const PropertyNamesSelect_ = (): JSX.Element => {
     const { personProperties } = useValues(personPropertiesModel)
     return (
-        <_PropertyNamesSelect
+        <PropertyNamesSelect
             onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
             allProperties={personProperties.map((p) => p.name)}
         />
