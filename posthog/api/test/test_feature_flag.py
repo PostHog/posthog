@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.history_logging import HistoryListItem
+from posthog.models.history_logging import Change, HistoryListItem
 from posthog.test.base import APIBaseTest
 
 
@@ -162,9 +162,15 @@ class TestFeatureFlag(APIBaseTest):
             flag_id,
             [
                 {
-                    "action": "FeatureFlag_created",
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "action": "created",
+                            "key": None,
+                            "detail": {"id": str(flag_id), "key": "alpha-feature"},
+                        }
+                    ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
-                    "detail": {"id": str(flag_id), "key": "alpha-feature"},
                     "email": "user1@posthog.com",
                     "name": "",
                 }
@@ -364,53 +370,68 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "email": self.user.email,
                     "name": "",
-                    "action": "FeatureFlag_name_changed",
-                    "detail": {
-                        "id": str(flag_id),
-                        "key": "a-feature-flag-that-is-updated",
-                        "from": "original name",
-                        "to": "Updated name",
-                    },
-                    "created_at": "2021-08-25T22:19:14.252000+00:00",
-                },
-                {
-                    "email": self.user.email,
-                    "name": "",
-                    "action": "FeatureFlag_filters_changed",
-                    "detail": {
-                        "id": str(flag_id),
-                        "key": "a-feature-flag-that-is-updated",
-                        "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
-                        "to": {
-                            "groups": [
-                                {
-                                    "properties": [
-                                        {
-                                            "key": "email",
-                                            "type": "person",
-                                            "value": "@posthog.com",
-                                            "operator": "icontains",
-                                        }
-                                    ],
-                                    "rollout_percentage": 65,
-                                }
-                            ]
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "action": "changed",
+                            "key": "name",
+                            "detail": {
+                                "id": str(flag_id),
+                                "key": "a-feature-flag-that-is-updated",
+                                "from": "original name",
+                                "to": "Updated name",
+                            },
                         },
-                    },
+                        {
+                            "type": "FeatureFlag",
+                            "action": "changed",
+                            "key": "filters",
+                            "detail": {
+                                "id": str(flag_id),
+                                "key": "a-feature-flag-that-is-updated",
+                                "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                                "to": {
+                                    "groups": [
+                                        {
+                                            "properties": [
+                                                {
+                                                    "key": "email",
+                                                    "type": "person",
+                                                    "value": "@posthog.com",
+                                                    "operator": "icontains",
+                                                }
+                                            ],
+                                            "rollout_percentage": 65,
+                                        }
+                                    ]
+                                },
+                            },
+                        },
+                        {
+                            "type": "FeatureFlag",
+                            "action": "changed",
+                            "key": "is_simple_flag",
+                            "detail": {
+                                "id": str(flag_id),
+                                "key": "a-feature-flag-that-is-updated",
+                                "from": True,
+                                "to": False,
+                            },
+                        },
+                    ],
                     "created_at": "2021-08-25T22:19:14.252000+00:00",
                 },
                 {
                     "email": self.user.email,
                     "name": "",
-                    "action": "FeatureFlag_is_simple_flag_changed",
-                    "detail": {"id": str(flag_id), "key": "a-feature-flag-that-is-updated", "from": True, "to": False},
-                    "created_at": "2021-08-25T22:19:14.252000+00:00",
-                },
-                {
-                    "email": self.user.email,
-                    "name": "",
-                    "action": "FeatureFlag_created",
-                    "detail": {"id": str(flag_id), "key": "a-feature-flag-that-is-updated"},
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "key": None,
+                            "action": "created",
+                            "detail": {"id": str(flag_id), "key": "a-feature-flag-that-is-updated"},
+                        }
+                    ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
                 },
             ],
@@ -482,8 +503,11 @@ class TestFeatureFlag(APIBaseTest):
                 HistoryListItem(
                     email="history.hog@posthog.com",
                     name="history hog",
-                    action="FeatureFlag_imported",
-                    detail={"id": str(instance.pk), "key": ""},
+                    changes=[
+                        Change(
+                            type="FeatureFlag", key=None, action="imported", detail={"id": str(instance.pk), "key": ""},
+                        )
+                    ],
                     created_at="2021-08-25T22:09:14.252000+00:00",
                 )
             )
@@ -531,27 +555,38 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "email": "person_acting_and_then_viewing_history@posthog.com",
                     "name": "",
-                    "action": "FeatureFlag_filters_changed",
-                    "detail": {
-                        "id": str(flag_id),
-                        "key": "feature_with_history",
-                        "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
-                        "to": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                    },
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "key": "filters",
+                            "action": "changed",
+                            "detail": {
+                                "id": str(flag_id),
+                                "key": "feature_with_history",
+                                "from": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                                "to": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                            },
+                        },
+                        {
+                            "type": "FeatureFlag",
+                            "key": "rollout_percentage",
+                            "action": "changed",
+                            "detail": {"id": str(flag_id), "key": "feature_with_history", "from": None, "to": 74},
+                        },
+                    ],
                     "created_at": "2021-08-25T22:19:14.252000+00:00",
                 },
                 {
                     "email": "person_acting_and_then_viewing_history@posthog.com",
                     "name": "",
-                    "action": "FeatureFlag_rollout_percentage_changed",
-                    "detail": {"id": str(flag_id), "key": "feature_with_history", "from": None, "to": 74},
-                    "created_at": "2021-08-25T22:19:14.252000+00:00",
-                },
-                {
-                    "email": "person_acting_and_then_viewing_history@posthog.com",
-                    "name": "",
-                    "action": "FeatureFlag_created",
-                    "detail": {"id": str(flag_id), "key": "feature_with_history"},
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "key": None,
+                            "action": "created",
+                            "detail": {"id": str(flag_id), "key": "feature_with_history"},
+                        }
+                    ],
                     "created_at": "2021-08-25T22:09:14.252000+00:00",
                 },
             ],

@@ -1,27 +1,41 @@
 import dataclasses
 from itertools import zip_longest
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 from rest_framework import serializers
 
+import posthog.models
 from posthog.models import HistoricalVersion, User
+
+
+class ChangeSerializer(serializers.Serializer):
+    type = serializers.CharField(read_only=True)
+    key = serializers.CharField(read_only=True)
+    action = serializers.CharField(read_only=True)
+    detail = serializers.DictField(read_only=True)
 
 
 class HistoryListItemSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
     name = serializers.CharField(read_only=True)
     user_id = serializers.IntegerField(read_only=True)
-    action = serializers.CharField(read_only=True)
-    detail = serializers.DictField(read_only=True)
+    changes = ChangeSerializer(many=True)
     created_at = serializers.CharField(read_only=True)
+
+
+@dataclasses.dataclass(frozen=True)
+class Change:
+    type: Literal["FeatureFlag"]
+    key: Optional[str]
+    action: Literal["imported", "changed", "created", "deleted"]
+    detail: Dict[str, Union[int, str, Dict]]
 
 
 @dataclasses.dataclass(frozen=True)
 class HistoryListItem:
     email: Optional[str]
     name: Optional[str]
-    action: str
-    detail: Dict[str, Union[int, str, Dict]]
+    changes: List[Change]
     created_at: str
 
 
@@ -34,7 +48,7 @@ def pairwise(
     return zip_longest(left, right)
 
 
-def load_history(history_type: str, team_id: int, item_id: int, instance, serializer):
+def load_history(history_type: Literal["FeatureFlag"], team_id: int, item_id: int, instance, serializer):
     """
      * loads a page of history for that type and id (newest first)
      * and returns a computed history for that page of history
@@ -68,7 +82,7 @@ def load_history(history_type: str, team_id: int, item_id: int, instance, serial
     return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
 
 
-def _get_history_hog():
+def _get_history_hog() -> posthog.models.User:
     """
     For models created before history logging began we don't know who created them or last updated them.
 
@@ -78,7 +92,8 @@ def _get_history_hog():
 
 
 def compute_history(
-    history_type: str, version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
+    history_type: Literal["FeatureFlag"],
+    version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
 ):
     """
     TODO Purposefully leaving this as unstructured "Arrow code" to get to "shameless green"
@@ -101,83 +116,88 @@ def compute_history(
         previous: Optional[HistoricalVersion]
         (current, previous) = pair
 
+        changes: List[Change] = []
+
         if current.action == "create":
-            history.append(
-                HistoryListItem(
-                    email=_safely_read_email(current),
-                    name=_safely_read_first_name(current),
-                    action=f"{history_type}_created",
+            changes.append(
+                Change(
+                    type=history_type,
+                    key=None,
+                    action="created",
                     detail={"id": current.item_id, "key": current.state["key"]},
-                    created_at=current.versioned_at.isoformat(),
                 )
             )
         elif current.action == "delete":
-            history.append(
-                HistoryListItem(
-                    email=_safely_read_email(current),
-                    name=_safely_read_first_name(current),
-                    action=f"{history_type}_deleted",
+            changes.append(
+                Change(
+                    type=history_type,
+                    key=None,
+                    action="deleted",
                     detail={"id": current.item_id, "key": current.state["key"]},
-                    created_at=current.versioned_at.isoformat(),
                 )
             )
         elif current.action == "update" and previous is not None:
             for current_key in current.state:
                 if current_key not in previous.state:
-                    history.append(
-                        HistoryListItem(
-                            email=_safely_read_email(current),
-                            name=_safely_read_first_name(current),
-                            action=f"{history_type}_{current_key}_changed",
+                    changes.append(
+                        Change(
+                            type=history_type,
+                            key=current_key,
+                            action="changed",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
                                 "to": current.state[current_key],
                             },
-                            created_at=current.versioned_at.isoformat(),
                         )
                     )
                 elif current.state[current_key] != previous.state[current_key]:
-                    history.append(
-                        HistoryListItem(
-                            email=_safely_read_email(current),
-                            name=_safely_read_first_name(current),
-                            action=f"{history_type}_{current_key}_changed",
+                    changes.append(
+                        Change(
+                            type=history_type,
+                            key=current_key,
+                            action="changed",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
                                 "from": previous.state[current_key],
                                 "to": current.state[current_key],
                             },
-                            created_at=current.versioned_at.isoformat(),
                         )
                     )
 
             for previous_key in previous.state:
                 if previous_key not in current.state:
-                    history.append(
-                        HistoryListItem(
-                            email=_safely_read_email(current),
-                            name=_safely_read_first_name(current),
-                            action=f"{history_type}_{previous_key}_deleted",
+                    changes.append(
+                        Change(
+                            type=history_type,
+                            key=previous_key,
+                            action="deleted",
                             detail={
                                 "id": current.item_id,
                                 "key": current.state["key"],
                                 "deleted": previous.state[previous_key],
                             },
-                            created_at=current.versioned_at.isoformat(),
                         )
                     )
         elif previous is None and current.action != "create":
-            history.append(
-                HistoryListItem(
-                    email="history.hog@posthog.com",
-                    name="history hog",
-                    action=f"{history_type}_imported",
+            changes.append(
+                Change(
+                    type=history_type,
+                    key=None,
+                    action="imported",
                     detail={"id": current.item_id, "key": current.state["key"]},
-                    created_at=current.versioned_at.isoformat(),
                 )
             )
+
+        history.append(
+            HistoryListItem(
+                email=_safely_read_email(current),
+                name=_safely_read_first_name(current),
+                created_at=current.versioned_at.isoformat(),
+                changes=changes,
+            )
+        )
 
     return history
 

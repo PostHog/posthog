@@ -1,11 +1,11 @@
 from datetime import datetime
 
 from posthog.models import HistoricalVersion, User
-from posthog.models.history_logging import HistoryListItem, compute_history, pairwise
+from posthog.models.history_logging import Change, HistoryListItem, compute_history, pairwise
 
 
 def test_no_history_returns_an_empty_list():
-    assert compute_history("anything", []) == []
+    assert compute_history("FeatureFlag", []) == []
 
 
 def test_a_single_update_shows_updated_by_history_hog():
@@ -17,15 +17,16 @@ def test_a_single_update_shows_updated_by_history_hog():
         versioned_at=datetime.fromisoformat("2020-04-01T12:34:56"),
         team_id=1,
     )
-    assert compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)]) == [
+    actual = compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)])
+    expected = [
         HistoryListItem(
-            email="history.hog@posthog.com",
-            name="history hog",
-            action="FeatureFlag_imported",
-            detail={"id": 4, "key": "the-key"},
+            email=None,
+            name="unknown user",
+            changes=[Change(type="FeatureFlag", key=None, action="imported", detail={"id": 4, "key": "the-key"})],
             created_at="2020-04-01T12:34:56",
         )
     ]
+    assert actual == expected
 
 
 def test_possible_feature_flag_changes():
@@ -38,39 +39,39 @@ def test_possible_feature_flag_changes():
     #  * filters json
     # here's every one of those changes and each of the items the API will return for it
     versions = [
-        HistoricalVersion(
+        HistoricalVersion(  # edits the filter
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={
                 "key": "the-new-key",
                 "name": "a new description",
                 "active": True,
                 "rollout_percentage": 25,
-                "deleted": True,
+                "deleted": False,
                 "filters": {"some": "json", "and": "more"},
             },
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:53:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # sets a filter and undo soft delete
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={
                 "key": "the-new-key",
                 "name": "a new description",
                 "active": True,
                 "rollout_percentage": 25,
-                "deleted": True,
+                "deleted": False,
                 "filters": {"some": "json"},
             },
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:52:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # soft deletes the flag
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={
                 "key": "the-new-key",
@@ -82,161 +83,214 @@ def test_possible_feature_flag_changes():
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:51:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # changes the roll out percentage
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a new description", "active": True, "rollout_percentage": 25},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:50:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # adds a rollout percentage
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a new description", "active": True, "rollout_percentage": 50},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:49:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # sets active to True
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a new description", "active": True},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:48:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # sets active to False
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a new description", "active": False},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:47:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # changes the name
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a new description"},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-04T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:46:56"),
             team_id=1,
         ),
-        HistoricalVersion(
+        HistoricalVersion(  # changes the key and adds a name
             created_by=User(first_name="darth", email="darth.vader@posthog.com"),
             state={"key": "the-new-key", "name": "a description"},
             name="FeatureFlag",
             action="update",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-03T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:45:56"),
             team_id=1,
         ),
-        HistoricalVersion(
-            created_by=User(first_name="darth", email="darth.vader@posthog.com"),
-            state={"key": "the-new-key"},
-            name="FeatureFlag",
-            action="update",
-            item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-02T12:34:56"),
-            team_id=1,
-        ),
-        # original creation
-        HistoricalVersion(
+        HistoricalVersion(  # original creation
             created_by=User(first_name="han", email="han.solo@posthog.com"),
             state={"key": "the-key"},
             name="FeatureFlag",
             action="create",
             item_id=4,
-            versioned_at=datetime.fromisoformat("2020-04-01T12:34:56"),
+            versioned_at=datetime.fromisoformat("2020-04-04T12:44:56"),
             team_id=1,
         ),
     ]
 
     expected = [
-        HistoryListItem(
+        HistoryListItem(  # edits the filter
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_filters_changed",
-            detail={"id": 4, "key": "the-new-key", "from": {"some": "json"}, "to": {"some": "json", "and": "more"}},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="filters",
+                    action="changed",
+                    detail={
+                        "id": 4,
+                        "key": "the-new-key",
+                        "from": {"some": "json"},
+                        "to": {"some": "json", "and": "more"},
+                    },
+                )
+            ],
+            created_at="2020-04-04T12:53:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # sets a filter and undo soft delete
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_filters_changed",
-            detail={"id": 4, "key": "the-new-key", "to": {"some": "json"}},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="deleted",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "from": True, "to": False},
+                ),
+                Change(
+                    type="FeatureFlag",
+                    key="filters",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "to": {"some": "json"}},
+                ),
+            ],
+            created_at="2020-04-04T12:52:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # soft deletes the flag
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_deleted_changed",
-            detail={"id": 4, "key": "the-new-key", "to": True},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="deleted",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "to": True},
+                )
+            ],
+            created_at="2020-04-04T12:51:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # changes the rollout percentage
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_rollout_percentage_changed",
-            detail={"id": 4, "key": "the-new-key", "from": 50, "to": 25},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="rollout_percentage",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "from": 50, "to": 25},
+                )
+            ],
+            created_at="2020-04-04T12:50:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # adds a rollout percentage
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_rollout_percentage_changed",
-            detail={"id": 4, "key": "the-new-key", "to": 50},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="rollout_percentage",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "to": 50},
+                )
+            ],
+            created_at="2020-04-04T12:49:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # sets active to True
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_active_changed",
-            detail={"id": 4, "key": "the-new-key", "from": False, "to": True},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="active",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "from": False, "to": True},
+                )
+            ],
+            created_at="2020-04-04T12:48:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # sets active to False
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_active_changed",
-            detail={"id": 4, "key": "the-new-key", "to": False},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="active",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "to": False},
+                )
+            ],
+            created_at="2020-04-04T12:47:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # changes the name
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_name_changed",
-            detail={"id": 4, "key": "the-new-key", "from": "a description", "to": "a new description"},
-            created_at="2020-04-04T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="name",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "from": "a description", "to": "a new description"},
+                )
+            ],
+            created_at="2020-04-04T12:46:56",
         ),
-        HistoryListItem(
+        HistoryListItem(  # changes the key and adds a name
             email="darth.vader@posthog.com",
             name="darth",
-            action="FeatureFlag_name_changed",
-            detail={"id": 4, "key": "the-new-key", "to": "a description"},
-            created_at="2020-04-03T12:34:56",
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    key="key",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "from": "the-key", "to": "the-new-key"},
+                ),
+                Change(
+                    type="FeatureFlag",
+                    key="name",
+                    action="changed",
+                    detail={"id": 4, "key": "the-new-key", "to": "a description"},
+                ),
+            ],
+            created_at="2020-04-04T12:45:56",
         ),
-        HistoryListItem(
-            email="darth.vader@posthog.com",
-            name="darth",
-            action="FeatureFlag_key_changed",
-            detail={"id": 4, "key": "the-new-key", "from": "the-key", "to": "the-new-key"},
-            created_at="2020-04-02T12:34:56",
-        ),
-        HistoryListItem(
+        HistoryListItem(  # original creation
             email="han.solo@posthog.com",
             name="han",
-            action="FeatureFlag_created",
-            detail={"id": 4, "key": "the-key"},
-            created_at="2020-04-01T12:34:56",
+            changes=[Change(type="FeatureFlag", key=None, action="created", detail={"id": 4, "key": "the-key"},)],
+            created_at="2020-04-04T12:44:56",
         ),
     ]
     history = compute_history(history_type="FeatureFlag", version_pairs=pairwise(versions))
