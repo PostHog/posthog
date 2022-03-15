@@ -474,11 +474,25 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        # 404 when trying to get the deleted feature flag's history
-        # because /api/projects/X/feature_flags/instance_id 404s
-        # before the /history part of the path is taken into account
-        self._get_feature_flag_history(
-            instance.pk, expected_status=status.HTTP_404_NOT_FOUND,
+        flag_history = self._get_feature_flag_history(instance.pk)["results"]
+
+        self.assertEqual(
+            flag_history,
+            [
+                {
+                    "changes": [
+                        {
+                            "action": "deleted",
+                            "detail": {"id": str(instance.pk), "key": "potato"},
+                            "key": None,
+                            "type": "FeatureFlag",
+                        }
+                    ],
+                    "created_at": "2021-08-25T22:09:14.252000+00:00",
+                    "email": "new_annotations@posthog.com",
+                    "name": "",
+                }
+            ],
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -502,13 +516,9 @@ class TestFeatureFlag(APIBaseTest):
             asdict(
                 HistoryListItem(
                     email="history.hog@posthog.com",
-                    name="history hog",
-                    changes=[
-                        Change(
-                            type="FeatureFlag", key=None, action="imported", detail={"id": str(instance.pk), "key": ""},
-                        )
-                    ],
-                    created_at="2021-08-25T22:09:14.252000+00:00",
+                    name="History Hog",
+                    changes=[Change(type="FeatureFlag", key=None, action="imported", detail={})],
+                    created_at="2021-08-25T22:09:14.252000",
                 )
             )
         ]

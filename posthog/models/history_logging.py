@@ -1,11 +1,11 @@
 import dataclasses
+import datetime
 from itertools import zip_longest
 from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 from rest_framework import serializers
 
-import posthog.models
-from posthog.models import HistoricalVersion, User
+from posthog.models import HistoricalVersion
 
 
 class ChangeSerializer(serializers.Serializer):
@@ -48,9 +48,9 @@ def pairwise(
     return zip_longest(left, right)
 
 
-def load_history(history_type: Literal["FeatureFlag"], team_id: int, item_id: int, instance, serializer):
+def load_history(history_type: Literal["FeatureFlag"], team_id: int, item_id: int):
     """
-     * loads a page of history for that type and id (newest first)
+     * loads a page of history for that type and id (with the most recent first)
      * and returns a computed history for that page of history
     """
 
@@ -61,40 +61,36 @@ def load_history(history_type: Literal["FeatureFlag"], team_id: int, item_id: in
         ]
     )
 
-    if len(versions) == 0:
-        """
-        This item existed before history logging and this is the first time it's been viewed.
-        Create an import and capture the state as it is now
-        Otherwise the first change made by a user shows as a change to every field
-        """
-        imported_version = HistoricalVersion(
-            state=serializer(instance).data,
-            name="FeatureFlag",
-            action="update",
-            item_id=item_id,
-            created_by=_get_history_hog(),
-            team_id=team_id,
-        )
-        imported_version.save()
-
-        versions.append(imported_version)
-
     return compute_history(history_type=history_type, version_pairs=(pairwise(versions)),)
 
 
-def _get_history_hog() -> posthog.models.User:
-    """
-    For models created before history logging began we don't know who created them or last updated them.
+def _safely_read_email(version: Optional[HistoricalVersion], is_an_import: bool) -> Optional[str]:
+    if version and version.created_by:
+        return version.created_by.email
 
-    Instead of displaying them as "unknown user" we'll say "History Hog" has imported them
-    """
-    return User.objects.get_or_create(first_name="history hog", email="history.hog@posthog.com")[0]
+    return "history.hog@posthog.com" if is_an_import else None
+
+
+def _safely_read_first_name(version: Optional[HistoricalVersion], is_an_import: bool) -> str:
+    if version and version.created_by:
+        return version.created_by.first_name
+
+    return "History Hog" if is_an_import else "unknown user"
+
+
+def bare_import(history_type: Literal["FeatureFlag"]) -> HistoryListItem:
+    return HistoryListItem(
+        email=_safely_read_email(None, True),
+        name=_safely_read_first_name(None, True),
+        created_at=datetime.datetime.now().isoformat(),
+        changes=[Change(type=history_type, key=None, action="imported", detail={},)],
+    )
 
 
 def compute_history(
     history_type: Literal["FeatureFlag"],
     version_pairs: Iterable[Tuple[HistoricalVersion, Optional[HistoricalVersion]]],
-):
+) -> List[HistoryListItem]:
     """
     TODO Purposefully leaving this as unstructured "Arrow code" to get to "shameless green"
     TODO until there are at least two or three types having history computed
@@ -190,27 +186,15 @@ def compute_history(
                 )
             )
 
+        is_an_import = len(changes) == 1 and changes[0].action == "imported"
+
         history.append(
             HistoryListItem(
-                email=_safely_read_email(current),
-                name=_safely_read_first_name(current),
+                email=_safely_read_email(current, is_an_import),
+                name=_safely_read_first_name(current, is_an_import),
                 created_at=current.versioned_at.isoformat(),
                 changes=changes,
             )
         )
 
-    return history
-
-
-def _safely_read_email(version: Optional[HistoricalVersion]) -> Optional[str]:
-    if version and version.created_by:
-        return version.created_by.email
-
-    return None
-
-
-def _safely_read_first_name(version: Optional[HistoricalVersion]) -> str:
-    if version and version.created_by:
-        return version.created_by.first_name
-
-    return "unknown user"
+    return [bare_import(history_type)] if len(history) == 0 else history

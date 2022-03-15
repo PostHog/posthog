@@ -1,11 +1,23 @@
 from datetime import datetime
 
+from freezegun.api import freeze_time
+
 from posthog.models import HistoricalVersion, User
 from posthog.models.history_logging import Change, HistoryListItem, compute_history, pairwise
 
 
-def test_no_history_returns_an_empty_list():
-    assert compute_history("FeatureFlag", []) == []
+@freeze_time("2021-08-25T22:09:14.252Z")
+def test_no_history_shows_updated_by_history_hog():
+    actual = compute_history(history_type="FeatureFlag", version_pairs=[])
+    expected = [
+        HistoryListItem(
+            email="history.hog@posthog.com",
+            name="History Hog",
+            changes=[Change(type="FeatureFlag", key=None, action="imported", detail={})],
+            created_at="2021-08-25T22:09:14.252000",
+        )
+    ]
+    assert actual == expected
 
 
 def test_a_single_update_shows_updated_by_history_hog():
@@ -20,8 +32,8 @@ def test_a_single_update_shows_updated_by_history_hog():
     actual = compute_history(history_type="FeatureFlag", version_pairs=[(an_update, None)])
     expected = [
         HistoryListItem(
-            email=None,
-            name="unknown user",
+            email="history.hog@posthog.com",
+            name="History Hog",
             changes=[Change(type="FeatureFlag", key=None, action="imported", detail={"id": 4, "key": "the-key"})],
             created_at="2020-04-01T12:34:56",
         )

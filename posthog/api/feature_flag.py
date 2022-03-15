@@ -203,13 +203,7 @@ class FeatureFlagViewSet(
 
     @action(methods=["GET"], detail=True)
     def history(self, request: request.Request, **kwargs):
-        history = load_history(
-            history_type="FeatureFlag",
-            team_id=self.team_id,
-            item_id=kwargs["pk"],
-            instance=self.get_object(),
-            serializer=FeatureFlagSerializer,
-        )
+        history = load_history(history_type="FeatureFlag", team_id=self.team_id, item_id=kwargs["pk"],)
         return Response(
             {"results": HistoryListItemSerializer(history, many=True,).data, "next": None, "previous": None,},
             status=status.HTTP_200_OK,
