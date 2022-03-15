@@ -25,7 +25,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
                 " ".join(
-                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                    f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
                     for column_name in self._column_optimizer.event_columns_to_query
                 )
             )
@@ -41,12 +41,13 @@ class TrendsEventQuery(ClickhouseEventQuery):
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (
                 " ".join(
-                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
+                    f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+                    for column_name in self._extra_fields
                 )
             )
             + (
                 " ".join(
-                    f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                    f', {self.PERSON_TABLE_ALIAS}."{column_name}" as "{column_name}"'
                     for column_name in self._extra_person_fields
                 )
             )

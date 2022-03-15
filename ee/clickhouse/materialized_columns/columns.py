@@ -54,7 +54,7 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
             ALTER TABLE sharded_{table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
+            "{column_name}" VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
             {"property": property},
         )
@@ -63,7 +63,7 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR
+            "{column_name}" VARCHAR
         """
         )
     else:
@@ -72,13 +72,13 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
+            "{column_name}" VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
             {"property": property},
         )
 
     sync_execute(
-        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
+        f'ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN "{column_name}" %(comment)s',
         {"comment": f"column_materializer::{property}"},
     )
 

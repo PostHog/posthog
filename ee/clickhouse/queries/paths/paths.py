@@ -123,34 +123,34 @@ class ClickhousePaths:
     # These values are used to identify the recordings shown in the person modal
     def get_extra_event_clauses(self) -> ExtraEventClauses:
         final_select_statements = " ".join(
-            [f"final_{field} as {field}," for field in self.extra_event_fields_and_properties]
+            [f'"final_{field}" as "{field}",' for field in self.extra_event_fields_and_properties]
         )
         joined_path_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
-                f", joined_path_tuple.{index+4} as final_{field}"
+                f', joined_path_tuple."{index+4}" as "final_{field}"'
                 for index, field in enumerate(self.extra_event_fields_and_properties)
             ]
         )
         array_filter_select_statements = " ".join(
             [
-                f", arrayFilter((x,y)->y, {field}, mapping) as {field}s"
+                f', arrayFilter((x,y)->y, "{field}", mapping) as "{field}s"'
                 for field in self.extra_event_fields_and_properties
             ]
         )
         limited_path_tuple_elements = " ".join(
-            [f", limited_{field}s" for field in self.extra_event_fields_and_properties]
+            [f', "limited_{field}s"' for field in self.extra_event_fields_and_properties]
         )
         path_time_tuple_select_statements = " ".join(
             [
                 # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
-                f", path_time_tuple.{index+4} as {field}"
+                f', path_time_tuple."{index+4}" as "{field}"'
                 for index, field in enumerate(self.extra_event_fields_and_properties)
             ]
         )
-        paths_tuple_elements = " ".join([f", {field}s" for field in self.extra_event_fields_and_properties])
+        paths_tuple_elements = " ".join([f', "{field}s"' for field in self.extra_event_fields_and_properties])
         group_array_select_statements = " ".join(
-            [f"groupArray({field}) as {field}s," for field in self.extra_event_fields_and_properties]
+            [f'groupArray("{field}") as "{field}s",' for field in self.extra_event_fields_and_properties]
         )
 
         return ExtraEventClauses(
@@ -308,9 +308,9 @@ class ClickhousePaths:
             clause += " ".join(
                 [
                     f"""
-                        , if(start_target_index > 0, arraySlice({field}s, start_target_index), {field}s) as start_filtered_{field}s
-                        , if(end_target_index > 0, arrayResize(start_filtered_{field}s, end_target_index), start_filtered_{field}s) as filtered_{field}s
-                        , if(length(filtered_{field}s) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_{field}s, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_{field}s[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_{field}s, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_{field}s) AS limited_{field}s
+                        , if(start_target_index > 0, arraySlice("{field}s", start_target_index), "{field}s") as "start_filtered_{field}s"
+                        , if(end_target_index > 0, arrayResize("start_filtered_{field}s", end_target_index), "start_filtered_{field}s") as "filtered_{field}s"
+                        , if(length("filtered_{field}s") > %(event_in_session_limit)s, arrayConcat(arraySlice("filtered_{field}s", 1, intDiv(%(event_in_session_limit)s, 2)), ["filtered_{field}s"[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice("filtered_{field}s", (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), "filtered_{field}s") AS "limited_{field}s"
                     """
                     for field in self.extra_event_fields_and_properties
                 ]
@@ -337,8 +337,8 @@ class ClickhousePaths:
             clause += " ".join(
                 [
                     f"""
-                        , if(target_index > 0, {compacting_function}({field}s, target_index), {field}s) as filtered_{field}s
-                        , {filtered_path_ordering_clause[index+2]} as limited_{field}s
+                        , if(target_index > 0, {compacting_function}("{field}s", target_index), "{field}s") as "filtered_{field}s"
+                        , {filtered_path_ordering_clause[index+2]} as "limited_{field}s"
                     """
                     for index, field in enumerate(self.extra_event_fields_and_properties)
                 ]
@@ -357,13 +357,13 @@ class ClickhousePaths:
 
     def get_filtered_path_ordering(self) -> Tuple[str, ...]:
         fields_to_include = ["filtered_path", "filtered_timings"] + [
-            f"filtered_{field}s" for field in self.extra_event_fields_and_properties
+            f'"filtered_{field}s"' for field in self.extra_event_fields_and_properties
         ]
 
         if self._filter.end_point:
-            return tuple([f"arraySlice({field}, (-1) * %(event_in_session_limit)s)" for field in fields_to_include])
+            return tuple([f'arraySlice("{field}", (-1) * %(event_in_session_limit)s)' for field in fields_to_include])
         else:
-            return tuple([f"arraySlice({field}, 1, %(event_in_session_limit)s)" for field in fields_to_include])
+            return tuple([f'arraySlice("{field}", 1, %(event_in_session_limit)s)' for field in fields_to_include])
 
     def validate_results(self, results):
         # Query guarantees results list to be:

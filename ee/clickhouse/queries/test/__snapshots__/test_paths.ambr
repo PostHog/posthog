@@ -1186,8 +1186,8 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             "$session_id",
+                             "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1257,8 +1257,8 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        e.uuid AS uuid,
-                        e.timestamp AS timestamp,
+                        e."uuid" AS "uuid",
+                        e."timestamp" AS "timestamp",
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
@@ -1307,8 +1307,8 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             "$session_id",
+                             "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1378,8 +1378,8 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        e.uuid AS uuid,
-                        e.timestamp AS timestamp,
+                        e."uuid" AS "uuid",
+                        e."timestamp" AS "timestamp",
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
@@ -1428,8 +1428,8 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             "$session_id",
+                             "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1499,8 +1499,8 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        e.uuid AS uuid,
-                        e.timestamp AS timestamp,
+                        e."uuid" AS "uuid",
+                        e."timestamp" AS "timestamp",
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
@@ -1548,8 +1548,8 @@
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+                             "$session_id",
+                             "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1626,8 +1626,8 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        e.uuid AS uuid,
-                        e.timestamp AS timestamp,
+                        e."uuid" AS "uuid",
+                        e."timestamp" AS "timestamp",
                         e."$session_id" as $session_id,
                         e."$window_id" as $window_id,
                         if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,

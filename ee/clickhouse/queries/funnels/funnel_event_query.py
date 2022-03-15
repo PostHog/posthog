@@ -24,7 +24,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
             f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as aggregation_target",
         ]
 
-        _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
+        _fields += [f'{self.EVENT_TABLE_ALIAS}."{field}" AS "{field}"' for field in self._extra_fields]
         _fields += [
             get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
             + f' as "{field}"'
@@ -43,7 +43,8 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         if self._should_join_persons:
             _fields.extend(
-                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
+                f'{self.PERSON_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+                for column_name in self._person_query.fields
             )
 
         _fields = list(filter(None, _fields))

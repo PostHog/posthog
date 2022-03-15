@@ -8,10 +8,10 @@
                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0,
+            e."$group_0" as "$group_0",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            e.uuid as uuid
+            e."uuid" as "uuid"
      FROM events e
      WHERE team_id = 2
        AND event = 'pageview'
@@ -39,8 +39,8 @@
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,

@@ -23,7 +23,7 @@ def mark_all_materialized() -> None:
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
+            "{column_name}" VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
             """,
             {"property": property_name},
         )

@@ -18,8 +18,8 @@
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -86,8 +86,8 @@
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -129,7 +129,7 @@
                          toDateTime(toStartOfDay(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.properties as properties
+                  e."properties" as "properties"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -147,10 +147,10 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -210,8 +210,8 @@
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -282,8 +282,8 @@
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -377,10 +377,10 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -492,10 +492,10 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
-            e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e."distinct_id" as "distinct_id",
+            e."team_id" as "team_id"
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -534,11 +534,11 @@
         FROM numbers(dateDiff('day', toDateTime('2020-01-01 00:00:00'), toDateTime('2020-01-12 23:59:59')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-        UNION ALL SELECT count(DISTINCT $group_0) as data,
+        UNION ALL SELECT count(DISTINCT "$group_0") as data,
                          toDateTime(toStartOfDay(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.$group_0 as $group_0
+                  e."$group_0" as "$group_0"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -556,7 +556,7 @@
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0
+            e."$group_0" as "$group_0"
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'

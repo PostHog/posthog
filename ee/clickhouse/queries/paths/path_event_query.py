@@ -44,7 +44,7 @@ class PathEventQuery(ClickhouseEventQuery):
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
             funnel_paths_timestamp,
         ]
-        _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
+        _fields += [f'{self.EVENT_TABLE_ALIAS}."{field}" AS "{field}"' for field in self._extra_fields]
         _fields += [
             get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
             + f" as {field}"
