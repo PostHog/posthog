@@ -127,6 +127,16 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
 }
 
+export interface OrganizationDomainType {
+    id: string
+    domain: string
+    is_verified: boolean
+    verified_at: string // Datetime
+    verification_challenge: string
+    jit_provisioning_enabled: boolean
+    sso_enforcement: 'google-oauth2' | 'github' | 'gitlab' | ''
+}
+
 /** Member properties relevant at both organization and project level. */
 export interface BaseMemberType {
     id: string
