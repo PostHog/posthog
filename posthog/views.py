@@ -63,7 +63,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     sso_providers = get_available_sso_providers()
 
     if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider&error_detail={parse.quote('Invalid SSO provider.')}")
+        return redirect(f"/login?error_code=invalid_sso_provider")
 
     if not sso_providers[backend]:
         return redirect(

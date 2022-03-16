@@ -148,6 +148,7 @@ export const BinCountAuto = 'auto'
 export const ERROR_MESSAGES: Record<string, string> = {
     no_new_organizations:
         'Your email address is not associated with an account. Please ask your administrator for an invite.',
+    invalid_sso_provider: 'The SSO provider you specified is invalid. Visit https://posthog.com/sso for details.',
 }
 
 // Cohort types
