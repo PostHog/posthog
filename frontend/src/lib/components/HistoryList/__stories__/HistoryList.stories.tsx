@@ -4,7 +4,7 @@ import { featureFlagsHistoryResponseJson } from 'lib/components/HistoryList/__st
 import { mswDecorator } from '~/mocks/browser'
 
 export default {
-    title: 'DataDisplay/HistoryList',
+    title: 'Components/HistoryList',
     decorators: [
         mswDecorator({
             get: {

@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 // some metadata and optional parameters
 export default {
     title: 'Scenes/Recordings',
+    parameters: { options: { showPanel: false /* hide code for scenes */ } },
     decorators: [
         mswDecorator({
             get: {

@@ -4,9 +4,8 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 
 export default {
-    title: 'DataDisplay/PropertyKeyInfo',
+    title: 'Components/PropertyKeyInfo',
     component: PropertyKeyInfo,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PropertyKeyInfo>
 
 const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {

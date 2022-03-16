@@ -1,27 +1,21 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { Spinner as SpinnerComponent } from './Spinner'
+import { Spinner as Spinner } from './Spinner'
 
 export default {
-    title: 'DataDisplay/Spinner',
-    component: SpinnerComponent,
-    parameters: { options: { showPanel: true } },
+    title: 'Components/Spinner',
+    component: Spinner,
 } as ComponentMeta<typeof Spinner>
 
-export function Spinner(): JSX.Element {
-    return (
-        <>
-            <h2>Small – primary</h2>
-            <SpinnerComponent size="sm" />
-            <h2>Medium – primary (default)</h2>
-            <SpinnerComponent />
-            <h2>Large – primary</h2>
-            <SpinnerComponent size="lg" />
-            <h2>Medium – inverse</h2>
-            <div style={{ display: 'flex', background: 'black', width: 'fit-content', padding: 8 }}>
-                <SpinnerComponent type="inverse" />
-            </div>
-        </>
-    )
-}
+export const Default = (): JSX.Element => <Spinner />
+
+export const Small = (): JSX.Element => <Spinner size="sm" />
+
+export const Large = (): JSX.Element => <Spinner size="lg" />
+
+export const Inverse = (): JSX.Element => (
+    <div style={{ display: 'flex', background: 'black', width: 'fit-content', padding: 8 }}>
+        <Spinner type="inverse" />
+    </div>
+)

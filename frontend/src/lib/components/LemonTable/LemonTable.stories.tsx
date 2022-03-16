@@ -6,7 +6,6 @@ import { LemonTable } from './LemonTable'
 export default {
     title: 'DataDisplay',
     component: LemonTable,
-    parameters: { options: { showPanel: true } },
     argTypes: {
         loading: {
             control: {

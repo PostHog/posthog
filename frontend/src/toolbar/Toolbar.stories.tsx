@@ -21,6 +21,7 @@ const editorParams: EditorProps = {
 
 export default {
     title: 'Scenes/Toolbar',
+    parameters: { options: { showPanel: false /* hide code for scenes */ } },
 } as Meta
 
 function useToolbarStyles(): void {

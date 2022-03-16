@@ -7,7 +7,6 @@ import { Button } from 'antd'
 export default {
     title: 'DataDisplay/Popup',
     component: Popup,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof Popup>
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />

@@ -8,6 +8,7 @@ export default {
     title: 'Layout/Navigation',
     parameters: {
         layout: 'fullscreen',
+        options: { showPanel: false },
     },
 } as Meta
 

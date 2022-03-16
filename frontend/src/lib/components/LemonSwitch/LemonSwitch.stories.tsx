@@ -6,7 +6,6 @@ import { LemonSwitch } from './LemonSwitch'
 export default {
     title: 'DataDisplay',
     component: LemonSwitch,
-    parameters: { options: { showPanel: true } },
     argTypes: {
         loading: {
             control: {

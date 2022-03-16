@@ -4,9 +4,8 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { NotFound } from './index'
 
 export default {
-    title: 'DataDisplay/NotFound',
+    title: 'Components/NotFound',
     component: NotFound,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof NotFound>
 
 const Template: ComponentStory<typeof NotFound> = (args) => <NotFound {...args} />

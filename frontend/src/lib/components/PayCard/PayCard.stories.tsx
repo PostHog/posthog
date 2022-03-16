@@ -3,27 +3,17 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 
 import { PayCard } from './PayCard'
 import { AvailableFeature } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { initKea } from '~/initKea'
-import { Provider } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export default {
-    title: 'DataDisplay/PayCard',
+    title: 'Components/PayCard',
     component: PayCard,
-    // parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PayCard>
 
 const Template: ComponentStory<typeof PayCard> = (args) => {
-    initKea()
-    preflightLogic.mount()
-    eventUsageLogic.mount()
     return (
-        <Provider>
-            <div style={{ maxWidth: 600 }}>
-                <PayCard {...args} />
-            </div>
-        </Provider>
+        <div style={{ maxWidth: 600 }}>
+            <PayCard {...args} />
+        </div>
     )
 }
 

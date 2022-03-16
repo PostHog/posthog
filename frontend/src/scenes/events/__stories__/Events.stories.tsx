@@ -12,6 +12,7 @@ export default {
             get: { '/api/projects/1/events': { next: null, results: eventList } },
         }),
     ],
+    parameters: { options: { showPanel: false /* hide code for scenes */ } },
 } as Meta
 
 export const AllEvents = (): JSX.Element => {

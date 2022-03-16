@@ -9,6 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 export default {
     title: 'Scenes/Web Performance',
+    parameters: { options: { showPanel: false /* hide code for scenes */ } },
     decorators: [
         mswDecorator({
             get: {
