@@ -6,7 +6,7 @@ import { worker } from '~/mocks/browser'
 import { PropertyNamesSelect } from '../PropertyNamesSelect'
 
 export default {
-    title: 'PostHog/Components/PropertyNamesSelect',
+    title: 'Filters/PropertyNamesSelect',
 }
 
 export const EmptyWithOptions = (): JSX.Element => {

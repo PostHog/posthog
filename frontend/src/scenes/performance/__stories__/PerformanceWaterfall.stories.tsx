@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 import eventsState from './events.json'
 import { PerfBlock, WebPerformance } from 'scenes/performance/WebPerformance'
@@ -8,7 +8,7 @@ import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 
 export default {
-    title: 'PostHog/Scenes/WebPerformance',
+    title: 'Scenes/WebPerformance',
 } as Meta
 
 export const WebPerformanceStory = keaStory(WebPerformance, eventsState)
@@ -79,7 +79,7 @@ export const PerformanceBlockWithPerformanceDetails = keaStory(
                                 },
                             },
                             entry: {
-                                name: 'http://127.0.0.1:8000/events/stats',
+                                name: 'http://127.0.0.1:8000/data-management/events',
                                 entryType: 'navigation',
                                 duration: 510,
                                 initiatorType: 'navigation',

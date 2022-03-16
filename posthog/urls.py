@@ -16,6 +16,7 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    organizations_router,
     project_dashboards_router,
     projects_router,
     router,
@@ -35,6 +36,15 @@ except ImportError:
     pass
 else:
     extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+
+
+try:
+    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
+    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
+except ImportError:
+    pass
+else:
+    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
 
 
 @csrf.ensure_csrf_cookie
@@ -121,7 +131,7 @@ if settings.TEST:
         from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
 
-        sync_execute(TRUNCATE_EVENTS_TABLE_SQL)
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

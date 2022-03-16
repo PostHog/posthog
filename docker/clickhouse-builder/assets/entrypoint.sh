@@ -1,6 +1,7 @@
 #!/bin/bash
-
-# https://github.com/ClickHouse/ClickHouse/blob/master/docker/server/entrypoint.sh
+#
+# From https://github.com/ClickHouse/ClickHouse/blob/master/docker/server/entrypoint.sh
+#
 
 set -eo pipefail
 shopt -s nullglob
@@ -67,7 +68,12 @@ do
     # check if variable not empty
     [ -z "$dir" ] && continue
     # ensure directories exist
-    if ! mkdir -p "$dir"; then
+    if [ "$DO_CHOWN" = "1" ]; then
+      mkdir="mkdir"
+    else
+      mkdir="$gosu mkdir"
+    fi
+    if ! $mkdir -p "$dir"; then
         echo "Couldn't create necessary directory: $dir"
         exit 1
     fi
@@ -88,8 +94,8 @@ done
 if [ -n "$CLICKHOUSE_USER" ] && [ "$CLICKHOUSE_USER" != "default" ] || [ -n "$CLICKHOUSE_PASSWORD" ]; then
     echo "$0: create new user '$CLICKHOUSE_USER' instead 'default'"
     cat <<EOT > /etc/clickhouse-server/users.d/default-user.xml
-    <yandex>
-      <!-- Docs: <https://clickhouse.tech/docs/en/operations/settings/settings_users/> -->
+    <clickhouse>
+      <!-- Docs: <https://clickhouse.com/docs/en/operations/settings/settings_users/> -->
       <users>
         <!-- Remove default user -->
         <default remove="remove">
@@ -105,7 +111,7 @@ if [ -n "$CLICKHOUSE_USER" ] && [ "$CLICKHOUSE_USER" != "default" ] || [ -n "$CL
           <access_management>${CLICKHOUSE_ACCESS_MANAGEMENT}</access_management>
         </${CLICKHOUSE_USER}>
       </users>
-    </yandex>
+    </clickhouse>
 EOT
 fi
 

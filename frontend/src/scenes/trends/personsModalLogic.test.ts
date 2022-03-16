@@ -1,19 +1,15 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { personsModalLogic } from './personsModalLogic'
 import { router } from 'kea-router'
-
-jest.mock('lib/api')
 
 describe('personModalLogic', () => {
     let logic: ReturnType<typeof personsModalLogic.build>
 
-    mockAPI(defaultAPIMocks)
-
-    initKeaTestLogic({
-        logic: personsModalLogic,
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        logic = personsModalLogic()
+        logic.mount()
     })
 
     describe('sessionRecordingId', () => {

@@ -1,6 +1,6 @@
 // Login.stories.tsx
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 // import the main component of the scene
 import { Login } from '../Login'
@@ -12,7 +12,7 @@ import cloudState from './login-cloud.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Authentication/Login',
+    title: 'Scenes/Authentication/Login',
 } as Meta
 
 // export more stories with different state

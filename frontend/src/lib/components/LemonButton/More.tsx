@@ -3,7 +3,7 @@ import { LemonButtonWithPopup } from '.'
 import { IconEllipsis } from '../icons'
 import { PopupProps } from '../Popup/Popup'
 
-export function More({ overlay }: Pick<PopupProps, 'overlay'>): JSX.Element {
+export function More({ overlay }: Partial<Pick<PopupProps, 'overlay'>>): JSX.Element {
     return (
         <LemonButtonWithPopup
             data-attr="more-button"
@@ -14,6 +14,7 @@ export function More({ overlay }: Pick<PopupProps, 'overlay'>): JSX.Element {
                 actionable: true,
                 overlay,
             }}
+            disabled={!overlay}
         />
     )
 }

@@ -22,7 +22,8 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/utils'
-import { stringify, stringToBoolean } from '../../utils/utils'
+import { stringToBoolean } from '../../utils/env-utils'
+import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */

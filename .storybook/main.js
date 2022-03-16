@@ -3,8 +3,18 @@ const babelConfig = require('../babel.config')
 
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
-    addons: ['@storybook/addon-links', '@storybook/addon-essentials', './ApiSelector/register.js'],
-    babel: async (options) => {
+    addons: [
+        '@storybook/addon-links',
+        '@storybook/addon-essentials',
+        {
+            name: 'storybook-addon-turbo-build',
+            options: {
+                optimizationLevel: 3,
+            },
+        },
+    ],
+    staticDirs: ['public'],
+    babel: async () => {
         // compile babel to "defaults" target (ES5)
         const envPreset = babelConfig.presets.find(
             (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
@@ -14,7 +24,7 @@ module.exports = {
     },
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
-        const newConfig = {
+        return {
             ...config,
             resolve: {
                 ...config.resolve,
@@ -29,6 +39,8 @@ module.exports = {
                 ],
             },
         }
-        return newConfig
+    },
+    features: {
+        postcss: false,
     },
 }

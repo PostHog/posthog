@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useResizeObserver } from '../../hooks/useResizeObserver'
-import { IconChevronLeft, IconChevronRight } from '../icons'
-import { LemonButton } from '../LemonButton'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
-import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumns } from './types'
+import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
+import { Skeleton } from 'antd'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -34,6 +34,13 @@ export interface LemonTableProps<T extends Record<string, any>> {
     rowKey?: keyof T | ((record: T) => string | number)
     /** Class name to append to each row */
     rowClassName?: string | ((record: T) => string)
+    /** Status of each row. Defaults no status. */
+    rowStatus?:
+        | 'success'
+        | 'warning'
+        | 'danger'
+        | 'highlighted'
+        | ((record: T) => 'success' | 'warning' | 'danger' | 'highlighted' | undefined)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** Whether the header should be shown. The default value is `"middle"`. */
@@ -57,6 +64,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
+    loadingSkeletonRows?: number
     /** What to show when there's no data. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
@@ -72,6 +81,7 @@ export function LemonTable<T extends Record<string, any>>({
     dataSource = [],
     rowKey,
     rowClassName,
+    rowStatus,
     onRow,
     size,
     embedded = false,
@@ -84,14 +94,13 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
+    loadingSkeletonRows = 1,
     emptyState,
     nouns = ['entry', 'entries'],
     className,
     style,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
-    /** Search param that will be used for storing and syncing the current page */
-    const currentPageParam = id ? `${id}_page` : 'page'
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
@@ -101,11 +110,6 @@ export function LemonTable<T extends Record<string, any>>({
     // A tuple signaling scrollability, on the left and on the right respectively
     const [isScrollable, setIsScrollable] = useState([false, false])
 
-    /** Push a new browing history item to keep track of the current page */
-    const setLocalCurrentPage = useCallback(
-        (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
-        [location, searchParams, hashParams, push]
-    )
     /** Replace the current browsing history item to change sorting */
     const setLocalSorting = useCallback(
         (newSorting: Sorting | null) =>
@@ -161,50 +165,21 @@ export function LemonTable<T extends Record<string, any>>({
                       order: 1,
                   }
             : defaultSorting)
-    /** Number of entries in total. */
-    const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
-    /** Number of pages. */
-    const pageCount: number | null =
-        entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
-    /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
-    // Note: `pageCount` can logically only be null if pagination is controlled
-    const currentPage: number | null = pagination?.controlled
-        ? pagination.currentPage || null
-        : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
-    /** Whether pages previous and next are available. */
-    const isPreviousAvailable: boolean =
-        currentPage !== null ? currentPage > 1 : !!(pagination?.controlled && pagination.onBackward)
-    const isNextAvailable: boolean =
-        currentPage !== null && pageCount !== null
-            ? currentPage < pageCount
-            : !!(pagination?.controlled && pagination.onForward)
-    /** Whether there's reason to show pagination. */
-    const showPagination: boolean = isPreviousAvailable || isNextAvailable || pagination?.hideOnSinglePage === false
 
-    const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
-        let processedDataSource = dataSource
+    const sortedDataSource = useMemo(() => {
         if (currentSorting) {
             const { columnKey: sortColumnKey, order: sortOrder } = currentSorting
             const sorter = columns.find(
                 (searchColumn) => searchColumn.sorter && determineColumnKey(searchColumn, 'sorting') === sortColumnKey
             )?.sorter
             if (typeof sorter === 'function') {
-                processedDataSource = processedDataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
+                return dataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
             }
         }
-        const calculatedStartIndex =
-            pagination && currentPage && pagination.pageSize ? (currentPage - 1) * pagination.pageSize : 0
-        const calculatedFrame =
-            pagination && !pagination.controlled
-                ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
-                : processedDataSource
-        const calculatedEndIndex = calculatedStartIndex + calculatedFrame.length
-        return {
-            currentFrame: calculatedFrame,
-            currentStartIndex: calculatedStartIndex,
-            currentEndIndex: calculatedEndIndex,
-        }
-    }, [currentPage, pageCount, pagination, dataSource, currentSorting])
+        return dataSource
+    }, [dataSource, currentSorting])
+
+    const paginationState = usePagination(sortedDataSource, pagination, id)
 
     useEffect(() => {
         // When the current page changes, scroll back to the top of the table
@@ -215,7 +190,7 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
-    }, [currentPage, scrollRef.current])
+    }, [paginationState.currentPage, scrollRef.current])
 
     return (
         <div
@@ -225,7 +200,6 @@ export function LemonTable<T extends Record<string, any>>({
                 size && size !== 'middle' && `LemonTable--${size}`,
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                showPagination && 'LemonTable--paginated',
                 isScrollable[0] && 'LemonTable--scrollable-left',
                 isScrollable[1] && 'LemonTable--scrollable-right',
                 className
@@ -310,78 +284,53 @@ export function LemonTable<T extends Record<string, any>>({
                             </thead>
                         )}
                         <tbody>
-                            {currentFrame.length ? (
-                                currentFrame.map((record, rowIndex) => {
+                            {paginationState.dataSourcePage.length ? (
+                                paginationState.dataSourcePage.map((record, rowIndex) => {
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record)
                                             : record[rowKey]
-                                        : currentStartIndex + rowIndex
+                                        : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                    const rowStatusDetermined =
+                                        typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
                                         <TableRow
                                             key={`LemonTable-row-${rowKeyDetermined}`}
                                             record={record}
-                                            recordIndex={currentStartIndex + rowIndex}
+                                            recordIndex={paginationState.currentStartIndex + rowIndex}
                                             rowKeyDetermined={rowKeyDetermined}
                                             rowClassNameDetermined={rowClassNameDetermined}
+                                            rowStatusDetermined={rowStatusDetermined}
                                             columns={columns}
                                             onRow={onRow}
                                             expandable={expandable}
                                         />
                                     )
                                 })
+                            ) : loading ? (
+                                Array(loadingSkeletonRows)
+                                    .fill(null)
+                                    .map((_, rowIndex) => (
+                                        <tr key={rowIndex}>
+                                            {columns.map((column, columnIndex) => (
+                                                <td key={columnIndex} className={column.className}>
+                                                    <Skeleton title paragraph={false} active />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))
                             ) : (
                                 <tr className="LemonTable__empty-state">
                                     <td colSpan={columns.length + Number(!!expandable)}>
-                                        {!loading ? emptyState || `No ${nouns[1]}` : `Loading ${nouns[1]}…`}
+                                        {emptyState || `No ${nouns[1]}`}
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
-                    {showPagination && (
-                        <div className="LemonTable__pagination">
-                            <span className="LemonTable__locator">
-                                {currentFrame.length === 0
-                                    ? `No ${nouns[1]}`
-                                    : entryCount === null
-                                    ? `${currentFrame.length} ${
-                                          currentFrame.length === 1 ? nouns[0] : nouns[1]
-                                      } on this page`
-                                    : currentFrame.length === 1
-                                    ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                                    : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
-                            </span>
-                            <LemonButton
-                                icon={<IconChevronLeft />}
-                                type="stealth"
-                                disabled={!isPreviousAvailable}
-                                onClick={
-                                    pagination?.controlled
-                                        ? pagination.onBackward
-                                        : () =>
-                                              setLocalCurrentPage(
-                                                  Math.max(1, Math.min(pageCount as number, currentPage as number) - 1)
-                                              )
-                                }
-                            />
-                            <LemonButton
-                                icon={<IconChevronRight />}
-                                type="stealth"
-                                disabled={!isNextAvailable}
-                                onClick={
-                                    pagination?.controlled
-                                        ? pagination.onForward
-                                        : () =>
-                                              setLocalCurrentPage(
-                                                  Math.min(pageCount as number, (currentPage as number) + 1)
-                                              )
-                                }
-                            />
-                        </div>
-                    )}
+                    <PaginationControl {...paginationState} nouns={nouns} />
                     <div className="LemonTable__overlay" />
                     <div className="LemonTable__loader" />
                 </div>

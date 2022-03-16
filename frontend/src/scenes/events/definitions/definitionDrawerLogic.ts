@@ -213,16 +213,17 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
         },
     }),
     actionToUrl: ({ values }) => ({
-        openDrawer: ({ type, id }) => (type === 'property' ? urls.eventPropertyStat(id) : urls.eventStat(id)),
-        closeDrawer: () => (values.type === 'property' ? urls.eventPropertyStats() : urls.eventStats()),
+        openDrawer: ({ type, id }) =>
+            type === 'property' ? urls.eventPropertyDefinition(id) : urls.eventDefinition(id),
+        closeDrawer: () => (values.type === 'property' ? urls.eventPropertyDefinitions() : urls.eventDefinitions()),
     }),
     urlToAction: ({ actions }) => ({
-        '/events/stats/:id': ({ id }) => {
+        '/data-management/events/:id': ({ id }) => {
             if (id) {
                 actions.openDrawer('event', id)
             }
         },
-        '/events/properties/:id': ({ id }) => {
+        '/data-management/event-properties/:id': ({ id }) => {
             if (id) {
                 actions.openDrawer('property', id)
             }

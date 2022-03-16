@@ -1,23 +1,18 @@
 import { Button } from 'antd'
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+
+const REFRESH_INTERVAL_MINUTES = 3
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const [, setRerenderCounter] = useState(0)
 
-    useEffect(() => {
-        const rerenderInterval = setInterval(() => {
-            setRerenderCounter((previousValue) => previousValue + 1)
-        }, 30000)
-        return () => {
-            clearInterval(rerenderInterval)
-        }
-    }, [])
+    usePeriodicRerender(15000)
 
     return (
         <div className="text-muted-alt" style={{ height: 32, display: 'flex', alignItems: 'center' }}>
@@ -28,7 +23,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     <>
                         Insights can be refreshed
                         <br />
-                        every 3 minutes.
+                        every {REFRESH_INTERVAL_MINUTES} minutes.
                     </>
                 }
             >
@@ -36,7 +31,12 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     size="small"
                     type="link"
                     onClick={() => loadResults(true)}
-                    disabled={!!lastRefresh && dayjs().subtract(3, 'minutes') <= dayjs(lastRefresh)}
+                    disabled={
+                        !!lastRefresh &&
+                        dayjs()
+                            .subtract(REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                            .isBefore(lastRefresh)
+                    }
                     style={{ padding: 0 }}
                 >
                     <span style={{ fontSize: 14 }}>Refresh</span>

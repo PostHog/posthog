@@ -50,7 +50,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.utils import get_safe_cache, relative_date_parse, str_to_bool
+from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -97,12 +97,12 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "id",
             "short_id",
             "name",
+            "derived_name",
             "filters",
             "filters_hash",
             "order",
             "deleted",
             "dashboard",
-            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -139,7 +139,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
-        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
+        if not validated_data.get("dashboard", None):
             dashboard_item = Insight.objects.create(
                 team=team, created_by=request.user, last_modified_by=request.user, **validated_data
             )
@@ -166,7 +166,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
-        if self.context["request"].GET.get("refresh"):
+        if should_refresh(self.context["request"]):
             return update_dashboard_item_cache(insight, None)
 
         result = get_safe_cache(insight.filters_hash)
@@ -176,7 +176,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return result.get("result")
 
     def get_last_refresh(self, insight: Insight):
-        if self.context["request"].GET.get("refresh"):
+        if should_refresh(self.context["request"]):
             return now()
 
         result = self.get_result(insight)
@@ -249,7 +249,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
-                queryset = queryset.filter(name__icontains=request.GET["search"])
+                queryset = queryset.filter(
+                    Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
+                )
         return queryset
 
     @action(methods=["patch"], detail=False)

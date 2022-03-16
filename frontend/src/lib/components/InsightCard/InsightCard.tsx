@@ -9,13 +9,13 @@ import {
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
-    UNNAMED_INSIGHT_NAME,
 } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
+    ChartParams,
     DashboardType,
     FilterType,
     InsightColor,
@@ -45,6 +45,10 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -55,7 +59,7 @@ const displayMap: Record<
     DisplayedType,
     {
         className: string
-        element: (props: any) => JSX.Element | null
+        element: (props: ChartParams) => JSX.Element | null
     }
 > = {
     ActionsLineGraph: {
@@ -168,7 +172,10 @@ function InsightMeta({
     const { short_id, name, description, tags, color, filters, dashboard } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
@@ -365,7 +372,16 @@ function InsightMeta({
                             </div>
                             <Link to={urls.insightView(short_id)}>
                                 <h4 title={name} data-attr="insight-card-title">
-                                    {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
+                                    {name || (
+                                        <i>
+                                            {summarizeInsightFilters(
+                                                filters,
+                                                aggregationLabel,
+                                                cohortsById,
+                                                mathDefinitions
+                                            )}
+                                        </i>
+                                    )}
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
@@ -401,9 +417,7 @@ function InsightViz({
     tooFewFunnelSteps,
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
-    const displayedType = getDisplayedType(filters)
+    const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType].element
 
     return (
@@ -430,14 +444,7 @@ function InsightViz({
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                !apiErrored && (
-                    <VizComponent
-                        dashboardItemId={short_id}
-                        cachedResults={cachedResults}
-                        filters={filters}
-                        showPersonsModal={false}
-                    />
-                )
+                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
             )}
         </div>
     )
@@ -464,12 +471,9 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
     const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: short_id,
-        filters,
-        cachedResults,
+        dashboardItemId: insight.short_id,
+        cachedInsight: insight,
         doNotLoad: true,
     }
 
@@ -479,7 +483,7 @@ function InsightCardInternal(
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
-    if (filters.insight === InsightType.FUNNELS) {
+    if (insight.filters.insight === InsightType.FUNNELS) {
         if (!areFiltersValid) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {

@@ -38,29 +38,29 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
-    [Scene.InsightRouter]: {
-        projectBased: true,
-        name: 'Insights',
-    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Live Events',
+    },
+    [Scene.DataManagement]: {
+        projectBased: true,
+        name: 'Data Management',
     },
     [Scene.Actions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
-    [Scene.EventStats]: {
+    [Scene.EventDefinitions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
-    [Scene.EventPropertyStats]: {
+    [Scene.EventPropertyDefinitions]: {
         projectBased: true,
-        name: 'Events & Actions',
+        name: 'Data Management',
     },
     [Scene.WebPerformance]: {
         projectBased: true,
@@ -116,6 +116,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Insights',
+    },
+    [Scene.ProjectHomepage]: {
+        projectBased: true,
+        name: 'Homepage',
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
@@ -195,8 +199,9 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
-    '/actions': '/events/actions',
+    '/actions': urls.actions(),
     '/organization/members': urls.organizationSettings(),
+    '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
 }
 
 export const routes: Record<string, Scene> = {
@@ -208,12 +213,11 @@ export const routes: Record<string, Scene> = {
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
-    [urls.eventStats()]: Scene.EventStats,
-    [urls.eventStat(':id')]: Scene.EventStats,
-    [urls.eventPropertyStats()]: Scene.EventPropertyStats,
-    [urls.eventPropertyStat(':id')]: Scene.EventPropertyStats,
+    [urls.eventDefinitions()]: Scene.EventDefinitions,
+    [urls.eventDefinition(':id')]: Scene.EventDefinitions,
+    [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
+    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
@@ -228,6 +232,7 @@ export const routes: Record<string, Scene> = {
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,

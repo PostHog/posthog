@@ -4,7 +4,7 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 
 export default {
-    title: 'PostHog/Components/PropertyKeyInfo',
+    title: 'DataDisplay/PropertyKeyInfo',
     component: PropertyKeyInfo,
     parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PropertyKeyInfo>

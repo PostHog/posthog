@@ -1,7 +1,5 @@
 import { Meta } from '@storybook/react'
 
-import { Insight } from '../Insight'
-
 import { rest } from 'msw'
 import { worker } from '../../../mocks/browser'
 import { FunnelResult, FunnelStep } from '~/types'
@@ -12,12 +10,13 @@ import React from 'react'
 import { Provider } from 'kea'
 import { initKea } from '~/initKea'
 import { EventType } from '~/types'
+import { InsightScene } from 'scenes/insights/InsightScene'
 
 // Needed to be able to interact with project level correlation settings
 let correlationConfig: any = null
 
 export default {
-    title: 'PostHog/Scenes/Insights/Funnels',
+    title: 'Scenes/Insights/Funnels',
     decorators: [
         (Story) => {
             worker.use(
@@ -100,7 +99,7 @@ export const WithCorrelationAndSkew = (): JSX.Element => {
 
     return (
         <Provider>
-            <Insight />
+            <InsightScene />
         </Provider>
     )
 }

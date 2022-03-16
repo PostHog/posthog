@@ -1,6 +1,6 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
+import { keaStory } from 'storybook/kea-story'
 
 // import the main component of the scene
 import { PasswordReset } from '../PasswordReset'
@@ -12,7 +12,7 @@ import successState from './reset-success.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Authentication/Password reset/Request',
+    title: 'Scenes/Authentication/Password reset/Request',
 } as Meta
 
 // export more stories with different state

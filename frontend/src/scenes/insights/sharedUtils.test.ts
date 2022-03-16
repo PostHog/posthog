@@ -4,7 +4,7 @@ import { InsightShortId } from '~/types'
 const Insight123 = '123' as InsightShortId
 
 describe('keyForInsightLogicProps', () => {
-    const func = keyForInsightLogicProps('defaultKey', 'sceneKey')
+    const func = keyForInsightLogicProps('defaultKey')
 
     it('throws if no dashboardItemId', () => {
         expect(() => {
@@ -13,8 +13,6 @@ describe('keyForInsightLogicProps', () => {
     })
 
     const testCases = [
-        { in: { teamId: 31, syncWithUrl: true, dashboardItemId: Insight123 }, expect: 'sceneKey' },
-        { in: { teamId: 32, syncWithUrl: true, dashboardItemId: undefined }, expect: 'sceneKey' },
         { in: { teamId: 33, dashboardItemId: Insight123 }, expect: '123' },
         { in: { teamId: 34, dashboardItemId: undefined }, expect: 'defaultKey' },
     ]

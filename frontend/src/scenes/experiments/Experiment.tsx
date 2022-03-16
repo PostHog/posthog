@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
+    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -19,7 +20,7 @@ import {
     PropertyFilter,
 } from '~/types'
 import './Experiment.scss'
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript } from 'lib/components/icons'
 import {
@@ -35,7 +36,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
@@ -50,9 +51,12 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 export const scene: SceneExport = {
     component: Experiment_,
     logic: experimentLogic,
+    paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
+        experimentId: id === 'new' ? 'new' : parseInt(id),
+    }),
 }
 
-export function Experiment_(): JSX.Element {
+export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
     const {
         newExperimentData,
         experimentData,
@@ -67,7 +71,6 @@ export function Experiment_(): JSX.Element {
         experimentResultsLoading,
         parsedSecondaryMetrics,
         areResultsSignificant,
-        experimentId,
         conversionRateForVariant,
         getIndexForVariant,
         significanceBannerDetails,
@@ -76,7 +79,8 @@ export function Experiment_(): JSX.Element {
         groupTypes,
         aggregationLabel,
         secondaryMetricResults,
-    } = useValues(experimentLogic)
+        experimentDataLoading,
+    } = useValues(experimentLogic({ experimentId: id }))
     const {
         setNewExperimentData,
         createExperiment,
@@ -91,7 +95,7 @@ export function Experiment_(): JSX.Element {
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic)
+    } = useActions(experimentLogic({ experimentId: id }))
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -102,7 +106,6 @@ export function Experiment_(): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentInsightId,
-            syncWithUrl: false,
         })
     )
     const {
@@ -127,7 +130,7 @@ export function Experiment_(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                  (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
                   0
               )
             : 0
@@ -151,7 +154,7 @@ export function Experiment_(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' || editingExistingExperiment ? (
+            {id === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
@@ -172,6 +175,7 @@ export function Experiment_(): JSX.Element {
                             description: newExperimentData?.description,
                         }}
                         onFinish={() => createExperiment(true, exposure, sampleSize)}
+                        requiredMark={false}
                         scrollToFirstError
                     >
                         <div>
@@ -183,7 +187,6 @@ export function Experiment_(): JSX.Element {
                                                 label="Name"
                                                 name="name"
                                                 rules={[{ required: true, message: 'You have to enter a name.' }]}
-                                                requiredMark={false}
                                             >
                                                 <Input data-attr="experiment-name" className="ph-ignore-input" />
                                             </Form.Item>
@@ -192,13 +195,12 @@ export function Experiment_(): JSX.Element {
                                                 label={
                                                     <div>
                                                         Feature flag key{' '}
-                                                        <Tooltip title="Choose a unique key. This will create a new feature flag which will be associated with this experiment.">
+                                                        <Tooltip title="Enter a unique key. This will create a new feature flag which will be associated with this experiment.">
                                                             <InfoCircleOutlined />
                                                         </Tooltip>
                                                     </div>
                                                 }
                                                 name="feature_flag_key"
-                                                requiredMark={false}
                                                 rules={[
                                                     {
                                                         required: true,
@@ -311,7 +313,7 @@ export function Experiment_(): JSX.Element {
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '1rem',
+                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
@@ -384,30 +386,28 @@ export function Experiment_(): JSX.Element {
                                                     Select the entities who will participate in this experiment. If no
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
-                                                <div style={{ flex: 3, marginRight: 5 }}>
-                                                    <PropertyFilters
-                                                        pageKey={'EditFunnel-property'}
-                                                        propertyFilters={
-                                                            experimentInsightType === InsightType.FUNNELS
-                                                                ? funnelsFilters.properties
-                                                                : trendsFilters.properties
-                                                        }
-                                                        onChange={(anyProperties) => {
-                                                            setNewExperimentData({
-                                                                filters: {
-                                                                    properties: anyProperties as PropertyFilter[],
-                                                                },
-                                                            })
-                                                            setFilters({
-                                                                properties: anyProperties.filter(isValidPropertyFilter),
-                                                            })
-                                                        }}
-                                                        style={{ margin: '1rem 0 0' }}
-                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                        popoverPlacement="top"
-                                                        taxonomicPopoverPlacement="auto"
-                                                    />
-                                                </div>
+                                                <PropertyFilters
+                                                    pageKey={'experiment-participants-property'}
+                                                    propertyFilters={
+                                                        experimentInsightType === InsightType.FUNNELS
+                                                            ? convertPropertyGroupToProperties(
+                                                                  funnelsFilters.properties
+                                                              )
+                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
+                                                    }
+                                                    onChange={(anyProperties) => {
+                                                        setNewExperimentData({
+                                                            filters: {
+                                                                properties: anyProperties as PropertyFilter[],
+                                                            },
+                                                        })
+                                                        setFilters({
+                                                            properties: anyProperties.filter(isValidPropertyFilter),
+                                                        })
+                                                    }}
+                                                    style={{ marginTop: '1rem' }}
+                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                />
                                             </Col>
                                         </Row>
                                         <Row className="metrics-selection">
@@ -559,7 +559,7 @@ export function Experiment_(): JSX.Element {
                         </Button>
                     </Form>
                 </>
-            ) : experimentData ? (
+            ) : !experimentDataLoading && experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width pb">
@@ -713,7 +713,7 @@ export function Experiment_(): JSX.Element {
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
                                     )}
-                                    {(experimentResults || experimentData.secondary_metrics.length > 0) && (
+                                    {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
                                             {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
                                                 !!experimentData?.secondary_metrics.length && (
@@ -826,12 +826,28 @@ export function Experiment_(): JSX.Element {
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experimentData.start_date && (
                                                             <Row justify="space-between" className="mt-05">
-                                                                <div>
-                                                                    <b>
-                                                                        {dayjs().diff(experimentData.start_date, 'day')}
-                                                                    </b>{' '}
-                                                                    days running
-                                                                </div>
+                                                                {experimentData.end_date ? (
+                                                                    <div>
+                                                                        Ran for
+                                                                        <b>
+                                                                            {dayjs(experimentData.end_date).diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days
+                                                                    </div>
+                                                                ) : (
+                                                                    <div>
+                                                                        <b>
+                                                                            {dayjs().diff(
+                                                                                experimentData.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days running
+                                                                    </div>
+                                                                )}
                                                                 <div>
                                                                     Goal:{' '}
                                                                     <b>
@@ -846,9 +862,15 @@ export function Experiment_(): JSX.Element {
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
                                                         <Row justify="space-between" className="mt-05">
-                                                            <div>
-                                                                <b>{funnelResultsPersonsTotal}</b> participants seen
-                                                            </div>
+                                                            {experimentData.end_date ? (
+                                                                <div>
+                                                                    Saw <b>{funnelResultsPersonsTotal}</b> participants
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                                </div>
+                                                            )}
                                                             <div>
                                                                 Goal:{' '}
                                                                 <b>
@@ -960,20 +982,22 @@ export function Experiment_(): JSX.Element {
                                 logic={insightLogic}
                                 props={{
                                     dashboardItemId: experimentResults.itemID,
-                                    filters: {
-                                        ...experimentResults.filters,
-                                        insight: experimentInsightType,
-                                        display: experimentData.filters.display,
-                                        ...(experimentInsightType === InsightType.FUNNELS && {
-                                            layout: FunnelLayout.vertical,
-                                            funnel_viz_type: FunnelVizType.Steps,
-                                        }),
-                                        ...(experimentInsightType === InsightType.TRENDS && {
-                                            display: ChartDisplayType.ActionsLineGraphCumulative,
-                                        }),
+                                    cachedInsight: {
+                                        short_id: experimentResults.itemID,
+                                        filters: {
+                                            ...experimentResults.filters,
+                                            insight: experimentInsightType,
+                                            display: experimentData.filters.display,
+                                            ...(experimentInsightType === InsightType.FUNNELS && {
+                                                layout: FunnelLayout.vertical,
+                                                funnel_viz_type: FunnelVizType.Steps,
+                                            }),
+                                            ...(experimentInsightType === InsightType.TRENDS && {
+                                                display: ChartDisplayType.ActionsLineGraphCumulative,
+                                            }),
+                                        },
+                                        result: experimentResults.insight,
                                     },
-                                    cachedResults: experimentResults.insight,
-                                    syncWithUrl: false,
                                     doNotLoad: true,
                                 }}
                             >

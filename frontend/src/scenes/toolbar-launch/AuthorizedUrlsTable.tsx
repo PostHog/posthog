@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { PlusOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
+import { PlusOutlined, CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
@@ -109,7 +109,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                 type="stealth"
                                                 onClick={() => setEditUrlIndex(record.originalIndex)}
                                             >
-                                                <EditOutlined style={{ marginRight: 4 }} />
                                                 Edit authorized URL
                                             </LemonButton>
                                             <LemonButton
@@ -118,7 +117,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                 type="stealth"
                                                 onClick={() => removeUrl(index)}
                                             >
-                                                <DeleteOutlined style={{ marginRight: 4 }} />
                                                 Remove authorized URL
                                             </LemonButton>
                                         </>

@@ -1,6 +1,6 @@
 import React from 'react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { LemonTaxonomicStringPopup, TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface EventNameInterface {
@@ -14,10 +14,27 @@ export function EventName({ value, onChange }: EventNameInterface): JSX.Element 
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
             value={value}
+            type="secondary"
             style={{ maxWidth: '24rem' }}
             placeholder="Choose an event"
             dataAttr="event-name-box"
-            renderValue={(v) => <PropertyKeyInfo value={v} />}
+            renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}
+            allowClear
+        />
+    )
+}
+
+export function LemonEventName({ value, onChange }: EventNameInterface): JSX.Element {
+    return (
+        <LemonTaxonomicStringPopup
+            groupType={TaxonomicFilterGroupType.Events}
+            onChange={onChange}
+            value={value}
+            type="secondary"
+            placeholder="Select an event"
+            dataAttr="event-name-box"
+            renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}
+            allowClear
         />
     )
 }

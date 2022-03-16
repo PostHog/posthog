@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, cast
 
 from dateutil.relativedelta import relativedelta
-from django.core.cache import cache
 from django.db.models import Count, Prefetch
 from django.db.models.signals import post_save
 from django.dispatch import receiver

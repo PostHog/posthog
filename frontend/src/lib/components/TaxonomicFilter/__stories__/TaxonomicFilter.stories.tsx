@@ -5,10 +5,10 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { defaultFilterMocks } from 'lib/components/TaxonomicFilter/__stories__/mocks'
-import { resetKeaStory } from 'lib/storybook/kea-story'
+import { resetKeaStory } from 'storybook/kea-story'
 
 export default {
-    title: 'PostHog/Components/TaxonomicFilter',
+    title: 'Filters/TaxonomicFilter',
 }
 
 export const AllGroups = (): JSX.Element => {

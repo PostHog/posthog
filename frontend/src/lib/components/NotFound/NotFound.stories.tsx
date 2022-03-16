@@ -4,7 +4,7 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { NotFound } from './index'
 
 export default {
-    title: 'PostHog/Components/NotFound',
+    title: 'DataDisplay/NotFound',
     component: NotFound,
     parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof NotFound>

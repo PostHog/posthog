@@ -1,12 +1,11 @@
-from datetime import datetime
-
-from rest_framework import status
+from flaky import flaky
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 
 
+@flaky(max_runs=10, min_passes=1)
 class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_basic_secondary_metric_results(self):

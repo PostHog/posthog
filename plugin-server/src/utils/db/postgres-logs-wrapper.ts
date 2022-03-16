@@ -1,4 +1,4 @@
-import { determineNodeEnv, NodeEnv } from '../utils'
+import { determineNodeEnv, NodeEnv } from '../env-utils'
 import { DB, ParsedLogEntry } from './db'
 
 const POSTGRES_LOGS_FLUSH_TIMEOUT_MS = 1000

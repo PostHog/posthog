@@ -59,8 +59,10 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             </p>
             {Object.entries(resourceTiming.performanceParts).map(([key, part], index) => (
                 <p key={index}>
-                    {key}: from: {part.start}ms to {part.end}ms (
-                    {(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)
+                    {key}: from: {part.start}ms to {part.end}ms{' '}
+                    {resourceTiming.entry.duration ? (
+                        <>({(((part.end - part.start) / resourceTiming.entry.duration) * 100).toFixed(1)}%)</>
+                    ) : null}
                 </p>
             ))}
             {asResourceTiming.decodedBodySize && asResourceTiming.encodedBodySize && (
@@ -82,6 +84,24 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
             )}
             <hr />
         </>
+    )
+}
+
+const MouseTriggeredPopUp = ({
+    content,
+    children,
+}: {
+    content: JSX.Element
+    children: React.ReactNode
+}): JSX.Element => {
+    const [mouseIsOver, setMouseIsOver] = useState(false)
+
+    return (
+        <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
+            <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
+                {children}
+            </div>
+        </Popup>
     )
 }
 
@@ -121,23 +141,62 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
             })
         }
 
-        const [mouseIsOver, setMouseIsOver] = useState(false)
-
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <Popup overlay={overlayFor(resourceTiming)} visible={mouseIsOver}>
-                <div onMouseEnter={() => setMouseIsOver(true)} onMouseLeave={() => setMouseIsOver(false)}>
-                    {blocks}
-                    <div className="positioned" style={textPosition}>
-                        {Math.round(end)}ms
-                    </div>
+            <MouseTriggeredPopUp content={overlayFor(resourceTiming)}>
+                {blocks}
+                <div className="positioned" style={textPosition}>
+                    {Math.round(end)}ms
                 </div>
-            </Popup>
+            </MouseTriggeredPopUp>
         )
     } else {
         return <></>
     }
 }
+
+const pointInTimeContent = {
+    domComplete: (
+        <div>
+            The document and all sub-resources have finished loading. The state indicates that the load event is about
+            to fire.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+    domInteractive: (
+        <div>
+            The document has finished loading and the document has been parsed but sub-resources such as scripts,
+            images, stylesheets and frames are still loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+    pageLoaded: (
+        <div>
+            The load event is fired when the whole page has loaded, including all dependent resources such as
+            stylesheets and images. This is in contrast to DOMContentLoaded, which is fired as soon as the page DOM has
+            been loaded, without waiting for resources to finish loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+    firstContentfulPaint: (
+        <div>
+            First Contentful Paint (FCP) is when the browser renders the first bit of content from the DOM, providing
+            the first feedback to the user that the page is actually loading.{' '}
+            <a href="https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint" target="_blank">
+                Read more on the mozilla developer network
+            </a>
+        </div>
+    ),
+}
+
+const pointInTimeContentFor = (pointInTimeMarker: string): JSX.Element =>
+    pointInTimeContent[pointInTimeMarker] ?? <div>Unknown marker: {pointInTimeMarker}</div>
 
 const VerticalMarker = ({
     max,
@@ -177,7 +236,10 @@ const WaterfallChart = (): JSX.Element => {
                             return (
                                 <Col key={marker} span={6}>
                                     <div className={'color-legend'}>
-                                        {marker} <span className={'color-block'} style={{ backgroundColor: color }} />
+                                        {marker}{' '}
+                                        <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
+                                            <span className={'color-block'} style={{ backgroundColor: color }} />
+                                        </MouseTriggeredPopUp>
                                     </div>
                                 </Col>
                             )
@@ -276,7 +338,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
             title: 'Page Load Time',
             render: function RenderPageLoad(_: any, pageViewEvent: EventType) {
                 const duration = pageViewEvent.properties['$performance_page_loaded']
-                return <span>{Math.round(duration)}ms</span>
+                return duration ? <span>{Math.round(duration)}ms</span> : <span>not captured</span>
             },
         },
         {
@@ -320,19 +382,15 @@ const EventsWithPerformanceTable = (): JSX.Element => {
     )
 }
 
-const DebugPerfData = (): JSX.Element => {
+const DebugPerfData = (): JSX.Element | null => {
     const { currentEvent } = useValues(webPerformanceLogic)
-    return (
+    return currentEvent ? (
         <Collapse>
             <Collapse.Panel header="Performance Debug Information" key="1">
-                <pre>
-                    {currentEvent
-                        ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)
-                        : null}
-                </pre>
+                <pre>{JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2)}</pre>
             </Collapse.Panel>
         </Collapse>
-    )
+    ) : null
 }
 
 export const WebPerformance = (): JSX.Element => {

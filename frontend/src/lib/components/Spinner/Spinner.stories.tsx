@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { Spinner as SpinnerComponent } from './Spinner'
 
 export default {
-    title: 'PostHog/Components/Spinner',
+    title: 'DataDisplay/Spinner',
     component: SpinnerComponent,
     parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof Spinner>

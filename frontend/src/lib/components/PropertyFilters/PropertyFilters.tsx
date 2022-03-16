@@ -4,7 +4,7 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
@@ -22,6 +22,10 @@ interface PropertyFiltersProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     eventNames?: string[]
+    orFiltering?: boolean
+    propertyGroupType?: FilterLogicalOperator | null
+    useLemonButton?: boolean
+    prefixComponent?: React.ReactNode
 }
 
 export function PropertyFilters({
@@ -36,6 +40,10 @@ export function PropertyFilters({
     style = {},
     showNestedArrow = false,
     eventNames = [],
+    orFiltering = false,
+    propertyGroupType = null,
+    useLemonButton = false,
+    prefixComponent,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -48,8 +56,9 @@ export function PropertyFilters({
 
     return (
         <div className="property-filters" style={style}>
+            {prefixComponent}
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filtersWithNew.map((item, index) => {
+                {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                     return (
                         <FilterRow
                             key={index}
@@ -59,21 +68,25 @@ export function PropertyFilters({
                             filters={filtersWithNew}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
-                            disablePopover={disablePopover}
+                            disablePopover={disablePopover || orFiltering}
                             popoverPlacement={popoverPlacement}
                             taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                             showNestedArrow={showNestedArrow}
                             label={'Add filter'}
                             onRemove={remove}
+                            useLemonButton={useLemonButton}
+                            orFiltering={orFiltering}
                             filterComponent={(onComplete) => (
                                 <TaxonomicPropertyFilter
                                     key={index}
                                     pageKey={pageKey}
                                     index={index}
                                     onComplete={onComplete}
+                                    orFiltering={orFiltering}
                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                     eventNames={eventNames}
-                                    disablePopover={disablePopover}
+                                    propertyGroupType={propertyGroupType}
+                                    disablePopover={disablePopover || orFiltering}
                                     selectProps={{
                                         delayBeforeAutoOpen: 150,
                                         placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,

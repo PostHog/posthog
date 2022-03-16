@@ -49,9 +49,11 @@ services:
             - '6379:6379'
 
     clickhouse:
-        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
-        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:21.6.5
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
         ports:
             - '8123:8123'
             - '9000:9000'
@@ -59,9 +61,9 @@ services:
             - '9009:9009'
         volumes:
             - ../ee/idl:/idl
-            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse/data
 
     # Needed for 1. clickhouse distributed queries 2. kafka replication

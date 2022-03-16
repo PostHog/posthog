@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { errorToast, eventToDescription, sum, toParams } from 'lib/utils'
+import { eventToDescription, sum, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
@@ -21,6 +21,7 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/playerUtils'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -235,11 +236,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     }),
     sharedListeners: () => ({
         showErrorToast: ({ error }) => {
-            errorToast(
-                'Error fetching information for your session recording',
-                'The following error response was returned:',
-                error
-            )
+            lemonToast.error(error)
         },
     }),
     loaders: ({ values }) => ({

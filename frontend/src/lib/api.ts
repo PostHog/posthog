@@ -6,9 +6,11 @@ import {
     CohortType,
     DashboardCollaboratorType,
     DashboardType,
+    EventDefinition,
     EventType,
     FilterType,
     PluginLogEntry,
+    PropertyDefinition,
     TeamType,
     UserType,
 } from '../types'
@@ -17,6 +19,9 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -116,6 +121,14 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
     }
 
+    public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('event_definitions')
+    }
+
+    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
@@ -142,6 +155,10 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
     }
 
     // Request finalization
@@ -248,6 +265,100 @@ const api = {
             const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
+        determineListEndpoint(
+            filters: Partial<FilterType>,
+            limit: number = 10,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): string {
+            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    eventDefinitions: {
+        async list({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<EventDefinition>> {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .get()
+        },
+        determineListEndpoint({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .assembleFullUrl()
+        },
+    },
+
+    propertyDefinitions: {
+        async list({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
+        },
+        determineListEndpoint({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .assembleFullUrl()
+        },
     },
 
     cohorts: {
@@ -296,6 +407,12 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 
