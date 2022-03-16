@@ -98,6 +98,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         db_url=settings.CLICKHOUSE_HTTP_URL,
         username=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
     )
 
