@@ -90,7 +90,7 @@ export function Console(): JSX.Element | null {
                 )}
             </div>
             <div className="console-feedback-container">
-                <p style={{ marginBottom: 8, textAlign: 'center' }}>Are you excited about this console log feature?</p>
+                <p style={{ marginBottom: 8, textAlign: 'center' }}>Are you finding the console log feature useful?</p>
                 {feedbackSubmitted ? (
                     <p className="text-muted" style={{ marginBottom: 8, textAlign: 'center' }}>
                         Thanks for the input!
@@ -99,8 +99,8 @@ export function Console(): JSX.Element | null {
                     <div style={{ display: 'flex', width: '100%', justifyContent: 'center' }}>
                         {(
                             [
-                                ['Yes', '😍 Yes!'],
-                                ['No', '👎 Ehh... no'],
+                                ['Yes', '👍 Yes!'],
+                                ['No', '👎 Not really'],
                             ] as const
                         ).map((content, index) => (
                             <LemonButton
@@ -109,7 +109,11 @@ export function Console(): JSX.Element | null {
                                 style={{ margin: '0 8px' }}
                                 onClick={() => {
                                     setFeedbackSubmitted(true)
-                                    reportRecordingConsoleFeedback(orderedConsoleLogs.length, content[0])
+                                    reportRecordingConsoleFeedback(
+                                        orderedConsoleLogs.length,
+                                        content[0],
+                                        'Are you finding the console log feature useful?'
+                                    )
                                 }}
                             >
                                 {content[1]}
