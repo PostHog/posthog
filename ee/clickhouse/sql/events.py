@@ -43,8 +43,8 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
     , group_2 VARCHAR COMMENT 'column_materializer::$group_2'
     , group_3 VARCHAR COMMENT 'column_materializer::$group_3'
     , group_4 VARCHAR COMMENT 'column_materializer::$group_4'
-    , window_id VARCHAR COMMENT 'column_materializer::$window_id'
-    , session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , mat_window_id VARCHAR COMMENT 'column_materializer::$window_id'
+    , mat_session_id VARCHAR COMMENT 'column_materializer::$session_id'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
