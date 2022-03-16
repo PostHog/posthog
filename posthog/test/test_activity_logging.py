@@ -1,3 +1,5 @@
+import unittest
+
 from dateutil import parser
 from django.db.utils import IntegrityError
 
@@ -56,135 +58,91 @@ class TestActivityLogModel(BaseTest):
         )
 
 
-def test_comparing_two_nothings_results_in_no_changes():
-    actual = changes_between(model_type="FeatureFlag", previous=None, current=None)
-    assert actual == []
+class TestChangesBetweenFeatureFlags(unittest.TestCase):
+    def test_comparing_two_nothings_results_in_no_changes(self):
+        actual = changes_between(model_type="FeatureFlag", previous=None, current=None)
+        assert actual == []
 
-
-def test_a_change_of_name_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(id=2, key="the-key", name="a", created_at=parser.parse("12th April 2003")),
-        current=FeatureFlag(id=2, key="the-key", name="b", created_at=parser.parse("12th April 2003")),
-    )
-    expected = [Change(type="FeatureFlag", field="name", action="changed", before="a", after="b")]
-    assert actual == expected
-
-
-def test_a_change_of_key_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(id=2, key="the-key", name="a", created_at=parser.parse("12th April 2003")),
-        current=FeatureFlag(id=2, key="the-new-key", name="a", created_at=parser.parse("12th April 2003")),
-    )
-    expected = [Change(type="FeatureFlag", field="key", action="changed", before="the-key", after="the-new-key",)]
-    assert actual == expected
-
-
-def test_a_change_of_flag_active_status_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(active=False, id=2, key="the-key", name="a", created_at=parser.parse("12th April 2003")),
-        current=FeatureFlag(active=True, id=2, key="the-key", name="a", created_at=parser.parse("12th April 2003")),
-    )
-    expected = [Change(type="FeatureFlag", field="active", action="changed", before=False, after=True,)]
-    assert actual == expected
-
-
-def test_adding_a_rollout_percentage_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(active=True, id=2, key="the-key", name="a", created_at=parser.parse("12th April 2003"),),
-        current=FeatureFlag(
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-    )
-    expected = [Change(type="FeatureFlag", field="rollout_percentage", action="created", after=23)]
-    assert actual == expected
-
-
-def test_a_change_of_rollout_percentage_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(
-            rollout_percentage=12,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-        current=FeatureFlag(
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-    )
-    expected = [Change(type="FeatureFlag", field="rollout_percentage", action="changed", before=12, after=23)]
-    assert actual == expected
-
-
-def test_a_change_of_soft_delete_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(
-            deleted=False,
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-        current=FeatureFlag(
-            deleted=True,
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-    )
-    expected = [Change(type="FeatureFlag", field="deleted", action="changed", before=False, after=True,)]
-    assert actual == expected
-
-
-def test_a_change_of_filters_can_be_logged():
-    actual = changes_between(
-        model_type="FeatureFlag",
-        previous=FeatureFlag(
-            filters={"some": "value"},
-            deleted=False,
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-        current=FeatureFlag(
-            filters={"new": "content"},
-            deleted=False,
-            rollout_percentage=23,
-            active=True,
-            id=2,
-            key="the-key",
-            name="a",
-            created_at=parser.parse("12th April 2003"),
-        ),
-    )
-    expected = [
-        Change(
-            type="FeatureFlag", field="filters", action="changed", before={"some": "value"}, after={"new": "content"},
+    def test_a_change_of_name_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(name="a"),
+            current=self._a_feature_flag_with(name="b"),
         )
-    ]
-    assert actual == expected
+        expected = [Change(type="FeatureFlag", field="name", action="changed", before="a", after="b")]
+        assert actual == expected
+
+    def test_a_change_of_key_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(key="the-key"),
+            current=self._a_feature_flag_with(key="the-new-key"),
+        )
+        expected = [Change(type="FeatureFlag", field="key", action="changed", before="the-key", after="the-new-key",)]
+        assert actual == expected
+
+    def test_a_change_of_flag_active_status_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(active=False),
+            current=self._a_feature_flag_with(active=True),
+        )
+        expected = [Change(type="FeatureFlag", field="active", action="changed", before=False, after=True,)]
+        assert actual == expected
+
+    def test_adding_a_rollout_percentage_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(),
+            current=self._a_feature_flag_with(rollout_percentage=23,),
+        )
+        expected = [Change(type="FeatureFlag", field="rollout_percentage", action="created", after=23)]
+        assert actual == expected
+
+    def test_a_change_of_rollout_percentage_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(rollout_percentage=12,),
+            current=self._a_feature_flag_with(rollout_percentage=23,),
+        )
+        expected = [Change(type="FeatureFlag", field="rollout_percentage", action="changed", before=12, after=23)]
+        assert actual == expected
+
+    def test_a_change_of_soft_delete_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(deleted=False,),
+            current=self._a_feature_flag_with(deleted=True,),
+        )
+        expected = [Change(type="FeatureFlag", field="deleted", action="changed", before=False, after=True,)]
+        assert actual == expected
+
+    def test_a_change_of_filters_can_be_logged(self):
+        actual = changes_between(
+            model_type="FeatureFlag",
+            previous=self._a_feature_flag_with(filters={"some": "value"},),
+            current=self._a_feature_flag_with(filters={"new": "content"},),
+        )
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="filters",
+                action="changed",
+                before={"some": "value"},
+                after={"new": "content"},
+            )
+        ]
+        assert actual == expected
+
+    @staticmethod
+    def _a_feature_flag_with(**kwargs) -> FeatureFlag:
+        return FeatureFlag(
+            deleted=kwargs.get("deleted", False),
+            rollout_percentage=kwargs.get("rollout_percentage", None),
+            active=kwargs.get("active", True),
+            id=kwargs.get("id", 2),
+            key=kwargs.get("key", "the-key"),
+            name=kwargs.get("name", "a"),
+            filters=kwargs.get("filters", None),
+            created_at=parser.parse("12th April 2003"),
+        )
