@@ -20,7 +20,6 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { IconOpenInNew } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -144,7 +143,7 @@ export function Experiments(): JSX.Element {
                             marginBottom: '1rem',
                         }}
                     >
-                        If you're confused, check out our
+                        Check out our
                         <a
                             data-attr="experiment-help"
                             href="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
@@ -153,8 +152,8 @@ export function Experiments(): JSX.Element {
                         >
                             {' '}
                             Experimentation user guide
-                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                        </a>
+                        </a>{' '}
+                        to learn more.
                     </div>
                     <Tabs
                         activeKey={tab}

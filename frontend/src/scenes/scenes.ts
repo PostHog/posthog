@@ -92,7 +92,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'Experiments',
+        name: 'Experimentation',
     },
     [Scene.Experiment]: {
         projectBased: true,
