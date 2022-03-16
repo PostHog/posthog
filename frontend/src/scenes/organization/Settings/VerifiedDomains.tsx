@@ -1,5 +1,5 @@
 import { Switch } from 'antd'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -13,7 +13,9 @@ import { More } from 'lib/components/LemonButton/More'
 
 /** TODO: Pay gate */
 export function VerifiedDomains(): JSX.Element {
-    const { verifiedDomains, verifiedDomainsLoading, currentOrganization } = useValues(verifiedDomainsLogic)
+    const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
+        useValues(verifiedDomainsLogic)
+    const { updateDomain } = useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -58,8 +60,16 @@ export function VerifiedDomains(): JSX.Element {
                     </Tooltip>
                 </>
             ),
-            render: function AutomaticProvisioning(_, { jit_provisioning_enabled }) {
-                return <Switch checked={jit_provisioning_enabled} />
+            render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
+                return is_verified ? (
+                    <Switch
+                        checked={jit_provisioning_enabled}
+                        disabled={updatingDomainLoading || !is_verified}
+                        onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
+                    />
+                ) : (
+                    <span className="text-muted-alt">Verify domain to enable</span>
+                )
             },
         },
         {
