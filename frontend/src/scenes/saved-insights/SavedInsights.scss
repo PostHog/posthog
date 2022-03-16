@@ -8,6 +8,10 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
+        &.icon-column .ant-skeleton-title {
+            height: 2rem;
+            width: 2rem;
+        }
     }
 
     .new-insight-dropdown-btn {
