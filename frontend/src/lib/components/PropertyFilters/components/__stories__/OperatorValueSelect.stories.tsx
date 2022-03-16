@@ -30,7 +30,7 @@ const props = (type?: PropertyType | undefined): OperatorValueSelectProps => ({
     defaultOpen: true,
 })
 
-export const OperatorValueWithStringProperty = (): JSX.Element => {
+export function OperatorValueWithStringProperty(): JSX.Element {
     return (
         <Provider>
             <h1>String Property</h1>
@@ -39,7 +39,7 @@ export const OperatorValueWithStringProperty = (): JSX.Element => {
     )
 }
 
-export const OperatorValueWithDateTimeProperty = (): JSX.Element => {
+export function OperatorValueWithDateTimeProperty(): JSX.Element {
     return (
         <Provider>
             <h1>Date Time Property</h1>
@@ -48,7 +48,7 @@ export const OperatorValueWithDateTimeProperty = (): JSX.Element => {
     )
 }
 
-export const OperatorValueWithNumericProperty = (): JSX.Element => {
+export function OperatorValueWithNumericProperty(): JSX.Element {
     return (
         <Provider>
             <h1>Numeric Property</h1>
@@ -57,7 +57,7 @@ export const OperatorValueWithNumericProperty = (): JSX.Element => {
     )
 }
 
-export const OperatorValueWithBooleanProperty = (): JSX.Element => {
+export function OperatorValueWithBooleanProperty(): JSX.Element {
     return (
         <Provider>
             <h1>Boolean Property</h1>
@@ -66,7 +66,7 @@ export const OperatorValueWithBooleanProperty = (): JSX.Element => {
     )
 }
 
-export const OperatorValueWithUnknownProperty = (): JSX.Element => {
+export function OperatorValueWithUnknownProperty(): JSX.Element {
     return (
         <Provider>
             <h1>Property without specific type</h1>

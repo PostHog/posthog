@@ -12,7 +12,7 @@ export default {
     decorators: [taxonomicFilterMocksDecorator],
 }
 
-export const TaxonomicStringPopupOneCategory = (): JSX.Element => {
+export function TaxonomicStringPopupOneCategory(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
     const [value, setValue] = useState<string | undefined>('$browser')
@@ -27,7 +27,7 @@ export const TaxonomicStringPopupOneCategory = (): JSX.Element => {
     )
 }
 
-export const MultipleCategories = (): JSX.Element => {
+export function MultipleCategories(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
     const [value, setValue] = useState<string | number | undefined>(undefined)

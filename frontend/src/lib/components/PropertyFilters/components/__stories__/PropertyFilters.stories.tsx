@@ -26,7 +26,7 @@ const propertyFilters = [
     },
 ] as PropertyFilter[]
 
-export const ComparingPropertyFilters = (): JSX.Element => {
+export function ComparingPropertyFilters(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     return (
         <>
@@ -52,7 +52,7 @@ export const ComparingPropertyFilters = (): JSX.Element => {
     )
 }
 
-export const WithNoCloseButton = (): JSX.Element => {
+export function WithNoCloseButton(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     return <PropertyFiltersDisplay filters={[...propertyFilters]} />
 }
