@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 export default {
     title: 'Scenes/Billing',
-    parameters: { layout: 'fullscreen', options: { showPanel: false /* hide code for scenes */ } },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {

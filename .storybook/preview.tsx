@@ -44,7 +44,9 @@ export const parameters = {
     },
     viewMode: 'docs',
     // auto-expand code blocks in docs
-    docs: { source: { state: 'open' } },
+    docs: {
+        source: { state: 'open' },
+    },
 }
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators

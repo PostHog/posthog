@@ -14,7 +14,7 @@ export default {
             },
         }),
     ],
-    parameters: { options: { showPanel: false /* hide code for scenes */ } },
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 export const Default = (): JSX.Element => {

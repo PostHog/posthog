@@ -9,6 +9,7 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        viewMode: 'canvas',
     },
 } as Meta
 

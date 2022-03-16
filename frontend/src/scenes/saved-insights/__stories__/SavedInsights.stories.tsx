@@ -15,7 +15,7 @@ const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
 export default {
     title: 'Scenes/Saved Insights',
-    parameters: { options: { showPanel: false /* hide code for scenes */ } },
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {

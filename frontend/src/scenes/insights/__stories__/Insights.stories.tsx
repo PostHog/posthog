@@ -6,7 +6,7 @@ import { createInsightScene } from 'scenes/insights/__stories__/storybook.utils'
 
 export default {
     title: 'Scenes/Insights',
-    parameters: { options: { showPanel: false /* hide code for scenes */ } },
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
