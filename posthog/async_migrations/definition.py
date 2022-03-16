@@ -87,7 +87,7 @@ class AsyncMigrationDefinition:
     depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
-    # e.g. instances with CLICKHOUSE_REPLICATION is True might need different migrations
+    # e.g. instances where fresh setups are already set up correctly
     def is_required(self) -> bool:
         return True
 

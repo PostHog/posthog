@@ -100,7 +100,7 @@ WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_T
     table_name="writable_session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
 )
 
@@ -109,7 +109,7 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
     table_name="session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields="",
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
 )
 
