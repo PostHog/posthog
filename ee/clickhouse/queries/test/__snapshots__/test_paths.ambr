@@ -162,7 +162,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -346,7 +346,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -528,7 +528,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -710,7 +710,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -892,7 +892,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
@@ -978,7 +978,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1067,7 +1067,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 0
-                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                    GROUP BY group_key) groups_0 ON group_0 == groups_0.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1156,7 +1156,7 @@
                     FROM groups
                     WHERE team_id = 2
                       AND group_type_index = 1
-                    GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
+                    GROUP BY group_key) groups_1 ON group_1 == groups_1.group_key
                  WHERE team_id = 2
                    AND (event = '$pageview'
                         OR event = '$screen'
@@ -1259,19 +1259,9 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-<<<<<<< HEAD
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-=======
                         e.mat_session_id AS mat_session_id,
                         e.mat_window_id AS mat_window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
-                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
-                                                                                                                                       FROM trim(BOTH '"'
-                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
-                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
->>>>>>> f0ad60a01... Update snapshots
+                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1390,19 +1380,9 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-<<<<<<< HEAD
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-=======
                         e.mat_session_id AS mat_session_id,
                         e.mat_window_id AS mat_window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
-                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
-                                                                                                                                       FROM trim(BOTH '"'
-                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
-                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
->>>>>>> f0ad60a01... Update snapshots
+                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1521,19 +1501,9 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-<<<<<<< HEAD
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-=======
                         e.mat_session_id AS mat_session_id,
                         e.mat_window_id AS mat_window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
-                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
-                                                                                                                                       FROM trim(BOTH '"'
-                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
-                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
->>>>>>> f0ad60a01... Update snapshots
+                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1658,19 +1628,9 @@
                         pdi.person_id as person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
-<<<<<<< HEAD
-                        e."$session_id" as $session_id,
-                        e."$window_id" as $window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
-=======
                         e.mat_session_id AS mat_session_id,
                         e.mat_window_id AS mat_window_id,
-                        if(0, '', if(e.event = '$pageview', if(length(trim(BOTH '"'
-                                                                           FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
-                                                                                                                                       FROM trim(BOTH '"'
-                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))), trim(BOTH '"'
-                                                                                                                                                                                                         FROM JSONExtractRaw(properties, '$current_url'))), e.event)) AS path_item_ungrouped,
->>>>>>> f0ad60a01... Update snapshots
+                        if(0, '', if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
