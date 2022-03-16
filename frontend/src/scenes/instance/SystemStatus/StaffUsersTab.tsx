@@ -1,6 +1,6 @@
 import { Button, Divider, Modal, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconClose, IconOpenInNew } from 'lib/components/icons'
+import { IconDelete, IconOpenInNew } from 'lib/components/icons'
 import { LemonTableColumns, LemonTable } from 'lib/components/LemonTable'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
@@ -47,18 +47,24 @@ export function StaffUsersTab(): JSX.Element {
             render: function RenderActions(_, user) {
                 return (
                     <LemonButton
-                        title="Cancel the invite"
                         data-attr="invite-delete"
-                        icon={<IconClose />}
+                        icon={<IconDelete />}
                         status="danger"
+                        disabled={staffUsers.length < 2}
+                        title={
+                            staffUsers.length < 2
+                                ? 'You should always have at least one staff user.'
+                                : 'Cancel the invite'
+                        }
                         onClick={() => {
                             Modal.confirm({
                                 title: `Remove ${
                                     myself?.uuid === user.uuid ? 'yourself' : user.first_name
                                 } as a Staff User?`,
                                 icon: null,
-                                okText: 'Yes, remove',
+                                okText: 'Remove user',
                                 okType: 'primary',
+                                okButtonProps: { className: 'btn-danger' },
                                 content: (
                                     <div style={{ border: '' }}>
                                         {myself?.uuid === user.uuid ? (
@@ -81,7 +87,7 @@ export function StaffUsersTab(): JSX.Element {
                                 onOk() {
                                     deleteStaffUser(user.uuid)
                                 },
-                                cancelText: 'No, keep',
+                                cancelText: 'Cancel',
                             })
                         }}
                     />
