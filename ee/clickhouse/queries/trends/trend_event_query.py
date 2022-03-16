@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params

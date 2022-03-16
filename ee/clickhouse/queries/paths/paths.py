@@ -13,7 +13,6 @@ from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import PropertyName
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes

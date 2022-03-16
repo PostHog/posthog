@@ -27,7 +27,6 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
-from posthog.models.property import PropertyName
 from posthog.utils import relative_date_parse
 
 
