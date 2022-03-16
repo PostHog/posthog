@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+from django.conf import settings
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -35,7 +36,12 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "jit_provisioning_enabled", None
         )  # can never be set on creation because domain must be verified
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+
+        if not getattr(settings, "MULTI_TENANCY", False):
+            instance, _ = instance.attempt_verification()
+
+        return instance
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
 

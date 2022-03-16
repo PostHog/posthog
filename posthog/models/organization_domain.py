@@ -20,7 +20,9 @@ class OrganizationDomain(UUIDModel):
     )
     domain: models.CharField = models.CharField(max_length=128, unique=True)
     verification_challenge: models.CharField = models.CharField(max_length=128, default=generate_verification_challenge)
-    verified_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, default=None)
+    verified_at: models.DateTimeField = models.DateTimeField(
+        null=True, blank=True, default=None
+    )  # verification (through DNS) is only used for PostHog Cloud; on self-hosted we take all domains as verified
     last_verification_retry: models.DateTimeField = models.DateTimeField(null=True, blank=True, default=None)
     jit_provisioning_enabled: models.BooleanField = models.BooleanField(default=False)
     sso_enforcement: models.CharField = models.CharField(max_length=28, blank=True)
@@ -36,7 +38,7 @@ class OrganizationDomain(UUIDModel):
         Performs a DNS verification for a specific domain.
         """
 
-        if getattr(settings, "MULTI_TENANCY", False):
+        if not getattr(settings, "MULTI_TENANCY", False):
             # We only do DNS validation on PostHog Cloud
             return self._complete_verification()
 

@@ -169,7 +169,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         mock_dns_query.side_effect = dns.resolver.NoAnswer()
 
         with freeze_time("2021-10-10T10:10:10Z"):
-            response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
+            with self.settings(MULTI_TENANCY=True):
+                response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.domain.refresh_from_db()
@@ -190,7 +191,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
 
         with freeze_time("2021-10-10T10:10:10Z"):
-            response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
+            with self.settings(MULTI_TENANCY=True):
+                response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.domain.refresh_from_db()
