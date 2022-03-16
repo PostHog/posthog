@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework import authentication, exceptions, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -11,7 +11,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.historical_version import HistoricalVersion
@@ -140,7 +140,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -218,6 +218,18 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def perform_update(self, serializer):
         serializer.save()
         HistoricalVersion.save_version(serializer, "update")
+
+    @log_deletion_metadata_to_posthog
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        instance.delete()
+
+        HistoricalVersion.save_deletion(
+            instance=instance, item_id=kwargs["pk"], team_id=self.team_id, user=request.user,
+        )
+
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
