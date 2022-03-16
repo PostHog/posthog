@@ -6,12 +6,14 @@ from typing import Dict, cast
 import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
 
 from ee.api.test.base import APILicensedTest
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.organization_domain import OrganizationDomain
 
 MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
@@ -134,56 +136,6 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_signup_on_whitelisted_domain_with_saml(self):
-        self.client.logout()
-
-        # Note the user is signed up to this organization (which is not the default one)
-        organization = Organization.objects.create(name="New Co.", domain_whitelist=["posthog.com"])
-
-        with self.settings(**MOCK_SETTINGS):
-            response = self.client.get("/login/saml/?idp=posthog_custom")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-        _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
-        _session.save()
-
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
-
-        user_count = User.objects.count()
-
-        with self.settings(**MOCK_SETTINGS):
-            response = self.client.post(
-                "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
-                format="multipart",
-                follow=True,
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/")  # redirect to the home page
-
-        # User is created
-        self.assertEqual(User.objects.count(), user_count + 1)
-        user = cast(User, User.objects.last())
-        self.assertEqual(user.first_name, "PostHog")
-        self.assertEqual(user.email, "engineering@posthog.com")
-        self.assertEqual(user.organization, organization)
-        self.assertEqual(user.team, None)  # This org has no teams
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
-        )
-
-        _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_signup_on_non_whitelisted_domain_with_saml(self):
         """
         SAML has automatic provisioning for any user who logs in, even if the domain whitelist does not match.
@@ -192,7 +144,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         organization = Organization.objects.create(name="Base Org")
         team = Team.objects.create(organization=organization, name="Base Team")
-        Organization.objects.create(name="Red Herring", domain_whitelist=["differentdomain.com"])  # red herring
+        Organization.objects.create(name="Red Herring")
+        OrganizationDomain.objects.create(
+            domain="anotherdomain.com",
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=organization,
+        )  # red herring
 
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/login/saml/?idp=posthog_custom")
@@ -246,9 +204,6 @@ class TestEEAuthenticationAPI(APILicensedTest):
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_email"] = "urn:oid:0.9.2342.19200300.100.1.3"
 
         self.client.logout()
-
-        self.organization.domain_whitelist = ["posthog.com"]
-        self.organization.save()
 
         with self.settings(**settings):
             response = self.client.get("/login/saml/?idp=posthog_custom")
@@ -320,9 +275,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         self.client.logout()
 
-        self.organization.domain_whitelist = ["posthog.com"]
-        self.organization.save()
-
         with self.settings(**settings):
             response = self.client.get("/login/saml/?idp=posthog_custom")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -355,9 +307,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
     @freeze_time("2021-08-25T23:53:51.000Z")
     def test_cannot_create_account_without_first_name_in_payload(self):
         self.client.logout()
-
-        self.organization.domain_whitelist = ["posthog.com"]
-        self.organization.save()
 
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/login/saml/?idp=posthog_custom")

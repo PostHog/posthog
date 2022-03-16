@@ -25,7 +25,9 @@ class OrganizationDomain(UUIDModel):
     )  # verification (through DNS) is only used for PostHog Cloud; on self-hosted we take all domains as verified
     last_verification_retry: models.DateTimeField = models.DateTimeField(null=True, blank=True, default=None)
     jit_provisioning_enabled: models.BooleanField = models.BooleanField(default=False)
-    sso_enforcement: models.CharField = models.CharField(max_length=28, blank=True)
+    sso_enforcement: models.CharField = models.CharField(
+        max_length=28, blank=True
+    )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

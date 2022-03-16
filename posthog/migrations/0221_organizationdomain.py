@@ -2,9 +2,19 @@
 
 import django.db.models.deletion
 from django.db import migrations, models
+from django.utils import timezone
 
 import posthog.models.organization_domain
 import posthog.models.utils
+
+
+def migrate_domain_whitelist(apps, schema_editor):
+    Organization = apps.get_model("posthog", "Organization")
+    OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
+
+    for org in Organization.objects.exclude(domain_whitelist=[]):
+        for domain in org.domain_whitelist:
+            OrganizationDomain.objects.create(domain=domain, verified_at=timezone.now(), jit_provisioning_enabled=True)
 
 
 class Migration(migrations.Migration):
@@ -43,4 +53,5 @@ class Migration(migrations.Migration):
             ],
             options={"abstract": False,},
         ),
+        migrations.RunPython(migrate_domain_whitelist, migrations.RunPython.noop),
     ]
