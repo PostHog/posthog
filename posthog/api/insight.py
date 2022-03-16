@@ -3,6 +3,8 @@ from typing import Any, Dict, Type
 
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
+from django.http import HttpResponse
+from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
@@ -10,6 +12,8 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
@@ -49,6 +53,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -203,6 +208,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     )
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
@@ -289,7 +295,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         responses=TrendResultsSerializer,
     )
     @action(methods=["GET", "POST"], detail=False)
-    def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         try:
             serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
@@ -303,6 +309,28 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             if len(result["result"]) >= BREAKDOWN_VALUES_LIMIT
             else None
         )
+        if self.request.accepted_renderer.format == "csv":
+            csvexport = []
+            for item in result["result"]:
+                line = {"series": item["label"]}
+                for index, data in enumerate(item["data"]):
+                    line[item["labels"][index]] = data
+                csvexport.append(line)
+            renderer = csvrenderers.CSVRenderer()
+            renderer.header = csvexport[0].keys()
+            export = renderer.render(csvexport)
+            if request.GET.get("export_insight_id"):
+                export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
+
+            response = HttpResponse(export)
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
+            )
+            return response
         return Response({**result, "next": next})
 
     @cached_function
