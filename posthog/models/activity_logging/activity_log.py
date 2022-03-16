@@ -12,7 +12,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 @dataclasses.dataclass(frozen=True)
 class Change:
     type: Literal["FeatureFlag"]
-    action: Literal["imported", "changed", "created", "deleted"]
+    action: Literal["changed", "created", "deleted"]
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
