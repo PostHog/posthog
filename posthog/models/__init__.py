@@ -1,4 +1,6 @@
 # flake8: noqa
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from .action import Action
 from .action_step import ActionStep
 from .annotation import Annotation
@@ -15,7 +17,6 @@ from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
-from .historical_version import HistoricalVersion
 from .insight import Insight
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
@@ -33,6 +34,7 @@ from .user import User, UserManager
 __all__ = [
     "Action",
     "ActionStep",
+    "ActivityLog",
     "Annotation",
     "Cohort",
     "CohortPeople",
@@ -48,7 +50,6 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
-    "HistoricalVersion",
     "MessagingRecord",
     "Organization",
     "OrganizationInvite",

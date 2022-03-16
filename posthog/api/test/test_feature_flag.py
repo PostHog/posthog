@@ -1,6 +1,5 @@
 import datetime
 import json
-from dataclasses import asdict
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
@@ -10,7 +9,6 @@ from rest_framework import status
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.history_logging import Change, Detail, HistoryListItem
 from posthog.test.base import APIBaseTest
 
 
@@ -159,21 +157,14 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        self.assert_feature_flag_history(
+        self.assert_feature_flag_activity(
             flag_id,
             [
                 {
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "action": "created",
-                            "key": None,
-                            "detail": {"after": None, "before": None, "id": str(flag_id), "key": "alpha-feature"},
-                        }
-                    ],
-                    "created_at": "2021-08-25T22:09:14.252000+00:00",
-                    "email": "user1@posthog.com",
-                    "name": "",
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "item_type": "FeatureFlag",
+                    "detail": {"changes": None},
                 }
             ],
         )
@@ -365,32 +356,27 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        self.assert_feature_flag_history(
+        self.assert_feature_flag_activity(
             flag_id,
             [
                 {
-                    "email": self.user.email,
-                    "name": "",
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "action": "changed",
-                            "key": "name",
-                            "detail": {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "item_type": "FeatureFlag",
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "name",
                                 "before": "original name",
-                                "id": str(flag_id),
-                                "key": "a-feature-flag-that-is-updated",
                                 "after": "Updated name",
                             },
-                        },
-                        {
-                            "type": "FeatureFlag",
-                            "action": "changed",
-                            "key": "filters",
-                            "detail": {
-                                "before": {"groups": [{"properties": [], "rollout_percentage": None}]},
-                                "id": str(flag_id),
-                                "key": "a-feature-flag-that-is-updated",
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
                                 "after": {
                                     "groups": [
                                         {
@@ -407,52 +393,20 @@ class TestFeatureFlag(APIBaseTest):
                                     ]
                                 },
                             },
-                        },
-                        {
-                            "type": "FeatureFlag",
-                            "action": "changed",
-                            "key": "is_simple_flag",
-                            "detail": {
-                                "before": True,
-                                "id": str(flag_id),
-                                "key": "a-feature-flag-that-is-updated",
-                                "after": False,
-                            },
-                        },
-                    ],
-                    "created_at": "2021-08-25T22:19:14.252000+00:00",
+                        ]
+                    },
                 },
                 {
-                    "email": self.user.email,
-                    "name": "",
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "key": None,
-                            "action": "created",
-                            "detail": {
-                                "id": str(flag_id),
-                                "key": "a-feature-flag-that-is-updated",
-                                "before": None,
-                                "after": None,
-                            },
-                        }
-                    ],
-                    "created_at": "2021-08-25T22:09:14.252000+00:00",
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "created",
+                    "item_type": "FeatureFlag",
+                    "detail": {"changes": None},
                 },
             ],
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deleting_feature_flag(self):
-        """
-        NB Feature flags have a soft delete which writes to the "deleted" property.
-
-        This is testing calling the HTTP delete endpoint which is a hard delete,
-        so the "deleted" property captured for history will be false
-        but the model instance will have been deleted from the DB
-        """
-
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
@@ -480,43 +434,14 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-        self._get_feature_flag_history(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_get_feature_flag_that_needs_importing(self):
-        """
-        The first time we load history for a feature flag that existed before starting history logging
-        Import its current state
-        """
-        new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
-
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
-        self.client.force_login(new_user)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/history")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        history = response.json()["results"]
-
-        expected = [
-            asdict(
-                HistoryListItem(
-                    email="history.hog@posthog.com",
-                    name="History Hog",
-                    changes=[Change(type="FeatureFlag", key=None, action="imported", detail=Detail())],
-                    created_at="2021-08-25T22:09:14.252000",
-                )
-            )
-        ]
-
-        self.assertEqual(
-            history, expected,
-        )
+        self._get_feature_flag_activity(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
 
     def test_get_feature_flag_history(self):
         new_user = User.objects.create_and_join(
-            self.organization, "person_acting_and_then_viewing_history@posthog.com", None
+            organization=self.organization,
+            email="person_acting_and_then_viewing_history@posthog.com",
+            password=None,
+            first_name="Potato",
         )
         self.client.force_login(new_user)
 
@@ -542,50 +467,30 @@ class TestFeatureFlag(APIBaseTest):
 
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        self.assert_feature_flag_history(
+        self.assert_feature_flag_activity(
             flag_id,
             [
                 {
-                    "email": "person_acting_and_then_viewing_history@posthog.com",
-                    "name": "",
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "key": "filters",
-                            "action": "changed",
-                            "detail": {
-                                "id": str(flag_id),
-                                "key": "feature_with_history",
-                                "before": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "updated",
+                    "item_type": "FeatureFlag",
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": {},
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                            },
-                        },
-                        {
-                            "type": "FeatureFlag",
-                            "key": "rollout_percentage",
-                            "action": "changed",
-                            "detail": {"id": str(flag_id), "key": "feature_with_history", "before": None, "after": 74},
-                        },
-                    ],
-                    "created_at": "2021-08-25T22:19:14.252000+00:00",
+                            }
+                        ]
+                    },
                 },
                 {
-                    "email": "person_acting_and_then_viewing_history@posthog.com",
-                    "name": "",
-                    "changes": [
-                        {
-                            "type": "FeatureFlag",
-                            "key": None,
-                            "action": "created",
-                            "detail": {
-                                "after": None,
-                                "before": None,
-                                "id": str(flag_id),
-                                "key": "feature_with_history",
-                            },
-                        }
-                    ],
-                    "created_at": "2021-08-25T22:09:14.252000+00:00",
+                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "activity": "created",
+                    "item_type": "FeatureFlag",
+                    "detail": {"changes": None},
                 },
             ],
         )
@@ -620,31 +525,31 @@ class TestFeatureFlag(APIBaseTest):
 
         # user in org 1 gets history
         self.client.force_login(org_one_user)
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_one_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_one_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_two_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_two_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
         )
 
         # user in org 2 gets history
         self.client.force_login(org_two_user)
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_two_flag_one, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
         )
-        self._get_feature_flag_history(
+        self._get_feature_flag_activity(
             flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
         )
 
@@ -1055,17 +960,17 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(create_response.status_code, expected_status)
         return create_response
 
-    def _get_feature_flag_history(
+    def _get_feature_flag_activity(
         self, flag_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
     ):
         if team_id is None:
             team_id = self.team.id
 
-        history_response = self.client.get(f"/api/projects/{team_id}/feature_flags/{flag_id}/history")
-        self.assertEqual(history_response.status_code, expected_status)
-        return history_response.json()
+        activity = self.client.get(f"/api/projects/{team_id}/feature_flags/{flag_id}/activity")
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
 
-    def assert_feature_flag_history(self, flag_id: int, expected: List[Dict]):
+    def assert_feature_flag_activity(self, flag_id: int, expected: List[Dict]):
         """
         should have 5 queries
         select django_session
@@ -1076,10 +981,10 @@ class TestFeatureFlag(APIBaseTest):
         select historical versions (with user details)
         """
         with self.assertNumQueries(6):
-            history_response = self._get_feature_flag_history(flag_id)
+            activity_response = self._get_feature_flag_activity(flag_id)
 
-        history: List[Dict] = history_response["results"]
+        activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
         self.assertEqual(
-            history, expected,
+            activity, expected,
         )

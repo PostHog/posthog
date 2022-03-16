@@ -13,9 +13,9 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
 from posthog.models import FeatureFlag
+from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.historical_version import HistoricalVersion
-from posthog.models.history_logging import HistoryListItemSerializer, load_history
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -200,24 +200,50 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(flags)
 
     @action(methods=["GET"], detail=True)
-    def history(self, request: request.Request, **kwargs):
+    def activity(self, request: request.Request, **kwargs):
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        history = load_history(history_type="FeatureFlag", team_id=self.team_id, item_id=item_id,)
+        activity = load_activity(type="FeatureFlag", team_id=self.team_id, item_id=item_id,)
         return Response(
-            {"results": HistoryListItemSerializer(history, many=True,).data, "next": None, "previous": None,},
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
             status=status.HTTP_200_OK,
         )
 
     def perform_create(self, serializer):
         serializer.save()
-        HistoricalVersion.save_version(serializer, "create")
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=serializer.instance.id,
+            item_type="FeatureFlag",
+            activity="created",
+            detail=Detail(),
+        )
 
     def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = FeatureFlag.objects.get(pk=instance_id)
+        except FeatureFlag.DoesNotExist:
+            before_update = None
+
         serializer.save()
-        HistoricalVersion.save_version(serializer, "update")
+
+        changes = changes_between("FeatureFlag", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=instance_id,
+            item_type="FeatureFlag",
+            activity="updated",
+            detail=Detail(changes=changes),
+        )
 
     @log_deletion_metadata_to_posthog
     def destroy(self, request, *args, **kwargs):
@@ -225,8 +251,14 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         instance.delete()
 
-        HistoricalVersion.save_deletion(
-            instance=instance, item_id=kwargs["pk"], team_id=self.team_id, user=request.user,
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            item_id=instance.id,
+            item_type="FeatureFlag",
+            activity="deleted",
+            detail=Detail(),
         )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
