@@ -268,16 +268,18 @@ export function InsightsTable({
 
     return (
         <>
-            <Tooltip title="Export this table as csv." placement="left">
-                <LemonButton
-                    type="secondary"
-                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                    href={csvExportUrl}
-                    style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
-                >
-                    Export
-                </LemonButton>
-            </Tooltip>
+            {csvExportUrl && (
+                <Tooltip title="Export this table as csv." placement="left">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                        href={csvExportUrl}
+                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
+                    >
+                        Export
+                    </LemonButton>
+                </Tooltip>
+            )}
             <LemonTable
                 dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
                 embedded={embedded}
