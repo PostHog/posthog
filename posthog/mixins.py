@@ -1,9 +1,6 @@
-import structlog
 from rest_framework import response, status
 
 from posthog.event_usage import report_user_action
-
-logger = structlog.get_logger(__name__)
 
 
 def log_deletion_metadata_to_posthog(func):
