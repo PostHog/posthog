@@ -42,6 +42,7 @@ export const parameters = {
             return a[1].kind === b[1].kind ? 0 : a[1].title.localeCompare(b[1].title, undefined, { numeric: true })
         },
     },
+    viewMode: 'docs',
     // auto-expand code blocks in docs
     docs: { source: { state: 'open' } },
 }

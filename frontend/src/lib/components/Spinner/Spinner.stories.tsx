@@ -8,14 +8,22 @@ export default {
     component: Spinner,
 } as ComponentMeta<typeof Spinner>
 
-export const Default = (): JSX.Element => <Spinner />
+export function Default(): JSX.Element {
+    return <Spinner />
+}
 
-export const Small = (): JSX.Element => <Spinner size="sm" />
+export function Small(): JSX.Element {
+    return <Spinner size="sm" />
+}
 
-export const Large = (): JSX.Element => <Spinner size="lg" />
+export function Large(): JSX.Element {
+    return <Spinner size="lg" />
+}
 
-export const Inverse = (): JSX.Element => (
-    <div style={{ display: 'flex', background: 'black', width: 'fit-content', padding: 8 }}>
-        <Spinner type="inverse" />
-    </div>
-)
+export function Inverse(): JSX.Element {
+    return (
+        <div style={{ display: 'flex', background: 'black', width: 'fit-content', padding: 8 }}>
+            <Spinner type="inverse" />
+        </div>
+    )
+}
