@@ -123,7 +123,6 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    domain_whitelist: string[]
     is_member_join_email_enabled: boolean
     metadata?: OrganizationMetadata
 }
