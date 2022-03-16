@@ -52,6 +52,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         self.assertEqual(item["domain"], "myposthog.com")
         self.assertEqual(item["verified_at"], None)
+        self.assertEqual(item["is_verified"], False)
         self.assertEqual(item["jit_provisioning_enabled"], False)
         self.assertEqual(item["sso_enforcement"], "")
         self.assertRegex(item["verification_challenge"], r"[0-9A-Za-z_-]{32}")
@@ -134,6 +135,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
 
+    def test_cannot_create_duplicate_domain(self):
+        pass
+
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -156,10 +160,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(
             response_data["verified_at"], self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
+        self.assertEqual(response_data["is_verified"], True)
 
         self.assertEqual(
             self.domain.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC),
         )
+        self.assertEqual(self.domain.is_verified, True)
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):

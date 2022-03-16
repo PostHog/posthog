@@ -20,6 +20,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "domain",
+            "is_verified",
             "verified_at",
             "verification_challenge",
             "jit_provisioning_enabled",
@@ -28,6 +29,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "verified_at": {"read_only": True},
             "verification_challenge": {"read_only": True},
+            "is_verified": {"read_only": True},
         }
 
     def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:

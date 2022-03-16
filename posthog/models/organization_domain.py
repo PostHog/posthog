@@ -29,6 +29,14 @@ class OrganizationDomain(UUIDModel):
         max_length=28, blank=True
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
+    @property
+    def is_verified(self) -> bool:
+        """
+        Determines whether a domain is verified or not.
+        """
+        # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        return bool(self.verified_at)
+
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
         self.verified_at = timezone.now()
