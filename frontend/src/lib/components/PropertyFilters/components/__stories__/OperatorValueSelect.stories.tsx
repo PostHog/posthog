@@ -8,7 +8,7 @@ import {
 import { PropertyDefinition, PropertyType } from '~/types'
 
 export default {
-    title: 'PostHog/Components/PropertyFilters/OperatorValueSelect',
+    title: 'Filters/PropertyFilters/OperatorValueSelect',
     Component: OperatorValueSelect,
 } as ComponentMeta<typeof OperatorValueSelect>
 

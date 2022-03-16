@@ -32,5 +32,6 @@ export const handlers = mocksToHandlers({
     },
     post: {
         '/e/': () => [200, 'ok'],
+        '/decide/': () => [200, 'ok'],
     },
 })

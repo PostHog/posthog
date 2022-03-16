@@ -8,6 +8,10 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
+        &.icon-column .ant-skeleton-title {
+            height: 2rem;
+            width: 2rem;
+        }
     }
 
     .new-insight-dropdown-btn {
@@ -32,7 +36,7 @@
 
     .list-or-card-layout {
         color: $text_muted_alt;
-        padding: 28px 0;
+        padding: 1rem 0;
         border-top: 1px solid $border;
         justify-content: space-between;
         align-items: center;
@@ -104,11 +108,13 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
-    min-height: 30rem;
     @media screen and (min-width: $xl) {
         grid-template-columns: repeat(2, 1fr);
     }
     @media screen and (min-width: $xxl) {
         grid-template-columns: repeat(3, 1fr);
+    }
+    .loading-overlay {
+        min-height: 30rem;
     }
 }

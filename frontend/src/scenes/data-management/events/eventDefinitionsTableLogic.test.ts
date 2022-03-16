@@ -282,8 +282,10 @@ describe('eventDefinitionsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition)
             })
-                .toDispatchActions([
+                .toDispatchActionsInAnyOrder([
                     router.actionCreators.push(url),
+                    'loadEventDefinitions',
+                    'loadEventDefinitionsSuccess',
                     'loadPropertiesForEvent',
                     'loadPropertiesForEventSuccess',
                 ])
@@ -310,12 +312,12 @@ describe('eventDefinitionsTableLogic', () => {
                 })
 
             expect(api.get).toBeCalledTimes(3)
-            expect(api.get).toHaveBeenNthCalledWith(1, startingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(2, propertiesStartingUrl)
+            expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
             expect(api.get).toHaveBeenNthCalledWith(
-                3,
+                2,
                 `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1&orderBy=%5B%22-timestamp%22%5D`
             )
+            expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
 
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, startingUrl)
@@ -366,7 +368,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(3)
+            expect(api.get).toBeCalledTimes(2)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(
@@ -384,7 +386,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(4)
+            expect(api.get).toBeCalledTimes(3)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, propertiesStartingUrl)
@@ -398,7 +400,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(4)
+            expect(api.get).toBeCalledTimes(3)
         })
     })
 })

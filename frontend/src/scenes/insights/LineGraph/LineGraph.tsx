@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext, useActions, useValues } from 'kea'
 import {
+    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -31,8 +32,13 @@ import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
+if (registerables) {
+    // required for storybook to work, not found in esbuild
+    Chart.register(...registerables)
+}
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
@@ -58,7 +64,15 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
-export function LineGraph({
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            <LineGraph_ {...props} />
+        </ErrorBoundary>
+    )
+}
+
+export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
     labels,

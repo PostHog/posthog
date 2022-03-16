@@ -13,6 +13,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InstanceConfigTab } from './InstanceConfigTab'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { StaffUsersTab } from './StaffUsersTab'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -108,6 +109,18 @@ export function SystemStatus(): JSX.Element {
                             <InstanceConfigTab />
                         </Tabs.TabPane>
                     </>
+                )}
+                {user?.is_staff && (
+                    <Tabs.TabPane
+                        tab={
+                            <>
+                                Staff Users <LemonTag type="success">New</LemonTag>
+                            </>
+                        }
+                        key="staff_users"
+                    >
+                        <StaffUsersTab />
+                    </Tabs.TabPane>
                 )}
             </Tabs>
         </div>

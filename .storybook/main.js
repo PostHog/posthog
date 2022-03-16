@@ -6,7 +6,6 @@ module.exports = {
     addons: [
         '@storybook/addon-links',
         '@storybook/addon-essentials',
-        './ApiSelector/register.js',
         {
             name: 'storybook-addon-turbo-build',
             options: {
@@ -14,7 +13,8 @@ module.exports = {
             },
         },
     ],
-    babel: async (options) => {
+    staticDirs: ['public'],
+    babel: async () => {
         // compile babel to "defaults" target (ES5)
         const envPreset = babelConfig.presets.find(
             (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
@@ -24,7 +24,7 @@ module.exports = {
     },
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
-        const newConfig = {
+        return {
             ...config,
             resolve: {
                 ...config.resolve,
@@ -39,6 +39,8 @@ module.exports = {
                 ],
             },
         }
-        return newConfig
+    },
+    features: {
+        postcss: false,
     },
 }

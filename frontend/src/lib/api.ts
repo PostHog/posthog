@@ -21,6 +21,7 @@ import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -154,6 +155,10 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
     }
 
     // Request finalization
@@ -402,6 +407,12 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 

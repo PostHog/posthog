@@ -676,7 +676,7 @@ export interface InsightModel {
     favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
-    order: number
+    order: number | null
     deleted: boolean
     saved: boolean
     created_at: string

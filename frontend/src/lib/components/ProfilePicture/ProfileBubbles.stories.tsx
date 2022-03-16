@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 
 export default {
-    title: 'PostHog/Components/ProfileBubbles',
+    title: 'DataDisplay/ProfileBubbles',
     component: ProfileBubblesComponent,
     parameters: {
         layout: 'centered',
