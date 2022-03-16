@@ -11,7 +11,7 @@ import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport } from 'lib/components/icons'
+import { IconExport, IconEdit } from 'lib/components/icons'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -156,10 +156,10 @@ export function InsightsTable({
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
-                        <EditOutlined
-                            title="Rename graph series"
-                            className="edit-icon"
+                        <LemonButton
                             onClick={() => handleEditClick(item)}
+                            title="Rename graph series"
+                            icon={<IconEdit className="edit-icon" />}
                         />
                     )}
                 </div>

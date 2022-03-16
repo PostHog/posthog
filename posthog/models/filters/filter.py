@@ -22,6 +22,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SearchMixin,
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
@@ -79,6 +80,7 @@ class Filter(
     FunnelCorrelationActorsMixin,
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
+    SearchMixin,
     BaseFilter,
 ):
     """

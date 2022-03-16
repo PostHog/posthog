@@ -961,7 +961,7 @@ export function IconCancel(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-/** Material Design Delete icon. */
+/** Material Design Delete (Trash) icon. */
 export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
@@ -1357,6 +1357,15 @@ export function IconExport(props: React.SVGProps<SVGSVGElement>): JSX.Element {
                 fill="currentColor"
                 d="M2 12H4V17H20V12H22V17C22 18.11 21.11 19 20 19H4C2.9 19 2 18.11 2 17V12M12 15L17.55 9.54L16.13 8.13L13 11.25V2H11V11.25L7.88 8.13L6.46 9.55L12 15Z"
             />
+        </svg>
+    )
+}
+
+/** Material Design Filter List icon. */
+export function IconFilter(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
+            <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
         </svg>
     )
 }

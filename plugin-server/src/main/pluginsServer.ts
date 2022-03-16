@@ -119,6 +119,12 @@ export async function startPluginsServer(
         process.exit(0)
     })
 
+    process.on('unhandledRejection', (error: Error) => {
+        Sentry.captureException(error)
+        status.error('🤮', 'Unhandled Promise Rejection!')
+        status.error('🤮', error)
+    })
+
     try {
         ;[hub, closeHub] = await createHub(serverConfig, null)
 

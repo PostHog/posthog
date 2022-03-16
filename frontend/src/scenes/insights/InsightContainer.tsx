@@ -49,7 +49,6 @@ export function InsightContainer(
     const { insightMode } = useValues(insightSceneLogic)
     const {
         insightProps,
-        lastRefresh,
         canEditInsight,
         insightLoading,
         activeView,
@@ -64,7 +63,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || insightLoading) {
+        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
                     {
@@ -166,7 +165,9 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        <Col>{lastRefresh && <ComputationTimeWithRefresh />}</Col>
+                        <Col>
+                            <ComputationTimeWithRefresh />
+                        </Col>
                         <Col>
                             {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
                             {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}

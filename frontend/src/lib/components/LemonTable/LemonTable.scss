@@ -38,6 +38,13 @@
     &.LemonTable--scrollable-left::before {
         opacity: 1;
     }
+    .PaginationControl {
+        height: var(--row-base-height);
+        margin: 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+    }
     .row-name {
         display: block;
         font-size: 0.875rem;
@@ -133,6 +140,9 @@
             }
         }
     }
+    .ant-skeleton-title {
+        margin: 0;
+    }
 }
 
 .LemonTable__scroll {
@@ -187,18 +197,6 @@
     .LemonTable--loading & {
         top: calc(var(--row-base-height) - 0.25rem);
         height: 0.25rem;
-    }
-}
-
-.LemonTable__pagination {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    height: var(--row-base-height);
-    border-top: 1px solid var(--border);
-    padding: 0 1rem;
-    > span {
-        margin-right: 0.5rem;
     }
 }
 
