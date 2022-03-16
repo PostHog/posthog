@@ -95,8 +95,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
-        /** Take the user to insights to add a graph. */
-        addGraph: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -668,13 +666,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
 
             if (mode) {
                 eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
-            }
-        },
-        addGraph: () => {
-            if (values.dashboard) {
-                router.actions.push(
-                    urls.insightNew({ insight: InsightType.TRENDS, from_dashboard: values.dashboard.id })
-                )
             }
         },
         setAutoRefresh: () => {

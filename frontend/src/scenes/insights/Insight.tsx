@@ -48,6 +48,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         filtersChanged,
         savedFilters,
         tagLoading,
+        sourceDashboardId,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
@@ -148,7 +149,9 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                                 </Button>
                             </Popconfirm>
                         ) : null}
-                        {insight.short_id && <SaveToDashboard insight={insight} />}
+                        {insight.short_id && (
+                            <SaveToDashboard insight={insight} sourceDashboardId={sourceDashboardId} />
+                        )}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <HotkeyButton

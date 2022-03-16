@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { FilterType, InsightShortId } from '~/types'
+import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 
 /*
@@ -25,9 +25,10 @@ export const urls = {
     eventPropertyDefinitions: () => '/data-management/event-properties',
     eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
-    insightNew: (filters?: Partial<FilterType>) =>
-        `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
+    insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null) =>
+        `/insights/new${filters || dashboardId ? combineUrl('', '', { filters, dashboard: dashboardId }).hash : ''}`,
+    insightEdit: (id: InsightShortId, dashboardId?: DashboardType['id'] | null) =>
+        `/insights/${id}/edit${dashboardId ? combineUrl('', '', { dashboard: dashboardId }).hash : ''}`,
     insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',

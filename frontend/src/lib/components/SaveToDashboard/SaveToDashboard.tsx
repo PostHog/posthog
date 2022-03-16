@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
-import { InsightModel } from '~/types'
+import { DashboardType, InsightModel } from '~/types'
 import { CheckSquareOutlined } from '@ant-design/icons'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
@@ -10,14 +10,19 @@ import { urls } from '../../../scenes/urls'
 import { Tooltip } from '../Tooltip'
 import { combineUrl } from 'kea-router'
 
-interface Props {
+interface SaveToDashboardProps {
     insight: Partial<InsightModel>
+    sourceDashboardId: DashboardType['id'] | null
 }
 
-export function SaveToDashboard({ insight }: Props): JSX.Element {
+export function SaveToDashboard({ insight, sourceDashboardId }: SaveToDashboardProps): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const { rawDashboards } = useValues(dashboardsModel)
-    const dashboard = (insight.dashboard && rawDashboards[insight.dashboard]) || null
+    const dashboard = insight.dashboard
+        ? rawDashboards[insight.dashboard]
+        : sourceDashboardId
+        ? rawDashboards[sourceDashboardId]
+        : null
 
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
@@ -31,7 +36,7 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
                         icon={<CheckSquareOutlined />}
                         className="btn-save"
                     >
-                        On dashboard
+                        {insight.dashboard ? 'On' : 'Adding to'} dashboard
                     </LinkButton>
                 </Tooltip>
             ) : (

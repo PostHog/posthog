@@ -132,6 +132,7 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -433,6 +434,12 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
+        sourceDashboardId: [
+            null as number | null,
+            {
+                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
     }),
     selectors: {
         /** filters for data that's being displayed, might not be same as savedFilters or filters */
@@ -620,6 +627,7 @@ export const insightLogic = kea<insightLogicType>({
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
                 {
                     ...values.insight,
+                    dashboard: values.insight.dashboard || values.sourceDashboardId,
                     derived_name: summarizeInsightFilters(
                         values.insight.filters || {},
                         values.aggregationLabel,
