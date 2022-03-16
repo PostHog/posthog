@@ -224,6 +224,7 @@ function Pages(): JSX.Element {
             {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                 !preflight?.instance_preferences?.disable_paid_fs) && (
                 <PageButton
+                    title="Experimentation"
                     icon={<IconExperiment />}
                     identifier={Scene.Experiments}
                     to={urls.experiments()}
