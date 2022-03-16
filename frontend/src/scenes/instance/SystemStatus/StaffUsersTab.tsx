@@ -98,23 +98,16 @@ export function StaffUsersTab(): JSX.Element {
 
     return (
         <div>
-            <div className="flex-center">
-                <div style={{ flexGrow: 1 }}>
-                    <h3 className="l3" style={{ marginTop: 16 }}>
-                        Staff Users
-                    </h3>
-                    <div className="mb">
-                        Users who have permissions to manage instance-wide settings. Staff user permissions are set at
-                        the <b>instance-level and are independent of any organization or project permissions.</b>{' '}
-                        <a
-                            href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users"
-                            target="_blank"
-                        >
-                            Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                        </a>
-                        .
-                    </div>
-                </div>
+            <h3 className="l3" style={{ marginTop: 16 }}>
+                Staff Users
+            </h3>
+            <div className="mb">
+                Users who have permissions to manage instance-wide settings. Staff user permissions are set at the{' '}
+                <b>instance-level and are independent of any organization or project permissions.</b>{' '}
+                <a href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users" target="_blank">
+                    Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
+                </a>
+                .
             </div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>

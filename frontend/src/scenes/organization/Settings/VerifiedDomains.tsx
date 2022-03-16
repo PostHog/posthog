@@ -1,4 +1,4 @@
-import { Switch } from 'antd'
+import { Button, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -7,7 +7,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
 import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from '../verifiedDomainsLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 
@@ -115,14 +115,24 @@ export function VerifiedDomains(): JSX.Element {
     ]
     return (
         <div>
-            <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 6/1/22. */}
-            <h2 id="verified-domains" className="subtitle">
-                Verified domains
-            </h2>
-            <p className="text-muted-alt">
-                Enable users to sign up automatically with an email address on verified domains and enforce SSO for
-                accounts under your domains.
-            </p>
+            <div className="flex-center">
+                <div style={{ flexGrow: 1 }}>
+                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 6/1/22. */}
+                    <h2 id="verified-domains" className="subtitle">
+                        Verified domains
+                    </h2>
+                    <p className="text-muted-alt">
+                        Enable users to sign up automatically with an email address on verified domains and enforce SSO
+                        for accounts under your domains.
+                    </p>
+                </div>
+                <div>
+                    <Button type="primary" icon={<PlusOutlined />}>
+                        Add domain
+                    </Button>
+                </div>
+            </div>
+
             <LemonTable
                 dataSource={verifiedDomains}
                 columns={columns}

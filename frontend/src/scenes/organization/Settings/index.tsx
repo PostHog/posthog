@@ -8,7 +8,6 @@ import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
@@ -88,7 +87,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
     useAnchor(location.hash)
 
     return (
@@ -104,15 +102,8 @@ export function OrganizationSettings(): JSX.Element {
                 <Divider />
                 {user && <Members user={user} />}
                 <Divider />
-                {!preflight?.cloud && (
-                    <>
-                        <RestrictedArea
-                            Component={VerifiedDomains}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <Divider />
-                    </>
-                )}
+                <RestrictedArea Component={VerifiedDomains} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <Divider />
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
