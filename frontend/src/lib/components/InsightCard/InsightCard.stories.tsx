@@ -296,7 +296,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 }
 
 export default {
-    title: 'Components/InsightCard',
+    title: 'Components/Insight Card',
     argTypes: {
         insightName: {
             control: { type: 'text' },

@@ -5,7 +5,7 @@ import { Popup } from './Popup'
 import { Button } from 'antd'
 
 export default {
-    title: 'DataDisplay/Popup',
+    title: 'Components/Popup',
     component: Popup,
 } as ComponentMeta<typeof Popup>
 

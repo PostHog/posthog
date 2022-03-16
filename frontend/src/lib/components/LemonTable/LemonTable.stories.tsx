@@ -4,7 +4,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonTable } from './LemonTable'
 
 export default {
-    title: 'DataDisplay',
+    title: 'Components/Lemon Table',
     component: LemonTable,
     argTypes: {
         loading: {

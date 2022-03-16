@@ -5,7 +5,7 @@ import { PayCard } from './PayCard'
 import { AvailableFeature } from '~/types'
 
 export default {
-    title: 'Components/PayCard',
+    title: 'Components/Pay Card',
     component: PayCard,
 } as ComponentMeta<typeof PayCard>
 
@@ -17,8 +17,8 @@ const Template: ComponentStory<typeof PayCard> = (args) => {
     )
 }
 
-export const Primary = Template.bind({})
-Primary.args = {
+export const PayCard_ = Template.bind({})
+PayCard_.args = {
     identifier: AvailableFeature.PATHS_ADVANCED,
     title: 'Get a deeper understanding of your users',
     caption:

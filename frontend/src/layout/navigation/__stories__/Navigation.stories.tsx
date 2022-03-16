@@ -12,11 +12,13 @@ export default {
     },
 } as Meta
 
-export const Navigation = (): JSX.Element => (
-    <Layout>
-        <TopBar />
-        <SideBar>
-            <React.Fragment />
-        </SideBar>
-    </Layout>
-)
+export function Navigation_(): JSX.Element {
+    return (
+        <Layout>
+            <TopBar />
+            <SideBar>
+                <React.Fragment />
+            </SideBar>
+        </Layout>
+    )
+}
