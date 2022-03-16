@@ -388,7 +388,7 @@ export const eventUsageLogic = kea<
             type,
             filtersLength,
         }),
-        reportChangePrimaryDashboardModalOpened: true,
+        reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
     },
     listeners: ({ values }) => ({
@@ -896,8 +896,8 @@ export const eventUsageLogic = kea<
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
         },
-        reportChangePrimaryDashboardModalOpened: () => {
-            posthog.capture('change primary dashboard modal opened')
+        reportPrimaryDashboardModalOpened: () => {
+            posthog.capture('primary dashboard modal opened')
         },
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')

@@ -26,7 +26,7 @@ export const primaryDashboardModalLogic = kea<primaryDashboardModalLogicType>({
             eventUsageLogic.actions.reportPrimaryDashboardChanged()
         },
         showPrimaryDashboardModal: async () => {
-            eventUsageLogic.actions.reportChangePrimaryDashboardModalOpened()
+            eventUsageLogic.actions.reportPrimaryDashboardModalOpened()
         },
     }),
 })
