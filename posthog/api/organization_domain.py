@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from django.conf import settings
 from rest_framework import exceptions, request, response, serializers
@@ -46,8 +46,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return instance
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+        instance = cast(OrganizationDomain, self.instance)
 
-        if self.instance and not self.instance.verified_at:
+        if instance and not instance.verified_at:
             for protected_attr in self.UPDATE_ONLY_WHEN_VERIFIED:
                 if protected_attr in attrs:
                     raise serializers.ValidationError(

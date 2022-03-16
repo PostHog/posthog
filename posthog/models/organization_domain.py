@@ -15,7 +15,7 @@ def generate_verification_challenge() -> str:
 
 
 class OrganizationDomain(UUIDModel):
-    organization: models.OneToOneField = models.ForeignKey(
+    organization: models.ForeignKey = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="domains",
     )
     domain: models.CharField = models.CharField(max_length=128, unique=True)
@@ -52,7 +52,6 @@ class OrganizationDomain(UUIDModel):
             # We only do DNS validation on PostHog Cloud
             return self._complete_verification()
 
-        dns_response = []
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")

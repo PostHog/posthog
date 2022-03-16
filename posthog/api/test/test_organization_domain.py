@@ -2,12 +2,13 @@ import datetime
 from unittest.mock import patch
 
 import dns.resolver
+import dns.rrset
 import pytz
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -30,15 +31,18 @@ class TestOrganizationDomains(BaseTest):
 
 
 class TestOrganizationDomainsAPI(APIBaseTest):
+    domain: OrganizationDomain = None  # type: ignore
+    another_domain: OrganizationDomain = None  # type: ignore
+    another_org: Organization = None  # type: ignore
+
     @classmethod
     def setUpTestData(cls):
-        super().setUpTestData()  # type: ignore
+        super().setUpTestData()
 
         cls.domain = OrganizationDomain.objects.create(organization=cls.organization, domain="myposthog.com")
 
         cls.another_org = Organization.objects.create(name="Another Org")
         Team.objects.create(organization=cls.another_org)
-        cls.another_user = User.objects.create_and_join(cls.another_org, "another@org.posthog.net", cls.CONFIG_PASSWORD)
         cls.another_domain = OrganizationDomain.objects.create(organization=cls.another_org, domain="org.posthog.net")
 
     # List & retrieve domains
