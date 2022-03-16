@@ -1,11 +1,15 @@
 import copy
+import datetime
 import os
 import uuid
 from typing import Dict, cast
+from unittest.mock import patch
 
 import pytest
 from django.conf import settings
+from django.core import mail
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
@@ -56,6 +60,96 @@ CURRENT_FOLDER = os.path.dirname(__file__)
 @pytest.mark.ee
 @pytest.mark.skip_on_multitenancy
 class TestEEAuthenticationAPI(APILicensedTest):
+
+    GOOGLE_MOCK_SETTINGS = {
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google_key",
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google_secret",
+    }
+
+    def test_can_enforce_sso(self):
+        self.client.logout()
+
+        # Can log in with password with SSO configured but not enforced
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Forcing SSO disables regular API password login
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "sso_enforced",
+                "detail": "This instance only allows SSO login.",
+                "attr": None,
+            },
+        )
+
+        # Client is automatically redirected to SAML login
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+            response = self.client.get("/login")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/login/google-oauth2/")
+
+    def test_cannot_reset_password_with_enforced_sso(self):
+        with self.settings(
+            **self.GOOGLE_MOCK_SETTINGS,
+            SSO_ENFORCEMENT="google-oauth2",
+            EMAIL_HOST="localhost",
+            SITE_URL="https://my.posthog.net",
+        ):
+            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "sso_enforced",
+                "detail": "Password reset is disabled because SSO login is enforced.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(len(mail.outbox), 0)
+
+    @patch("posthog.utils.print_warning")
+    def test_cannot_enforce_sso_without_a_license(self, mock_warning):
+        self.client.logout()
+        self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
+        self.license.save()
+
+        # Enforcement is ignored
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Client is not redirected to SAML login (even though it's enforced), enforcement is ignored
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+            response = self.client.get("/login")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Attempting to use SAML fails
+        with self.settings(**self.GOOGLE_MOCK_SETTINGS, SSO_ENFORCEMENT="google-oauth2"):
+            response = self.client.get("/login/google-oauth2/")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])
+
+        # Ensure warning is properly logged for debugging
+        mock_warning.assert_any_call(
+            [
+                "You have configured `SSO_ENFORCEMENT` with value `google-oauth2`, but that provider is not properly configured or your instance does not have the required license."
+            ]
+        )
+
+
+@pytest.mark.ee
+@pytest.mark.skip_on_multitenancy
+class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # SAML Metadata
 
@@ -398,21 +492,44 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing only SAML disables regular API password login
-        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "type": "validation_error",
-                "code": "saml_enforced",
-                "detail": "This instance only allows SAML login.",
+                "code": "sso_enforced",
+                "detail": "This instance only allows SSO login.",
                 "attr": None,
             },
         )
 
         # Client is automatically redirected to SAML login
-        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
             response = self.client.get("/login")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/login/saml/?idp=posthog_custom")
+
+    def test_cannot_use_saml_without_enterprise_license(self):
+        self.client.logout()
+        self.license.valid_until = timezone.now() - datetime.timedelta(days=1)
+        self.license.save()
+
+        # Enforcement is ignored
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Client is not redirected to SAML login (even though it's enforced), enforcement is ignored
+        with self.settings(**MOCK_SETTINGS, SSO_ENFORCEMENT="saml"):
+            response = self.client.get("/login")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Attempting to use SAML fails
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login?error_code=improperly_configured_sso", response.headers["Location"])
