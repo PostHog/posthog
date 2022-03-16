@@ -1,21 +1,65 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
-import { keaStory } from 'storybook/kea-story'
-
-// import the main component of the scene
 import { PasswordReset } from '../PasswordReset'
-
-// import the `getReduxState()` output for all the variations you wish to show
-import initialState from './reset-initial.json'
-import noEmailState from './reset-no-email.json'
-import successState from './reset-success.json'
+import React, { useEffect } from 'react'
+import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 
 // some metadata and optional parameters
 export default {
-    title: '___TO CLEAN/Authentication/Password reset/Request',
+    title: 'Scenes/Authentication/Password reset/Request',
 } as Meta
 
 // export more stories with different state
-export const NoSMTP = keaStory(PasswordReset, noEmailState)
-export const Initial = keaStory(PasswordReset, initialState)
-export const Success = keaStory(PasswordReset, successState)
+export const NoSMTP = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+                email_service_available: false,
+            },
+        },
+    })
+    return <PasswordReset />
+}
+export const Initial = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+                email_service_available: true,
+            },
+        },
+        post: {
+            '/api/reset': {},
+        },
+    })
+    return <PasswordReset />
+}
+export const Success = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+                email_service_available: true,
+            },
+        },
+        post: {
+            '/api/reset': {},
+        },
+    })
+    useEffect(() => {
+        passwordResetLogic.actions.reset({ email: 'test@posthog.com' })
+    }, [])
+    return <PasswordReset />
+}

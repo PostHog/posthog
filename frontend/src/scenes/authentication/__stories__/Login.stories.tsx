@@ -1,21 +1,46 @@
 // Login.stories.tsx
 import { Meta } from '@storybook/react'
-import { keaStory } from 'storybook/kea-story'
-
-// import the main component of the scene
 import { Login } from '../Login'
+import { useStorybookMocks } from '~/mocks/browser'
+import React from 'react'
+import preflightJson from '../../../mocks/fixtures/_preflight.json'
 
-// import the `getReduxState()` output for all the variations you wish to show
-import selfHostedState from './login-self-hosted.json'
-import selfHostedSAMLState from './login-self-hosted-saml.json'
-import cloudState from './login-cloud.json'
-
-// some metadata and optional parameters
 export default {
-    title: '___TO CLEAN/Authentication/Login',
+    title: 'Scenes/Authentication/Login',
 } as Meta
 
 // export more stories with different state
-export const Cloud = keaStory(Login, cloudState)
-export const SelfHosted = keaStory(Login, selfHostedState)
-export const SelfHostedWithSAML = keaStory(Login, selfHostedSAMLState)
+export const Cloud = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud', can_create_org: true },
+        },
+    })
+    return <Login />
+}
+export const SelfHosted = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+            },
+        },
+    })
+    return <Login />
+}
+export const SelfHostedWithSAML = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: true },
+            },
+        },
+    })
+    return <Login />
+}
