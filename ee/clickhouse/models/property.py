@@ -245,7 +245,7 @@ def parse_prop_clauses(
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
                     filters=filter_query, group_type_index_var=group_type_index_var
                 )
-                final.append(f"{property_operator} {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
+                final.append(f"{property_operator} {table_name}group_{prop.group_type_index} IN ({groups_subquery})")
                 params.update(filter_params)
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
