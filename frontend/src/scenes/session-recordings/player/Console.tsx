@@ -8,7 +8,6 @@ import { RecordingConsoleLog } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 export function Console(): JSX.Element | null {
     const { orderedConsoleLogs, areAllSnapshotsLoaded } = useValues(sessionRecordingLogic)
@@ -73,13 +72,8 @@ export function Console(): JSX.Element | null {
                             <h3 style={{ textAlign: 'center' }}>There are no console logs for this recording</h3>
 
                             <p className="text-muted" style={{ textAlign: 'center' }}>
-                                For logs to appear, the feature must first be enabled in your snippet or init call.
+                                For logs to appear, the feature must first be enabled in <code>posthog-js</code>.
                             </p>
-                            <CodeSnippet language={Language.JavaScript}>
-                                {`posthog.init('your-key', {
-  enable_recording_console_log: true
-})`}
-                            </CodeSnippet>
                             <LemonButton
                                 type="secondary"
                                 style={{ margin: '0 8px' }}
