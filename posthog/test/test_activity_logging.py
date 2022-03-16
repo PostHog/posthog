@@ -56,7 +56,7 @@ class TestActivityLogModel(BaseTest):
         )
 
 
-def test_no_history_shows_updated_by_history_hog():
+def test_comparing_two_nothings_results_in_no_changes():
     actual = changes_between(model_type="FeatureFlag", previous=None, current=None)
     assert actual == []
 
