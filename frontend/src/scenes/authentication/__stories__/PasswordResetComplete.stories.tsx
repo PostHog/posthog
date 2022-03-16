@@ -11,7 +11,7 @@ import invalidState from './reset-complete-invalid.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Authentication/Password reset/Complete',
+    title: '___TO CLEAN/Authentication/Password reset/Complete',
 } as Meta
 
 // export more stories with different state

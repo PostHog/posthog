@@ -10,7 +10,7 @@ import failedState from './billing-subscribed-failed.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Billing',
+    title: '___TO CLEAN/Billing',
 } as Meta
 
 // export more stories with different state

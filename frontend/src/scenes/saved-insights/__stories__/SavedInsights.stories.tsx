@@ -1,14 +1,33 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'storybook/kea-story'
 
 import { SavedInsights } from '../SavedInsights'
+import insightsJson from './insights.json'
 
-import savedInsightsListState from './saved-insights-list.json'
-import savedInsightsCardState from './saved-insights-card.json'
+import React, { useEffect } from 'react'
+import { router } from 'kea-router'
+import { mswDecorator } from '~/mocks/browser'
 
 export default {
-    title: 'Scenes/SavedInsights',
+    title: '___TO CLEAN/SavedInsights',
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/1/insights': insightsJson,
+            },
+        }),
+    ],
 } as Meta
 
-export const AllInsightsList = keaStory(SavedInsights, savedInsightsListState)
-export const AllInsightsCard = keaStory(SavedInsights, savedInsightsCardState)
+export const ListView = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push('/insights')
+    })
+    return <SavedInsights />
+}
+
+export const CardView = (): JSX.Element => {
+    useEffect(() => {
+        router.actions.push('/insights?layoutView=card')
+    })
+    return <SavedInsights />
+}

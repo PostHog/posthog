@@ -3,11 +3,13 @@ import '~/styles'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
+import { storybookAppContext } from 'storybook/app-context'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start()
     ;(window as any).__mockServiceWorker = worker
+    ;(window as any).POSTHOG_APP_CONTEXT = storybookAppContext
 }
 setupMsw()
 

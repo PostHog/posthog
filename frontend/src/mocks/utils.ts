@@ -16,8 +16,11 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<typeof rest['get']>[] 
             response.push(
                 (rest[method] as typeof rest['get'])(path, async (req, res, ctx) => {
                     if (typeof handler === 'function') {
-                        const [status, resp] = handler(req, res, ctx)
-                        return res(ctx.status(status), ctx.json(resp ?? null))
+                        const responseArray = handler(req, res, ctx)
+                        if (responseArray.length === 2 && typeof responseArray[0] === 'number') {
+                            return res(ctx.status(responseArray[0]), ctx.json(responseArray[1] ?? null))
+                        }
+                        return res(...responseArray)
                     } else {
                         return res(ctx.json(handler ?? null))
                     }

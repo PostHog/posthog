@@ -1,9 +1,10 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { Provider } from 'kea'
 import { PropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { useMountedLogic } from 'kea'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export default {
     title: 'Filters/PropertyFilters',
@@ -25,31 +26,33 @@ const propertyFilters = [
     },
 ] as PropertyFilter[]
 
-export const ComparingPropertyFilters = (): JSX.Element => (
-    <Provider>
-        <h1>Pop-over enabled</h1>
-        <PropertyFilters
-            propertyFilters={[...propertyFilters]}
-            onChange={() => {}}
-            pageKey={'pageKey'}
-            style={{ marginBottom: 0 }}
-            eventNames={[]}
-        />
-        <hr />
-        <h1>Pop-over disabled</h1>
-        <PropertyFilters
-            propertyFilters={[...propertyFilters]}
-            onChange={() => {}}
-            pageKey={'pageKey'}
-            style={{ marginBottom: 0 }}
-            eventNames={[]}
-            disablePopover={true}
-        />
-    </Provider>
-)
+export const ComparingPropertyFilters = (): JSX.Element => {
+    useMountedLogic(personPropertiesModel)
+    return (
+        <>
+            <h1>Pop-over enabled</h1>
+            <PropertyFilters
+                propertyFilters={[...propertyFilters]}
+                onChange={() => {}}
+                pageKey={'pageKey'}
+                style={{ marginBottom: 0 }}
+                eventNames={[]}
+            />
+            <hr />
+            <h1>Pop-over disabled</h1>
+            <PropertyFilters
+                propertyFilters={[...propertyFilters]}
+                onChange={() => {}}
+                pageKey={'pageKey'}
+                style={{ marginBottom: 0 }}
+                eventNames={[]}
+                disablePopover={true}
+            />
+        </>
+    )
+}
 
-export const WithNoCloseButton = (): JSX.Element => (
-    <Provider>
-        <PropertyFiltersDisplay filters={[...propertyFilters]} />
-    </Provider>
-)
+export const WithNoCloseButton = (): JSX.Element => {
+    useMountedLogic(personPropertiesModel)
+    return <PropertyFiltersDisplay filters={[...propertyFilters]} />
+}

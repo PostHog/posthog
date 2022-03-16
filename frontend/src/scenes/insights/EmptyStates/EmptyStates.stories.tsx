@@ -17,7 +17,7 @@ import dashboardInsightEmptyState from './dashboard-insight-empty-state.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Insights/Error states',
+    title: '___TO CLEAN/Insight Error states',
 } as Meta
 
 // export more stories with different state
