@@ -9,12 +9,10 @@ jobs:
         runs-on: ubuntu-20.04
         steps:
             - uses: actions/checkout@v1
-
             - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
                   node-version: 16
-
             - uses: actions/cache@v2
               id: node-modules-cache
               with:
@@ -23,33 +21,62 @@ jobs:
                   key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-node-modules
-
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: yarn install --frozen-lockfile
-
             - name: Check formatting with prettier
               run: yarn prettier:check
-
             - name: Lint with ESLint
               run: yarn eslint
-
             - name: Run typescript with strict
               run: |
                   ./bin/check-typescript-strict
 
-    jest:
-        name: Jest tests
-        runs-on: ubuntu-20.04
-
+    jest-setup:
+        runs-on: ubuntu-latest
+        outputs:
+            test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+            test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
             - uses: actions/checkout@v1
-
             - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
                   node-version: 16
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+            - name: Install package.json dependencies with Yarn
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
+            - id: set-test-chunks
+              name: Set Chunks
+              run: echo "::set-output name=test-chunks::$(npx jest --listTests --json | jq -cM '[_nwise(length / 2 | ceil)]')"
+            - id: set-test-chunk-ids
+              name: Set Chunk IDs
+              run: echo "::set-output name=test-chunk-ids::$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')"
+              env:
+                  CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
 
+    jest:
+        name: Jest test (chunk ${{ matrix.chunk }})
+        runs-on: ubuntu-20.04
+        needs:
+            - jest-setup
+        strategy:
+            matrix:
+                chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
+        steps:
+            - uses: actions/checkout@v1
+            - name: Set up Node 16
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 16
             - uses: actions/cache@v2
               id: node-modules-cache
               with:
@@ -62,6 +89,7 @@ jobs:
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: yarn install --frozen-lockfile
-
             - name: Test with Jest
-              run: yarn test
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs npx jest
+              env:
+                  CHUNKS: ${{ needs.setup.outputs['test-chunks'] }}
