@@ -250,73 +250,83 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <Col className="variants">
                                                     {newExperimentData.parameters.feature_flag_variants.map(
                                                         (variant: MultivariateFlagVariant, idx: number) => (
-                                                            <Row
+                                                            <Form
                                                                 key={`${variant}-${idx}`}
-                                                                className={`feature-flag-variant ${
-                                                                    idx === 0
-                                                                        ? 'border-top'
-                                                                        : idx >= 3
-                                                                        ? 'border-bottom'
-                                                                        : ''
-                                                                }`}
+                                                                initialValues={{
+                                                                    key: variant.key,
+                                                                }}
+                                                                onValuesChange={(changedValues) => {
+                                                                    updateExperimentGroup(changedValues, idx)
+                                                                }}
+                                                                validateTrigger={['onChange', 'onBlur']}
                                                             >
-                                                                <div
-                                                                    className="variant-label"
-                                                                    style={{ ...variantLabelColors[idx] }}
+                                                                <Row
+                                                                    key={`${variant}-${idx}`}
+                                                                    className={`feature-flag-variant ${
+                                                                        idx === 0
+                                                                            ? 'border-top'
+                                                                            : idx >= 3
+                                                                            ? 'border-bottom'
+                                                                            : ''
+                                                                    }`}
                                                                 >
-                                                                    {idx === 0 ? 'Control' : 'Test'}
-                                                                </div>
-                                                                <div>
-                                                                    <Input
-                                                                        disabled={idx === 0}
-                                                                        data-attr="feature-flag-variant-key"
-                                                                        data-key-index={idx.toString()}
-                                                                        className="ph-ignore-input"
-                                                                        style={{ minWidth: 300 }}
-                                                                        placeholder={`example-variant-${idx + 1}`}
-                                                                        autoComplete="off"
-                                                                        autoCapitalize="off"
-                                                                        autoCorrect="off"
-                                                                        spellCheck={false}
-                                                                        pattern="^([A-z]|[a-z]|[0-9]|-|_)+$"
-                                                                        title="Only letters, numbers, hyphens (-) & underscores (_) are allowed."
-                                                                        required
-                                                                        value={variant.key}
-                                                                        onChange={(e) => {
-                                                                            updateExperimentGroup(
-                                                                                { key: e.target.value },
-                                                                                idx
-                                                                            )
-                                                                        }}
-                                                                        onBlur={(e) => {
-                                                                            updateExperimentGroup(
-                                                                                { key: e.target.value },
-                                                                                idx
-                                                                            )
-                                                                        }}
-                                                                    />
-                                                                </div>
-                                                                <div className="float-right">
-                                                                    {!(idx === 0 || idx === 1) && (
-                                                                        <Tooltip
-                                                                            title="Delete this variant"
-                                                                            placement="bottomLeft"
-                                                                        >
-                                                                            <Button
-                                                                                type="link"
-                                                                                icon={<DeleteOutlined />}
-                                                                                onClick={() =>
-                                                                                    removeExperimentGroup(idx)
-                                                                                }
-                                                                                style={{
-                                                                                    color: 'var(--danger)',
-                                                                                    float: 'right',
-                                                                                }}
-                                                                            />
-                                                                        </Tooltip>
-                                                                    )}
-                                                                </div>
-                                                            </Row>
+                                                                    <div
+                                                                        className="variant-label"
+                                                                        style={{ ...variantLabelColors[idx] }}
+                                                                    >
+                                                                        {idx === 0 ? 'Control' : 'Test'}
+                                                                    </div>
+                                                                    <Form.Item
+                                                                        name="key"
+                                                                        rules={[
+                                                                            {
+                                                                                required: true,
+                                                                                message: 'Key should not be empty.',
+                                                                            },
+                                                                            {
+                                                                                pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                                                message:
+                                                                                    'Variant names can only contain letters, numbers, hyphens, and underscores.',
+                                                                            },
+                                                                        ]}
+                                                                        style={{ marginTop: '-15px', maxWidth: '70%' }}
+                                                                        hasFeedback
+                                                                    >
+                                                                        <Input
+                                                                            disabled={idx === 0}
+                                                                            data-attr="feature-flag-variant-key"
+                                                                            data-key-index={idx.toString()}
+                                                                            className="ph-ignore-input"
+                                                                            style={{ minWidth: 300 }}
+                                                                            placeholder={`example-variant-${idx + 1}`}
+                                                                            autoComplete="off"
+                                                                            autoCapitalize="off"
+                                                                            autoCorrect="off"
+                                                                            spellCheck={false}
+                                                                        />
+                                                                    </Form.Item>
+                                                                    <div className="float-right">
+                                                                        {!(idx === 0 || idx === 1) && (
+                                                                            <Tooltip
+                                                                                title="Delete this variant"
+                                                                                placement="bottomLeft"
+                                                                            >
+                                                                                <Button
+                                                                                    type="link"
+                                                                                    icon={<DeleteOutlined />}
+                                                                                    onClick={() =>
+                                                                                        removeExperimentGroup(idx)
+                                                                                    }
+                                                                                    style={{
+                                                                                        color: 'var(--danger)',
+                                                                                        float: 'right',
+                                                                                    }}
+                                                                                />
+                                                                            </Tooltip>
+                                                                        )}
+                                                                    </div>
+                                                                </Row>
+                                                            </Form>
                                                         )
                                                     )}
 
