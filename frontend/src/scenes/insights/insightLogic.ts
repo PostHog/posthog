@@ -178,7 +178,7 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    const updatedInsight: Partial<InsightModel> = {
+                    const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
@@ -213,7 +213,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight: Partial<InsightModel> = { ...values.insight }
+                    const updatedInsight = { ...values.insight } as InsightModel
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -641,7 +641,9 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            if (setViewMode) {
+            if (values.sourceDashboardId) {
+                router.actions.push(urls.dashboard(values.sourceDashboardId))
+            } else if (setViewMode) {
                 insightSceneLogic.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             }
             lemonToast.success('Insight saved', {
