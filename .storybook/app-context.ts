@@ -15,10 +15,6 @@ export const storybookAppContext: AppContext = {
             available_features: [],
         },
     },
-    preflight: {
-        // @ts-ignore
-        instance_preferences: { disable_paid_fs: false },
-    },
     default_event_name: '$pageview',
     persisted_feature_flags: [],
 }
