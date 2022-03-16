@@ -318,7 +318,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                         removeExperimentGroup(idx)
                                                                                     }
                                                                                     style={{
-                                                                                        color: 'var(--danger)',
+                                                                                        color: '#35416B',
                                                                                         float: 'right',
                                                                                     }}
                                                                                 />
