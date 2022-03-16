@@ -34,7 +34,7 @@ const dashboardState = {
 //;(dashboardState.scenes.dashboard.dashboardLogic['1'].allItems as any) = [pageviews])
 
 export default {
-    title: '___TO CLEAN/Dashboard',
+    title: 'X___TO CLEAN/Dashboard',
     decorators: [
         (Story) => {
             worker.use(
