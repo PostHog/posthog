@@ -13,6 +13,7 @@ from . import (
     instance_settings,
     instance_status,
     organization,
+    organization_domain,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -57,7 +58,7 @@ project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
 
-
+# Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
@@ -67,6 +68,9 @@ organizations_router.register(
 )
 organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
+)
+organizations_router.register(
+    r"domains", organization_domain.OrganizationDomainViewset, "organization_domains", ["organization_id"],
 )
 
 # Project nested endpoints

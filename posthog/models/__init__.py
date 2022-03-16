@@ -1,4 +1,3 @@
-# flake8: noqa
 from .action import Action
 from .action_step import ActionStep
 from .annotation import Annotation
@@ -18,6 +17,7 @@ from .group_type_mapping import GroupTypeMapping
 from .insight import Insight
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
+from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
@@ -42,6 +42,7 @@ __all__ = [
     "Entity",
     "Event",
     "EventDefinition",
+    "EventProperty",
     "Experiment",
     "FeatureFlag",
     "Filter",
@@ -50,6 +51,7 @@ __all__ = [
     "RetentionFilter",
     "MessagingRecord",
     "Organization",
+    "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
     "Person",
