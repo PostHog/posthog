@@ -1,11 +1,8 @@
 /* eslint-disable */
 import { Meta } from '@storybook/react'
-import React, { useEffect } from 'react'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { InsightScene } from '../InsightScene'
-import { router } from 'kea-router'
-import { InsightModel } from '~/types'
+import { mswDecorator } from '~/mocks/browser'
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__stories__/insight.mocks'
+import { createInsightScene } from 'scenes/insights/__stories__/storybook.utils'
 
 export default {
     title: 'Scenes/Insights',
@@ -21,26 +18,6 @@ export default {
         }),
     ],
 } as Meta
-
-function createInsightScene(insight: Partial<InsightModel>): () => JSX.Element {
-    return function InsightStorybookScene() {
-        useStorybookMocks({
-            get: {
-                '/api/projects/:projectId/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [insight] }),
-                ],
-            },
-        })
-
-        useEffect(() => {
-            router.actions.push(`/insights/${insight.short_id}`)
-        }, [])
-
-        return <InsightScene />
-    }
-}
 
 export const TrendsLine = createInsightScene(require('./trendsLine.json'))
 export const TrendsLineBreakdown = createInsightScene(require('./trendsLineBreakdown.json'))

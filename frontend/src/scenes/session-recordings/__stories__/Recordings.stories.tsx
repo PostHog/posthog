@@ -1,17 +1,21 @@
 // Recordings.stories.tsx
 import { Meta } from '@storybook/react'
-import { keaStory } from 'storybook/kea-story'
-
-// import the main component of the scene
 import { SessionsRecordings } from '../SessionRecordings'
-
-// import the `getReduxState()` output for all the variations you wish to show
-import state from './recordings.json'
+import recordings from './recordings.json'
+import React from 'react'
+import { mswDecorator } from '~/mocks/browser'
 
 // some metadata and optional parameters
 export default {
-    title: '___TO CLEAN/Recordings',
+    title: 'Scenes/Recordings',
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/1/session_recordings': { results: recordings },
+            },
+        }),
+    ],
 } as Meta
 
 // export more stories with different state
-export const Default = keaStory(SessionsRecordings, state)
+export const Default = (): JSX.Element => <SessionsRecordings />

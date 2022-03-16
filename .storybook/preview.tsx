@@ -35,10 +35,12 @@ export const parameters = {
             date: /Date$/,
         },
     },
-
     options: {
         // opt in to panels in your story by overridding `export const parameters`
         showPanel: false,
+        storySort: (a: any, b: any) => {
+            return a[1].kind === b[1].kind ? 0 : a[1].title.localeCompare(b[1].title, undefined, { numeric: true })
+        },
     },
 }
 
