@@ -678,6 +678,9 @@
       , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
   
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
   
   '
@@ -779,6 +782,9 @@
       created_at DateTime64(6, 'UTC')
       
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
   
   '
@@ -798,6 +804,9 @@
       created_at DateTime64(6, 'UTC')
       
       
+  , _timestamp DateTime
+  , _offset UInt64
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
   
   '
