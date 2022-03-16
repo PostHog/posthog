@@ -4,6 +4,10 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+
+    code.language-javascript {
+        font-size: 12px !important;
+    }
 }
 .console-log {
     flex: 1;
