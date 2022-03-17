@@ -86,7 +86,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const logicProps = { id: id ? parseInt(id) : 'new' }
     const {
         featureFlag,
-        featureFlagId,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -149,7 +148,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         />
                                     )}
                                 </Field>
-                                {featureFlagId !== 'new' && (
+                                {featureFlag?.id && (
                                     <Button
                                         data-attr="delete-flag"
                                         danger

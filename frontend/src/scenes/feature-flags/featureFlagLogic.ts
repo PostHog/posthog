@@ -53,7 +53,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     },
     actions: {
-        setFeatureFlagId: (id: number | 'new') => ({ id }),
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
@@ -104,12 +103,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     }),
     reducers: {
-        featureFlagId: [
-            null as null | number | 'new',
-            {
-                setFeatureFlagId: (_, { id }) => id,
-            },
-        ],
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
@@ -255,11 +248,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         ],
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (values.featureFlagId && values.featureFlagId !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlagId}`)
+                if (props.id && props.id !== 'new') {
+                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
                 }
                 return NEW_FLAG
             },
@@ -281,6 +274,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+            router.actions.replace(urls.featureFlag(featureFlag.id))
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -348,32 +342,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             ],
         ],
     },
-    actionToUrl: () => ({
-        // change URL from '/feature_flags/new' to '/feature_flags/123' after saving
-        saveFeatureFlagSuccess: ({ featureFlag }) => [
-            `/feature_flags/${featureFlag.id || 'new'}`,
-            {},
-            {},
-            { replace: true },
-        ],
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/feature_flags/*': ({ _: id }) => {
-            if (id && id !== values.featureFlagId) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                actions.setFeatureFlagId(parsedId)
 
-                const foundFlag = featureFlagsLogic
-                    .findMounted()
-                    ?.values.featureFlags.find((flag) => flag.id === parsedId)
-                if (foundFlag) {
-                    actions.setFeatureFlag(foundFlag)
-                } else {
-                    actions.setFeatureFlag(NEW_FLAG)
-                }
-                if (id !== 'new') {
-                    actions.loadFeatureFlag()
-                }
+    events: ({ props, actions }) => ({
+        afterMount: () => {
+            const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
+            if (foundFlag) {
+                actions.setFeatureFlag(foundFlag)
+            } else if (props.id !== 'new') {
+                actions.loadFeatureFlag()
             }
         },
     }),
