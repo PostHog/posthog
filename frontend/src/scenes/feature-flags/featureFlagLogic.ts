@@ -50,9 +50,9 @@ export interface FeatureFlagLogicProps {
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
-    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key ?? 'new'],
+    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
     props: {} as FeatureFlagLogicProps,
-    key: ({ id }) => id,
+    key: ({ id }) => id ?? 'new',
     connect: {
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     },
@@ -347,10 +347,15 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
         ],
     },
     urlToAction: ({ actions, props }) => ({
-        [urls.featureFlag(props.id || 'new')]: () => {
-            // reset back to an empty form every time you open the `new` scene
-            if (!props.id) {
-                actions.resetFeatureFlag()
+        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+            // If the URL was pushed (user clicked on a link), reset the scene's data.
+            // This avoids resetting form fields if you click back/forward.
+            if (method === 'PUSH') {
+                if (props.id) {
+                    actions.loadFeatureFlag()
+                } else {
+                    actions.resetFeatureFlag()
+                }
             }
         },
     }),
