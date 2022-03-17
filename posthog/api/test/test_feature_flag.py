@@ -3,6 +3,8 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test.utils import CaptureQueriesContext
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -436,7 +438,7 @@ class TestFeatureFlag(APIBaseTest):
 
         self._get_feature_flag_activity(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
 
-    def test_get_feature_flag_history(self):
+    def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
             organization=self.organization,
             email="person_acting_and_then_viewing_history@posthog.com",
@@ -495,7 +497,51 @@ class TestFeatureFlag(APIBaseTest):
             ],
         )
 
-    def test_get_feature_flag_history_only_from_own_team(self):
+    def test_length_of_feature_flag_activity_does_not_change_number_of_db_queries(self):
+        new_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="person_acting_and_then_viewing_history@posthog.com",
+            password=None,
+            first_name="Potato",
+        )
+        self.client.force_login(new_user)
+
+        db_connection = connections[DEFAULT_DB_ALIAS]
+
+        # create the flag
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "feature flag with history", "key": "feature_with_history"},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        # get the history and capture number of queries made
+        with CaptureQueriesContext(db_connection) as first_read_context:
+            self._get_feature_flag_activity(flag_id)
+
+        first_activity_read_query_count = first_read_context.final_queries - first_read_context.initial_queries
+
+        # update the flag
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "name": "feature flag with history",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # get the history and capture number of queries made
+        with CaptureQueriesContext(db_connection) as second_read_context:
+            self._get_feature_flag_activity(flag_id)
+
+        second_activity_read_query_count = second_read_context.final_queries - second_read_context.initial_queries
+
+        self.assertEqual(first_activity_read_query_count, second_activity_read_query_count)
+
+    def test_get_feature_flag_activity_only_from_own_team(self):
         # two users in two teams
         _, org_one_team, org_one_user = User.objects.bootstrap(
             organization_name="Org 1", email="org1@posthog.com", password=None
@@ -971,17 +1017,7 @@ class TestFeatureFlag(APIBaseTest):
         return activity.json()
 
     def assert_feature_flag_activity(self, flag_id: int, expected: List[Dict]):
-        """
-        should have 5 queries
-        select django_session
-        select user
-        select team
-        select organization
-        check flag exists
-        select historical versions (with user details)
-        """
-        with self.assertNumQueries(6):
-            activity_response = self._get_feature_flag_activity(flag_id)
+        activity_response = self._get_feature_flag_activity(flag_id)
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
