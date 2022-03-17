@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, BindLogic } from 'kea'
 import { Alert, Skeleton } from 'antd'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'

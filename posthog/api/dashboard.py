@@ -157,23 +157,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return instance
 
-    def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
-        item_as_list = list(i for i in items if i.id == dive_source_id)
-        if not item_as_list:
-            item_as_list = [Insight.objects.get(pk=dive_source_id)]
-        others = list(i for i in items if i.id != dive_source_id)
-        return item_as_list + others
-
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
-
-        dive_source_id = self.context["request"].GET.get("dive_source_id")
-        if dive_source_id is not None:
-            items = self.add_dive_source_item(items, int(dive_source_id))
 
         #  Make sure all items have an insight set
         # This should have only happened historically
@@ -217,7 +206,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action != "update":
+        if not self.action.endswith("update"):
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 

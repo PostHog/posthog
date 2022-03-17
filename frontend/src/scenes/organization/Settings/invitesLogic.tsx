@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 export const invitesLogic = kea<invitesLogicType>({

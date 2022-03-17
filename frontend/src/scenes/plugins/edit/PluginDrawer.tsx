@@ -15,7 +15,7 @@ import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'

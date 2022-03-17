@@ -6,7 +6,7 @@ import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLog
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
 import recordingEventsJson from './__mocks__/recording_events.json'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -443,6 +443,69 @@ describe('sessionRecordingLogic', () => {
                 ])
             resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(2)
+        })
+    })
+
+    describe('console logs', () => {
+        it('should load and parse console logs from the snapshot', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActionsInAnyOrder([
+                    'loadRecordingSnapshots',
+                    'loadRecordingSnapshotsSuccess',
+                    'loadRecordingMeta',
+                    'loadRecordingMetaSuccess',
+                ])
+                .toMatchValues({
+                    orderedConsoleLogs: [
+                        // Empty payload object
+                        {
+                            level: undefined,
+                            parsedPayload: undefined,
+                            parsedTraceString: undefined,
+                            parsedTraceURL: undefined,
+                            playerPosition: {
+                                time: 167777,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                        },
+                        // Empty trace and payload arrays
+                        {
+                            level: 'log',
+                            parsedPayload: '',
+                            parsedTraceString: undefined,
+                            parsedTraceURL: undefined,
+                            playerPosition: {
+                                time: 167777,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                        },
+                        // Normal trace and payload
+                        {
+                            level: 'warn',
+                            parsedPayload: 'A big deal And a huge deal',
+                            parsedTraceString: 'file.js:123:456',
+                            parsedTraceURL: 'https://example.com/path/to/file.js',
+                            playerPosition: {
+                                time: 167777,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                        },
+                        // Bad data trace and payload
+                        {
+                            level: 'error',
+                            parsedPayload: undefined,
+                            parsedTraceString: ':adcfvertyu$rf3423',
+                            parsedTraceURL: '',
+                            playerPosition: {
+                                time: 167777,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                        },
+                    ],
+                })
         })
     })
 })
