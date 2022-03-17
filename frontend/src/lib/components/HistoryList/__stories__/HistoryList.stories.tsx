@@ -2,9 +2,11 @@ import React from 'react'
 import { HistoryList } from 'lib/components/HistoryList/HistoryList'
 import { featureFlagsHistoryResponseJson } from 'lib/components/HistoryList/__stories__/historyMocks'
 import { mswDecorator } from '~/mocks/browser'
+import { ComponentMeta } from '@storybook/react'
 
 export default {
     title: 'Components/History List',
+    component: HistoryList,
     decorators: [
         mswDecorator({
             get: {
@@ -21,7 +23,7 @@ export default {
             },
         }),
     ],
-}
+} as ComponentMeta<typeof HistoryList>
 
 export function WithData(): JSX.Element {
     return <HistoryList type={'FeatureFlag'} id={7} />

@@ -6,11 +6,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useMountedLogic } from 'kea'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__stories__/mocks'
+import { ComponentMeta } from '@storybook/react'
 
 export default {
     title: 'Filters/TaxonomicPopup',
+    component: TaxonomicPopup,
     decorators: [taxonomicFilterMocksDecorator],
-}
+} as ComponentMeta<typeof TaxonomicPopup>
 
 export function TaxonomicStringPopupOneCategory(): JSX.Element {
     useMountedLogic(personPropertiesModel)

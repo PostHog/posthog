@@ -8,7 +8,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export default {
     title: 'Filters/PropertyFilters',
-    Component: PropertyFilters,
+    component: PropertyFilters,
 } as ComponentMeta<typeof PropertyFilters>
 
 const propertyFilters = [
