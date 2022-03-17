@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio } from 'antd'
@@ -29,6 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -51,6 +52,12 @@ export function ActionsTable(): JSX.Element {
     const [filterByMe, setFilterByMe] = useState(false)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { reportDataManagementActionDefinitionsPageViewed } = useActions(eventUsageLogic)
+
+    // Emit event once at component level until we create a logic for actions table that doesn't depend on actionsModel
+    useEffect(() => {
+        reportDataManagementActionDefinitionsPageViewed(-1, actions.length)
+    }, [])
 
     const columns: LemonTableColumns<ActionType> = [
         {

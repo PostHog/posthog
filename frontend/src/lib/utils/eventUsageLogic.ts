@@ -963,23 +963,28 @@ export const eventUsageLogic = kea<
         reportDataManagementDefinitionCancel: ({ type, source }) => {
             posthog.capture('definition cancelled', { type, source })
         },
-        reportDataManagementEventDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
-            posthog.capture('event definitions page viewed', { load_time: loadTime, num_results: resultsLength })
+        reportDataManagementEventDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
+            posthog.capture('event definitions page viewed', { load_time: loadTime, num_results: resultsLength, error })
         },
-        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: ({ loadTime }) => {
-            posthog.capture('event definitions page event expanded properties viewed', { load_time: loadTime })
+        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page event expanded properties viewed', { load_time: loadTime, error })
         },
         reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed: () => {
             posthog.capture('event definitions page event expanded property show detail')
         },
-        reportDataManagementEventPropertyDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
+        reportDataManagementEventPropertyDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
             posthog.capture('event property definitions page viewed', {
                 load_time: loadTime,
                 num_results: resultsLength,
+                error,
             })
         },
-        reportDataManagementActionDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
-            posthog.capture('actions definitions page viewed', { load_time: loadTime, num_results: resultsLength })
+        reportDataManagementActionDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
+            posthog.capture('actions definitions page viewed', {
+                load_time: loadTime,
+                num_results: resultsLength,
+                error,
+            })
         },
     }),
 })
