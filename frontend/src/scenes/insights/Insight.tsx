@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Row, Col, Button, Popconfirm, Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -68,6 +68,18 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
+
+    useEffect(() => {
+        const beforeUnloadHandler = (e: BeforeUnloadEvent): void => {
+            // Cancel the event to show unsaved changes dialog
+            e.preventDefault()
+            e.returnValue = ''
+        }
+        if (filtersChanged) {
+            window.addEventListener('beforeunload', beforeUnloadHandler)
+            return () => window.removeEventListener('beforeunload', beforeUnloadHandler)
+        }
+    }, [filtersChanged])
 
     useKeyboardHotkeys({
         t: {
