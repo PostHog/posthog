@@ -15,6 +15,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { organizationLogic } from './organizationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightSceneLogic } from './insights/insightSceneLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -226,6 +227,18 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
+            // If navigating from an Insight scene to a non-Insight scene and changes are unsaved, prompt the user
+            if (
+                values.scene === Scene.Insight &&
+                scene !== Scene.Insight &&
+                insightSceneLogic.findMounted()?.values.insightCache?.logic.values.filtersChanged
+            ) {
+                if (!confirm('Leave insight? Changes you made may not be saved.')) {
+                    history.back()
+                    return
+                }
+            }
+
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
