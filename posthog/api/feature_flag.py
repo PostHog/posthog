@@ -248,6 +248,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @log_deletion_metadata_to_posthog
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        instance_id = instance.id
 
         instance.delete()
 
@@ -255,7 +256,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=request.user,
-            item_id=instance.id,
+            item_id=instance_id,
             scope="FeatureFlag",
             activity="deleted",
             detail=Detail(),
