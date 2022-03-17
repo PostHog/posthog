@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { OrganizationDomainType } from '~/types'
+import { OrganizationDomainType, AvailableFeature } from '~/types'
 import { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 
 type OrganizationDomainUpdatePayload = Partial<
@@ -99,6 +99,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
             (s) => [s.verifiedDomains, s.verifyModal],
             (verifiedDomains, verifyingId): OrganizationDomainType | null =>
                 (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
+        ],
+        isFeatureAvailable: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean =>
+                (currentOrganization?.available_features.includes(AvailableFeature.SSO_ENFORCEMENT) ||
+                    currentOrganization?.available_features.includes(AvailableFeature.SAML)) ??
+                false,
         ],
     },
     events: ({ actions }) => ({

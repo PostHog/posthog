@@ -5,7 +5,7 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
-import { OrganizationDomainType } from '~/types'
+import { AvailableFeature, OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -13,12 +13,49 @@ import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
 import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
-/** TODO: Pay gate */
 export function VerifiedDomains(): JSX.Element {
+    const { verifiedDomainsLoading, updatingDomainLoading, isFeatureAvailable } = useValues(verifiedDomainsLogic)
+    const { setAddModalShown } = useActions(verifiedDomainsLogic)
+
+    return (
+        <>
+            <div className="flex-center">
+                <div style={{ flexGrow: 1 }}>
+                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 6/1/22. */}
+                    <h2 id="verified-domains" className="subtitle">
+                        Verified domains
+                    </h2>
+                    <p className="text-muted-alt">
+                        Enable users to sign up automatically with an email address on verified domains and enforce SSO
+                        for accounts under your domains.
+                    </p>
+                </div>
+                {isFeatureAvailable && (
+                    <div>
+                        <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => setAddModalShown(true)}
+                            disabled={verifiedDomainsLoading || updatingDomainLoading}
+                        >
+                            Add domain
+                        </Button>
+                    </div>
+                )}
+            </div>
+            <PayGateMini feature={AvailableFeature.SSO_ENFORCEMENT} overrideShouldShowGate={isFeatureAvailable}>
+                <VerifiedDomainsTable />
+            </PayGateMini>
+        </>
+    )
+}
+
+function VerifiedDomainsTable(): JSX.Element {
     const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
         useValues(verifiedDomainsLogic)
-    const { updateDomain, setAddModalShown, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
+    const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -146,29 +183,6 @@ export function VerifiedDomains(): JSX.Element {
     ]
     return (
         <div>
-            <div className="flex-center">
-                <div style={{ flexGrow: 1 }}>
-                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 6/1/22. */}
-                    <h2 id="verified-domains" className="subtitle">
-                        Verified domains
-                    </h2>
-                    <p className="text-muted-alt">
-                        Enable users to sign up automatically with an email address on verified domains and enforce SSO
-                        for accounts under your domains.
-                    </p>
-                </div>
-                <div>
-                    <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => setAddModalShown(true)}
-                        disabled={verifiedDomainsLoading || updatingDomainLoading}
-                    >
-                        Add domain
-                    </Button>
-                </div>
-            </div>
-
             <LemonTable
                 dataSource={verifiedDomains}
                 columns={columns}
