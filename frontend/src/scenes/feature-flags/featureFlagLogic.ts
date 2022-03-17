@@ -70,26 +70,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
-        updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
     },
-    forms: {
+    forms: ({ actions }) => ({
         featureFlag: {
-            defaults: {} as Partial<FeatureFlagType>,
-            validator: ({ key }) => ({
-                // name: !values.name && 'Please enter a name',
+            defaults: { ...NEW_FLAG } as FeatureFlagType,
+            validator: ({ key, filters }) => ({
                 key: !key
                     ? 'You need to set a key'
                     : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
                     ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
                     : undefined,
+                filters: {
+                    multivariate: {
+                        variants: filters?.multivariate?.variants?.map(
+                            ({ key: variantKey }: MultivariateFlagVariant) => ({
+                                key: !variantKey
+                                    ? 'You need to set a key'
+                                    : !variantKey.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                                    : undefined,
+                            })
+                        ),
+                    },
+                },
             }),
-            submit: (formValues: any) => {
-                console.log('submitting!', formValues)
+            submit: (featureFlag) => {
+                actions.saveFeatureFlag(featureFlag)
             },
         },
-    },
+    }),
     reducers: {
         featureFlagId: [
             null as null | number | 'new',
@@ -98,7 +109,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         ],
         featureFlag: [
-            {} as Partial<FeatureFlagType>,
+            { ...NEW_FLAG } as FeatureFlagType,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     if (featureFlag.filters.groups) {
@@ -171,29 +182,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                             multivariate: {
                                 ...(state.filters.multivariate || {}),
                                 variants: [...variants, NEW_VARIANT],
-                            },
-                        },
-                    }
-                },
-                updateVariant: (state, { index, newProperties }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const variants = [...(state.filters.multivariate?.variants || [])]
-                    if (!variants[index]) {
-                        return state
-                    }
-                    variants[index] = {
-                        ...variants[index],
-                        ...newProperties,
-                    }
-                    return {
-                        ...state,
-                        filters: {
-                            ...state.filters,
-                            multivariate: {
-                                ...state.filters.multivariate,
-                                variants,
                             },
                         },
                     }
