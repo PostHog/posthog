@@ -451,7 +451,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     </Col>
 
                                     <Row className="metrics-selection">
-                                        <Col span={12} className="goal-select">
+                                        <Col span={12}>
                                             <div className="mb-05">
                                                 <b>Goal type</b>
                                                 <div className="text-muted">

@@ -2,6 +2,9 @@
 
 .experiment-form {
     .metrics-selection {
+        border-top: 1px solid $border;
+        padding-top: $default_spacing;
+
         width: 100%;
 
         .action-filters-bordered {
@@ -13,11 +16,6 @@
             .row-action-btn {
                 color: $primary_alt;
             }
-        }
-
-        .goal-select {
-            border-top: 1px solid $border;
-            padding-top: $default_spacing;
         }
     }
 
