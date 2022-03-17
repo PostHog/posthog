@@ -55,6 +55,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                     segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
                 },
             }),
+            formsPlugin,
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -77,7 +78,6 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
             }),
             subscriptionsPlugin,
             waitForPlugin,
-            formsPlugin,
         ],
         defaults: state,
         createStore: state
