@@ -147,14 +147,6 @@ export enum FunnelLayout {
 
 export const BinCountAuto = 'auto'
 
-export const ERROR_MESSAGES: Record<string, string> = {
-    no_new_organizations:
-        'Your email address is not associated with an account. Please ask your administrator for an invite.',
-    invalid_sso_provider: 'The SSO provider you specified is invalid. Visit https://posthog.com/sso for details.',
-    improperly_configured_sso:
-        'Cannot login with SSO provider because the provider is not configured, or your instance does not have the required license. Please visit https://posthog.com/sso for details.',
-}
-
 // Cohort types
 export const COHORT_STATIC = 'static'
 export const COHORT_DYNAMIC = 'dynamic'
