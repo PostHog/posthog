@@ -33,6 +33,7 @@ import clsx from 'clsx'
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
+    paramsToProps: ({ params: { id } }) => ({ id: id ? parseInt(id) : 'new' }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -81,7 +82,8 @@ const Field: typeof Field_ = ({ name, label, validateStatus, help, ...props }) =
     )
 }
 
-export function FeatureFlag(): JSX.Element {
+export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+    const logicProps = { id: id ? parseInt(id) : 'new' }
     const {
         featureFlag,
         featureFlagId,
@@ -94,7 +96,7 @@ export function FeatureFlag(): JSX.Element {
         aggregationTargetName,
         taxonomicGroupTypes,
         featureFlagLoading,
-    } = useValues(featureFlagLogic)
+    } = useValues(featureFlagLogic(logicProps))
     const {
         addConditionSet,
         updateConditionSet,
@@ -106,7 +108,7 @@ export function FeatureFlag(): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
-    } = useActions(featureFlagLogic)
+    } = useActions(featureFlagLogic(logicProps))
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
@@ -123,6 +125,7 @@ export function FeatureFlag(): JSX.Element {
             {featureFlag ? (
                 <Form
                     logic={featureFlagLogic}
+                    props={logicProps}
                     formKey="featureFlag"
                     className="ant-form-vertical ant-form-hide-required-mark"
                     // scrollToFirstError
