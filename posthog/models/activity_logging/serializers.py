@@ -28,5 +28,5 @@ class ActivityLogSerializer(serializers.Serializer):
 
     user = UserMinimalSerializer(read_only=True)
     activity = serializers.CharField(read_only=True)
-    item_type = serializers.CharField(read_only=True)
+    scope = serializers.CharField(read_only=True)
     detail = DetailSerializer()

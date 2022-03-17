@@ -42,21 +42,22 @@ class ActivityLog(UUIDModel):
             ),
         ]
         indexes = [
-            models.Index(fields=["team_id", "item_type", "item_id"]),
+            models.Index(fields=["team_id", "scope", "item_id"]),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
     activity = models.fields.CharField(max_length=79, null=False)
-    # the id of the item being versioned
+    # if scoped to a model this activity log holds the id of the model being logged
+    # if not scoped to a model this log might not hold an item_id
     # this might be a numerical id, short id, or UUID, so each will be converted to string
     # it will be used to lookup rows with exactly matching item_ids
     # it probably only needs to be 36 characters in order to hold a GUID
     # but 72 may be useful to avoid a migration in future
-    item_id = models.fields.CharField(max_length=72, null=False)
-    # e.g. FeatureFlags - in practice this will be the name of a model class
-    item_type = models.fields.CharField(max_length=79, null=False)
+    item_id = models.fields.CharField(max_length=72, null=True)
+    # e.g. FeatureFlags - this will often be the name of a model class
+    scope = models.fields.CharField(max_length=79, null=False)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
@@ -94,8 +95,8 @@ def log_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
-    item_id: Union[int, str, UUIDT],
-    item_type: str,
+    item_id: Optional[Union[int, str, UUIDT]],
+    scope: str,
     activity: str,
     detail: Detail,
 ) -> None:
@@ -104,16 +105,17 @@ def log_activity(
         team_id=team_id,
         user=user,
         item_id=str(item_id),
-        item_type=item_type,
+        scope=scope,
         activity=activity,
         detail=detail,
     )
 
 
-def load_activity(type: Literal["FeatureFlag"], team_id: int, item_id: int):
+def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: int):
+    # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
     activities = list(
         ActivityLog.objects.select_related("user")
-        .filter(team_id=team_id, item_type=type, item_id=item_id)
+        .filter(team_id=team_id, scope=scope, item_id=item_id)
         .order_by("-created_at")[:10]
     )
 

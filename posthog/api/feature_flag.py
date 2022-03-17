@@ -205,7 +205,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity = load_activity(type="FeatureFlag", team_id=self.team_id, item_id=item_id,)
+        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, item_id=item_id,)
         return Response(
             {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
             status=status.HTTP_200_OK,
@@ -218,7 +218,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             user=serializer.context["request"].user,
             item_id=serializer.instance.id,
-            item_type="FeatureFlag",
+            scope="FeatureFlag",
             activity="created",
             detail=Detail(),
         )
@@ -240,7 +240,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             user=serializer.context["request"].user,
             item_id=instance_id,
-            item_type="FeatureFlag",
+            scope="FeatureFlag",
             activity="updated",
             detail=Detail(changes=changes),
         )
@@ -256,7 +256,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             user=request.user,
             item_id=instance.id,
-            item_type="FeatureFlag",
+            scope="FeatureFlag",
             activity="deleted",
             detail=Detail(),
         )

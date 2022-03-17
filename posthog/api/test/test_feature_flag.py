@@ -163,7 +163,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com",},
                     "activity": "created",
-                    "item_type": "FeatureFlag",
+                    "scope": "FeatureFlag",
                     "detail": {"changes": None},
                 }
             ],
@@ -362,7 +362,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
-                    "item_type": "FeatureFlag",
+                    "scope": "FeatureFlag",
                     "detail": {
                         "changes": [
                             {
@@ -399,7 +399,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "created",
-                    "item_type": "FeatureFlag",
+                    "scope": "FeatureFlag",
                     "detail": {"changes": None},
                 },
             ],
@@ -473,7 +473,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "updated",
-                    "item_type": "FeatureFlag",
+                    "scope": "FeatureFlag",
                     "detail": {
                         "changes": [
                             {
@@ -489,7 +489,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "created",
-                    "item_type": "FeatureFlag",
+                    "scope": "FeatureFlag",
                     "detail": {"changes": None},
                 },
             ],

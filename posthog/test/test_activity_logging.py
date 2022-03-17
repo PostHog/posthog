@@ -17,7 +17,7 @@ class TestActivityLogModel(BaseTest):
             team_id=self.team.id,
             user=self.user,
             item_id=6,
-            item_type="FeatureFlag",
+            scope="FeatureFlag",
             activity="updated",
             detail=(Detail(changes=[change])),
         )
@@ -27,7 +27,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.organization_id, self.organization.id)
         self.assertEqual(log.user, self.user)
         self.assertEqual(log.item_id, "6")
-        self.assertEqual(log.item_type, "FeatureFlag")
+        self.assertEqual(log.scope, "FeatureFlag")
         self.assertEqual(log.activity, "updated")
         self.assertEqual(log.detail["changes"], [change.__dict__])
 
@@ -36,8 +36,8 @@ class TestActivityLogModel(BaseTest):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=self.user,
-            item_id=6,
-            item_type="dinglehopper",
+            item_id=None,
+            scope="dinglehopper",
             activity="added_to_clink_expander",
             detail=Detail(),
         )
