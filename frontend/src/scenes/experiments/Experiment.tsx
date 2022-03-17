@@ -22,15 +22,8 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconJavascript } from 'lib/components/icons'
-import {
-    CaretDownOutlined,
-    PlusOutlined,
-    DeleteOutlined,
-    InfoCircleOutlined,
-    SaveOutlined,
-    CloseOutlined,
-} from '@ant-design/icons'
+import { IconDelete, IconJavascript } from 'lib/components/icons'
+import { CaretDownOutlined, PlusOutlined, InfoCircleOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -47,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -245,7 +239,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <div className="text-muted">
                                                     Participants are divided into variant groups evenly. All experiments
                                                     must consist of a control group and at least one test group.
-                                                    Experiments may have at most 3 test groups.
+                                                    Experiments may have at most 3 test groups. Variant names can only
+                                                    contain letters, numbers, hyphens, and underscores.
                                                 </div>
                                                 <Col className="variants">
                                                     {newExperimentData.parameters.feature_flag_variants.map(
@@ -289,7 +284,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                     'Variant names can only contain letters, numbers, hyphens, and underscores.',
                                                                             },
                                                                         ]}
-                                                                        style={{ marginTop: '-15px', maxWidth: '70%' }}
+                                                                        style={{ display: 'contents' }}
                                                                         hasFeedback
                                                                     >
                                                                         <Input
@@ -297,7 +292,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             data-attr="feature-flag-variant-key"
                                                                             data-key-index={idx.toString()}
                                                                             className="ph-ignore-input"
-                                                                            style={{ minWidth: 300 }}
                                                                             placeholder={`example-variant-${idx + 1}`}
                                                                             autoComplete="off"
                                                                             autoCapitalize="off"
@@ -311,16 +305,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 title="Delete this variant"
                                                                                 placement="bottomLeft"
                                                                             >
-                                                                                <Button
-                                                                                    type="link"
-                                                                                    icon={<DeleteOutlined />}
+                                                                                <LemonButton
+                                                                                    type="primary-alt"
+                                                                                    compact
+                                                                                    icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
                                                                                     }
-                                                                                    style={{
-                                                                                        color: '#35416B',
-                                                                                        float: 'right',
-                                                                                    }}
                                                                                 />
                                                                             </Tooltip>
                                                                         )}
