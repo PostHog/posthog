@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { primaryDashboardModalLogicType } from './primaryDashboardModalLogicType'
 
@@ -22,6 +23,10 @@ export const primaryDashboardModalLogic = kea<primaryDashboardModalLogicType>({
     listeners: ({ actions }) => ({
         setPrimaryDashboard: async ({ dashboardId }) => {
             actions.updateCurrentTeam({ primary_dashboard: dashboardId })
+            eventUsageLogic.actions.reportPrimaryDashboardChanged()
+        },
+        showPrimaryDashboardModal: async () => {
+            eventUsageLogic.actions.reportPrimaryDashboardModalOpened()
         },
     }),
 })
