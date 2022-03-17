@@ -1,15 +1,14 @@
 import React from 'react'
-import { ComponentMeta } from '@storybook/react'
 
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 
 export default {
-    title: 'DataDisplay/ProfileBubbles',
+    title: 'Components/ProfileBubbles',
     component: ProfileBubblesComponent,
     parameters: {
         layout: 'centered',
     },
-} as ComponentMeta<typeof ProfileBubblesComponent>
+}
 
 const DUMMIES: ProfileBubblesProps['people'] = [
     { email: 'michael@posthog.com', name: 'Michael' },

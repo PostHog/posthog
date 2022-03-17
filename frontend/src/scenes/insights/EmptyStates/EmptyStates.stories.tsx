@@ -13,6 +13,7 @@ import { createInsightScene } from 'scenes/insights/__stories__/storybook.utils'
 // some metadata and optional parameters
 export default {
     title: 'Scenes/Insights/Error states',
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 export function EmptyState(): JSX.Element {

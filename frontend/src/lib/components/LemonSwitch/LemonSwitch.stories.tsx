@@ -4,9 +4,8 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonSwitch } from './LemonSwitch'
 
 export default {
-    title: 'DataDisplay',
+    title: 'Components/Lemon Switch',
     component: LemonSwitch,
-    parameters: { options: { showPanel: true } },
     argTypes: {
         loading: {
             control: {

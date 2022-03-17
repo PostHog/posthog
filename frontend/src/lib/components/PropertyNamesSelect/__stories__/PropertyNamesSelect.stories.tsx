@@ -27,7 +27,7 @@ export default {
     ],
 }
 
-export const PropertyNamesSelect_ = (): JSX.Element => {
+export function PropertyNamesSelect_(): JSX.Element {
     const { personProperties } = useValues(personPropertiesModel)
     return (
         <PropertyNamesSelect

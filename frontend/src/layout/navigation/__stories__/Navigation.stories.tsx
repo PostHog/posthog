@@ -8,14 +8,18 @@ export default {
     title: 'Layout/Navigation',
     parameters: {
         layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'canvas',
     },
 } as Meta
 
-export const Navigation = (): JSX.Element => (
-    <Layout>
-        <TopBar />
-        <SideBar>
-            <React.Fragment />
-        </SideBar>
-    </Layout>
-)
+export function Navigation_(): JSX.Element {
+    return (
+        <Layout>
+            <TopBar />
+            <SideBar>
+                <React.Fragment />
+            </SideBar>
+        </Layout>
+    )
+}

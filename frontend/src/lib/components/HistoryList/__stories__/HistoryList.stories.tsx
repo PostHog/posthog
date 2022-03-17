@@ -4,7 +4,7 @@ import { featureFlagsHistoryResponseJson } from 'lib/components/HistoryList/__st
 import { mswDecorator } from '~/mocks/browser'
 
 export default {
-    title: 'DataDisplay/HistoryList',
+    title: 'Components/History List',
     decorators: [
         mswDecorator({
             get: {
@@ -23,10 +23,10 @@ export default {
     ],
 }
 
-export const WithData = (): JSX.Element => {
+export function WithData(): JSX.Element {
     return <HistoryList type={'FeatureFlag'} id={7} />
 }
 
-export const WithNoData = (): JSX.Element => {
+export function WithNoData(): JSX.Element {
     return <HistoryList type={'FeatureFlag'} id={6} />
 }

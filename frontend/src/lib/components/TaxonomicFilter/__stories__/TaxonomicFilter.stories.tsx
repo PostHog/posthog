@@ -7,11 +7,11 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 import { useMountedLogic } from 'kea'
 
 export default {
-    title: 'Filters/TaxonomicFilter',
+    title: 'Filters',
     decorators: [taxonomicFilterMocksDecorator],
 }
 
-export const AllGroups = (): JSX.Element => {
+export function TaxonomicFilter_(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 

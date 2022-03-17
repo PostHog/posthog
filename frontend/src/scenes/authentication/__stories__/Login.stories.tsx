@@ -7,6 +7,7 @@ import preflightJson from '../../../mocks/fixtures/_preflight.json'
 
 export default {
     title: 'Scenes/Authentication/Login',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 // export more stories with different state

@@ -8,6 +8,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 export default {
     title: 'Scenes/Authentication/Signup',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: { '/api/users/@me': () => [500, null] },
