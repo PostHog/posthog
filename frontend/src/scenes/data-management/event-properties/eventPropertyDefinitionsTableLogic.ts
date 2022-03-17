@@ -148,7 +148,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventPropertyDefinitionsPageViewed(
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
                         performance.now() - cache.propertiesStartTime,
                         values.eventPropertyDefinitions.results.length
                     )
@@ -159,9 +159,8 @@ export const eventPropertyDefinitionsTableLogic = kea<
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventPropertyDefinitionsPageViewed(
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadFailed(
                         performance.now() - cache.propertiesStartTime,
-                        -1,
                         error ?? 'There was an unknown error fetching property definitions.'
                     )
                 cache.propertiesStartTime = undefined

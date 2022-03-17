@@ -13,8 +13,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
-import { router } from 'kea-router'
-import { DataManagementDefinitionSavedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -61,7 +60,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             },
         ],
     },
-    loaders: ({ values, props }) => ({
+    loaders: ({ values, props, cache }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
@@ -75,6 +74,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                         ...values.definition,
                         ...values.localDefinition,
                     } as TaxonomicDefinitionTypes
+                    cache.startTime = performance.now()
                     try {
                         if (values.isAction) {
                             // Action Definitions
@@ -186,15 +186,8 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 return undefined
             },
         ],
-        source: [
-            () => [router.selectors.location],
-            ({ pathname }) =>
-                pathname.startsWith('/data-management/')
-                    ? DataManagementDefinitionSavedSource.Default
-                    : DataManagementDefinitionSavedSource.Filter,
-        ],
     },
-    listeners: ({ actions, selectors, values, props }) => ({
+    listeners: ({ actions, selectors, values, props, cache }) => ({
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (
@@ -207,13 +200,35 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         handleSave: () => {
             actions.setPopupState(DefinitionPopupState.View)
             props?.onSave?.()
-            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionSave(values.type, values.source)
+        },
+        handleSaveSuccess: () => {
+            if (cache.startTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions?.reportDataManagementDefinitionSaveSucceeded(
+                        values.type,
+                        performance.now() - cache.startTime
+                    )
+                cache.startTime = undefined
+            }
+        },
+        handleSaveFailure: ({ error }) => {
+            if (cache.startTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions?.reportDataManagementDefinitionSaveFailed(
+                        values.type,
+                        performance.now() - cache.startTime,
+                        error
+                    )
+                cache.startTime = undefined
+            }
         },
         handleCancel: () => {
             actions.setPopupState(DefinitionPopupState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
-            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type, values.source)
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
         },
     }),
 })

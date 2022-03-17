@@ -287,9 +287,20 @@ export const eventDefinitionsTableLogic = kea<
             if (cache.eventsStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageViewed(
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
                         performance.now() - cache.eventsStartTime,
                         values.eventDefinitions.results.length
+                    )
+                cache.eventsStartTime = undefined
+            }
+        },
+        loadEventDefinitionsFailure: ({ error }) => {
+            if (cache.eventsStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
+                        performance.now() - cache.eventsStartTime,
+                        error ?? 'There was an unknown error fetching event definitions.'
                     )
                 cache.eventsStartTime = undefined
             }
@@ -298,29 +309,17 @@ export const eventDefinitionsTableLogic = kea<
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesViewed(
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
                         performance.now() - cache.propertiesStartTime
                     )
                 cache.propertiesStartTime = undefined
-            }
-        },
-        loadEventDefinitionsFailure: ({ error }) => {
-            if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageViewed(
-                        performance.now() - cache.eventsStartTime,
-                        -1,
-                        error ?? 'There was an unknown error fetching event definitions.'
-                    )
-                cache.eventsStartTime = undefined
             }
         },
         loadPropertiesForEventFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesViewed(
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
                         performance.now() - cache.propertiesStartTime,
                         error ?? 'There was an unknown error fetching nested property definitions.'
                     )

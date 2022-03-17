@@ -63,11 +63,6 @@ export enum RecordingWatchedSource {
     RecordingsList = 'recordings_list', // New recordings list page
 }
 
-export enum DataManagementDefinitionSavedSource {
-    Default = 'default',
-    Filter = 'filter', // from the taxonomic filters
-}
-
 export enum GraphSeriesAddedSource {
     Default = 'default',
     Duplicate = 'duplicate',
@@ -195,7 +190,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<
         DashboardEventSource,
-        DataManagementDefinitionSavedSource,
         GraphSeriesAddedSource,
         RecordingWatchedSource,
         SessionRecordingFilterType
@@ -398,45 +392,41 @@ export const eventUsageLogic = kea<
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
         // Definition Popup
-        reportDataManagementDefinitionClickView: (
-            type: TaxonomicFilterGroupType,
-            source: DataManagementDefinitionSavedSource
-        ) => ({ type, source }),
-        reportDataManagementDefinitionClickEdit: (
-            type: TaxonomicFilterGroupType,
-            source: DataManagementDefinitionSavedSource
-        ) => ({ type, source }),
-        reportDataManagementDefinitionSave: (
-            type: TaxonomicFilterGroupType,
-            source: DataManagementDefinitionSavedSource
-        ) => ({ type, source }),
-        reportDataManagementDefinitionCancel: (
-            type: TaxonomicFilterGroupType,
-            source: DataManagementDefinitionSavedSource
-        ) => ({ type, source }),
-        // Data Management Pages
-        reportDataManagementEventDefinitionsPageViewed: (loadTime: number, resultsLength: number, error?: string) => ({
+        reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
+            type,
             loadTime,
-            resultsLength,
-            error,
         }),
-        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: (loadTime: number, error?: string) => ({
-            loadTime,
-            error,
-        }),
-        reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed: true,
-        reportDataManagementEventPropertyDefinitionsPageViewed: (
+        reportDataManagementDefinitionSaveFailed: (
+            type: TaxonomicFilterGroupType,
             loadTime: number,
-            resultsLength: number,
-            error?: string
-        ) => ({
+            error: string
+        ) => ({ type, loadTime, error }),
+        reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Data Management Pages
+        reportDataManagementEventDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
+        }),
+        reportDataManagementEventDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
             error,
         }),
-        reportDataManagementActionDefinitionsPageViewed: (loadTime: number, resultsLength: number, error?: string) => ({
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: (loadTime: number) => ({
+            loadTime,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertyDetail: true,
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
+        }),
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
             error,
         }),
     },
@@ -951,38 +941,51 @@ export const eventUsageLogic = kea<
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')
         },
-        reportDataManagementDefinitionClickView: ({ type, source }) => {
-            posthog.capture('definition click view', { type, source })
+        reportDataManagementDefinitionClickView: ({ type }) => {
+            posthog.capture('definition click view', { type })
         },
-        reportDataManagementDefinitionClickEdit: ({ type, source }) => {
-            posthog.capture('definition click edit', { type, source })
+        reportDataManagementDefinitionClickEdit: ({ type }) => {
+            posthog.capture('definition click edit', { type })
         },
-        reportDataManagementDefinitionSave: ({ type, source }) => {
-            posthog.capture('definition saved', { type, source })
+        reportDataManagementDefinitionSaveSucceeded: ({ type, loadTime }) => {
+            posthog.capture('definition save succeeded', { type, load_time: loadTime })
         },
-        reportDataManagementDefinitionCancel: ({ type, source }) => {
-            posthog.capture('definition cancelled', { type, source })
+        reportDataManagementDefinitionSaveFailed: ({ type, loadTime, error }) => {
+            posthog.capture('definition save failed', { type, load_time: loadTime, error })
         },
-        reportDataManagementEventDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
-            posthog.capture('event definitions page viewed', { load_time: loadTime, num_results: resultsLength, error })
+        reportDataManagementDefinitionCancel: ({ type }) => {
+            posthog.capture('definition cancelled', { type })
         },
-        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: ({ loadTime, error }) => {
-            posthog.capture('event definitions page event expanded properties viewed', { load_time: loadTime, error })
-        },
-        reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed: () => {
-            posthog.capture('event definitions page event expanded property show detail')
-        },
-        reportDataManagementEventPropertyDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
-            posthog.capture('event property definitions page viewed', {
+        reportDataManagementEventDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event definitions page load succeeded', {
                 load_time: loadTime,
                 num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page load failed', { load_time: loadTime, error })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: ({ loadTime }) => {
+            posthog.capture('event definitions page event expanded properties load succeeded', { load_time: loadTime })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page event expanded properties load failed', {
+                load_time: loadTime,
                 error,
             })
         },
-        reportDataManagementActionDefinitionsPageViewed: ({ loadTime, resultsLength, error }) => {
-            posthog.capture('actions definitions page viewed', {
+        reportDataManagementEventDefinitionsPageNestedPropertyDetail: () => {
+            posthog.capture('event definitions page event expanded property show detail')
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event property definitions page load succeeded', {
                 load_time: loadTime,
                 num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event property definitions page load failed', {
+                load_time: loadTime,
                 error,
             })
         },
