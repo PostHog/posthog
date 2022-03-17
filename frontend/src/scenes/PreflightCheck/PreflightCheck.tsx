@@ -43,21 +43,21 @@ function PreflightItem({ name, status, caption, failedState }: PreflightItemInte
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    let textColor: string | undefined
+    let textColor: string
     const { preflightLoading } = useValues(preflightLogic)
 
     if (status) {
-        textColor = green.primary
+        textColor = 'var(--success)'
     } else if (status === false) {
         if (failedState === 'warning') {
-            textColor = volcano.primary
+            textColor = 'var(--warning)'
         } else if (failedState === 'not-required') {
-            textColor = grey.primary
+            textColor = 'var(--border-dark)'
         } else {
-            textColor = red.primary
+            textColor = 'var(--danger)'
         }
     } else {
-        textColor = grey.primary
+        textColor = 'var(--border-dark)'
     }
 
     const icon = (): JSX.Element => {
