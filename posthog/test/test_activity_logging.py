@@ -48,7 +48,7 @@ class TestActivityLogModel(BaseTest):
         # even when there are logs with team id or org id saved
         ActivityLog.objects.create(team_id=3)
         ActivityLog.objects.create(organization_id=UUIDT())
-        # we cannot save a new version if it has neither team nor org id
+        # we cannot save a new log if it has neither team nor org id
         with self.assertRaises(IntegrityError) as error:
             ActivityLog.objects.create()
 

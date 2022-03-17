@@ -441,7 +441,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
             organization=self.organization,
-            email="person_acting_and_then_viewing_history@posthog.com",
+            email="person_acting_and_then_viewing_activity@posthog.com",
             password=None,
             first_name="Potato",
         )
@@ -450,7 +450,7 @@ class TestFeatureFlag(APIBaseTest):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
-                {"name": "feature flag with history", "key": "feature_with_history"},
+                {"name": "feature flag with activity", "key": "feature_with_activity"},
             )
 
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
@@ -461,7 +461,7 @@ class TestFeatureFlag(APIBaseTest):
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
                 {
-                    "name": "feature flag with history",
+                    "name": "feature flag with activity",
                     "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                 },
                 format="json",
@@ -500,7 +500,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_length_of_feature_flag_activity_does_not_change_number_of_db_queries(self):
         new_user = User.objects.create_and_join(
             organization=self.organization,
-            email="person_acting_and_then_viewing_history@posthog.com",
+            email="person_acting_and_then_viewing_activity@posthog.com",
             password=None,
             first_name="Potato",
         )
@@ -511,33 +511,39 @@ class TestFeatureFlag(APIBaseTest):
         # create the flag
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "feature flag with history", "key": "feature_with_history"},
+            {"name": "feature flag with activity", "key": "feature_with_activity"},
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         flag_id = create_response.json()["id"]
 
-        # get the history and capture number of queries made
+        # get the activity and capture number of queries made
         with CaptureQueriesContext(db_connection) as first_read_context:
             self._get_feature_flag_activity(flag_id)
 
-        first_activity_read_query_count = first_read_context.final_queries - first_read_context.initial_queries
+        if isinstance(first_read_context.final_queries, int) and isinstance(first_read_context.initial_queries, int):
+            first_activity_read_query_count = first_read_context.final_queries - first_read_context.initial_queries
+        else:
+            raise AssertionError("must be able to read query numbers from first activity log query")
 
         # update the flag
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
             {
-                "name": "feature flag with history",
+                "name": "feature flag with activity",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 74}]},
             },
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        # get the history and capture number of queries made
+        # get the activity and capture number of queries made
         with CaptureQueriesContext(db_connection) as second_read_context:
             self._get_feature_flag_activity(flag_id)
 
-        second_activity_read_query_count = second_read_context.final_queries - second_read_context.initial_queries
+        if isinstance(second_read_context.final_queries, int) and isinstance(second_read_context.initial_queries, int):
+            second_activity_read_query_count = second_read_context.final_queries - second_read_context.initial_queries
+        else:
+            raise AssertionError("must be able to read query numbers from second activity log query")
 
         self.assertEqual(first_activity_read_query_count, second_activity_read_query_count)
 
@@ -569,7 +575,7 @@ class TestFeatureFlag(APIBaseTest):
             name="team-2-flag-2", team_id=org_two_team.id, properties=[],
         ).json()["id"]
 
-        # user in org 1 gets history
+        # user in org 1 gets activity
         self.client.force_login(org_one_user)
         self._get_feature_flag_activity(
             flag_id=team_one_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
@@ -584,7 +590,7 @@ class TestFeatureFlag(APIBaseTest):
             flag_id=team_two_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
         )
 
-        # user in org 2 gets history
+        # user in org 2 gets activity
         self.client.force_login(org_two_user)
         self._get_feature_flag_activity(
             flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
