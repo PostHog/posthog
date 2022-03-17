@@ -131,17 +131,17 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
-                0
-            )
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
+                  0
+              )
             : 0
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                (experimentData?.parameters?.recommended_running_time || 1)) *
-            100
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -275,12 +275,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             >
                                                                 <Row
                                                                     key={`${variant}-${idx}`}
-                                                                    className={`feature-flag-variant ${idx === 0
+                                                                    className={`feature-flag-variant ${
+                                                                        idx === 0
                                                                             ? 'border-top'
                                                                             : idx >= 3
-                                                                                ? 'border-bottom'
-                                                                                : ''
-                                                                        }`}
+                                                                            ? 'border-bottom'
+                                                                            : ''
+                                                                    }`}
                                                                 >
                                                                     <div
                                                                         className="variant-label"
@@ -382,7 +383,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
-                                                            undefined
+                                                        undefined
                                                             ? newExperimentData.filters.aggregation_group_type_index
                                                             : -1
                                                     }
@@ -430,8 +431,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     propertyFilters={
                                                         experimentInsightType === InsightType.FUNNELS
                                                             ? convertPropertyGroupToProperties(
-                                                                funnelsFilters.properties
-                                                            )
+                                                                  funnelsFilters.properties
+                                                              )
                                                             : convertPropertyGroupToProperties(trendsFilters.properties)
                                                     }
                                                     onChange={(anyProperties) => {
@@ -764,21 +765,22 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                     <li
                                                                         key={idx}
                                                                         style={{
-                                                                            color: `${experimentInsightType ===
-                                                                                    InsightType.FUNNELS
+                                                                            color: `${
+                                                                                experimentInsightType ===
+                                                                                InsightType.FUNNELS
                                                                                     ? getSeriesColor(
-                                                                                        getIndexForVariant(
-                                                                                            variant.key,
-                                                                                            InsightType.FUNNELS
-                                                                                        ) + 1
-                                                                                    ) // baseline takes 0th index
+                                                                                          getIndexForVariant(
+                                                                                              variant.key,
+                                                                                              InsightType.FUNNELS
+                                                                                          ) + 1
+                                                                                      ) // baseline takes 0th index
                                                                                     : getChartColors('white')[
-                                                                                    getIndexForVariant(
-                                                                                        variant.key,
-                                                                                        InsightType.TRENDS
-                                                                                    )
-                                                                                    ]
-                                                                                }`,
+                                                                                          getIndexForVariant(
+                                                                                              variant.key,
+                                                                                              InsightType.TRENDS
+                                                                                          )
+                                                                                      ]
+                                                                            }`,
                                                                         }}
                                                                         className="pr"
                                                                     >
@@ -812,7 +814,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                         <div key={index}>
                                                                                             {
                                                                                                 secondaryMetricResults?.[
-                                                                                                idx
+                                                                                                    idx
                                                                                                 ][variant.key]
                                                                                             }
                                                                                         </div>
@@ -989,12 +991,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                    1
-                                                                ) // baseline takes 0th index
+                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                          1
+                                                                  ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                getIndexForVariant(variant, InsightType.TRENDS)
-                                                                ]
+                                                                      getIndexForVariant(variant, InsightType.TRENDS)
+                                                                  ]
                                                         }
                                                     />
                                                     <div>
