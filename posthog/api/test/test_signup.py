@@ -399,7 +399,7 @@ class TestSignupAPI(APIBaseTest):
             self.run_test_for_whitelisted_domain(mock_request)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
-    def test_cannot_social_signup_with_whitelisted_but_unverified_domain(self, mock_request):
+    def test_cannot_social_signup_with_whitelisted_but_jit_provisioning_disabled(self, mock_request):
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
             domain="posthog.net", verified_at=timezone.now(), jit_provisioning_enabled=False, organization=new_org,
@@ -419,7 +419,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
-    def test_cannot_social_signup_with_whitelisted_but_jit_provisioning_disabled(self, mock_request):
+    def test_cannot_social_signup_with_whitelisted_but_unverified_domain(self, mock_request):
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
             domain="posthog.net", verified_at=None, jit_provisioning_enabled=True, organization=new_org,
