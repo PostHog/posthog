@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { IconEmojiPeople } from '../icons'
