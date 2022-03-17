@@ -93,6 +93,7 @@ export function FeatureFlag(): JSX.Element {
         groupTypes,
         aggregationTargetName,
         taxonomicGroupTypes,
+        featureFlagLoading,
     } = useValues(featureFlagLogic)
     const {
         addConditionSet,
@@ -136,13 +137,11 @@ export function FeatureFlag(): JSX.Element {
                                             checked={value}
                                             onChange={onValueChange}
                                             label={
-                                                <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
-                                                    {value ? (
-                                                        <span className="text-success">Enabled</span>
-                                                    ) : (
-                                                        <span className="text-danger">Disabled</span>
-                                                    )}
-                                                </span>
+                                                value ? (
+                                                    <span className="text-success">Enabled</span>
+                                                ) : (
+                                                    <span className="text-danger">Disabled</span>
+                                                )
                                             }
                                         />
                                     )}
@@ -164,6 +163,7 @@ export function FeatureFlag(): JSX.Element {
                                     icon={<SaveOutlined />}
                                     type="primary"
                                     data-attr="feature-flag-submit"
+                                    loading={featureFlagLoading}
                                     htmlType="submit"
                                 >
                                     Save changes
