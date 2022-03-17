@@ -12,12 +12,13 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
 import { SSOSelect } from './SSOSelect'
+import { VerifyDomainModal } from './VerifyDomainModal'
 
 /** TODO: Pay gate */
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
         useValues(verifiedDomainsLogic)
-    const { updateDomain, setModalShown, deleteVerifiedDomain } = useActions(verifiedDomainsLogic)
+    const { updateDomain, setAddModalShown, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -136,7 +137,9 @@ export function VerifiedDomains(): JSX.Element {
                         style={{ display: 'inline-block' }}
                     />
                 ) : (
-                    <LemonButton type="primary">Verify</LemonButton>
+                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
+                        Verify
+                    </LemonButton>
                 )
             },
         },
@@ -155,7 +158,12 @@ export function VerifiedDomains(): JSX.Element {
                     </p>
                 </div>
                 <div>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalShown(true)}>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => setAddModalShown(true)}
+                        disabled={verifiedDomainsLoading || updatingDomainLoading}
+                    >
                         Add domain
                     </Button>
                 </div>
@@ -169,6 +177,7 @@ export function VerifiedDomains(): JSX.Element {
                 emptyState="You haven't registered any verified domains."
             />
             <AddDomainModal />
+            <VerifyDomainModal />
         </div>
     )
 }

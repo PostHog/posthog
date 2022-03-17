@@ -9,21 +9,32 @@ const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 
 export function AddDomainModal(): JSX.Element {
     const { addModalShown, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
-    const { setModalShown, addVerifiedDomain } = useActions(verifiedDomainsLogic)
+    const { setAddModalShown, addVerifiedDomain } = useActions(verifiedDomainsLogic)
     const [newDomain, setNewDomain] = useState('')
     const [submitted, setSubmitted] = useState(false)
 
     const errored = !newDomain || !newDomain.match(DOMAIN_REGEX)
 
+    const clean = (): void => {
+        setNewDomain('')
+        setSubmitted(false)
+    }
+
+    const handleClose = (): void => {
+        setAddModalShown(false)
+        clean()
+    }
+
     const handleSubmit = (): void => {
         setSubmitted(true)
         if (!errored) {
             addVerifiedDomain(newDomain)
+            clean()
         }
     }
 
     return (
-        <LemonModal onCancel={() => setModalShown(false)} visible={addModalShown}>
+        <LemonModal onCancel={handleClose} visible={addModalShown} destroyOnClose>
             <section>
                 <h5>Add verified domain</h5>
 

@@ -17,7 +17,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
     },
     actions: {
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
-        setModalShown: (shown: boolean) => ({ shown }),
+        setAddModalShown: (shown: boolean) => ({ shown }),
+        setVerifyModal: (id: string | null) => ({ id }),
     },
     reducers: {
         verifiedDomains: [
@@ -33,8 +34,14 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
         addModalShown: [
             false,
             {
-                setModalShown: (_, { shown }) => shown,
+                setAddModalShown: (_, { shown }) => shown,
                 addVerifiedDomainSuccess: () => false,
+            },
+        ],
+        verifyModal: [
+            null as string | null,
+            {
+                setVerifyModal: (_, { id }) => id,
             },
         ],
     },
@@ -69,9 +76,31 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                     actions.replaceDomain(response as OrganizationDomainType)
                     return true
                 },
+                verifyDomain: async () => {
+                    const response = (await api.create(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${values.verifyModal}/verify`
+                    )) as OrganizationDomainType
+                    if (response.is_verified) {
+                        lemonToast.success('Domain verified successfully.')
+                    } else {
+                        lemonToast.warning(
+                            'We could not verify your domain yet. DNS propagation may take up to 72 hours. Please try again later.'
+                        )
+                    }
+                    actions.replaceDomain(response as OrganizationDomainType)
+                    actions.setVerifyModal(null)
+                    return true
+                },
             },
         ],
     }),
+    selectors: {
+        domainBeingVerified: [
+            (s) => [s.verifiedDomains, s.verifyModal],
+            (verifiedDomains, verifyingId): OrganizationDomainType | null =>
+                (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
+        ],
+    },
     events: ({ actions }) => ({
         afterMount: [actions.loadVerifiedDomains],
     }),
