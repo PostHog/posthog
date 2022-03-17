@@ -87,7 +87,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 OpenApiTypes.STR,
                 description="Filter list by event. For example `user sign up` or `$pageview`.",
             ),
-            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person ID."),
+            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
             OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
             PropertiesSerializer(required=False),
         ],
