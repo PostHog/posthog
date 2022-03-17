@@ -166,7 +166,8 @@ class TestFeatureFlag(APIBaseTest):
                     "user": {"first_name": "", "email": "user1@posthog.com",},
                     "activity": "created",
                     "scope": "FeatureFlag",
-                    "detail": {"changes": None},
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "alpha-feature"},
                 }
             ],
         )
@@ -365,6 +366,7 @@ class TestFeatureFlag(APIBaseTest):
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
                     "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
                     "detail": {
                         "changes": [
                             {
@@ -395,14 +397,16 @@ class TestFeatureFlag(APIBaseTest):
                                     ]
                                 },
                             },
-                        ]
+                        ],
+                        "name": "a-feature-flag-that-is-updated",
                     },
                 },
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "created",
                     "scope": "FeatureFlag",
-                    "detail": {"changes": None},
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated"},
                 },
             ],
         )
@@ -439,11 +443,13 @@ class TestFeatureFlag(APIBaseTest):
         self._get_feature_flag_activity(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
 
         # can't get the flag delete from the activity API but it should have been logged
-        self.assertTrue(
-            ActivityLog.objects.filter(
-                team_id=self.team.id, scope="FeatureFlag", item_id=instance.pk, activity="deleted"
-            ).exists()
-        )
+        delete_activity = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="FeatureFlag", item_id=instance.pk, activity="deleted"
+        ).first()
+        if isinstance(delete_activity, ActivityLog):
+            self.assertEqual(delete_activity.detail["name"], "potato")
+        else:
+            raise AssertionError("must be able to load this activity log")
 
     def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
@@ -483,6 +489,7 @@ class TestFeatureFlag(APIBaseTest):
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "updated",
                     "scope": "FeatureFlag",
+                    "item_id": str(flag_id),
                     "detail": {
                         "changes": [
                             {
@@ -492,14 +499,16 @@ class TestFeatureFlag(APIBaseTest):
                                 "before": {},
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
-                        ]
+                        ],
+                        "name": "feature_with_activity",
                     },
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "created",
                     "scope": "FeatureFlag",
-                    "detail": {"changes": None},
+                    "item_id": str(flag_id),
+                    "detail": {"changes": None, "name": "feature_with_activity"},
                 },
             ],
         )

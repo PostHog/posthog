@@ -20,13 +20,15 @@ class ChangeSerializer(serializers.Serializer):
 class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
+    name = serializers.CharField(read_only=True)
 
 
 class ActivityLogSerializer(serializers.Serializer):
     class Meta:
-        exclude = ["team_id, organization_id", "item_id"]
+        exclude = ["team_id, organization_id"]
 
     user = UserMinimalSerializer(read_only=True)
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
+    item_id = serializers.CharField(read_only=True)
     detail = DetailSerializer()
