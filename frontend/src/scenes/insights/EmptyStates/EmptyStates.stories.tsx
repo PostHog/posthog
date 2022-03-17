@@ -5,14 +5,15 @@ import { InsightScene } from '../InsightScene'
 import funnelOneStep from './funnelOneStep.json'
 import { useStorybookMocks } from '~/mocks/browser'
 import { router } from 'kea-router'
-import insight from '../__stories__/trendsLine.json'
+import insight from '../__mocks__/trendsLine.json'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
-import { createInsightScene } from 'scenes/insights/__stories__/storybook.utils'
+import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene'
 
 // some metadata and optional parameters
 export default {
     title: 'Scenes/Insights/Error states',
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 export function EmptyState(): JSX.Element {

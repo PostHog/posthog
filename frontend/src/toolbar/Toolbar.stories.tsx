@@ -21,6 +21,7 @@ const editorParams: EditorProps = {
 
 export default {
     title: 'Scenes/Toolbar',
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 function useToolbarStyles(): void {
@@ -59,6 +60,7 @@ export const Authenticated = (): JSX.Element => {
             },
             '/api/element/stats': () => [200, []],
             '/api/projects/@current/feature_flags/my_flags': () => [200, []],
+            '/api/organizations/@current/members/?limit=200': { results: [] },
         },
     })
 

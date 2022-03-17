@@ -27,7 +27,7 @@ import {
     FilterLogicalOperator,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
@@ -388,6 +388,8 @@ export const eventUsageLogic = kea<
             type,
             filtersLength,
         }),
+        reportPrimaryDashboardModalOpened: true,
+        reportPrimaryDashboardChanged: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -893,6 +895,12 @@ export const eventUsageLogic = kea<
         },
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportPrimaryDashboardModalOpened: () => {
+            posthog.capture('primary dashboard modal opened')
+        },
+        reportPrimaryDashboardChanged: () => {
+            posthog.capture('primary dashboard changed')
         },
     }),
 })

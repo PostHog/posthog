@@ -37,7 +37,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.MySettings]: () => import('./me/Settings'),
     [Scene.Annotations]: () => import('./annotations'),
-    [Scene.PreflightCheck]: () => import('./PreflightCheck'),
+    [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/Signup'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
