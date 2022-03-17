@@ -11,7 +11,7 @@ import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
-import { VerifiedDomains } from './VerifiedDomains'
+import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,

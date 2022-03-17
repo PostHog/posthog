@@ -16,6 +16,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
     },
     actions: {
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
+        setModalShown: (shown: boolean) => ({ shown }),
     },
     reducers: {
         verifiedDomains: [
@@ -28,6 +29,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                 },
             },
         ],
+        addModalShown: [
+            false,
+            {
+                setModalShown: (_, { shown }) => shown,
+                addVerifiedDomainSuccess: () => false,
+            },
+        ],
     },
     loaders: ({ values, actions }) => ({
         verifiedDomains: [
@@ -36,6 +44,16 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                 loadVerifiedDomains: async () =>
                     (await api.get(`api/organizations/${values.currentOrganization?.id}/domains`))
                         .results as OrganizationDomainType[],
+                addVerifiedDomain: async (domain: string) => {
+                    const response = await api.create(`api/organizations/${values.currentOrganization?.id}/domains`, {
+                        domain,
+                    })
+                    return [response, ...values.verifiedDomains]
+                },
+                deleteVerifiedDomain: async (id: string) => {
+                    await api.delete(`api/organizations/${values.currentOrganization?.id}/domains/${id}`)
+                    return [...values.verifiedDomains.filter((domain) => domain.id !== id)]
+                },
             },
         ],
         updatingDomain: [

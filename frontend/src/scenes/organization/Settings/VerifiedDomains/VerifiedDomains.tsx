@@ -1,4 +1,4 @@
-import { Button, Switch } from 'antd'
+import { Button, Modal, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -6,16 +6,17 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
 import { OrganizationDomainType } from '~/types'
-import { verifiedDomainsLogic } from '../verifiedDomainsLogic'
+import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
+import { AddDomainModal } from './AddDomainModal'
 
 /** TODO: Pay gate */
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
         useValues(verifiedDomainsLogic)
-    const { updateDomain } = useActions(verifiedDomainsLogic)
+    const { updateDomain, setModalShown, deleteVerifiedDomain } = useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -90,7 +91,7 @@ export function VerifiedDomains(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { is_verified }) {
+            render: function RenderActions(_, { is_verified, id, domain }) {
                 return is_verified ? (
                     <More
                         overlay={
@@ -98,7 +99,25 @@ export function VerifiedDomains(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     style={{ color: 'var(--danger)' }}
-                                    onClick={() => console.log(1)}
+                                    onClick={() =>
+                                        Modal.confirm({
+                                            title: `Remove ${domain}?`,
+                                            icon: null,
+                                            okText: 'Remove domain',
+                                            okType: 'primary',
+                                            okButtonProps: { className: 'btn-danger' },
+                                            content: (
+                                                <div>
+                                                    This cannot be undone. If you have SAML configured or SSO enforced,
+                                                    it will be immediately disabled.
+                                                </div>
+                                            ),
+                                            onOk() {
+                                                deleteVerifiedDomain(id)
+                                            },
+                                            cancelText: 'Cancel',
+                                        })
+                                    }
                                     fullWidth
                                 >
                                     <IconDelete /> Remove domain
@@ -127,7 +146,7 @@ export function VerifiedDomains(): JSX.Element {
                     </p>
                 </div>
                 <div>
-                    <Button type="primary" icon={<PlusOutlined />}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalShown(true)}>
                         Add domain
                     </Button>
                 </div>
@@ -140,6 +159,7 @@ export function VerifiedDomains(): JSX.Element {
                 rowKey="id"
                 emptyState="You haven't registered any verified domains."
             />
+            <AddDomainModal />
         </div>
     )
 }
