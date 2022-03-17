@@ -198,12 +198,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 setLastDashboardId: (_, { id }) => id,
             },
         ],
-        diveSourceId: [
-            null as InsightShortId | null,
-            {
-                setDiveSourceId: (_, { id }) => id,
-            },
-        ],
     },
 
     selectors: ({ selectors }) => ({
@@ -300,15 +294,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
         },
     }),
 
-    urlToAction: ({ actions, values }) => ({
-        '/dashboard/:id': ({ id }, { dive_source_id: diveSourceId }) => {
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id': ({ id }) => {
             if (id) {
                 actions.setLastDashboardId(parseInt(id))
-            }
-            if (diveSourceId !== undefined && diveSourceId !== null) {
-                actions.setDiveSourceId(diveSourceId)
-            } else if (values.diveSourceId !== null) {
-                actions.setDiveSourceId(null)
             }
         },
     }),
