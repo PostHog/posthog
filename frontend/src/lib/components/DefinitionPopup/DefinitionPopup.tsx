@@ -42,17 +42,8 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const {
-        state,
-        type,
-        source,
-        viewFullDetailUrl,
-        hasTaxonomyFeatures,
-        hideView,
-        hideEdit,
-        isViewable,
-        openDetailInNewTab,
-    } = useValues(definitionPopupLogic)
+    const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+        useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
@@ -60,13 +51,13 @@ function Header({
         if (hasTaxonomyFeatures) {
             setPopupState(DefinitionPopupState.Edit)
             _onEdit?.()
-            reportDataManagementDefinitionClickEdit(type, source)
+            reportDataManagementDefinitionClickEdit(type)
         }
     }
     const onView = (): void => {
         setPopupState(DefinitionPopupState.View)
         _onView?.()
-        reportDataManagementDefinitionClickView(type, source)
+        reportDataManagementDefinitionClickView(type)
     }
 
     return (
