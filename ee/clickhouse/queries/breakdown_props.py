@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import (
@@ -61,7 +61,22 @@ def get_breakdown_prop_values(
     person_join_params: Dict = {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
     if person_query.is_used:
-        person_subquery, person_join_params = person_query.get_query()
+        # Make the query more performant: adding a WHERE with
+        # entity_query, parsed_date_from, parsed_date_to makes sure that we
+        # only retrieve the `person` and `person_distinct_id` rows that are
+        # relevant to our query
+        entity_query = entity_format_params["entity_query"]
+        extra_where = f"{entity_query} {parsed_date_from} {parsed_date_to}"
+        distinct_ids_query = get_team_distinct_ids_query(
+            team_id,
+            extra_where=substitute_params(
+                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {extra_where})",
+                {"team_id": team_id, **entity_params, **date_params},
+            ),
+        )
+        person_subquery, person_join_params = person_query.get_query(
+            extra_where=f"AND id IN (SELECT person_id FROM ({distinct_ids_query}))"
+        )
         person_join_clauses = f"""
             INNER JOIN ({get_team_distinct_ids_query(team_id)}) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id

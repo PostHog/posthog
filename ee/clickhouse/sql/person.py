@@ -255,7 +255,7 @@ SELECT distinct_id, argMax(person_id, _timestamp) as person_id
 FROM (
     SELECT distinct_id, person_id, max(_timestamp) as _timestamp
     FROM person_distinct_id
-    WHERE team_id = %(team_id)s
+    WHERE team_id = %(team_id)s {extra_where}
     GROUP BY person_id, distinct_id, team_id
     HAVING max(is_deleted) = 0
 )
@@ -266,7 +266,7 @@ GROUP BY distinct_id
 GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
 SELECT distinct_id, argMax(person_id, version) as person_id
 FROM person_distinct_id2
-WHERE team_id = %(team_id)s
+WHERE team_id = %(team_id)s {extra_where}
 GROUP BY distinct_id
 HAVING argMax(is_deleted, version) = 0
 """

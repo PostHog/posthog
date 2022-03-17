@@ -63,7 +63,7 @@ class ClickhousePersonQuery:
             properties
         ).inner
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self, extra_where="") -> Tuple[str, Dict]:
         fields = "id" + " ".join(
             f", argMax({column_name}, _timestamp) as {alias}" for column_name, alias in self._get_fields()
         )
@@ -78,7 +78,7 @@ class ClickhousePersonQuery:
             SELECT {fields}
             FROM person
             {cohort_query}
-            WHERE team_id = %(team_id)s
+            WHERE team_id = %(team_id)s {extra_where}
             GROUP BY id
             HAVING max(is_deleted) = 0 {person_filters} {search_clause}
             {limit_offset}
