@@ -11,6 +11,7 @@ import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
+import { SSOSelect } from './SSOSelect'
 
 /** TODO: Pay gate */
 export function VerifiedDomains(): JSX.Element {
@@ -83,8 +84,16 @@ export function VerifiedDomains(): JSX.Element {
                     </Tooltip>
                 </>
             ),
-            render: function SSOEnforcement(_, { sso_enforcement }) {
-                return <>{sso_enforcement}</>
+            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }) {
+                return is_verified ? (
+                    <SSOSelect
+                        value={sso_enforcement}
+                        loading={updatingDomainLoading}
+                        onChange={(val) => updateDomain({ id, sso_enforcement: val })}
+                    />
+                ) : (
+                    <span className="text-muted-alt">Verify domain to enable</span>
+                )
             },
         },
         {

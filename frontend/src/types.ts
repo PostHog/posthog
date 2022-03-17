@@ -55,6 +55,14 @@ export enum Realm {
     SelfHostedClickHouse = 'hosted-clickhouse',
 }
 
+export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+    saml?: boolean
+}
+
 export type ColumnChoice = string[] | 'DEFAULT'
 
 export interface ColumnConfig {
@@ -134,7 +142,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: 'google-oauth2' | 'github' | 'gitlab' | ''
+    sso_enforcement: SSOProviders | ''
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -1250,13 +1258,6 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
-}
-
-interface AuthBackends {
-    'google-oauth2'?: boolean
-    gitlab?: boolean
-    github?: boolean
-    saml?: boolean
 }
 
 interface InstancePreferencesInterface {

@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
@@ -64,6 +65,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                         `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                         { ...payload, id: undefined }
                     )
+                    lemonToast.success('Domain updated successfully! Changes will take immediately.')
                     actions.replaceDomain(response as OrganizationDomainType)
                     return true
                 },

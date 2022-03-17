@@ -1,4 +1,4 @@
-import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -156,3 +156,10 @@ export const COHORT_DYNAMIC = 'dynamic'
  * See https://github.com/remarkjs/react-markdown/issues/339.
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
+
+export const SSOProviderNames: Record<SSOProviders, string> = {
+    'google-oauth2': 'Google',
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    saml: 'Single sign-on (SAML)',
+}
