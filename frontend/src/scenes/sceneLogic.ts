@@ -231,11 +231,14 @@ export const sceneLogic = kea<sceneLogicType>({
             if (
                 values.scene === Scene.Insight &&
                 scene !== Scene.Insight &&
-                insightSceneLogic.findMounted()?.values.insightCache?.logic.values.filtersChanged &&
-                !confirm('Leave insight? Changes you made may not be saved.')
+                insightSceneLogic.findMounted()?.values.insightCache?.logic.values.filtersChanged
             ) {
-                history.back()
-                return
+                if (confirm('Leave insight? Changes you made may not be saved.')) {
+                    insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.discardChanges()
+                } else {
+                    history.back()
+                    return
+                }
             }
 
             const sceneConfig = sceneConfigurations[scene] || {}

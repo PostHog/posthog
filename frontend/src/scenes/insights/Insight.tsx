@@ -46,11 +46,10 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         activeView,
         insight,
         filtersChanged,
-        savedFilters,
         tagLoading,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
+    const { setActiveView, saveInsight, discardChanges, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -151,7 +150,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                             <Popconfirm
                                 title="Are you sure? This will discard all unsaved changes in this insight."
                                 onConfirm={() => {
-                                    setFilters(savedFilters)
+                                    discardChanges()
                                     reportInsightsTabReset()
                                 }}
                             >

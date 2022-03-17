@@ -116,6 +116,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
+        discardChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
@@ -727,6 +728,9 @@ export const insightLogic = kea<insightLogicType>({
                     ...nextEntries,
                 },
             })
+        },
+        discardChanges: () => {
+            actions.setFilters(values.savedFilters)
         },
     }),
 

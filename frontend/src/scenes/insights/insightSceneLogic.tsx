@@ -10,6 +10,8 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
@@ -130,6 +132,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
             if (insightId !== oldInsightId || insightMode !== values.insightMode) {
+                // If navigating from an unsaved insight to a different insight within the scene, prompt the user
+                if (
+                    sceneLogic.values.scene === Scene.Insight &&
+                    insightId !== oldInsightId &&
+                    oldInsightId !== 'new' &&
+                    values.insightCache?.logic.values.filtersChanged
+                ) {
+                    if (confirm('Leave insight? Changes you made may not be saved.')) {
+                        values.insightCache.logic.actions.discardChanges()
+                    } else {
+                        history.back()
+                        return
+                    }
+                }
                 actions.setSceneState(insightId, insightMode)
                 if (insightId !== oldInsightId && insightId === 'new') {
                     actions.createNewInsight(filters)
