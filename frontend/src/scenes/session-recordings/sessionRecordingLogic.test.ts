@@ -6,7 +6,7 @@ import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLog
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
 import recordingEventsJson from './__mocks__/recording_events.json'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'

@@ -33,7 +33,7 @@ Write your content here...
 ## Scene stories
 
 In the same folder as your component, create a file like `Dashboard.stories.tsx`. If you need a lot of `.json`
-files for mocked data, create a `__stories__` subdirectory for those files.
+files for mocked data, create a `__mocks__` subdirectory for those files, just like you would with `jest`.
 
 ```tsx
 // frontend/src/scenes/dashboard/Dashboard.stories.tsx
@@ -48,8 +48,8 @@ export default {
         // mocks used by all stories in this file
         mswDecorator({
             get: {
-                '/api/projects/1/dashboards/': require('./__stories__/dashboards.json'),
-                '/api/projects/1/dashboards/1/': require('./__stories__/dashboard1.json'),
+                '/api/projects/1/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/projects/1/dashboards/1/': require('./__mocks__/dashboard1.json'),
                 '/api/projects/1/dashboards/1/collaborators/': [],
             },
         }),

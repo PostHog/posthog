@@ -27,7 +27,7 @@ import {
     FilterLogicalOperator,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'

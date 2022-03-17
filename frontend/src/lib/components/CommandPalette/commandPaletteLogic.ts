@@ -43,7 +43,7 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
