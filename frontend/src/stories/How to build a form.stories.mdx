@@ -1,0 +1,155 @@
+import { Meta } from '@storybook/addon-docs';
+
+<Meta title="Forms/ How to build a form?" />
+
+# How to build a form?
+
+## Problems with forms
+
+The current `antd` <-> `kea` data pipe is bad, causing a lot of tiny daily friction if you ever work with it.
+We need a better solution.
+
+Kea is actually pretty good with forms. [There is an approach](https://kea-v1.netlify.app/guide/forms)
+I have used in the past with great success, which boils down to: `const createForm = (opts) => formLogic(transform(opts))`, but
+this breaks down in the typescript/typegen days. Luckily, there's a new plugin that looks promising. More below.
+
+## Current approach
+
+It's rather clunky:
+
+```tsx
+import { Form } from 'antd'
+
+export function FeatureFlagForm() {
+    const [form] = Form.useForm()
+    const { featureFlag } = useValues(featureFlagLogic)
+    const { setFeatureFlag, submitForm } = useActions(featureFlagLogic)
+    useEffect(() => {
+        form.setFieldsValue({ ...featureFlag })
+    }, [featureFlag])
+
+    return (
+        <Form
+            layout="vertical"
+            form={form}
+            initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
+            onValuesChange={(newValues) => setFeatureFlag({ ...featureFlag, ...newValues })}
+            onFinish={(values) => submitForm({ ...featureFlag, ...values })}
+        >
+            {/* This tag adds antd styling for labels and validation messages */}
+            <Form.Item
+                name="key"
+                label="Key (must be unique)"
+                rules={[
+                    { required: true, message: 'You need to set a key.' },
+                    {
+                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                        message: 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                    },
+                ]}
+                validateStatus={hasKeyChanged ? 'warning' : undefined}
+            >
+                <Input {/* Automatically gets value and onChange props */}
+                    data-attr="feature-flag-key"
+                    autoFocus
+                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                />
+            </Form.Item>
+        </Form>
+    )
+}
+```
+
+## New approach
+
+A while ago I built a new [kea-forms](https://github.com/keajs/kea-forms) plugin (and its kea-typegen sibling), which looks like this:
+
+```tsx
+import { useActions, useValues } from 'kea'
+import { Form, Field } from 'kea-forms'
+
+export interface UserFormType {
+  name: string
+  email: string
+}
+
+export const userFormLogic = kea<userFormLogicType<UserFormType>>({
+  // ... actions, reducers, ...
+
+  forms: {
+    // userForm will be a `value` that'll just hold a regular object
+    // we will generate a bunch of actions and selectors to help with daily form tasks
+    userForm: {
+      defaults: {
+        name: '',
+        email: '',
+      } as UserFormType,
+      validator: (values) => ({
+        name: !values.name && 'Please enter a name',
+        email: !values.email
+          ? 'Please enter an email'
+          : !validateEmail(values.email)
+          ? 'Please enter a valid email'
+          : null,
+      }),
+      submit: (formValues) => {
+        console.log('submitting!', formValues)
+      },
+    },
+  },
+
+  // ... other listeners, etc
+})
+function MyForm() {
+  const { isUserFormSubmitting } = useValues(userFormLogic)
+  const { setUserFormValue } = useActions(userFormLogic)
+
+  return(
+    <div>
+      <p>Demonstrating a simple form below</p>
+      <Form logic={userFormLogic} form="userForm">
+        <Field name="name" label="Name">
+          {/* "value" and "onChange" added automatically like in antd */}
+          <input className="form-input" />
+          {/* no label or validation styles yet */}
+        </Field>
+
+        <button type="button" onClick={() => setUserFormValue('guest', '')}>No Guest</button>
+        <button type="button" onClick={() => setUserFormValue('guest', 'Other Name')}>Other Guest</button>
+
+        <Field name="subscribe">
+          {({ onChange, value }) => (
+            <label>
+              <input type="checkbox" onChange={(e) => onChange(e.target.checked)} value={value} /> Subscribe to our
+              newsletter!!
+            </label>
+          )}
+        </Field>
+
+        <div>
+          <input type="submit" value={isUserFormSubmitting ? '... ' : 'Submit Form!'} className="form-submit" />
+        </div>
+      </Form>
+    </div>
+  )
+}
+```
+
+## What stalled it?
+
+I wanted the `value` to be typed to the right type, depending on the field's name. That's not possible with global `Field`
+tags. I have a [WIP solution](https://github.com/keajs/kea-forms/compare/changes) here that uses `const { Form, Field } = useForm(formsLogic, 'userForm')`
+to get the typing right, but never finished it.
+
+This fell on the backburner shortly after. There's no reason we can't pick this up.
+
+We also need a standardised set of components for displaying error, validation, hint, etc states. These should be copied from antd initially.
+
+## What's next?
+
+Somebody needs to integrate it into PostHog and just start using it. Then we'll figure out the next steps like standardised
+components, etc.
+
+Demo here:
+- https://github.com/keajs/kea-forms/blob/main/demo/src/forms/Forms.tsx
+- https://github.com/keajs/kea-forms/blob/main/demo/src/forms/formsLogic.ts

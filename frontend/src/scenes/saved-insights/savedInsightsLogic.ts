@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
 
-export const INSIGHTS_PER_PAGE = 20
+export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
     results: InsightModel[]

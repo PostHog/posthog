@@ -3,7 +3,7 @@ import { api, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {

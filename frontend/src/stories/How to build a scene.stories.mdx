@@ -1,0 +1,101 @@
+import { Meta } from '@storybook/addon-docs';
+
+<Meta title="Scenes/ How to build a scene?" />
+
+# How to build a scene?
+
+If you want to add a new scene in the frontend, here's what you need to do
+
+## 1. Create the scene under `frontend/src/scenes/my-component/MyComponent.tsx`
+
+```ts
+// frontend/src/scenes/web-performance/WebPerformance.tsx
+import './WebPerformance.scss'
+import { webPerformanceLogic } './webPerformanceLogic.ts'
+
+export function WebPerformance (): JSX.Element {
+    return (
+        <div className='WebPerformance'>
+            Web Performance Scene!
+        </div>
+    )
+}
+
+export const scene: SceneExport = {
+    component: WebPerformance,
+    logic: webPerformanceLogic,
+    // url params to logic props. This mounts the right logic with turbo mode before the component renders.
+    paramsToProps: ({ id }) => ({ scope: id || 'global' }),
+}
+```
+
+```ts
+// frontend/src/scenes/web-performance/webPerformanceLogic.ts
+export const webPerformanceLogic = kea({
+    key: ({ scope }) => scope,
+    // ...
+})
+```
+
+```ts
+// frontend/src/scenes/web-performance/WebPerformance.scss
+
+// this is in global scope! choose a unique class name and scope everything under it
+.WebPerformance {
+    // ...
+}
+```
+
+
+## 1. Add a URL function in `urls.ts`
+
+```ts
+// frontend/src/scenes/urls.ts
+export const urls = {
+    // ...
+    webPerformance: (id?: string | number) => `/web-performance${id ? `/${id}` : ''}`,
+}
+```
+
+## 2. Add a scene to the enum in `sceneTypes.ts`
+
+```ts
+// frontend/src/scenes/sceneTypes.ts
+export enum Scene {
+    WebPerformance = 'WebPerformance',
+}
+```
+
+## 3. Add a scene configuration and a route to scene mapping in `scenes.ts`
+
+```ts
+// frontend/src/scenes/scenes.ts
+export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    [Scene.WebPerformance]: {
+        projectBased: true,
+        name: 'Web Performance',
+    },
+}
+
+export const routes: Record<string, Scene> = {
+    // this `:id` gets used in "params" in "paramsToProps"
+    [urls.webPerformance(':id')]: Scene.WebPerformance,
+    [urls.webPerformance()]: Scene.WebPerformance,
+}
+```
+
+## 5. Add a scene import in `appScenes.ts`
+
+```ts
+// frontend/src/scenes/appScenes.ts
+
+export const appScenes: Record<Scene, () => any> = {
+    [Scene.WebPerformance]: () => import('./web-performance/WebPerformance'),
+}
+```
+
+## 7. Add some components
+
+Read next:
+- [How to use components](/docs/components-how-to-use-components--page)
+- [How to build a form](/docs/forms-how-to-build-a-form--page)
