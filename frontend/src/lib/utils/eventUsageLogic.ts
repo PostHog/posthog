@@ -32,6 +32,7 @@ import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -60,6 +61,11 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
+}
+
+export enum DataManagementDefinitionSavedSource {
+    Default = 'default',
+    Filter = 'filter', // from the taxonomic filters
 }
 
 export enum GraphSeriesAddedSource {
@@ -189,6 +195,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<
         DashboardEventSource,
+        DataManagementDefinitionSavedSource,
         GraphSeriesAddedSource,
         RecordingWatchedSource,
         SessionRecordingFilterType
@@ -381,6 +388,45 @@ export const eventUsageLogic = kea<
         reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
             type,
             filtersLength,
+        }),
+        // Definition Popup
+        reportDataManagementDefinitionClickView: (
+            type: TaxonomicFilterGroupType,
+            source: DataManagementDefinitionSavedSource
+        ) => ({ type, source }),
+        reportDataManagementDefinitionClickEdit: (
+            type: TaxonomicFilterGroupType,
+            source: DataManagementDefinitionSavedSource
+        ) => ({ type, source }),
+        reportDataManagementDefinitionSave: (
+            type: TaxonomicFilterGroupType,
+            source: DataManagementDefinitionSavedSource
+        ) => ({ type, source }),
+        reportDataManagementDefinitionCancel: (
+            type: TaxonomicFilterGroupType,
+            source: DataManagementDefinitionSavedSource
+        ) => ({ type, source }),
+        // Data Management Pages
+        reportDataManagementEventDefinitionsPageViewed: (loadTime: number, resultsLength: number, error?: string) => ({
+            loadTime,
+            resultsLength,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageExpanded: (loadTime: number, error?: string) => ({ loadTime, error }),
+        reportDataManagementEventDefinitionsPageViewNestedProperty: true,
+        reportDataManagementEventPropertyDefinitionsPageViewed: (
+            loadTime: number,
+            resultsLength: number,
+            error?: string
+        ) => ({
+            loadTime,
+            resultsLength,
+            error,
+        }),
+        reportDataManagementActionDefinitionsPageViewed: (loadTime: number, resultsLength: number, error?: string) => ({
+            loadTime,
+            resultsLength,
+            error,
         }),
     },
     listeners: ({ values }) => ({
@@ -881,6 +927,36 @@ export const eventUsageLogic = kea<
         },
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportDataManagementDefinitionClickView: ({ type, source }) => {
+            posthog.capture('definition click view', { type, source })
+        },
+        reportDataManagementDefinitionClickEdit: ({ type, source }) => {
+            posthog.capture('definition click edit', { type, source })
+        },
+        reportDataManagementDefinitionSave: ({ type, source }) => {
+            posthog.capture('definition saved', { type, source })
+        },
+        reportDataManagementDefinitionCancel: ({ type, source }) => {
+            posthog.capture('definition cancelled', { type, source })
+        },
+        reportDataManagementEventDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
+            posthog.capture('event definitions page viewed', { load_time: loadTime, num_results: resultsLength })
+        },
+        reportDataManagementEventDefinitionsPageExpanded: ({ loadTime }) => {
+            posthog.capture('event definitions page event expanded', { load_time: loadTime })
+        },
+        reportDataManagementEventDefinitionsPageViewNestedProperty: () => {
+            posthog.capture('event definitions page event expanded property view')
+        },
+        reportDataManagementEventPropertyDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
+            posthog.capture('event property definitions page viewed', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementActionDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
+            posthog.capture('actions definitions page viewed', { load_time: loadTime, num_results: resultsLength })
         },
     }),
 })

@@ -13,6 +13,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
+import { router } from 'kea-router'
+import { DataManagementDefinitionSavedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -184,6 +186,13 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 return undefined
             },
         ],
+        source: [
+            () => [router.selectors.location],
+            ({ pathname }) =>
+                pathname.startsWith('/data-management/')
+                    ? DataManagementDefinitionSavedSource.Default
+                    : DataManagementDefinitionSavedSource.Filter,
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setDefinition: (_, __, ___, previousState) => {
@@ -198,11 +207,13 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         handleSave: () => {
             actions.setPopupState(DefinitionPopupState.View)
             props?.onSave?.()
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionSave(values.type, values.source)
         },
         handleCancel: () => {
             actions.setPopupState(DefinitionPopupState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type, values.source)
         },
     }),
 })
