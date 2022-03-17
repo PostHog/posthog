@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4
@@ -9,25 +9,21 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
+from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
     FUNNEL_PATH_BETWEEN_STEPS,
     INSIGHT_FUNNELS,
-    PAGEVIEW_EVENT,
-    SCREEN_EVENT,
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.queries.test.test_paths import MockEvent, paths_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -56,7 +52,7 @@ def _create_all_events(all_events: List[Dict]):
 
     sync_execute(
         f"""
-    INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )
@@ -81,7 +77,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def _create_session_recording_event(
         self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
     ):
-        if team_id == None:
+        if team_id is None:
             team_id = self.team.pk
         create_session_recording_event(
             uuid=uuid4(),
@@ -2090,7 +2086,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:
-            path_query = PathEventQuery(filter, self.team.id)
+            path_query = PathEventQuery(filter, self.team)
             return (path_query._should_query_url(), path_query._should_query_screen())
 
         filter = PathFilter()
@@ -2782,7 +2778,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording(self):
         # User with 2 matching paths with recordings
@@ -2855,7 +2850,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             }
         )
         _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
-        self.assertEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
         self.assertCountEqual(
@@ -2886,7 +2881,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual([], matched_recordings[1])
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_no_window_or_session_id(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2925,7 +2919,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_with_start_and_end(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2990,7 +2983,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording_for_dropoff(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])

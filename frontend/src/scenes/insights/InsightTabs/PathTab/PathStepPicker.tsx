@@ -14,7 +14,7 @@ interface StepOption {
     value: number
 }
 
-export function PathStepPicker(): JSX.Element {
+export function PathStepPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
@@ -40,6 +40,7 @@ export function PathStepPicker(): JSX.Element {
             dropdownMatchSelectWidth={true}
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             optionLabelProp="label"
+            disabled={disabled}
         >
             {options.map((option) => {
                 return (

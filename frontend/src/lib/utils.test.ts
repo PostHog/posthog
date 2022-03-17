@@ -29,8 +29,11 @@ import {
     numericOperatorMap,
     chooseOperatorMap,
     booleanOperatorMap,
+    roundToDecimal,
+    convertPropertyGroupToProperties,
+    convertPropertiesToPropertyGroup,
 } from './utils'
-import { ActionFilter, ElementType, PropertyOperator, PropertyType } from '~/types'
+import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -167,6 +170,18 @@ describe('compactNumber()', () => {
         expect(compactNumber(null)).toEqual('-')
     })
 })
+
+describe('roundToDecimal()', () => {
+    it('formats number correctly', () => {
+        expect(roundToDecimal(null)).toEqual('-')
+        expect(roundToDecimal(293)).toEqual('293.00')
+        expect(roundToDecimal(102.121233)).toEqual('102.12')
+        expect(roundToDecimal(102.99999)).toEqual('103.00')
+        expect(roundToDecimal(1212)).toEqual('1212.00')
+        expect(roundToDecimal(1212, 3)).toEqual('1212.000')
+    })
+})
+
 describe('pluralize()', () => {
     it('handles singular cases', () => {
         expect(pluralize(1, 'member')).toEqual('1 member')
@@ -536,6 +551,52 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             it(`with datetime flag set to ${testcase.allowDateTime}, it correctly maps ${testcase.propertyType}`, () => {
                 expect(chooseOperatorMap(testcase.propertyType, testcase.allowDateTime)).toEqual(testcase.expected)
             })
+        })
+    })
+})
+
+describe('convertPropertyGroupToProperties()', () => {
+    it('converts a single layer property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }, { key: '$current_url' }] },
+                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
+            { key: '$browser' },
+            { key: '$current_url' },
+            { key: '$lib' },
+        ])
+    })
+
+    it('converts a deeply nested property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
+    })
+})
+
+describe('convertPropertiesToPropertyGroup', () => {
+    it('converts properties to one AND operator property group', () => {
+        const properties = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
+                },
+            ],
         })
     })
 })

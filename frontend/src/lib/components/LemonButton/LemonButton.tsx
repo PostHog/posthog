@@ -8,7 +8,9 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
+    ref?: React.Ref<HTMLButtonElement>
+    type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted' | 'primary-alt'
+    htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -23,7 +25,17 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', active, className, popup, to, ...buttonProps }: LemonButtonProps,
+    {
+        children,
+        type = 'default',
+        htmlType = 'button',
+        active,
+        className,
+        popup,
+        to,
+        href,
+        ...buttonProps
+    }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
@@ -34,7 +46,7 @@ function LemonButtonInternal(
             active && 'LemonButton--active',
             className
         ),
-        type: 'button',
+        type: htmlType,
         ...buttonProps,
     }
     if (popup && (children || !buttonProps.icon) && !rowProps.sideIcon) {
@@ -46,7 +58,18 @@ function LemonButtonInternal(
         </LemonRow>
     )
     if (to) {
-        workingButton = <Link to={to}>{workingButton}</Link>
+        workingButton = (
+            <Link to={to} style={{ display: 'contents' }}>
+                {workingButton}
+            </Link>
+        )
+    }
+    if (href) {
+        workingButton = (
+            <a href={href} style={{ display: 'contents' }} target="_blank" rel="noopener noreferrer">
+                {workingButton}
+            </a>
+        )
     }
     if (popup) {
         workingButton = <Popup {...popup}>{workingButton}</Popup>

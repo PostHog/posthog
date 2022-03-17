@@ -13,7 +13,7 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogLevel } from 'rrweb'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -32,12 +33,19 @@ export enum AvailableFeature {
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
+    TAGGING = 'tagging',
+}
+
+export enum LicensePlan {
+    Scale = 'scale',
+    Enterprise = 'enterprise',
 }
 
 export enum Realm {
@@ -53,17 +61,20 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
-/* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicType {
-    id: number
+interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
     email: string
 }
 
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserBasicType extends UserBaseType {
+    id: number
+}
+
 /** Full User model. */
-export interface UserType extends UserBasicType {
+export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
@@ -109,9 +120,6 @@ interface OrganizationMetadata {
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
-    personalization: PersonalizationData
-    setup: SetupState
-    setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -202,8 +210,8 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
-
     has_group_types: boolean
+    primary_dashboard: number // Dashboard shown on the project homepage
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -227,6 +235,7 @@ export interface ActionType {
     slack_message_format?: string
     steps?: ActionStepType[]
     created_by: UserBasicType | null
+    tags?: string[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -365,6 +374,20 @@ export interface PlayerPosition {
     windowId: string
 }
 
+export interface RRWebRecordingConsoleLogPayload {
+    level: LogLevel
+    payload: string[]
+    trace: string[]
+}
+
+export interface RecordingConsoleLog {
+    playerPosition: PlayerPosition | null
+    parsedPayload: string
+    parsedTraceURL?: string
+    parsedTraceString?: string
+    level: LogLevel
+}
+
 export interface RecordingSegment {
     startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
     endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
@@ -460,12 +483,12 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter extends EntityFilter {
-    funnel_from_step: number
-    funnel_to_step: number
+export interface FunnelStepRangeEntityFilter {
+    funnel_from_step?: number
+    funnel_to_step?: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
     id?: number
@@ -474,6 +497,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    is_identified?: boolean
 }
 
 interface MatchedRecordingEvents {
@@ -662,41 +686,31 @@ export interface InsightModel {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
+    derived_name?: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
-    order: number
+    order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
     layouts: Record<string, any>
     color: InsightColor | null
-    last_refresh: string
+    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
-    dive_dashboard?: number
     result: any | null
     updated_at: string
-    tags: string[]
+    tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
+    effective_restriction_level: DashboardRestrictionLevel
+    effective_privilege_level: DashboardPrivilegeLevel
     /** Only used in the frontend to store the next breakdown url */
     next?: string
-}
-
-/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
-export enum DashboardRestrictionLevel {
-    EveryoneInProjectCanEdit = 21,
-    OnlyCollaboratorsCanEdit = 37,
-}
-
-/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
-export enum DashboardPrivilegeLevel {
-    CanView = 21,
-    CanEdit = 37,
 }
 
 export interface DashboardType {
@@ -713,14 +727,27 @@ export interface DashboardType {
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
+    effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    tags: string[]
+    tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
 
+/** Explicit dashboard collaborator, based on DashboardPrivilege. */
+export interface DashboardCollaboratorType {
+    id: string
+    dashboard_id: DashboardType['id']
+    user: UserBasicType
+    level: DashboardPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
+
+/** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
+export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -817,12 +844,12 @@ export interface AnnotationType {
 }
 
 export enum ChartDisplayType {
-    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     ActionsTable = 'ActionsTable',
-    ActionsPieChart = 'ActionsPie',
-    ActionsBarChart = 'ActionsBar',
-    ActionsBarChartValue = 'ActionsBarValue',
+    ActionsPie = 'ActionsPie',
+    ActionsBar = 'ActionsBar',
+    ActionsBarValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
 }
@@ -872,8 +899,9 @@ export interface FilterType {
     interval?: IntervalType
     date_from?: string | null
     date_to?: string | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
+    event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -989,25 +1017,6 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
-
-export type PersonalizationData = Record<string, string | string[] | null>
-
-interface EnabledSetupState {
-    is_active: true // Whether the onbarding setup is currently active
-    current_section: number
-    any_project_ingested_events: boolean
-    any_project_completed_snippet_onboarding: boolean
-    non_demo_team_id: number | null
-    has_invited_team_members: boolean
-}
-
-interface DisabledSetupState {
-    is_active: false
-    current_section: null
-}
-
-export type SetupState = EnabledSetupState | DisabledSetupState
-
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1155,24 +1164,17 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: InsightShortId
-    color?: string
-    filters: Partial<FilterType>
+    inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult[]
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | null
-    /** enable url handling for this insight */
-    syncWithUrl?: boolean
-    /** cached results, avoid making a request */
-    cachedResults?: any
-    /** cached filters, avoid making a request */
-    filters?: Partial<FilterType> | null
+    /** cached insight */
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
     /** enable this to avoid API requests */
@@ -1288,12 +1290,17 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     View = 'view',
 }
 
+export enum DashboardPlacement {
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
+    ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    Dashboard = 'dashboard', // When on the standard dashboard page
+}
+
 export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
-    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 // Reserved hotkeys globally available
@@ -1327,11 +1334,12 @@ export type HotKeys =
     | 'y'
     | 'z'
     | 'escape'
+    | 'enter'
 
 export interface LicenseType {
     id: number
     key: string
-    plan: string
+    plan: LicensePlan
     valid_until: string
     max_users: string | null
     created_at: string
@@ -1376,6 +1384,7 @@ export interface PropertyDefinition {
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
+    example?: string
 }
 
 export interface PersonProperty {
@@ -1400,7 +1409,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string
@@ -1416,7 +1425,7 @@ export interface Experiment {
     start_date?: string
     end_date?: string
     archived?: boolean
-    secondary_metrics: FilterType[]
+    secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
     created_by: UserBasicType | null
 }
@@ -1428,15 +1437,38 @@ export interface ExperimentResults {
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
+    expected_loss?: number
+    p_value?: number
+    secondary_metric_results?: SecondaryMetricResult[]
+}
+
+export interface SecondaryMetricResult {
+    name: string
+    result: Record<string, number>
 }
 
 export interface SecondaryExperimentMetric {
+    name: string
     filters: Partial<FilterType>
 }
 
 export interface SelectOption {
     value: string
     label?: string
+}
+
+export enum FilterLogicalOperator {
+    And = 'AND',
+    Or = 'OR',
+}
+export interface PropertyGroupFilter {
+    type: FilterLogicalOperator
+    values: PropertyGroupFilterValue[]
+}
+
+export interface PropertyGroupFilterValue {
+    type: FilterLogicalOperator
+    values: AnyPropertyFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1477,6 +1509,8 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    /** Whether the user was autoswitched to the current item's team. */
+    switched_team: TeamType['id'] | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1607,8 +1641,6 @@ interface PointsPayload {
 export interface GraphPointPayload {
     points: PointsPayload
     index: number
-    label?: string // Soon to be deprecated with LEGACY_LineGraph
-    day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
     /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
     crossDataset?: GraphDataset[]
@@ -1623,8 +1655,9 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number
+    value: boolean | string | number | null
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
+    is_secret: boolean
 }

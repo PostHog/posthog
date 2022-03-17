@@ -1,11 +1,11 @@
 import re
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Union
 
 from constance import config, settings
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.permissions import IsStaffUser
-from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
 
 
@@ -25,9 +25,10 @@ class InstanceSetting(object):
     value_type: str = ""
     description: str = ""
     editable: bool = False
+    is_secret: bool = False
 
     def __init__(self, **kwargs):
-        for field in ("key", "value", "value_type", "description", "editable"):
+        for field in ("key", "value", "value_type", "description", "editable", "is_secret"):
             setattr(self, field, kwargs.get(field, None))
 
 
@@ -37,31 +38,61 @@ def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting
         for _key, setting_config in settings.CONFIG.items():
             if _key == key:
                 break
+    is_secret = key in SECRET_SETTINGS
+    value = getattr(config, key)
 
     return InstanceSetting(
         key=key,
-        value=getattr(config, key),
+        value=value if not is_secret or not value else "*****",
         value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
         description=setting_config[1],
         editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
+        is_secret=is_secret,
     )
 
 
 class InstanceSettingsSerializer(serializers.Serializer):
-    key = serializers.CharField()
+    key = serializers.CharField(read_only=True)
     value = serializers.JSONField()  # value can be bool, int, or str
     value_type = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
-    editable = serializers.BooleanField()
+    editable = serializers.BooleanField(read_only=True)
+    is_secret = serializers.BooleanField(read_only=True)
 
     def update(self, instance: InstanceSetting, validated_data: Dict[str, Any]) -> InstanceSetting:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
-        if validated_data["value"]:
-            target_type = settings.CONFIG[instance.key][2]
+
+        if validated_data["value"] is None:
+            raise serializers.ValidationError({"value": "This field is required."}, code="required")
+
+        target_type = settings.CONFIG[instance.key][2]
+        if target_type == "bool" and isinstance(validated_data["value"], bool):
+            new_value_parsed = validated_data["value"]
+        else:
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
-            setattr(config, instance.key, new_value_parsed)
-            instance.value = new_value_parsed
+
+        if instance.key == "RECORDINGS_TTL_WEEKS":
+
+            if MULTI_TENANCY:
+                # On cloud the TTL is set on the session_recording_events_sharded table,
+                # so this command should never be run
+                raise serializers.ValidationError("This setting cannot be updated on MULTI_TENANCY.")
+
+            # TODO: Move to top-level imports once CH is moved out of `ee`
+            from ee.clickhouse.client import sync_execute
+            from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
+
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
+
+        setattr(config, instance.key, new_value_parsed)
+        instance.value = new_value_parsed
+
+        if instance.key.startswith("EMAIL_") and "request" in self.context:
+            from posthog.tasks.email import send_canary_email
+
+            send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
+
         return instance
 
 

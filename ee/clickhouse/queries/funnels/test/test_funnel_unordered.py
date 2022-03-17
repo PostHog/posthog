@@ -1,10 +1,8 @@
-from typing import List, cast
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (

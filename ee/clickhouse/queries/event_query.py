@@ -1,9 +1,9 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.cohort import is_precalculated_query
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
@@ -16,7 +16,8 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyName
+from posthog.models.property import PropertyGroup, PropertyName
+from posthog.models.team import Team
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -37,7 +38,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter],
-        team_id: int,
+        team: Team,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -45,10 +46,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         extra_fields: List[ColumnName] = [],
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
+        override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
         self._filter = filter
-        self._team_id = team_id
+        self._team_id = team.pk
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
@@ -60,6 +62,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
         self._extra_person_fields = extra_person_fields
+
+        if override_aggregate_users_by_distinct_id is not None:
+            self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
+        else:
+            self._aggregate_users_by_distinct_id = team.aggregate_users_by_distinct_id
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -94,13 +101,15 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         # :KLUDGE: The following is mostly making sure if cohorts are included as well.
         #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
-        if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
+        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
 
         if any(
-            self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
+            self._should_property_join_persons(prop)
+            for entity in self._filter.entities
+            for prop in entity.property_groups.flat
         ):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
@@ -156,40 +165,18 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-        final = []
-        params: Dict[str, Any] = {}
+    def _get_prop_groups(self, prop_group: Optional[PropertyGroup]) -> Tuple[str, Dict]:
+        if not prop_group:
+            return "", {}
 
-        for idx, prop in enumerate(filters):
-            if prop.type == "cohort":
-                person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
-                params = {**params, **cohort_filter_params}
-                final.append(f"AND {person_id_query}")
-            else:
-                filter_query, filter_params = parse_prop_clauses(
-                    [prop],
-                    prepend=f"global_{idx}",
-                    allow_denormalized_props=True,
-                    person_properties_mode=PersonPropertiesMode.EXCLUDE,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
-        return " ".join(final), params
+        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
 
-    def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
-        try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
-        except Cohort.DoesNotExist:
-            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
-
-        is_precalculated = is_precalculated_query(cohort)
-
-        person_id_query, cohort_filter_params = (
-            format_precalculated_cohort_query(
-                cohort.pk, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            )
-            if is_precalculated
-            else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+        return parse_prop_grouped_clauses(
+            team_id=self._team_id,
+            property_group=outer_properties,
+            prepend="global",
+            table_name=self.EVENT_TABLE_ALIAS,
+            allow_denormalized_props=True,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
-
-        return person_id_query, cohort_filter_params

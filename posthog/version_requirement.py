@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 from semantic_version.base import SimpleSpec, Version
 

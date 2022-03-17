@@ -6,6 +6,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
+    EventStackGearIcon,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -13,12 +14,12 @@ import {
     IconExtension,
     IconFlag,
     IconGauge,
-    IconGroupedEvents,
     IconPerson,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
+    LiveIcon,
 } from 'lib/components/icons'
 import {
     LemonButton,
@@ -133,24 +134,35 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { hideSideBarMobile } = useActions(navigationLogic)
+    const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
+    const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
     return (
         <div className="Pages">
-            {currentOrganization?.setup.is_active && (
+            {featureFlags[FEATURE_FLAGS.PROJECT_HOMEPAGE] && (
                 <>
                     <PageButton
-                        title="Setup"
-                        icon={<IconSettings />}
-                        identifier={Scene.OnboardingSetup}
-                        to={urls.onboardingSetup()}
+                        title={currentTeam?.name ?? 'Choose project'}
+                        icon={<Lettermark name={currentOrganization?.name} />}
+                        identifier={Scene.ProjectHomepage}
+                        to={urls.projectHomepage()}
+                        sideAction={{
+                            onClick: () => toggleProjectSwitcher(),
+                            popup: {
+                                visible: isProjectSwitcherShown,
+                                onClickOutside: hideProjectSwitcher,
+                                overlay: <ProjectSwitcherOverlay />,
+                                actionable: true,
+                            },
+                        }}
                     />
                     <LemonSpacer />
                 </>
@@ -209,21 +221,21 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] &&
-                (hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                    !preflight?.instance_preferences?.disable_paid_fs) && (
-                    <PageButton
-                        icon={<IconExperiment />}
-                        identifier={Scene.Experiments}
-                        to={urls.experiments()}
-                        highlight="beta"
-                    />
-                )}
+            {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                !preflight?.instance_preferences?.disable_paid_fs) && (
+                <PageButton
+                    icon={<IconExperiment />}
+                    identifier={Scene.Experiments}
+                    to={urls.experiments()}
+                    highlight="beta"
+                />
+            )}
             {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
-            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
+            <PageButton icon={<EventStackGearIcon />} identifier={Scene.DataManagement} to={urls.eventDefinitions()} />
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
@@ -246,17 +258,24 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
     const { currentTeam } = useValues(teamLogic)
     const { isSideBarShown } = useValues(navigationLogic)
     const { hideSideBarMobile } = useActions(navigationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
             <div className="SideBar__slider">
                 <div className="SideBar__content">
-                    <ProjectSwitcherInternal />
-                    {currentTeam && (
-                        <>
-                            <LemonSpacer />
-                            <Pages />
-                        </>
+                    {featureFlags[FEATURE_FLAGS.PROJECT_HOMEPAGE] ? (
+                        <Pages />
+                    ) : (
+                        <div>
+                            <ProjectSwitcherInternal />
+                            {currentTeam && (
+                                <>
+                                    <LemonSpacer />
+                                    <Pages />
+                                </>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

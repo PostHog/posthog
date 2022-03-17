@@ -26,6 +26,9 @@ class Command(BaseCommand):
         )
         parser.add_argument("--fake", action="store_true", help="Mark migrations as run without actually running them.")
         parser.add_argument(
+            "--check", action="store_true", help="Exits with a non-zero status if unapplied migrations exist."
+        )
+        parser.add_argument(
             "--plan", action="store_true", help="Shows a list of the migration actions that will be performed."
         )
         parser.add_argument(
@@ -45,17 +48,19 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
         )
-        if options["plan"]:
+        if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
             for migration_name, operations in migrations:
                 print(f"Migration would get applied: {migration_name}")
                 for op in operations:
-                    sql = getattr(op, "_sql")
+                    sql = getattr(op, "_sql", None)
                     if options["print_sql"] and sql is not None:
                         print(indent("\n\n".join(sql), "    "))
             if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
+            elif options["check"]:
+                exit(1)
         elif options["fake"]:
             for migration_name, _ in self.get_migrations(database, options["upto"]):
                 print(f"Faked migration: {migration_name}")

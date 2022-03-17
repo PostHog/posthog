@@ -3,10 +3,10 @@ import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
-import { errorToast, identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
-import { Modal } from 'antd'
-import { userLogic } from 'scenes/userLogic'
+import { lemonToast } from 'lib/components/lemonToast'
+import { subscriptionsPlugin } from '~/subscriptionsPlugin'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -62,23 +62,10 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                         (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                             (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                     ) {
-                        if (error?.code === 'object_exists_in_other_project') {
-                            Modal.confirm({
-                                title: error?.detail,
-                                content: 'Do you want to switch to this project instead?',
-                                okText: 'Switch projects',
-                                onOk: () => {
-                                    userLogic.actions.updateCurrentTeam(error.extra.project_id, window.location.href)
-                                },
-                            })
-                        }
-                        errorToast(
-                            `Error on ${identifierToHuman(reducerKey)}`,
-                            `Attempting to ${identifierToHuman(actionKey).toLowerCase()} returned an error:`,
-                            error.status !== 0
-                                ? error.detail
-                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                            error.code
+                        lemonToast.error(
+                            `${identifierToHuman(actionKey)} on reducer ${identifierToHuman(reducerKey)} failed: ${
+                                error.status !== 0 ? error.detail || 'PostHog may be offline' : 'PostHog may be offline'
+                            }`
                         )
                     }
                     if (!errorsSilenced) {
@@ -87,6 +74,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),
+            subscriptionsPlugin,
             waitForPlugin,
         ],
         defaults: state,

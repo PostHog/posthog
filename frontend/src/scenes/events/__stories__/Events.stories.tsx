@@ -1,11 +1,20 @@
 import { Meta } from '@storybook/react'
-import { keaStory } from 'lib/storybook/kea-story'
 
-import eventsState from './events.json'
 import { EventsTable } from 'scenes/events'
+import React from 'react'
+import { mswDecorator } from '~/mocks/browser'
+import eventList from './eventList.json'
 
 export default {
-    title: 'PostHog/Scenes/Events',
+    title: 'Scenes/Events',
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/1/events': { next: null, results: eventList } },
+        }),
+    ],
+    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
-export const AllEvents = keaStory(EventsTable, eventsState)
+export const AllEvents = (): JSX.Element => {
+    return <EventsTable pageKey="EventsTable" sceneUrl="/" />
+}

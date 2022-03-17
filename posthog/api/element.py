@@ -4,13 +4,12 @@ from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models import Element, Filter
-from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -50,7 +49,9 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         date_from, date_to, date_params = parse_timestamps(filter, team_id=self.team.pk)
 
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties)
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups
+        )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
             {"team_id": self.team.pk, **prop_filter_params, **date_params},

@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception, configure_scope
+from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
@@ -19,7 +19,6 @@ from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import EventIngestionContext, get_data, get_event_ingestion_context, get_token
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
-from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address
@@ -54,6 +53,7 @@ def log_event(data: Dict, event_name: str) -> None:
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
@@ -78,7 +78,7 @@ def log_event_to_dead_letter_queue(
     data["event"] = event_name
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
-
+    data["tags"] = ["django_server"]
     data["event_uuid"] = event["uuid"]
     del data["uuid"]
 
@@ -238,7 +238,6 @@ def get_event(request):
             )
             continue
 
-        statsd.incr("posthog_cloud_plugin_server_ingestion")
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:

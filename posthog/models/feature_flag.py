@@ -2,7 +2,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
-from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
@@ -12,12 +12,12 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
@@ -27,7 +27,7 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
-@dataclass
+@dataclass(frozen=True)
 class FeatureFlagMatch:
     variant: Optional[str] = None
 
@@ -96,9 +96,30 @@ class FeatureFlag(models.Model):
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
             return {
                 "groups": [
-                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
-                ]
+                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage},
+                ],
             }
+
+    @property
+    def cohort_ids(self) -> List[int]:
+        cohort_ids = []
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type", None) == "cohort":
+                    cohort_id = prop.get("value", None)
+                    if cohort_id:
+                        cohort_ids.append(cohort_id)
+        return cohort_ids
+
+    def update_cohorts(self) -> None:
+        from posthog.tasks.calculate_cohort import update_cohort
+        from posthog.tasks.cohorts_in_feature_flag import COHORT_ID_IN_FF_KEY
+
+        if self.cohort_ids:
+            cache.delete(COHORT_ID_IN_FF_KEY)
+            for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
+                update_cohort(cohort)
 
 
 @receiver(pre_delete, sender=Experiment)
@@ -110,8 +131,8 @@ class FeatureFlagOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
-            )
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo",
+            ),
         ]
 
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
@@ -221,8 +242,9 @@ class FeatureFlagMatcher:
             key = f"condition_{index}"
 
             if len(condition.get("properties", {})) > 0:
+                # Feature Flags don't support OR filtering yet
                 expr: Any = properties_to_Q(
-                    Filter(data=condition).properties, team_id=self.feature_flag.team_id, is_direct_query=True
+                    Filter(data=condition).property_groups.flat, team_id=self.feature_flag.team_id, is_direct_query=True
                 )
             else:
                 expr = RawSQL("true", [])
@@ -269,7 +291,7 @@ class FeatureFlagMatcher:
 
 # Return a Dict with all active flags and their values
 def get_active_feature_flags(
-    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {},
 ) -> Dict[str, Union[bool, str, None]]:
     cache = FlagsMatcherCache(team_id)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
@@ -289,7 +311,7 @@ def get_active_feature_flags(
 
 # Return feature flags with per-user overrides
 def get_overridden_feature_flags(
-    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}
+    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {},
 ) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags(team_id, distinct_id, groups)
 
@@ -298,7 +320,7 @@ def get_overridden_feature_flags(
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
     user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
     feature_flag_overrides = FeatureFlagOverride.objects.filter(
-        user_id__in=Subquery(user_id), team_id=team_id
+        user_id__in=Subquery(user_id), team_id=team_id,
     ).select_related("feature_flag")
     feature_flag_overrides = feature_flag_overrides.only("override_value", "feature_flag__key")
 

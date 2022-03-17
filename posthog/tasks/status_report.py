@@ -10,7 +10,7 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog import version_requirement
-from posthog.models import Event, GroupTypeMapping, Person, Team, User
+from posthog.models import GroupTypeMapping, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
@@ -39,7 +39,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         {"id": user.id, "distinct_id": user.distinct_id}
         if user.anonymize_data
         else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-        for user in User.objects.filter(last_login__gte=period_start)
+        for user in User.objects.filter(is_active=True, last_login__gte=period_start)
     ]
     report["teams"] = {}
     report["table_sizes"] = {
@@ -117,7 +117,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
             team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
-            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags=[]).count()
+            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tagged_items__isnull=True).count()
 
             # Feature Flags
             feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)

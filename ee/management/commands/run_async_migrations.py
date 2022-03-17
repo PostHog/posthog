@@ -5,7 +5,12 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+    is_async_migration_complete,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -13,6 +18,8 @@ logger = structlog.get_logger(__name__)
 def get_necessary_migrations():
     necessary_migrations = []
     for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
+        if is_async_migration_complete(migration_name):
+            continue
         sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
 
         sm.description = definition.description
@@ -39,6 +46,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--check", action="store_true", help="Exits with a non-zero status if required unapplied migrations exist."
+        )
+        parser.add_argument(
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
 
@@ -47,7 +57,7 @@ class Command(BaseCommand):
         setup_async_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()
 
-        if options["plan"]:
+        if options["plan"] or options["check"]:
             print()
 
             if len(necessary_migrations) == 0:
@@ -57,9 +67,16 @@ class Command(BaseCommand):
             print("List of async migrations to be applied:")
 
             for migration in necessary_migrations:
-                print(f"- {migration.name}")
+                print(
+                    f"- {migration.name} - Available on Posthog versions {migration.posthog_min_version} - {migration.posthog_max_version}"
+                )
 
             print()
+            if options["check"]:
+                print(
+                    "Async migrations are not completed. See more info https://posthog.com/docs/self-host/configure/async-migrations/overview"
+                )
+                exit(1)
             return
 
         for migration in necessary_migrations:

@@ -4,9 +4,8 @@ from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
-from posthog.queries.trends import Trends
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.models import Filter
+from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
 
@@ -240,7 +239,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
                 request,
@@ -258,7 +257,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,
@@ -275,7 +274,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
                 request,
@@ -544,7 +543,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     },
                     team=self.team,
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,

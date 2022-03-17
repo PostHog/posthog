@@ -6,12 +6,12 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, FilterType, InsightShortId, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -23,6 +23,8 @@ import './InsightsTable.scss'
 import clsx from 'clsx'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport, IconEdit } from 'lib/components/icons'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -33,6 +35,10 @@ interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
+    /** (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired. */
+    canCheckUncheckSeries?: boolean
+    /* whether this table is below another insight or the insight is in table view */
+    isMainInsightView?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -44,16 +50,11 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 /**
  * InsightsTable for use in a dashboard.
  */
-export function DashboardInsightsTable({
-    filters,
-    dashboardItemId,
-}: {
-    filters: FilterType
-    dashboardItemId: InsightShortId
-}): JSX.Element {
+export function DashboardInsightsTable(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     return (
-        <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} embedded />
+        <BindLogic logic={trendsLogic} props={insightProps}>
+            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -63,20 +64,15 @@ export function InsightsTable({
     embedded = false,
     showTotalCount = false,
     filterKey,
-    canEditSeriesNameInline,
+    canEditSeriesNameInline = false,
+    canCheckUncheckSeries = true,
+    isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, csvExportUrl } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
-
-    const _entityFilterLogic = entityFilterLogic({
-        setFilters,
-        filters,
-        typeKey: filterKey,
-    })
-    const { showModal, selectFilter } = useActions(_entityFilterLogic)
 
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
@@ -90,8 +86,15 @@ export function InsightsTable({
 
     const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
-            selectFilter(item.action)
-            showModal()
+            const entityFitler = entityFilterLogic.findMounted({
+                setFilters,
+                filters,
+                typeKey: filterKey,
+            })
+            if (entityFitler) {
+                entityFitler.actions.selectFilter(item.action)
+                entityFitler.actions.showModal()
+            }
         }
     }
 
@@ -123,6 +126,7 @@ export function InsightsTable({
                         color={colorList[item.id]}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
+                        disabled={!canCheckUncheckSeries}
                     />
                 )
             },
@@ -152,10 +156,10 @@ export function InsightsTable({
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
-                        <EditOutlined
-                            title="Rename graph series"
-                            className="edit-icon"
+                        <LemonButton
                             onClick={() => handleEditClick(item)}
+                            title="Rename graph series"
+                            icon={<IconEdit className="edit-icon" />}
                         />
                     )}
                 </div>
@@ -177,7 +181,10 @@ export function InsightsTable({
             render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
                 const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
-                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                    <SeriesToggleWrapper
+                        id={item.id}
+                        toggleVisibility={isMainInsightView ? undefined : toggleVisibility}
+                    >
                         {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>
                 )
@@ -260,17 +267,31 @@ export function InsightsTable({
     }
 
     return (
-        <LemonTable
-            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-            embedded={embedded}
-            columns={columns}
-            rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            loading={resultsLoading}
-            emptyState="No insight results"
-            data-attr="insights-table-graph"
-            className="insights-table"
-        />
+        <>
+            {csvExportUrl && (
+                <Tooltip title="Export this table as csv." placement="left">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                        href={csvExportUrl}
+                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
+                    >
+                        Export
+                    </LemonButton>
+                </Tooltip>
+            )}
+            <LemonTable
+                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+                embedded={embedded}
+                columns={columns}
+                rowKey="id"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                loading={resultsLoading}
+                emptyState="No insight results"
+                data-attr="insights-table-graph"
+                className="insights-table"
+            />
+        </>
     )
 }
 

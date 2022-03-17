@@ -4,11 +4,13 @@ import api from 'lib/api'
 import { delay, idToKey, isUserLoggedIn, setPageTitle } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
-import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
+import { DashboardRestrictionLevel } from 'lib/constants'
+import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -34,10 +36,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
         loadSharedDashboard: (shareToken: string) => ({ shareToken }),
-        addDashboard: ({ name, show, useTemplate }: { name: string; show?: boolean; useTemplate?: string }) => ({
+        addDashboard: ({
+            name,
+            show,
+            useTemplate,
+            restrictionLevel,
+        }: {
+            name: string
+            show?: boolean
+            useTemplate?: string
+            restrictionLevel?: DashboardRestrictionLevel
+        }) => ({
             name,
             show: show || false,
             useTemplate: useTemplate || '',
+            restrictionLevel,
         }),
         duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
             id: id,
@@ -72,11 +85,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            addDashboard: async ({ name, show, useTemplate }) => {
+            addDashboard: async ({ name, show, useTemplate, restrictionLevel }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     name,
                     use_template: useTemplate,
-                })) as DashboardType
+                    restriction_level: restrictionLevel,
+                } as Partial<DashboardType>)) as DashboardType
+                dashboardsLogic.findMounted()?.actions.hideNewDashboardModal()
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
@@ -227,31 +242,37 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
-            toast(`Dashboard "${dashboard.name}" created!`)
+            lemonToast.success(
+                <>
+                    Dashboard <b>{dashboard.name}</b> created
+                </>
+            )
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
-            toast(`Dashboard "${dashboard.name}" restored!`)
+            lemonToast.success(
+                <>
+                    Dashboard <b>{dashboard.name}</b> restored
+                </>
+            )
             if (values.redirect) {
                 router.actions.push(urls.dashboard(dashboard.id))
             }
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
-            const toastId = toast(
-                <span>
-                    Dashboard "{dashboard.name}" deleted!{' '}
-                    <a
-                        href="#"
-                        onClick={(e) => {
-                            e.preventDefault()
+            lemonToast.success(
+                <>
+                    Dashboard <b>{dashboard.name}</b> deleted
+                </>,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: () => {
                             actions.restoreDashboard({ id: dashboard.id, redirect: values.redirect })
-                            toast.dismiss(toastId)
-                        }}
-                    >
-                        Undo
-                    </a>
-                </span>
+                        },
+                    },
+                }
             )
 
             const { id } = dashboard
@@ -271,7 +292,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         },
 
         duplicateDashboardSuccess: async ({ dashboard }) => {
-            toast(`Dashboard copied as "${dashboard.name}"!`)
+            lemonToast.success(
+                <>
+                    Dashboard copied as <b>{dashboard.name}</b>
+                </>
+            )
         },
     }),
 

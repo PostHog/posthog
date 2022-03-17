@@ -24,7 +24,7 @@ from posthog.constants import (
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 PathType = Literal["$pageview", "$screen", "custom_event"]
 
@@ -186,7 +186,7 @@ class PathReplacementMixin(BaseParamMixin):
         path_replacements = self._data.get(PATH_REPLACEMENTS)
         if not path_replacements:
             return False
-        if path_replacements == True:
+        if path_replacements is True:
             return True
 
         if isinstance(path_replacements, str) and path_replacements.lower() == "true":

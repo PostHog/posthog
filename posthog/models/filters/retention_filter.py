@@ -1,9 +1,9 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework.request import Request
 
-from posthog.constants import INSIGHT_RETENTION, SELECTED_INTERVAL
+from posthog.constants import INSIGHT_RETENTION
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,

@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Union, cast
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -17,7 +16,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo import create_demo_team
-from posthog.event_usage import report_user_joined_organization, report_user_signed_up
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite
 from posthog.permissions import CanCreateOrg
@@ -66,11 +65,6 @@ class SignupSerializer(serializers.Serializer):
         )
         user = self._user
 
-        # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
-        if self.enable_new_onboarding(user):
-            self._organization.setup_section_2_completed = False
-            self._organization.save()
-
         login(
             self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
@@ -107,22 +101,15 @@ class SignupSerializer(serializers.Serializer):
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if settings.DEMO or self.enable_new_onboarding(user):
+        if settings.DEMO:
             return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = (
-            "/personalization" if self.enable_new_onboarding() else "/ingestion" if not settings.DEMO else "/"
-        )
+        data["redirect_url"] = "/ingestion" if not settings.DEMO else "/"
         return data
-
-    def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
-        if user is None:
-            user = self._user
-        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id)
 
 
 class SignupViewset(generics.CreateAPIView):
@@ -210,6 +197,8 @@ class InviteSignupSerializer(serializers.Serializer):
         else:
             report_user_joined_organization(organization=invite.organization, current_user=user)
 
+        alias_invite_id(user, str(invite.id))
+
         # Update user props
         user_identify.identify_task.delay(user_id=user.id)
 
@@ -249,8 +238,8 @@ class InviteSignupViewset(generics.CreateAPIView):
         )
 
 
-## Social Signup
-## views & serializers
+# Social Signup
+# views & serializers
 class SocialSignupSerializer(serializers.Serializer):
     """
     Signup serializer when the account is created using social authentication.

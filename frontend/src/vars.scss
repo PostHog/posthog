@@ -12,6 +12,8 @@ $primary_bg_hover: rgba($primary, 0.1);
 $primary_bg_active: rgba($primary, 0.2);
 $success: #77b96c;
 $warning: #f7a501;
+$warning_hover: #f3ba3e;
+$warning_active: #e69900;
 $danger: #f96132;
 $danger_bridge: #df4313; // Used for bridge pages (posthog.com to PostHog App transition)
 
@@ -72,6 +74,9 @@ $recording_failure_event: #fee9e2;
 $recording_failure_event_dark: #cd3000;
 $recording_highlight_event: #fdedc9;
 $recording_highlight_event_dark: #946508;
+
+// Taxonomy
+$taxonomy_icon_muted: #747ea1;
 
 // Blue Swatch
 $blue_700: #35416b;
@@ -142,7 +147,6 @@ $light-grey: #f2f2f2;
 
 $default_spacing: 1rem;
 $radius: 4px;
-$top_nav_height: 50px;
 
 // Recordings
 $recording_spacing: $default_spacing * 2 / 3;
