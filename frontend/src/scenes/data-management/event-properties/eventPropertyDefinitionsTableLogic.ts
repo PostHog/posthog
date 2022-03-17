@@ -8,6 +8,7 @@ import {
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Filters {
     property: string
@@ -87,7 +88,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
-                    console.log('TRIGGER', url)
+                    cache.propertiesStartTime = performance.now()
                     await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
@@ -131,7 +132,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
@@ -142,6 +143,28 @@ export const eventPropertyDefinitionsTableLogic = kea<
                     true
                 )
             )
+        },
+        loadEventPropertyDefinitionsSuccess: () => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
+                        performance.now() - cache.propertiesStartTime,
+                        values.eventPropertyDefinitions.results.length
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+        loadEventPropertyDefinitionsFailure: ({ error }) => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadFailed(
+                        performance.now() - cache.propertiesStartTime,
+                        error ?? 'There was an unknown error fetching property definitions.'
+                    )
+                cache.propertiesStartTime = undefined
+            }
         },
     }),
     urlToAction: ({ actions, values }) => ({

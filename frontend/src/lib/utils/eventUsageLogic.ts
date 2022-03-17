@@ -32,6 +32,7 @@ import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -390,6 +391,44 @@ export const eventUsageLogic = kea<
         }),
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
+        // Definition Popup
+        reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
+            type,
+            loadTime,
+        }),
+        reportDataManagementDefinitionSaveFailed: (
+            type: TaxonomicFilterGroupType,
+            loadTime: number,
+            error: string
+        ) => ({ type, loadTime, error }),
+        reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Data Management Pages
+        reportDataManagementEventDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: (loadTime: number) => ({
+            loadTime,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -901,6 +940,54 @@ export const eventUsageLogic = kea<
         },
         reportPrimaryDashboardChanged: () => {
             posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionClickView: ({ type }) => {
+            posthog.capture('definition click view', { type })
+        },
+        reportDataManagementDefinitionClickEdit: ({ type }) => {
+            posthog.capture('definition click edit', { type })
+        },
+        reportDataManagementDefinitionSaveSucceeded: ({ type, loadTime }) => {
+            posthog.capture('definition save succeeded', { type, load_time: loadTime })
+        },
+        reportDataManagementDefinitionSaveFailed: ({ type, loadTime, error }) => {
+            posthog.capture('definition save failed', { type, load_time: loadTime, error })
+        },
+        reportDataManagementDefinitionCancel: ({ type }) => {
+            posthog.capture('definition cancelled', { type })
+        },
+        reportDataManagementEventDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page load failed', { load_time: loadTime, error })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: ({ loadTime }) => {
+            posthog.capture('event definitions page event nested properties load succeeded', { load_time: loadTime })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page event nested properties load failed', {
+                load_time: loadTime,
+                error,
+            })
+        },
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
+            posthog.capture('event definitions page event nested property show detail clicked')
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event property definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event property definitions page load failed', {
+                load_time: loadTime,
+                error,
+            })
         },
     }),
 })

@@ -61,7 +61,7 @@ export function ActionsTable(): JSX.Element {
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
                     <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
-                        {name || <i>Unnnamed action</i>}
+                        {name || <i>Unnamed action</i>}
                     </Link>
                 )
             },
