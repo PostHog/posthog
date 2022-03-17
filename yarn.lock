@@ -10941,6 +10941,11 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
+kea-forms@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-0.2.0.tgz#e3c48755454cccedca831113b0dd49e91319680b"
+  integrity sha512-9gDeOtpMonAzP/CFCEiyy3DIQ4N1ok9hRDT35HfPWeVRl3vYYf1fM2ngwjRISLx8CMv49YWKlThx4U0VOGxZRg==
+
 kea-loaders@^0.5.1:
   version "0.5.1"
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.1.tgz#558eeeeaf9d5c613e66b2ede7677f7dbe2f460f1"

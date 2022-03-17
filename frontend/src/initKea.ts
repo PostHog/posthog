@@ -7,6 +7,7 @@ import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/components/lemonToast'
 import { subscriptionsPlugin } from '~/subscriptionsPlugin'
+import { formsPlugin } from 'kea-forms'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -76,6 +77,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
             }),
             subscriptionsPlugin,
             waitForPlugin,
+            formsPlugin,
         ],
         defaults: state,
         createStore: state

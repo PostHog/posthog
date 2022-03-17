@@ -66,13 +66,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             newRolloutPercentage,
             newProperties,
         }),
-        deleteFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
+    },
+    forms: {
+        featureFlag: {
+            defaults: {} as Partial<FeatureFlagType>,
+            validator: ({ key }) => ({
+                // name: !values.name && 'Please enter a name',
+                key: !key
+                    ? 'You need to set a key'
+                    : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                    : undefined,
+            }),
+            submit: (formValues: any) => {
+                console.log('submitting!', formValues)
+            },
+        },
     },
     reducers: {
         featureFlagId: [
@@ -82,7 +98,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         ],
         featureFlag: [
-            null as FeatureFlagType | null,
+            {} as Partial<FeatureFlagType>,
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     if (featureFlag.filters.groups) {
@@ -103,7 +119,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
+                    const groups = [...(state?.filters?.groups || []), { properties: [], rollout_percentage: null }]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
@@ -111,7 +127,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         return state
                     }
 
-                    const groups = [...state?.filters.groups]
+                    const groups = [...(state?.filters?.groups || [])]
                     if (newRolloutPercentage !== undefined) {
                         groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
                     }
@@ -126,7 +142,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     if (!state) {
                         return state
                     }
-                    const groups = [...state.filters.groups]
+                    const groups = [...(state?.filters?.groups || [])]
                     groups.splice(index, 1)
                     return { ...state, filters: { ...state.filters, groups } }
                 },
