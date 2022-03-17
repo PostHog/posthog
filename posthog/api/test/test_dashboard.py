@@ -272,12 +272,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
         self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
-        # delete (soft)
+        # soft-delete
         self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": "true"},
+            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": True},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 0)
+
+        # restore after soft-deletion
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": False},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
+        self.assertEqual(len(response["results"]), 1)
 
     def test_dashboard_items(self):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
