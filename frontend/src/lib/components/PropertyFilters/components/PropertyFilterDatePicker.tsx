@@ -84,15 +84,13 @@ export function PropertyFilterDatePicker({
                 return container ?? document.body
             }}
             renderExtraFooter={() => (
-                <>
-                    <LemonSwitch
-                        label="Include time?"
-                        checked={includeTimeInFilter}
-                        onChange={(active) => {
-                            setIncludeTimeInFilter(active)
-                        }}
-                    />
-                </>
+                <LemonSwitch
+                    label="Include time?"
+                    checked={includeTimeInFilter}
+                    onChange={(active) => {
+                        setIncludeTimeInFilter(active)
+                    }}
+                />
             )}
         />
     )
