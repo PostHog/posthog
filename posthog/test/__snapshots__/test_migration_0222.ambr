@@ -1,4 +1,4 @@
-# name: TagsTestCase.test_backfill_primary_dashboard
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard
   '
   
   SELECT c.relname,
@@ -20,7 +20,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: TagsTestCase.test_backfill_primary_dashboard.1
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard.1
   '
   
   SELECT posthog_team.id,
@@ -37,7 +37,7 @@
   GROUP BY posthog_team.id
   '
 ---
-# name: TagsTestCase.test_backfill_primary_dashboard.2
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard.2
   '
   SELECT "posthog_team"."id",
          "posthog_team"."primary_dashboard_id"
@@ -47,7 +47,7 @@
          OR "posthog_team"."primary_dashboard_id" IS NULL)
   '
 ---
-# name: TagsTestCase.test_backfill_primary_dashboard.3
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard.3
   '
   
   SELECT c.relname,
@@ -69,7 +69,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: TagsTestCase.test_backfill_primary_dashboard.4
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard.4
   '
   
   SELECT c.relname,
@@ -91,7 +91,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: TagsTestCase.test_backfill_primary_dashboard.5
+# name: DeletedPrimaryDashboardTestCase.test_backfill_primary_dashboard.5
   '
   SELECT "django_migrations"."id",
          "django_migrations"."app",

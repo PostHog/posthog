@@ -1,7 +1,7 @@
 from posthog.test.base import TestMigrations
 
 
-class TagsTestCase(TestMigrations):
+class DeletedPrimaryDashboardTestCase(TestMigrations):
 
     migrate_from = "0221_add_activity_log_model"  # type: ignore
     migrate_to = "0222_fix_deleted_primary_dashboards"  # type: ignore
@@ -39,12 +39,22 @@ class TagsTestCase(TestMigrations):
         team_3.save()
         Dashboard.objects.create(name="d4", team=team_3)
 
-        # CASE 3:
+        # CASE 4:
         # Team with no primary dashboards is set to the first non deleted dashboard
-        # Expect: t4.primary_dashboard = d6 (even though d3 is created first)
+        # Expect: t4.primary_dashboard = d6 (even though d5 is created first)
         team_4 = Team.objects.create(name="t4", organization=org)
         Dashboard.objects.create(name="d5", team=team_4, deleted=True)
         Dashboard.objects.create(name="d6", team=team_4)
+
+        # CASE 5:
+        # Team with a deleted primary dashboard is set to the first non-deleted dashboard
+        # Expect: t5.primary_dashboard = d9
+        team_5 = Team.objects.create(name="t5", organization=org)
+        dashboard_7 = Dashboard.objects.create(name="d7", team=team_5, deleted=True)
+        team_5.primary_dashboard = dashboard_7
+        team_5.save()
+        Dashboard.objects.create(name="d8", team=team_5, deleted=True)
+        Dashboard.objects.create(name="d9", team=team_5)
 
     def test_backfill_primary_dashboard(self):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
@@ -61,6 +71,9 @@ class TagsTestCase(TestMigrations):
 
         # CASE 4:
         self.assertEqual(Team.objects.get(name="t4").primary_dashboard.id, Dashboard.objects.get(name="d6").id)
+
+        # CASE 5:
+        self.assertEqual(Team.objects.get(name="t5").primary_dashboard.id, Dashboard.objects.get(name="d9").id)
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore

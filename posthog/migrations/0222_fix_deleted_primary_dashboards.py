@@ -49,9 +49,9 @@ def fix_for_deleted_primary_dashboards(apps, _):
         expected_team_dashboards = cursor.fetchall()
 
     team_to_primary_dashboard = dict(expected_team_dashboards)
-    teams_to_update = Team.objects.filter(
-        Q(Q(primary_dashboard__deleted=True) | Q(primary_dashboard__isnull=True))
-    ).only("id", "primary_dashboard_id")
+    teams_to_update = Team.objects.filter(Q(primary_dashboard__deleted=True) | Q(primary_dashboard__isnull=True)).only(
+        "id", "primary_dashboard_id"
+    )
     for team in teams_to_update:
         team.primary_dashboard_id = team_to_primary_dashboard.get(team.id, None)
     Team.objects.bulk_update(teams_to_update, ["primary_dashboard_id"], batch_size=500)
