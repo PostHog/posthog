@@ -190,8 +190,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return team
 
     def perform_destroy(self, team: Team):
-        delete_clickhouse_data.delay(team_ids=[team.pk])
+        team_id = team.pk
         super().perform_destroy(team)
+        delete_clickhouse_data.delay(team_ids=[team_id])
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
