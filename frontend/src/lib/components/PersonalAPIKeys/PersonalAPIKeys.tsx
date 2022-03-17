@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from '
 import { Table, Modal, Button, Input, Alert, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -81,7 +80,7 @@ function RowActionsCreator(
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
                 okText="Delete Key"
                 okType="danger"
-                icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                icon={<ExclamationCircleOutlined style={{ color: 'var(--danger)' }} />}
                 placement="left"
                 onConfirm={() => {
                     deleteKey(personalAPIKey)
