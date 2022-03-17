@@ -346,6 +346,14 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
             ],
         ],
     },
+    urlToAction: ({ actions, props }) => ({
+        [urls.featureFlag(props.id || 'new')]: () => {
+            // reset back to an empty form every time you open the `new` scene
+            if (!props.id) {
+                actions.resetFeatureFlag()
+            }
+        },
+    }),
     events: ({ props, actions }) => ({
         afterMount: () => {
             const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
