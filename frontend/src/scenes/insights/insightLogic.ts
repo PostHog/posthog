@@ -399,6 +399,7 @@ export const insightLogic = kea<insightLogicType>({
             null as string | null,
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
                 setActiveView: () => null,
             },
         ],
@@ -477,6 +478,19 @@ export const insightLogic = kea<insightLogicType>({
             ({ filters }) => {
                 // any real filter will have the `insight` key in it
                 return 'insight' in (filters ?? {})
+            },
+        ],
+        csvExportUrl: [
+            (s) => [s.insight, s.currentTeamId],
+            (insight: Partial<InsightModel>, currentTeamId: number) => {
+                const { filters, name, short_id, derived_name } = insight
+                if (filters?.insight === InsightType.TRENDS) {
+                    return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
+                        ...filterTrendsClientSideParams(filters),
+                        export_name: name || derived_name,
+                        export_insight_id: short_id,
+                    })}`
+                }
             },
         ],
     },

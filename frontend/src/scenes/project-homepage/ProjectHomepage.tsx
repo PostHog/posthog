@@ -6,20 +6,20 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement, InsightType } from '~/types'
-import { Button, Row, Typography } from 'antd'
+import { Button, Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonSpacer } from 'lib/components/LemonRow'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { HomeIcon } from 'lib/components/icons'
+import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 
 export function ProjectHomepage(): JSX.Element {
+    const { dashboardLogic } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const dashboardLogicInstance = dashboardLogic({ id: currentTeam?.primary_dashboard ?? undefined })
-    const { dashboard } = useValues(dashboardLogicInstance)
+    const { dashboard } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
 
@@ -53,6 +53,7 @@ export function ProjectHomepage(): JSX.Element {
                     <div>
                         <Row className="homepage-dashboard-header">
                             <div className="dashboard-title-container">
+                                {!dashboard && <Skeleton active paragraph={false} />}
                                 {dashboard?.name && (
                                     <>
                                         <HomeIcon className="mr-05" style={{ width: 18, height: 18 }} />
@@ -99,4 +100,5 @@ export function ProjectHomepage(): JSX.Element {
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
+    logic: projectHomepageLogic,
 }

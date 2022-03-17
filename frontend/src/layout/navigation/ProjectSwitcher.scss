@@ -1,0 +1,7 @@
+@import '~/vars';
+
+.project-switcher-container {
+    & > div {
+        margin-bottom: $default-spacing/4;
+    }
+}

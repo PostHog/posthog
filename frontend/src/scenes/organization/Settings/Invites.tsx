@@ -9,7 +9,7 @@ import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 

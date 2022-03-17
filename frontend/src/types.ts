@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogLevel } from 'rrweb'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -373,6 +374,20 @@ export interface PlayerPosition {
     windowId: string
 }
 
+export interface RRWebRecordingConsoleLogPayload {
+    level: LogLevel
+    payload: string[]
+    trace: string[]
+}
+
+export interface RecordingConsoleLog {
+    playerPosition: PlayerPosition | null
+    parsedPayload: string
+    parsedTraceURL?: string
+    parsedTraceString?: string
+    level: LogLevel
+}
+
 export interface RecordingSegment {
     startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
     endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
@@ -676,7 +691,7 @@ export interface InsightModel {
     favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
-    order: number
+    order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -1393,7 +1408,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string

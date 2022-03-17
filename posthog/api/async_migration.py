@@ -61,7 +61,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = AsyncMigration.objects.all()
+    queryset = AsyncMigration.objects.all().order_by("name")
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
@@ -158,6 +158,6 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(
             [
                 AsyncMigrationErrorsSerializer(e).data
-                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance)
+                for e in AsyncMigrationError.objects.filter(async_migration=migration_instance).order_by("-created_at")
             ]
         )

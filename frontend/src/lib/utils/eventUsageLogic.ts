@@ -24,9 +24,10 @@ import {
     AnyPropertyFilter,
     Experiment,
     PropertyGroupFilter,
+    FilterLogicalOperator,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
@@ -357,6 +358,12 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
+        reportRecordingConsoleFeedback: (logCount: number, response: string, question: string) => ({
+            logCount,
+            response,
+            question,
+        }),
+        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -372,6 +379,17 @@ export const eventUsageLogic = kea<
             duration,
             significant,
         }),
+        reportPropertyGroupFilterAdded: true,
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
+            type,
+            groupsLength,
+        }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
+            type,
+            filtersLength,
+        }),
+        reportPrimaryDashboardModalOpened: true,
+        reportPrimaryDashboardChanged: true,
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -819,6 +837,12 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
+        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
+            posthog.capture('recording console feedback', { question, response, log_count: logCount })
+        },
+        reportRecordingConsoleViewed: ({ logCount }) => {
+            posthog.capture('recording console logs viewed', { log_count: logCount })
+        },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -862,6 +886,21 @@ export const eventUsageLogic = kea<
                 duration,
                 significant,
             })
+        },
+        reportPropertyGroupFilterAdded: () => {
+            posthog.capture('property group filter added')
+        },
+        reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
+            posthog.capture('outer match property groups type changed', { type, groupsLength })
+        },
+        reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
+            posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportPrimaryDashboardModalOpened: () => {
+            posthog.capture('primary dashboard modal opened')
+        },
+        reportPrimaryDashboardChanged: () => {
+            posthog.capture('primary dashboard changed')
         },
     }),
 })
