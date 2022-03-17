@@ -420,7 +420,7 @@ export const eventUsageLogic = kea<
             loadTime,
             error,
         }),
-        reportDataManagementEventDefinitionsPageNestedPropertyDetail: true,
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
@@ -966,16 +966,16 @@ export const eventUsageLogic = kea<
             posthog.capture('event definitions page load failed', { load_time: loadTime, error })
         },
         reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: ({ loadTime }) => {
-            posthog.capture('event definitions page event expanded properties load succeeded', { load_time: loadTime })
+            posthog.capture('event definitions page event nested properties load succeeded', { load_time: loadTime })
         },
         reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: ({ loadTime, error }) => {
-            posthog.capture('event definitions page event expanded properties load failed', {
+            posthog.capture('event definitions page event nested properties load failed', {
                 load_time: loadTime,
                 error,
             })
         },
-        reportDataManagementEventDefinitionsPageNestedPropertyDetail: () => {
-            posthog.capture('event definitions page event expanded property show detail')
+        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
+            posthog.capture('event definitions page event nested property show detail clicked')
         },
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
             posthog.capture('event property definitions page load succeeded', {
