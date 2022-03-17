@@ -8,7 +8,7 @@ from django.test.utils import CaptureQueriesContext
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import ActivityLog, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
@@ -437,6 +437,13 @@ class TestFeatureFlag(APIBaseTest):
         )
 
         self._get_feature_flag_activity(instance.pk, expected_status=status.HTTP_404_NOT_FOUND)
+
+        # can't get the flag delete from the activity API but it should have been logged
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="FeatureFlag", item_id=instance.pk, activity="deleted"
+            ).exists()
+        )
 
     def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
