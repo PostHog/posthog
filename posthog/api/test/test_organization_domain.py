@@ -140,8 +140,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.sso_enforcement, "")
 
     def test_cannot_create_duplicate_domain(self):
-        count = OrganizationDomain.objects.count()
         OrganizationDomain.objects.create(domain="i-registered-first.com", organization=self.another_org)
+        count = OrganizationDomain.objects.count()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
