@@ -81,10 +81,8 @@
         }
 
         .graph-container {
-            // hacky because container not respecting position: relative;
-            width: calc(100% - 48px);
-            height: calc(100% - 48px);
-            margin-top: $default_spacing * 2;
+            width: calc(100% - 2rem);
+            height: calc(100% - 3rem);
         }
     }
 

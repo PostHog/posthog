@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { Modal, Button, Card, Row, Col } from 'antd'
-import { SearchOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { SearchOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { IconEdit } from 'lib/components/icons'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -61,7 +62,7 @@ export function NewActionButton(): JSX.Element {
                                 size="small"
                             >
                                 <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
-                                    <EditOutlined />
+                                    <IconEdit />
                                 </div>
                             </Card>
                         </Col>

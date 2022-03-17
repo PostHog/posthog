@@ -38,6 +38,7 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 const { TabPane } = Tabs
 
@@ -155,10 +156,42 @@ function NewInsightButton(): JSX.Element {
     )
 }
 
+function SavedInsightsGrid(): JSX.Element {
+    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
+    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
+    const { currentTeamId } = useValues(teamLogic)
+
+    const paginationState = usePagination(insights?.results || [], pagination)
+
+    return (
+        <>
+            <div className="saved-insights-grid">
+                {paginationState.dataSourcePage.map((insight: InsightModel) => (
+                    <InsightCard
+                        key={insight.short_id}
+                        insight={{ ...insight, color: null }}
+                        rename={() => renameInsight(insight)}
+                        duplicate={() => duplicateInsight(insight)}
+                        deleteWithUndo={() =>
+                            deleteWithUndo({
+                                object: insight,
+                                endpoint: `projects/${currentTeamId}/insights`,
+                                callback: loadInsights,
+                            })
+                        }
+                    />
+                ))}
+                {insightsLoading && <Loading />}
+            </div>
+            <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
+        </>
+    )
+}
+
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { meFirstMembers } = useValues(membersLogic)
@@ -175,7 +208,7 @@ export function SavedInsights(): JSX.Element {
         {
             key: 'id',
             className: 'icon-column',
-            width: 0,
+            width: 32,
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {
@@ -412,7 +445,7 @@ export function SavedInsights(): JSX.Element {
                         </Radio.Button>
                         <Radio.Button value={LayoutView.Card}>
                             <AppstoreFilled className="mr-05" />
-                            Card
+                            Cards
                         </Radio.Button>
                     </Radio.Group>
                 </div>
@@ -426,20 +459,7 @@ export function SavedInsights(): JSX.Element {
                             loading={insightsLoading}
                             columns={columns}
                             dataSource={insights.results}
-                            pagination={{
-                                controlled: true,
-                                pageSize: INSIGHTS_PER_PAGE,
-                                currentPage: page,
-                                entryCount: count,
-                                onBackward: () =>
-                                    setSavedInsightsFilters({
-                                        page: page - 1,
-                                    }),
-                                onForward: () =>
-                                    setSavedInsightsFilters({
-                                        page: page + 1,
-                                    }),
-                            }}
+                            pagination={pagination}
                             disableSortingCancellation
                             sorting={sorting}
                             onSort={(newSorting) =>
@@ -450,27 +470,11 @@ export function SavedInsights(): JSX.Element {
                                 })
                             }
                             rowKey="id"
+                            loadingSkeletonRows={15}
                             nouns={['insight', 'insights']}
                         />
                     ) : (
-                        <div className="saved-insights-grid">
-                            {insights?.results.map((insight: InsightModel) => (
-                                <InsightCard
-                                    key={insight.short_id}
-                                    insight={{ ...insight, color: null }}
-                                    rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicateInsight(insight)}
-                                    deleteWithUndo={() =>
-                                        deleteWithUndo({
-                                            object: insight,
-                                            endpoint: `projects/${currentTeamId}/insights`,
-                                            callback: loadInsights,
-                                        })
-                                    }
-                                />
-                            ))}
-                            {insightsLoading && <Loading />}
-                        </div>
+                        <SavedInsightsGrid />
                     )}
                 </>
             )}

@@ -63,7 +63,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || insightLoading) {
+        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
                     {

@@ -330,6 +330,9 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                 actions.createNewExperimentInsight(values.experimentData?.filters)
             }
         },
+        updateExperimentSuccess: async ({ experimentData }) => {
+            actions.updateExperiments(experimentData)
+        },
     }),
     loaders: ({ values, props }) => ({
         experimentData: [

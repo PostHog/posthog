@@ -14,11 +14,13 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent, setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { reportDataManagementEventDefinitionsPageClickNestedPropertyDetail } = useActions(eventUsageLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
@@ -110,6 +112,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                                 <LemonButton
                                     type="stealth"
                                     onClick={() => {
+                                        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail()
                                         router.actions.push(urls.eventPropertyDefinition(_definition.id))
                                     }}
                                     fullWidth

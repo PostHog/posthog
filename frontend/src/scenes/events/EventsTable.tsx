@@ -206,7 +206,7 @@ export function EventsTable({
     const columns = useMemo(() => {
         const columnsSoFar =
             selectedColumns === 'DEFAULT'
-                ? defaultColumns
+                ? [...defaultColumns]
                 : selectedColumns.map(
                       (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
                           defaultColumns.find((d) => d.key === e) || {
@@ -437,6 +437,7 @@ export function EventsTable({
                     columns={columns}
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
+                    loadingSkeletonRows={20}
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
                           eventFilter ? (

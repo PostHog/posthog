@@ -4,6 +4,7 @@
         "paths": {
             "lib/*": ["./src/lib/*"],
             "scenes/*": ["./src/scenes/*"],
+            "storybook/*": ["../.storybook/*"],
             "~/*": ["./src/*"],
             "public/*": ["./public/*"]
         },
@@ -28,6 +29,11 @@
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/**/*"],
-    "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"]
+    "include": ["frontend/**/*", ".storybook/**/*"],
+    "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"],
+    "ts-node": {
+        "compilerOptions": {
+            "module": "commonjs"
+        }
+    }
 }
