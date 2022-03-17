@@ -222,11 +222,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </Field>
 
                             <Field name="name" label="Description">
-                                <Input.TextArea
-                                    className="ph-ignore-input"
-                                    data-attr="feature-flag-description"
-                                    placeholder="Adding a helpful description can ensure others know what this feature is for."
-                                />
+                                {({ value, onChange }) => (
+                                    <Input.TextArea
+                                        value={value}
+                                        onChange={onChange}
+                                        className="ph-ignore-input"
+                                        data-attr="feature-flag-description"
+                                        placeholder="Adding a helpful description can ensure others know what this feature is for."
+                                    />
+                                )}
                             </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
