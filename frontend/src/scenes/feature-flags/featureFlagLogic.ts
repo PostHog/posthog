@@ -129,7 +129,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                     if (!state) {
                         return state
                     }
-                    const groups = [...(state?.filters?.groups || []), { properties: [], rollout_percentage: null }]
+                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
@@ -137,7 +137,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                         return state
                     }
 
-                    const groups = [...(state?.filters?.groups || [])]
+                    const groups = [...state?.filters.groups]
                     if (newRolloutPercentage !== undefined) {
                         groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
                     }
@@ -152,7 +152,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                     if (!state) {
                         return state
                     }
-                    const groups = [...(state?.filters?.groups || [])]
+                    const groups = [...state.filters.groups]
                     groups.splice(index, 1)
                     return { ...state, filters: { ...state.filters, groups } }
                 },

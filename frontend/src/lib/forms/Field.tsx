@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { Field as Field_ } from 'kea-forms/lib/components'
 import React from 'react'
 
+/** Drop-in replacement antd template for kea forms */
 const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
     return (
         <div
@@ -47,6 +48,7 @@ const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
     )
 }
 
-export const Field: typeof Field_ = ({ ...props }) => {
+/** Compatible replacement for Form.Item */
+export const Field: typeof Field_ = (props) => {
     return <Field_ {...props} template={template} />
 }
