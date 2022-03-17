@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Form, Field as Field_, Group } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { Input, Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
@@ -12,7 +12,7 @@ import {
     MergeCellsOutlined,
     LockOutlined,
 } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
@@ -28,7 +28,7 @@ import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import clsx from 'clsx'
+import { Field } from 'lib/forms/Field'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -43,47 +43,8 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-const Field: typeof Field_ = ({ name, label, validateStatus, help, ...props }) => {
-    return (
-        <div
-            className={clsx(
-                'ant-row',
-                'ant-form-item',
-                help ? 'ant-form-item-with-help' : '',
-                validateStatus ? `ant-form-item-has-${validateStatus}` : ''
-            )}
-        >
-            {label ? (
-                <div className="ant-col ant-form-item-label">
-                    <label
-                        htmlFor={String(name)}
-                        className="ant-form-item-required"
-                        title={typeof label === 'string' ? label : undefined}
-                    >
-                        {label}
-                    </label>
-                </div>
-            ) : null}
-            <div className="ant-col ant-form-item-control">
-                <div className="ant-form-item-control-input">
-                    <div className="ant-form-item-control-input-content">
-                        <Field_ name={name} {...props} />
-                    </div>
-                </div>
-                {help ? (
-                    <div className="ant-form-item-explain ant-form-item-explain-connected">
-                        <div role="alert" className="ant-form-item-explain-warning">
-                            {help}
-                        </div>
-                    </div>
-                ) : null}
-            </div>
-        </div>
-    )
-}
-
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps = { id: id ? parseInt(id) : 'new' }
+    const logicProps: FeatureFlagLogicProps = { id: id ? parseInt(id) : 'new' }
     const {
         featureFlag,
         multivariateEnabled,
@@ -183,7 +144,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 name="key"
                                 label="Key (must be unique)"
                                 validateStatus={hasKeyChanged ? 'warning' : undefined}
-                                help={
+                                hint={
                                     hasKeyChanged ? (
                                         <small>
                                             <b>Warning! </b>Changing this key will

@@ -45,9 +45,13 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType>({
+export interface FeatureFlagLogicProps {
+    id: number | 'new'
+}
+
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
     path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key ?? 'new'],
-    props: {} as { id: number | 'new' },
+    props: {} as FeatureFlagLogicProps,
     key: ({ id }) => id,
     connect: {
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
@@ -342,7 +346,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             ],
         ],
     },
-
     events: ({ props, actions }) => ({
         afterMount: () => {
             const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
