@@ -42,7 +42,10 @@ class Migration(migrations.Migration):
                 ),
                 ("verified_at", models.DateTimeField(blank=True, default=None, null=True)),
                 ("last_verification_retry", models.DateTimeField(blank=True, default=None, null=True)),
-                ("jit_provisioning_enabled", models.BooleanField(default=False)),
+                (
+                    "jit_provisioning_enabled",
+                    models.BooleanField(default=False),
+                ),  # Just-in-time automatic provisioning (user accounts are created on the respective org when logging in with any SSO provider)
                 ("sso_enforcement", models.CharField(blank=True, max_length=28)),
                 (
                     "organization",

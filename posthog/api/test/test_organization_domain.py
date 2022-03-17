@@ -140,7 +140,45 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.sso_enforcement, "")
 
     def test_cannot_create_duplicate_domain(self):
-        pass
+        count = OrganizationDomain.objects.count()
+        OrganizationDomain.objects.create(domain="i-registered-first.com", organization=self.another_org)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"},)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "domain with this domain already exists.",
+                "attr": "domain",
+            },
+        )
+
+        self.assertEqual(OrganizationDomain.objects.count(), count)
+
+    def test_cannot_create_invalid_domain(self):
+        count = OrganizationDomain.objects.count()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        invalid_domains = ["test@posthog.com", "🦔🦔🦔.com", "one.two.c", "--alpha.com", "javascript: alert(1)"]
+
+        for _domain in invalid_domains:
+            response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain,},)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "Please enter a valid domain or subdomain name.",
+                    "attr": "domain",
+                },
+            )
+
+        self.assertEqual(OrganizationDomain.objects.count(), count)
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):

@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, cast
 
 from django.conf import settings
@@ -9,6 +10,8 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+
+DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
@@ -44,6 +47,11 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             instance, _ = instance.attempt_verification()
 
         return instance
+
+    def validate_domain(self, domain: str) -> str:
+        if not re.match(DOMAIN_REGEX, domain):
+            raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
+        return domain
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
