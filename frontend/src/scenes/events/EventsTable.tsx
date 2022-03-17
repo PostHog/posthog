@@ -206,7 +206,7 @@ export function EventsTable({
     const columns = useMemo(() => {
         const columnsSoFar =
             selectedColumns === 'DEFAULT'
-                ? defaultColumns
+                ? [...defaultColumns]
                 : selectedColumns.map(
                       (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
                           defaultColumns.find((d) => d.key === e) || {

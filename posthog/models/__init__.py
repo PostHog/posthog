@@ -1,5 +1,6 @@
 from .action import Action
 from .action_step import ActionStep
+from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
@@ -32,6 +33,7 @@ from .user import User, UserManager
 __all__ = [
     "Action",
     "ActionStep",
+    "ActivityLog",
     "Annotation",
     "Cohort",
     "CohortPeople",
@@ -48,7 +50,6 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
-    "RetentionFilter",
     "MessagingRecord",
     "Organization",
     "OrganizationDomain",
@@ -63,6 +64,7 @@ __all__ = [
     "PluginLogEntry",
     "Property",
     "PropertyDefinition",
+    "RetentionFilter",
     "SessionRecordingEvent",
     "Tag",
     "TaggedItem",

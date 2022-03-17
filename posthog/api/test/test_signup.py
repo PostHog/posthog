@@ -289,7 +289,8 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "gitlab"})
@@ -313,7 +314,8 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "gitlab"})
@@ -329,11 +331,12 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
     def test_api_social_login_to_create_organization(self, mock_request):
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY="github_123", SOCIAL_AUTH_GITHUB_SECRET="github_secret"):
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        url = reverse("social:complete", kwargs={"backend": "github"})
+        url += f"?code=2&state={response.client.session['github_state']}"
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)

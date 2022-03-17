@@ -44,7 +44,7 @@ export default {
     ],
 } as Meta
 
-export const EventSelect_ = (): JSX.Element => {
+export function EventSelect_(): JSX.Element {
     const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
 
     return (

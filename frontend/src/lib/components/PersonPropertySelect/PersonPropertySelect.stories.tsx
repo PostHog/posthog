@@ -28,7 +28,7 @@ export default {
     ],
 } as Meta
 
-export const PersonPropertySelect_ = (): JSX.Element => {
+export function PersonPropertySelect_(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     const [selectedProperties, setSelectProperties] = React.useState<string[]>([
         '$initial_geoip_postal_code',
