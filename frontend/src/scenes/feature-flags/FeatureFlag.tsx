@@ -471,8 +471,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         )}
                     </div>
                     <Row gutter={16}>
-                        {featureFlag.filters?.groups.map((group, index) => (
-                            <Col span={24} md={24} key={`${index}-${featureFlag.filters?.groups.length}`}>
+                        {featureFlag.filters.groups.map((group, index) => (
+                            <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 {index > 0 && (
                                     <div style={{ display: 'flex', marginLeft: 16 }}>
                                         <div className="stateful-badge or-light-grey mb">OR</div>
@@ -502,7 +502,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
-                                            {featureFlag?.filters?.groups?.length > 1 && (
+                                            {featureFlag.filters.groups.length > 1 && (
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <LemonButton
                                                         icon={<IconDelete />}
@@ -518,8 +518,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters?.groups.length
-                                        }-${featureFlag.filters?.aggregation_group_type_index ?? ''}`}
+                                            featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
