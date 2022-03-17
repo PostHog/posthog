@@ -17,6 +17,7 @@ import {
     PropertyFilter,
     CohortType,
 } from '~/types'
+import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
@@ -416,7 +417,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
 }
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return JSON.stringify(obj1) === JSON.stringify(obj2)
+    return equal(obj1, obj2)
 }
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
