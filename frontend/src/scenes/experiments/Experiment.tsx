@@ -23,7 +23,14 @@ import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconDelete, IconJavascript } from 'lib/components/icons'
-import { CaretDownOutlined, PlusOutlined, InfoCircleOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons'
+import {
+    CaretDownOutlined,
+    ExclamationCircleFilled,
+    PlusOutlined,
+    InfoCircleOutlined,
+    SaveOutlined,
+    CloseOutlined,
+} from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -253,7 +260,6 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 onValuesChange={(changedValues) => {
                                                                     updateExperimentGroup(changedValues, idx)
                                                                 }}
-                                                                validateTrigger={['onChange', 'onBlur']}
                                                             >
                                                                 <Row
                                                                     key={`${variant}-${idx}`}
@@ -279,13 +285,21 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 message: 'Key should not be empty.',
                                                                             },
                                                                             {
+                                                                                required: true,
                                                                                 pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                                message:
-                                                                                    'Variant names can only contain letters, numbers, hyphens, and underscores.',
+                                                                                message: (
+                                                                                    <>
+                                                                                        <ExclamationCircleFilled
+                                                                                            style={{ color: '#F96132' }}
+                                                                                        />{' '}
+                                                                                        Variant names can only contain
+                                                                                        letters, numbers, hyphens, and
+                                                                                        underscores.
+                                                                                    </>
+                                                                                ),
                                                                             },
                                                                         ]}
                                                                         style={{ display: 'contents' }}
-                                                                        hasFeedback
                                                                     >
                                                                         <Input
                                                                             disabled={idx === 0}
@@ -299,6 +313,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             spellCheck={false}
                                                                         />
                                                                     </Form.Item>
+
                                                                     <div className="float-right">
                                                                         {!(idx === 0 || idx === 1) && (
                                                                             <Tooltip
