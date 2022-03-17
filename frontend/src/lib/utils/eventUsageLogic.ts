@@ -420,8 +420,11 @@ export const eventUsageLogic = kea<
             resultsLength,
             error,
         }),
-        reportDataManagementEventDefinitionsPageExpanded: (loadTime: number, error?: string) => ({ loadTime, error }),
-        reportDataManagementEventDefinitionsPageViewNestedProperty: true,
+        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: (loadTime: number, error?: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed: true,
         reportDataManagementEventPropertyDefinitionsPageViewed: (
             loadTime: number,
             resultsLength: number,
@@ -963,11 +966,11 @@ export const eventUsageLogic = kea<
         reportDataManagementEventDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
             posthog.capture('event definitions page viewed', { load_time: loadTime, num_results: resultsLength })
         },
-        reportDataManagementEventDefinitionsPageExpanded: ({ loadTime }) => {
-            posthog.capture('event definitions page event expanded', { load_time: loadTime })
+        reportDataManagementEventDefinitionsPageNestedPropertiesViewed: ({ loadTime }) => {
+            posthog.capture('event definitions page event expanded properties viewed', { load_time: loadTime })
         },
-        reportDataManagementEventDefinitionsPageViewNestedProperty: () => {
-            posthog.capture('event definitions page event expanded property view')
+        reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed: () => {
+            posthog.capture('event definitions page event expanded property show detail')
         },
         reportDataManagementEventPropertyDefinitionsPageViewed: ({ loadTime, resultsLength }) => {
             posthog.capture('event property definitions page viewed', {

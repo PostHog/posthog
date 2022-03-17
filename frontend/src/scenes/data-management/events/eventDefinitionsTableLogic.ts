@@ -298,7 +298,7 @@ export const eventDefinitionsTableLogic = kea<
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageExpanded(
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesViewed(
                         performance.now() - cache.propertiesStartTime
                     )
                 cache.propertiesStartTime = undefined
@@ -320,7 +320,7 @@ export const eventDefinitionsTableLogic = kea<
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageExpanded(
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesViewed(
                         performance.now() - cache.propertiesStartTime,
                         error ?? 'There was an unknown error fetching nested property definitions.'
                     )

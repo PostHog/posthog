@@ -20,7 +20,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
     const { loadPropertiesForEvent, setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
-    const { reportDataManagementEventDefinitionsPageViewNestedProperty } = useActions(eventUsageLogic)
+    const { reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed } = useActions(eventUsageLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
@@ -112,7 +112,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                                 <LemonButton
                                     type="stealth"
                                     onClick={() => {
-                                        reportDataManagementEventDefinitionsPageViewNestedProperty()
+                                        reportDataManagementEventDefinitionsPageNestedPropertyDetailViewed()
                                         router.actions.push(urls.eventPropertyDefinition(_definition.id))
                                     }}
                                     fullWidth
