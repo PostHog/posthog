@@ -1,4 +1,6 @@
 # flake8: noqa
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from .action import Action
 from .action_step import ActionStep
 from .annotation import Annotation
@@ -32,6 +34,7 @@ from .user import User, UserManager
 __all__ = [
     "Action",
     "ActionStep",
+    "ActivityLog",
     "Annotation",
     "Cohort",
     "CohortPeople",
@@ -47,7 +50,6 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
-    "RetentionFilter",
     "MessagingRecord",
     "Organization",
     "OrganizationInvite",
@@ -61,6 +63,7 @@ __all__ = [
     "PluginLogEntry",
     "Property",
     "PropertyDefinition",
+    "RetentionFilter",
     "SessionRecordingEvent",
     "Tag",
     "TaggedItem",

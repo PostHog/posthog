@@ -22,8 +22,14 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconJavascript } from 'lib/components/icons'
-import { CaretDownOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
+import { IconDelete, IconJavascript } from 'lib/components/icons'
+import {
+    CaretDownOutlined,
+    ExclamationCircleFilled,
+    PlusOutlined,
+    InfoCircleOutlined,
+    CloseOutlined,
+} from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -125,17 +131,17 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
-                  0
-              )
+                (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
+                0
+            )
             : 0
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                  (experimentData?.parameters?.recommended_running_time || 1)) *
-              100
+                (experimentData?.parameters?.recommended_running_time || 1)) *
+            100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -146,6 +152,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         }
         return 'complete'
     }
+
+    const variantLabelColors = [
+        { background: '#35416b', color: '#fff' },
+        { background: '#C278CE66', color: '#35416B' },
+        { background: '#FFE6AE', color: '#35416B' },
+        { background: '#8DA9E74D', color: '#35416B' },
+    ]
 
     return (
         <>
@@ -245,7 +258,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <div className="text-muted">
                                                     Participants are divided into variant groups evenly. All experiments
                                                     must consist of a control group and at least one test group.
-                                                    Experiments may have at most 3 test groups.
+                                                    Experiments may have at most 3 test groups. Variant names can only
+                                                    contain letters, numbers, hyphens, and underscores.
                                                 </div>
                                                 <Col className="variants">
                                                     {newExperimentData.parameters.feature_flag_variants.map(
@@ -258,9 +272,22 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 onValuesChange={(changedValues) => {
                                                                     updateExperimentGroup(changedValues, idx)
                                                                 }}
-                                                                validateTrigger={['onChange', 'onBlur']}
                                                             >
-                                                                <Row className="feature-flag-variant">
+                                                                <Row
+                                                                    key={`${variant}-${idx}`}
+                                                                    className={`feature-flag-variant ${idx === 0
+                                                                            ? 'border-top'
+                                                                            : idx >= 3
+                                                                                ? 'border-bottom'
+                                                                                : ''
+                                                                        }`}
+                                                                >
+                                                                    <div
+                                                                        className="variant-label"
+                                                                        style={{ ...variantLabelColors[idx] }}
+                                                                    >
+                                                                        {idx === 0 ? 'Control' : 'Test'}
+                                                                    </div>
                                                                     <Form.Item
                                                                         name="key"
                                                                         rules={[
@@ -269,18 +296,27 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 message: 'Key should not be empty.',
                                                                             },
                                                                             {
+                                                                                required: true,
                                                                                 pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                                message:
-                                                                                    'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                                                message: (
+                                                                                    <>
+                                                                                        <ExclamationCircleFilled
+                                                                                            style={{ color: '#F96132' }}
+                                                                                        />{' '}
+                                                                                        Variant names can only contain
+                                                                                        letters, numbers, hyphens, and
+                                                                                        underscores.
+                                                                                    </>
+                                                                                ),
                                                                             },
                                                                         ]}
+                                                                        style={{ display: 'contents' }}
                                                                     >
                                                                         <Input
                                                                             disabled={idx === 0}
                                                                             data-attr="feature-flag-variant-key"
                                                                             data-key-index={idx.toString()}
                                                                             className="ph-ignore-input"
-                                                                            style={{ minWidth: 300 }}
                                                                             placeholder={`example-variant-${idx + 1}`}
                                                                             autoComplete="off"
                                                                             autoCapitalize="off"
@@ -288,22 +324,20 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             spellCheck={false}
                                                                         />
                                                                     </Form.Item>
+
                                                                     <div className="float-right">
                                                                         {!(idx === 0 || idx === 1) && (
                                                                             <Tooltip
                                                                                 title="Delete this variant"
                                                                                 placement="bottomLeft"
                                                                             >
-                                                                                <Button
-                                                                                    type="link"
-                                                                                    icon={<DeleteOutlined />}
+                                                                                <LemonButton
+                                                                                    type="primary-alt"
+                                                                                    compact
+                                                                                    icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
                                                                                     }
-                                                                                    style={{
-                                                                                        color: 'var(--danger)',
-                                                                                        float: 'right',
-                                                                                    }}
                                                                                 />
                                                                             </Tooltip>
                                                                         )}
@@ -314,13 +348,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div>
+                                                        <div className="feature-flag-variant border-bottom">
                                                             <Button
                                                                 style={{
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
@@ -349,7 +382,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
-                                                        undefined
+                                                            undefined
                                                             ? newExperimentData.filters.aggregation_group_type_index
                                                             : -1
                                                     }
@@ -397,8 +430,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     propertyFilters={
                                                         experimentInsightType === InsightType.FUNNELS
                                                             ? convertPropertyGroupToProperties(
-                                                                  funnelsFilters.properties
-                                                              )
+                                                                funnelsFilters.properties
+                                                            )
                                                             : convertPropertyGroupToProperties(trendsFilters.properties)
                                                     }
                                                     onChange={(anyProperties) => {
@@ -731,22 +764,21 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                     <li
                                                                         key={idx}
                                                                         style={{
-                                                                            color: `${
-                                                                                experimentInsightType ===
-                                                                                InsightType.FUNNELS
+                                                                            color: `${experimentInsightType ===
+                                                                                    InsightType.FUNNELS
                                                                                     ? getSeriesColor(
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.FUNNELS
-                                                                                          ) + 1
-                                                                                      ) // baseline takes 0th index
+                                                                                        getIndexForVariant(
+                                                                                            variant.key,
+                                                                                            InsightType.FUNNELS
+                                                                                        ) + 1
+                                                                                    ) // baseline takes 0th index
                                                                                     : getChartColors('white')[
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.TRENDS
-                                                                                          )
-                                                                                      ]
-                                                                            }`,
+                                                                                    getIndexForVariant(
+                                                                                        variant.key,
+                                                                                        InsightType.TRENDS
+                                                                                    )
+                                                                                    ]
+                                                                                }`,
                                                                         }}
                                                                         className="pr"
                                                                     >
@@ -780,7 +812,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                         <div key={index}>
                                                                                             {
                                                                                                 secondaryMetricResults?.[
-                                                                                                    idx
+                                                                                                idx
                                                                                                 ][variant.key]
                                                                                             }
                                                                                         </div>
@@ -957,12 +989,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         strokeColor={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
+                                                                    getIndexForVariant(variant, InsightType.FUNNELS) +
+                                                                    1
+                                                                ) // baseline takes 0th index
                                                                 : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
+                                                                getIndexForVariant(variant, InsightType.TRENDS)
+                                                                ]
                                                         }
                                                     />
                                                     <div>

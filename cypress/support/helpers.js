@@ -5,7 +5,7 @@ import { Provider } from 'react-redux'
 import { getContext, useValues } from 'kea'
 import { initKea } from '~/initKea'
 import { userLogic } from 'scenes/userLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
 import { toParams } from '~/lib/utils'
 

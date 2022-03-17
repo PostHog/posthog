@@ -1,7 +1,7 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import './index.scss'
 import { GoogleOutlined, GithubOutlined, GitlabOutlined, KeyOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
