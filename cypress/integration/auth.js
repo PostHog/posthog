@@ -63,7 +63,7 @@ describe('Auth', () => {
 
     it('Cannot access signup page if authenticated', () => {
         cy.visit('/signup')
-        cy.location('pathname').should('eq', urls.savedInsights())
+        cy.location('pathname').should('eq', urls.projectHomepage())
     })
 })
 

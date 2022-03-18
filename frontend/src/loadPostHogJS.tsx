@@ -50,7 +50,7 @@ export function loadPostHogJS(): void {
         Sentry.init({
             dsn: (window as any).SENTRY_DSN,
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813) as Integration],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration],
             }),
         })
     }

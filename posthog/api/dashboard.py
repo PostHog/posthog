@@ -206,7 +206,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action != "update":
+        if not self.action.endswith("update"):
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 

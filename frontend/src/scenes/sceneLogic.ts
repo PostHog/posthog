@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightSceneLogic } from './insights/insightSceneLogic'
 
@@ -25,6 +24,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
+    [Scene.Experiment]: Scene.Experiments,
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
@@ -153,7 +153,7 @@ export const sceneLogic = kea<sceneLogicType>({
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     },
-    urlToAction: ({ actions, values }) => {
+    urlToAction: ({ actions }) => {
         const mapping: Record<
             string,
             (
@@ -168,12 +168,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                let redirect = redirects[path]
-                if (values.featureFlags[FEATURE_FLAGS.PROJECT_HOMEPAGE]) {
-                    if (path === '/') {
-                        redirect = urls.projectHomepage()
-                    }
-                }
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }

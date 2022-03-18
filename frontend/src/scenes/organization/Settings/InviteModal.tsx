@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -80,7 +79,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
             </Col>
             {isDeletable && (
                 <Col xs={2}>
-                    <CloseOutlined style={{ color: red.primary }} onClick={() => deleteInviteAtIndex(index)} />
+                    <CloseOutlined style={{ color: 'var(--danger)' }} onClick={() => deleteInviteAtIndex(index)} />
                 </Col>
             )}
         </Row>

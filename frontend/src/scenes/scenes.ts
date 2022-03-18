@@ -92,7 +92,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'Experimentation',
+        name: 'Experiments',
     },
     [Scene.Experiment]: {
         projectBased: true,
@@ -195,7 +195,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': urls.savedInsights(),
+    '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
