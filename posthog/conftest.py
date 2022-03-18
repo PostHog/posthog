@@ -16,7 +16,7 @@ def create_clickhouse_tables(num_tables: int):
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL
     from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
-    from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
     from ee.clickhouse.sql.groups import GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -28,7 +28,6 @@ def create_clickhouse_tables(num_tables: int):
     from ee.clickhouse.sql.session_recording_events import (
         DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
         SESSION_RECORDING_EVENTS_TABLE_SQL,
-        WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
@@ -48,14 +47,7 @@ def create_clickhouse_tables(num_tables: int):
     ]
 
     if settings.CLICKHOUSE_REPLICATION:
-        TABLES_TO_CREATE_DROP.extend(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                WRITABLE_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-            ]
-        )
+        TABLES_TO_CREATE_DROP.extend([DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()])
 
     if num_tables == len(TABLES_TO_CREATE_DROP):
         return
@@ -106,7 +98,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         db_url=settings.CLICKHOUSE_HTTP_URL,
         username=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
     )
 
