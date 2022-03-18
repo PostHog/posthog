@@ -64,4 +64,4 @@ jobs:
               run: yarn install --frozen-lockfile
 
             - name: Test with Jest
-              run: yarn test
+              run: yarn test:sequential
