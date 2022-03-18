@@ -145,7 +145,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 label="Key (must be unique)"
                                 validateStatus={hasKeyChanged ? 'warning' : undefined}
                                 hint={
-                                    hasKeyChanged ? (
+                                    hasKeyChanged && id !== 'new' ? (
                                         <small>
                                             <b>Warning! </b>Changing this key will
                                             <a
