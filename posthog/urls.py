@@ -106,7 +106,7 @@ urlpatterns = [
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
     opt_slash_path("robots.txt", robots_txt),
-    opt_slash_path("security.txt", security_txt),
+    opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
