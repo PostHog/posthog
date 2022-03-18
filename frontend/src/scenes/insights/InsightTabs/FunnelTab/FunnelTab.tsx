@@ -48,7 +48,7 @@ export function FunnelTab(): JSX.Element {
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
             <Col xs={24} md={16} xl={24}>
-                <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
+                <div>
                     <form
                         onSubmit={(e): void => {
                             e.preventDefault()

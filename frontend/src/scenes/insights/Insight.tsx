@@ -230,7 +230,7 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                     >
                         <div
                             style={{
-                                maxWidth: verticalLayout ? '32rem' : 'unset',
+                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
                                 marginRight: verticalLayout ? '1rem' : 0,
                             }}
                         >
@@ -245,7 +245,12 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                                 </Card>
                             )}
                         </div>
-                        <div style={{ flexGrow: 1, maxWidth: verticalLayout ? 'calc(100% - 32rem - 1rem)' : 'unset' }}>
+                        <div
+                            style={{
+                                flexGrow: 1,
+                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                            }}
+                        >
                             <InsightContainer />
                         </div>
                     </div>
