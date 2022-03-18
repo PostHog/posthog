@@ -2,9 +2,10 @@
 
 .experiment-form {
     .metrics-selection {
-        width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
+
+        width: 100%;
 
         .action-filters-bordered {
             .draggable-action-filter {
@@ -22,7 +23,6 @@
         width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
-        margin-top: $default_spacing;
         align-items: center;
         justify-content: space-between;
     }
@@ -161,6 +161,13 @@
             font-weight: 500;
             letter-spacing: 0.01em;
         }
+    }
+
+    .secondary-metrics {
+        margin-top: $default_spacing;
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+        margin-bottom: $default_spacing;
     }
 
     .ant-input-number-disabled {
