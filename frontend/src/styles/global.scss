@@ -569,9 +569,14 @@ input::-ms-clear {
     font-size: 12px !important;
 }
 
-.ant-btn.btn-danger {
+.ant-btn-primary.btn-danger {
     background-color: $danger !important;
     border-color: $danger !important;
+    &:disabled {
+        background-color: lighten($danger, 20%) !important;
+        color: lighten(#fff, 20%) !important;
+        border-color: lighten($danger, 20%) !important;
+    }
 }
 
 .ant-btn-md {

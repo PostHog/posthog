@@ -8,9 +8,7 @@ import { OrganizationMembershipLevel } from '../lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/components/lemonToast'
 
-export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'domain_whitelist' | 'is_member_join_email_enabled'>
->
+export type OrganizationUpdatePayload = Partial<Pick<OrganizationType, 'name' | 'is_member_join_email_enabled'>>
 
 export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
     path: ['scenes', 'organizationLogic'],

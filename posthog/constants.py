@@ -11,6 +11,7 @@ class AvailableFeature(str, Enum):
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
+    SSO_ENFORCEMENT = "sso_enforcement"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
