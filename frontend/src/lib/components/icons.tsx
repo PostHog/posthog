@@ -251,6 +251,18 @@ export function IconPlus(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
+/** A plus button like IconPlus, but more compact */
+export function IconPlusMini(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m16.7917 11.1667h-3.9584v-3.95837c0-.11458-.0937-.20833-.2083-.20833h-1.25c-.1146 0-.2083.09375-.2083.20833v3.95837h-3.95837c-.11458 0-.20833.0937-.20833.2083v1.25c0 .1146.09375.2083.20833.2083h3.95837v3.9584c0 .1145.0937.2083.2083.2083h1.25c.1146 0 .2083-.0938.2083-.2083v-3.9584h3.9584c.1145 0 .2083-.0937.2083-.2083v-1.25c0-.1146-.0938-.2083-.2083-.2083z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Task Alt icon. */
 export function IconCheckmark({ style }: { style?: CSSProperties }): JSX.Element {
     return (
