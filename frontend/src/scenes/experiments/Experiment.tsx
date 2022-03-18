@@ -35,7 +35,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
@@ -169,7 +169,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         justify="space-between"
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
-                        <PageHeader title={'New Experiment'} />
+                        <PageHeader title={'New experiment'} />
                         <Row>
                             <LemonButton
                                 type="secondary"
@@ -370,7 +370,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
                                         <Row className="person-selection">
                                             <div className="mb-05">
-                                                <strong>Select Participants</strong>
+                                                <strong>Select participants</strong>
                                             </div>
                                             <Col>
                                                 <div className="text-muted">
@@ -378,7 +378,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
                                                 <div className="mt mb-05">
-                                                    <strong>Participant Type</strong>
+                                                    <strong>Participant type</strong>
                                                 </div>
                                                 <Select
                                                     value={
@@ -606,33 +606,36 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             <Col>
                                 <Row>
                                     <PageHeader
-                                        style={{ margin: 0, paddingRight: 8 }}
+                                        style={{ paddingRight: 8 }}
                                         title={`${experimentData?.name}`}
+                                        buttons={
+                                            <>
+                                                <CopyToClipboardInline
+                                                    explicitValue={experimentData.feature_flag_key}
+                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                                >
+                                                    <span className="text-muted">
+                                                        {experimentData.feature_flag_key}
+                                                    </span>
+                                                </CopyToClipboardInline>
+                                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                                    <b className="uppercase">{status()}</b>
+                                                </Tag>
+                                                {experimentResults && experimentData.end_date && (
+                                                    <Tag
+                                                        style={{ alignSelf: 'center' }}
+                                                        color={areResultsSignificant ? 'green' : 'geekblue'}
+                                                    >
+                                                        <b className="uppercase">
+                                                            {areResultsSignificant
+                                                                ? 'Significant Results'
+                                                                : 'Results not significant'}
+                                                        </b>
+                                                    </Tag>
+                                                )}
+                                            </>
+                                        }
                                     />
-                                    <CopyToClipboardInline
-                                        explicitValue={experimentData.feature_flag_key}
-                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                    >
-                                        <span className="text-muted">{experimentData.feature_flag_key}</span>
-                                    </CopyToClipboardInline>
-                                    <Tag
-                                        style={{ alignSelf: 'center', marginLeft: '1rem' }}
-                                        color={statusColors[status()]}
-                                    >
-                                        <b className="uppercase">{status()}</b>
-                                    </Tag>
-                                    {experimentResults && experimentData.end_date && (
-                                        <Tag
-                                            style={{ alignSelf: 'center' }}
-                                            color={areResultsSignificant ? 'green' : 'geekblue'}
-                                        >
-                                            <b className="uppercase">
-                                                {areResultsSignificant
-                                                    ? 'Significant Results'
-                                                    : 'Results not significant'}
-                                            </b>
-                                        </Tag>
-                                    )}
                                 </Row>
                                 <span className="exp-description">
                                     {experimentData.start_date ? (
@@ -868,7 +871,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             <Row justify="space-between" className="mt-05">
                                                                 {experimentData.end_date ? (
                                                                     <div>
-                                                                        Ran for
+                                                                        Ran for{' '}
                                                                         <b>
                                                                             {dayjs(experimentData.end_date).diff(
                                                                                 experimentData.start_date,
@@ -904,20 +907,27 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         <Row justify="space-between" className="mt-05">
                                                             {experimentData.end_date ? (
                                                                 <div>
-                                                                    Saw <b>{funnelResultsPersonsTotal}</b> participants
+                                                                    Saw{' '}
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants
                                                                 </div>
                                                             ) : (
                                                                 <div>
-                                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants seen
                                                                 </div>
                                                             )}
                                                             <div>
                                                                 Goal:{' '}
                                                                 <b>
-                                                                    {
+                                                                    {humanFriendlyNumber(
                                                                         experimentData?.parameters
-                                                                            ?.recommended_sample_size
-                                                                    }
+                                                                            ?.recommended_sample_size || 0
+                                                                    )}
                                                                 </b>{' '}
                                                                 participants
                                                             </div>

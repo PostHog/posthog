@@ -266,6 +266,14 @@
             font-weight: 900;
             margin-right: 4px;
         }
+
+        .ant-progress-inner {
+            border-radius: 4px;
+
+            .ant-progress-bg {
+                border-radius: 4px;
+            }
+        }
     }
 
     .no-experiment-results {
