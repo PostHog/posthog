@@ -74,7 +74,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                     )
                     lemonToast.success('Domain updated successfully! Changes will take immediately.')
                     actions.replaceDomain(response as OrganizationDomainType)
-                    return true
+                    return false
                 },
                 verifyDomain: async () => {
                     const response = (await api.create(
@@ -89,7 +89,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDom
                     }
                     actions.replaceDomain(response as OrganizationDomainType)
                     actions.setVerifyModal(null)
-                    return true
+                    return false
                 },
             },
         ],

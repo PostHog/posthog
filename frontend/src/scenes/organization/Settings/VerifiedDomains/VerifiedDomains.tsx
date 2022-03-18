@@ -23,7 +23,7 @@ export function VerifiedDomains(): JSX.Element {
         <>
             <div className="flex-center">
                 <div style={{ flexGrow: 1 }}>
-                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 6/1/22. */}
+                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 2022-06-01. */}
                     <h2 id="verified-domains" className="subtitle">
                         Verified domains
                     </h2>

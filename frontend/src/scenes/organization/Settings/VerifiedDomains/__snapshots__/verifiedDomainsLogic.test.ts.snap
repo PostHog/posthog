@@ -1,0 +1,39 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`verifiedDomainsLogic values has proper defaults 1`] = `
+Object {
+  "addModalShown": false,
+  "currentOrganization": Object {
+    "available_features": Array [
+      "sso_enforcement",
+      "saml",
+    ],
+    "id": "ABCD",
+    "membership_level": 8,
+  },
+  "domainBeingVerified": null,
+  "isFeatureAvailable": true,
+  "updatingDomain": false,
+  "updatingDomainLoading": false,
+  "verifiedDomains": Array [
+    Object {
+      "domain": "my.posthog.com",
+      "id": "8db3b0c2-a0ab-490a-9037-14f3358a81bc",
+      "is_verified": true,
+      "jit_provisioning_enabled": true,
+      "sso_enforcement": "google-oauth2",
+      "verified_at": "2022-01-01T23:59:59",
+    },
+    Object {
+      "domain": "temp.posthog.com",
+      "id": "id_will_be_deleted",
+      "is_verified": false,
+      "jit_provisioning_enabled": false,
+      "sso_enforcement": "",
+      "verified_at": "",
+    },
+  ],
+  "verifiedDomainsLoading": false,
+  "verifyModal": null,
+}
+`;
