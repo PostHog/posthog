@@ -5,6 +5,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { combineUrl, router } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -139,8 +140,8 @@ export const eventDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
-                    console.log('TRIGGER', url)
                     await breakpoint(200)
+                    cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
@@ -200,6 +201,7 @@ export const eventDefinitionsTableLogic = kea<
                     actions.setEventDefinitionPropertiesLoading(
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
                     )
+                    cache.propertiesStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
@@ -271,7 +273,7 @@ export const eventDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl(
@@ -280,6 +282,49 @@ export const eventDefinitionsTableLogic = kea<
                     true
                 )
             )
+        },
+        loadEventDefinitionsSuccess: () => {
+            if (cache.eventsStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
+                        performance.now() - cache.eventsStartTime,
+                        values.eventDefinitions.results.length
+                    )
+                cache.eventsStartTime = undefined
+            }
+        },
+        loadEventDefinitionsFailure: ({ error }) => {
+            if (cache.eventsStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
+                        performance.now() - cache.eventsStartTime,
+                        error ?? 'There was an unknown error fetching event definitions.'
+                    )
+                cache.eventsStartTime = undefined
+            }
+        },
+        loadPropertiesForEventSuccess: () => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
+                        performance.now() - cache.propertiesStartTime
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+        loadPropertiesForEventFailure: ({ error }) => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
+                        performance.now() - cache.propertiesStartTime,
+                        error ?? 'There was an unknown error fetching nested property definitions.'
+                    )
+                cache.propertiesStartTime = undefined
+            }
         },
     }),
     urlToAction: ({ actions, values }) => ({

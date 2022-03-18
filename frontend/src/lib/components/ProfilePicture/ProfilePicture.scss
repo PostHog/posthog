@@ -53,7 +53,7 @@
 .ProfileBubbles {
     display: flex;
     align-items: center;
-    > div {
+    > * {
         outline: 0.125rem solid #fff;
     }
     > :not(:first-child) {

@@ -115,7 +115,7 @@ export function Experiments(): JSX.Element {
             <PageHeader
                 title={
                     <div className="flex-center">
-                        Experimentation
+                        Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
                         </LemonTag>
@@ -160,9 +160,9 @@ export function Experiments(): JSX.Element {
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => setExperimentsFilters({ tab: t as ExperimentsTabs })}
                     >
-                        <Tabs.TabPane tab="All Experiments" key={ExperimentsTabs.All} />
-                        <Tabs.TabPane tab="Your Experiments" key={ExperimentsTabs.Yours} />
-                        <Tabs.TabPane tab="Archived Experiments" key={ExperimentsTabs.Archived} />
+                        <Tabs.TabPane tab="All experiments" key={ExperimentsTabs.All} />
+                        <Tabs.TabPane tab="Your experiments" key={ExperimentsTabs.Yours} />
+                        <Tabs.TabPane tab="Archived experiments" key={ExperimentsTabs.Archived} />
                     </Tabs>
                     <LemonTable
                         dataSource={experiments}

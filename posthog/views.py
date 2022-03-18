@@ -1,7 +1,6 @@
 import os
 from functools import wraps
 from typing import Dict, Union
-from urllib import parse
 
 import sentry_sdk
 from django.conf import settings
@@ -63,12 +62,10 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     sso_providers = get_available_sso_providers()
 
     if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider&error_message={parse.quote('Invalid SSO provider.')}")
+        return redirect(f"/login?error_code=invalid_sso_provider")
 
     if not sso_providers[backend]:
-        return redirect(
-            f"/login?error_code=improperly_configured_sso&error_message={parse.quote(f'Cannot login with proviider {backend} because the provider is not configured or your instance does not have the required license.')}"
-        )
+        return redirect(f"/login?error_code=improperly_configured_sso")
     return auth(request, backend)
 
 
