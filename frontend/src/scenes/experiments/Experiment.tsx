@@ -22,11 +22,11 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconJavascript } from 'lib/components/icons'
+import { IconDelete, IconJavascript } from 'lib/components/icons'
 import {
     CaretDownOutlined,
+    ExclamationCircleFilled,
     PlusOutlined,
-    DeleteOutlined,
     InfoCircleOutlined,
     SaveOutlined,
     CloseOutlined,
@@ -47,6 +47,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -152,6 +153,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         return 'complete'
     }
 
+    const variantLabelColors = [
+        { background: '#35416b', color: '#fff' },
+        { background: '#C278CE66', color: '#35416B' },
+        { background: '#FFE6AE', color: '#35416B' },
+        { background: '#8DA9E74D', color: '#35416B' },
+    ]
+
     return (
         <>
             {id === 'new' || editingExistingExperiment ? (
@@ -238,7 +246,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <div className="text-muted">
                                                     Participants are divided into variant groups evenly. All experiments
                                                     must consist of a control group and at least one test group.
-                                                    Experiments may have at most 3 test groups.
+                                                    Experiments may have at most 3 test groups. Variant names can only
+                                                    contain letters, numbers, hyphens, and underscores.
                                                 </div>
                                                 <Col className="variants">
                                                     {newExperimentData.parameters.feature_flag_variants.map(
@@ -251,9 +260,23 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 onValuesChange={(changedValues) => {
                                                                     updateExperimentGroup(changedValues, idx)
                                                                 }}
-                                                                validateTrigger={['onChange', 'onBlur']}
                                                             >
-                                                                <Row className="feature-flag-variant">
+                                                                <Row
+                                                                    key={`${variant}-${idx}`}
+                                                                    className={`feature-flag-variant ${
+                                                                        idx === 0
+                                                                            ? 'border-top'
+                                                                            : idx >= 3
+                                                                            ? 'border-bottom'
+                                                                            : ''
+                                                                    }`}
+                                                                >
+                                                                    <div
+                                                                        className="variant-label"
+                                                                        style={{ ...variantLabelColors[idx] }}
+                                                                    >
+                                                                        {idx === 0 ? 'Control' : 'Test'}
+                                                                    </div>
                                                                     <Form.Item
                                                                         name="key"
                                                                         rules={[
@@ -262,18 +285,27 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 message: 'Key should not be empty.',
                                                                             },
                                                                             {
+                                                                                required: true,
                                                                                 pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                                message:
-                                                                                    'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                                                message: (
+                                                                                    <>
+                                                                                        <ExclamationCircleFilled
+                                                                                            style={{ color: '#F96132' }}
+                                                                                        />{' '}
+                                                                                        Variant names can only contain
+                                                                                        letters, numbers, hyphens, and
+                                                                                        underscores.
+                                                                                    </>
+                                                                                ),
                                                                             },
                                                                         ]}
+                                                                        style={{ display: 'contents' }}
                                                                     >
                                                                         <Input
                                                                             disabled={idx === 0}
                                                                             data-attr="feature-flag-variant-key"
                                                                             data-key-index={idx.toString()}
                                                                             className="ph-ignore-input"
-                                                                            style={{ minWidth: 300 }}
                                                                             placeholder={`example-variant-${idx + 1}`}
                                                                             autoComplete="off"
                                                                             autoCapitalize="off"
@@ -281,22 +313,20 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             spellCheck={false}
                                                                         />
                                                                     </Form.Item>
+
                                                                     <div className="float-right">
                                                                         {!(idx === 0 || idx === 1) && (
                                                                             <Tooltip
                                                                                 title="Delete this variant"
                                                                                 placement="bottomLeft"
                                                                             >
-                                                                                <Button
-                                                                                    type="link"
-                                                                                    icon={<DeleteOutlined />}
+                                                                                <LemonButton
+                                                                                    type="primary-alt"
+                                                                                    compact
+                                                                                    icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
                                                                                     }
-                                                                                    style={{
-                                                                                        color: 'var(--danger)',
-                                                                                        float: 'right',
-                                                                                    }}
                                                                                 />
                                                                             </Tooltip>
                                                                         )}
@@ -307,13 +337,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div>
+                                                        <div className="feature-flag-variant border-bottom">
                                                             <Button
                                                                 style={{
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
