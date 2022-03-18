@@ -22,10 +22,10 @@ jobs:
         steps:
             - uses: actions/checkout@v1
 
-            - name: Set up Node 16
+            - name: Set up Node 14
               uses: actions/setup-node@v1
               with:
-                  node-version: 16
+                  node-version: 14
 
             - name: Install package.json dependencies with Yarn
               run: yarn
@@ -86,10 +86,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 16
+            - name: Set up Node 14
               uses: actions/setup-node@v2
               with:
-                  node-version: 16
+                  node-version: 14
 
             - uses: actions/cache@v2
               with:
@@ -167,10 +167,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 16
+            - name: Set up Node 14
               uses: actions/setup-node@v2
               with:
-                  node-version: 16
+                  node-version: 14
 
             - uses: actions/cache@v2
               with:
@@ -249,10 +249,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 16
+            - name: Set up Node 14
               uses: actions/setup-node@v2
               with:
-                  node-version: 16
+                  node-version: 14
 
             - uses: actions/cache@v2
               with:
@@ -331,10 +331,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 16
+            - name: Set up Node 14
               uses: actions/setup-node@v2
               with:
-                  node-version: 16
+                  node-version: 14
 
             - uses: actions/cache@v2
               with:

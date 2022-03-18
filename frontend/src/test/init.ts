@@ -6,10 +6,6 @@ import { AppContext } from '~/types'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 
-process.on('unhandledRejection', (err) => {
-    console.warn(err)
-})
-
 export function initKeaTests(): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
