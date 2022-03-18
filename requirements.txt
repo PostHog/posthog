@@ -127,7 +127,9 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
-git+https://github.com/PostHog/infi.clickhouse_orm@6e2e2b7d12d70921139902e2f2d38ccd169ae40b
+importlib-resources==5.4.0
+    # via jsonschema
+git+https://github.com/PostHog/infi.clickhouse_orm@9854bacfe95f614a95f13a410280f8c998e0ccf0
     # via -r requirements.in
 inflection==0.5.1
     # via drf-spectacular
@@ -266,7 +268,9 @@ whitenoise==5.2.0
 xmlsec==1.3.12
     # via python3-saml
 zipp==3.1.0
-    # via importlib-metadata
+    # via
+    #   importlib-metadata
+    #   importlib-resources
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools
