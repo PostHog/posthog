@@ -393,15 +393,18 @@ class TestSignupAPI(APIBaseTest):
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_self_hosted(self, mock_request):
         self.run_test_for_whitelisted_domain(mock_request)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_cloud(self, mock_request):
         with self.settings(MULTI_TENANCY=True):
             self.run_test_for_whitelisted_domain(mock_request)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_cannot_social_signup_with_whitelisted_but_jit_provisioning_disabled(self, mock_request):
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -422,6 +425,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_cannot_social_signup_with_whitelisted_but_unverified_domain(self, mock_request):
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -442,6 +446,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
@@ -465,6 +470,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_request):
         Organization.objects.create(name="Hogflix Movies")
         user_count = User.objects.count()
