@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
@@ -17,6 +17,7 @@ export enum AnnouncementType {
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
+const ShowAttentionRequiredBanner = false
 
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
@@ -87,6 +88,7 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
                     // Hide announcements during onboarding
                     return null
                 } else if (
+                    ShowAttentionRequiredBanner &&
                     !asyncMigrationsOk &&
                     (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)
                 ) {

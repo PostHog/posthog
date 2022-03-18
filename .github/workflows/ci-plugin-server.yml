@@ -105,7 +105,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -186,7 +186,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -268,7 +268,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -350,7 +350,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn

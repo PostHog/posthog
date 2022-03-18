@@ -68,6 +68,7 @@ export const urls = {
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
     instanceStatus: () => '/instance/status',
+    instanceStaffUsers: () => '/instance/staff_users',
     instanceSettings: () => '/instance/settings',
     instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',

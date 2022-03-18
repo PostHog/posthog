@@ -4,8 +4,17 @@ const babelConfig = require('../babel.config')
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: [
+        {
+            name: '@storybook/addon-docs',
+            options: {
+                sourceLoaderOptions: {
+                    injectStoryParameters: false,
+                },
+            },
+        },
         '@storybook/addon-links',
         '@storybook/addon-essentials',
+        '@storybook/addon-storysource',
         {
             name: 'storybook-addon-turbo-build',
             options: {
@@ -36,6 +45,16 @@ module.exports = {
                 rules: [
                     ...mainConfig.module.rules,
                     ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
+                    {
+                        test: /\.stories\.tsx?$/,
+                        use: [
+                            {
+                                loader: require.resolve('@storybook/source-loader'),
+                                options: { parser: 'typescript' },
+                            },
+                        ],
+                        enforce: 'pre',
+                    },
                 ],
             },
         }

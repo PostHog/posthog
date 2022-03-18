@@ -569,6 +569,16 @@ input::-ms-clear {
     font-size: 12px !important;
 }
 
+.ant-btn-primary.btn-danger {
+    background-color: $danger !important;
+    border-color: $danger !important;
+    &:disabled {
+        background-color: lighten($danger, 20%) !important;
+        color: lighten(#fff, 20%) !important;
+        border-color: lighten($danger, 20%) !important;
+    }
+}
+
 .ant-btn-md {
     // Size between `small` & `default`
     font-size: 13px !important;

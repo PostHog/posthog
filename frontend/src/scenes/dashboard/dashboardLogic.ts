@@ -28,7 +28,6 @@ import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
-import { getInsightId } from 'scenes/insights/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -68,13 +67,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
-            dive_source_id,
         }: {
             refresh?: boolean
-            dive_source_id?: InsightShortId
         } = {}) => ({
             refresh,
-            dive_source_id,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** Whether the dashboard is shared or not. */
@@ -107,7 +103,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         allItems: [
             null as DashboardType | null,
             {
-                loadDashboardItems: async ({ refresh, dive_source_id }) => {
+                loadDashboardItems: async ({ refresh }) => {
                     actions.setReceivedErrorsFromAPI(false)
 
                     if (!props.id) {
@@ -120,7 +116,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             ? `api/shared_dashboards/${props.shareToken}`
                             : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
                                   refresh,
-                                  dive_source_id: dive_source_id ? await getInsightId(dive_source_id) : undefined,
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
@@ -341,7 +336,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         ],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
-            (searchParams) => searchParams.highlightInsightId || searchParams.dive_source_id,
+            (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
             () => [selectors.items],
@@ -516,7 +511,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 // When the scene is initially loaded, the dashboard ID is undefined
                 actions.loadDashboardItems({
                     refresh: props.placement === DashboardPlacement.InternalMetrics,
-                    dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
                 })
             }
 

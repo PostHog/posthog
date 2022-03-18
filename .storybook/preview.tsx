@@ -3,11 +3,13 @@ import '~/styles'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
+import { storybookAppContext } from 'storybook/app-context'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start()
     ;(window as any).__mockServiceWorker = worker
+    ;(window as any).POSTHOG_APP_CONTEXT = storybookAppContext
 }
 setupMsw()
 
@@ -26,17 +28,24 @@ setupPosthogJs()
 
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
 export const parameters = {
-    actions: { argTypesRegex: '^on[A-Z].*' },
+    actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
     controls: {
         matchers: {
             color: /(background|color)$/i,
             date: /Date$/,
         },
     },
-
     options: {
-        // opt in to panels in your story by overridding `export const parameters`
-        showPanel: false,
+        // automatically show code panel
+        showPanel: true,
+        storySort: (a: any, b: any) => {
+            return a[1].kind === b[1].kind ? 0 : a[1].title.localeCompare(b[1].title, undefined, { numeric: true })
+        },
+    },
+    viewMode: 'docs',
+    // auto-expand code blocks in docs
+    docs: {
+        source: { state: 'open' },
     },
 }
 

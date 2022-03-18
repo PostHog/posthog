@@ -648,7 +648,11 @@ def get_can_create_org() -> bool:
     return False
 
 
-def get_available_social_auth_providers() -> Dict[str, bool]:
+def get_available_sso_providers() -> Dict[str, bool]:
+    """
+    Returns a dictionary containing final determination whether certain SSO providers are available.
+    Validates configuration settings and license validity (if applicable).
+    """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
@@ -681,6 +685,27 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
             print_warning(["You have SAML set up, but not the required license!"])
 
     return output
+
+
+def get_sso_enforced_provider() -> Optional[str]:
+    """
+    Returns the enforced SSO provider handle for the instance if SSO is properly configured and required license is present.
+        => response: `saml`, `google-oaut2`, `github`, `gitlab`, `None`.
+    """
+    sso_enforcement = getattr(settings, "SSO_ENFORCEMENT", None)
+
+    if sso_enforcement:
+        sso_providers = get_available_sso_providers()
+        if not sso_providers[settings.SSO_ENFORCEMENT]:
+            print_warning(
+                [
+                    f"You have configured `SSO_ENFORCEMENT` with value `{settings.SSO_ENFORCEMENT}`,"
+                    " but that provider is not properly configured or your instance does not have the required license."
+                ]
+            )
+            return None
+
+    return sso_enforcement
 
 
 def flatten(i: Union[List, Tuple]) -> Generator:

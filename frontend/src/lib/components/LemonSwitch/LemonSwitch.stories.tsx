@@ -1,23 +1,31 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { LemonSwitch as _LemonSwitch } from './LemonSwitch'
+import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
 export default {
-    title: 'DataDisplay',
-    component: _LemonSwitch,
-    parameters: { options: { showPanel: true } },
+    title: 'Components/Lemon Switch',
+    component: LemonSwitch,
     argTypes: {
         loading: {
             control: {
                 type: 'boolean',
             },
         },
+        label: {
+            defaultValue: "Can't switch this!",
+        },
     },
-} as ComponentMeta<typeof _LemonSwitch>
+} as ComponentMeta<typeof LemonSwitch>
 
-export function LemonSwitch({ loading }: { loading: boolean }): JSX.Element {
+export function LemonSwitch_(props: LemonSwitchProps): JSX.Element {
     const [isChecked, setIsChecked] = useState(false)
 
-    return <_LemonSwitch loading={loading} checked={isChecked} onChange={setIsChecked} />
+    return (
+        <LemonSwitch
+            {...props}
+            checked={props.checked !== undefined ? props.checked : isChecked}
+            onChange={setIsChecked}
+        />
+    )
 }

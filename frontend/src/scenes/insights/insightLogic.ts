@@ -487,6 +487,19 @@ export const insightLogic = kea<insightLogicType>({
                 return 'insight' in (filters ?? {})
             },
         ],
+        csvExportUrl: [
+            (s) => [s.insight, s.currentTeamId],
+            (insight: Partial<InsightModel>, currentTeamId: number) => {
+                const { filters, name, short_id, derived_name } = insight
+                if (filters?.insight === InsightType.TRENDS) {
+                    return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
+                        ...filterTrendsClientSideParams(filters),
+                        export_name: name || derived_name,
+                        export_insight_id: short_id,
+                    })}`
+                }
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {

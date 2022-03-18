@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Input, Row, Tabs } from 'antd'
-import { EyeOutlined, EditOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
@@ -108,7 +107,6 @@ export function Dashboards(): JSX.Element {
                         overlay={
                             <div style={{ maxWidth: 250 }}>
                                 <LemonButton
-                                    icon={<EyeOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -123,7 +121,6 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    icon={<EditOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -137,12 +134,7 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton
-                                    icon={<CopyOutlined />}
-                                    type="stealth"
-                                    onClick={() => duplicateDashboard({ id, name })}
-                                    fullWidth
-                                >
+                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
@@ -154,7 +146,6 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonSpacer />
                                 <LemonButton
-                                    icon={<DeleteOutlined />}
                                     type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth

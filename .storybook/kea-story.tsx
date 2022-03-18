@@ -47,13 +47,3 @@ export function KeaStory<T = React.ReactNode>({
 
     return didReset ? <Provider>{children || <App />}</Provider> : null
 }
-
-export function keaStory(Component: any, json: any): () => JSX.Element {
-    return function KeaStoryInstance() {
-        return (
-            <KeaStory state={json}>
-                <Component />
-            </KeaStory>
-        )
-    }
-}

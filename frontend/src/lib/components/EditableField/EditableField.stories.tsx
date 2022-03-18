@@ -7,7 +7,6 @@ import { PageHeader } from '../PageHeader'
 export default {
     title: 'Forms/EditableField',
     component: EditableFieldComponent,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof EditableFieldComponent>
 
 export function TitleAndDescription(): JSX.Element {

@@ -20,7 +20,6 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { IconOpenInNew } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -116,7 +115,7 @@ export function Experiments(): JSX.Element {
             <PageHeader
                 title={
                     <div className="flex-center">
-                        Experimentation
+                        Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
                         </LemonTag>
@@ -144,7 +143,7 @@ export function Experiments(): JSX.Element {
                             marginBottom: '1rem',
                         }}
                     >
-                        If you're confused, check out our
+                        Check out our
                         <a
                             data-attr="experiment-help"
                             href="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
@@ -153,17 +152,17 @@ export function Experiments(): JSX.Element {
                         >
                             {' '}
                             Experimentation user guide
-                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                        </a>
+                        </a>{' '}
+                        to learn more.
                     </div>
                     <Tabs
                         activeKey={tab}
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => setExperimentsFilters({ tab: t as ExperimentsTabs })}
                     >
-                        <Tabs.TabPane tab="All Experiments" key={ExperimentsTabs.All} />
-                        <Tabs.TabPane tab="Your Experiments" key={ExperimentsTabs.Yours} />
-                        <Tabs.TabPane tab="Archived Experiments" key={ExperimentsTabs.Archived} />
+                        <Tabs.TabPane tab="All experiments" key={ExperimentsTabs.All} />
+                        <Tabs.TabPane tab="Your experiments" key={ExperimentsTabs.Yours} />
+                        <Tabs.TabPane tab="Archived experiments" key={ExperimentsTabs.Archived} />
                     </Tabs>
                     <LemonTable
                         dataSource={experiments}

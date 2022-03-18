@@ -7,6 +7,7 @@ const allIcons = Object.entries(icons).map(([key, Icon]) => ({ name: key, icon: 
 
 export default {
     title: 'Layout/Icons',
+    parameters: { options: { showPanel: false } },
 } as Meta
 
 export function Icons(): JSX.Element {

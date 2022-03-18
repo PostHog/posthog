@@ -6,7 +6,7 @@ import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 
 window.process = MOCK_NODE_PROCESS

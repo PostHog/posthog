@@ -208,7 +208,7 @@ export function SavedInsights(): JSX.Element {
         {
             key: 'id',
             className: 'icon-column',
-            width: 0,
+            width: 32,
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {

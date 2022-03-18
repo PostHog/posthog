@@ -296,8 +296,8 @@ const EXAMPLE_FUNNEL: InsightModel = {
 }
 
 export default {
-    title: 'DataDisplay/InsightCard',
-    parameters: { options: { showPanel: true } },
+    title: 'Components/Insight Card',
+    component: InsightCardComponent,
     argTypes: {
         insightName: {
             control: { type: 'text' },

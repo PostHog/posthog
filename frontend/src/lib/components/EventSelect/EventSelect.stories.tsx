@@ -28,7 +28,7 @@ const eventDefinitions = [
 ]
 
 export default {
-    title: 'Filters/EventSelect',
+    title: 'Filters',
     decorators: [
         mswDecorator({
             get: {
@@ -44,14 +44,14 @@ export default {
     ],
 } as Meta
 
-export const Default = (): JSX.Element => {
+export function EventSelect_(): JSX.Element {
     const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
 
     return (
         <EventSelect
             selectedEvents={selectedEvents}
             onChange={setSelectedEvents}
-            addElement={<span>add events</span>}
+            addElement={<button>add events</button>}
         />
     )
 }

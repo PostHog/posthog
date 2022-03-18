@@ -206,7 +206,7 @@ export function EventsTable({
     const columns = useMemo(() => {
         const columnsSoFar =
             selectedColumns === 'DEFAULT'
-                ? defaultColumns
+                ? [...defaultColumns]
                 : selectedColumns.map(
                       (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
                           defaultColumns.find((d) => d.key === e) || {
@@ -406,7 +406,6 @@ export function EventsTable({
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}
                                 onChange={toggleAutomaticLoad}
-                                wrapperStyle={{ fontWeight: 400, flexGrow: 0 }}
                             />
                             <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
                                 {!hideTableConfig && (

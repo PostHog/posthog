@@ -5,7 +5,7 @@ import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
-import { preflightLogic } from './PreflightCheck/logic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 export const userLogic = kea<userLogicType>({
