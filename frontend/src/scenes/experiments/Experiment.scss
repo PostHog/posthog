@@ -2,9 +2,10 @@
 
 .experiment-form {
     .metrics-selection {
-        width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
+
+        width: 100%;
 
         .action-filters-bordered {
             .draggable-action-filter {
@@ -22,7 +23,6 @@
         width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
-        margin-top: $default_spacing;
         align-items: center;
         justify-content: space-between;
     }
@@ -110,26 +110,64 @@
     }
 
     .variants {
-        border: 1px solid $border;
-        border-radius: 4px;
-        padding-left: $default_spacing;
         margin-top: $default_spacing / 2;
-        margin-bottom: $default_spacing;
         padding-bottom: 1rem;
         .ant-form-horizontal {
             min-height: 32px;
         }
+
+        .border-top {
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+
+        .border-bottom {
+            border-bottom-left-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
         .feature-flag-variant {
-            margin-top: 20px;
-            .ant-form-item-explain {
-                z-index: 1;
-            }
+            flex-direction: row;
+            align-items: baseline;
+            padding: 12px 8px;
+            background: #ffffff;
+            border-width: 1px;
+            border-color: $border;
+            border-top-style: solid;
+            border-left-style: solid;
+            border-right-style: solid;
+
             .ant-form-item-explain-error {
-                padding-top: $default_spacing / 2;
-                padding-bottom: $default_spacing / 2;
-                background-color: white;
+                margin-top: $default_spacing / 2;
+                color: $error_red;
+            }
+
+            .ant-form-item-label {
+                padding: 0px;
             }
         }
+
+        .variant-label {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            border-radius: 4px;
+            color: #ffffff;
+            min-width: 52px;
+            padding: 2px 6px;
+            margin-right: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+    }
+
+    .secondary-metrics {
+        margin-top: $default_spacing;
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+        margin-bottom: $default_spacing;
     }
 
     .ant-input-number-disabled {

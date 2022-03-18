@@ -71,7 +71,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
+        updateExperimentGroup: (variant: Partial<MultivariateFlagVariant>, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -174,7 +174,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             },
         ],
         experimentInsightType: [
-            InsightType.FUNNELS as InsightType,
+            InsightType.TRENDS as InsightType,
             {
                 setExperimentInsightType: (_, { insightType }) => insightType,
             },
@@ -298,8 +298,8 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
                 actions.resetNewExperiment()
-                actions.loadExperimentResults(props.experimentId)
-                actions.loadSecondaryMetricResults(props.experimentId)
+                actions.loadExperimentResults()
+                actions.loadSecondaryMetricResults()
             }
         },
         launchExperiment: async () => {
@@ -359,9 +359,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         experimentResults: [
             null as ExperimentResults | null,
             {
-                loadExperimentResults: async (_, breakpoint) => {
-                    await breakpoint(10)
-
+                loadExperimentResults: async () => {
                     try {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${props.experimentId}/results`
@@ -381,9 +379,7 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
         secondaryMetricResults: [
             null as SecondaryMetricResult[] | null,
             {
-                loadSecondaryMetricResults: async (_, breakpoint) => {
-                    await breakpoint(10)
-
+                loadSecondaryMetricResults: async () => {
                     const results = []
                     for (let i = 0; i < (values.experimentData?.secondary_metrics.length || 0); i++) {
                         const secResults = await api.get(

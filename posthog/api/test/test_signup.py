@@ -325,7 +325,7 @@ class TestSignupAPI(APIBaseTest):
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(
-            response, "/login?error=no_new_organizations"
+            response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -357,7 +357,7 @@ class TestSignupAPI(APIBaseTest):
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(
-            response, "/login?error=no_new_organizations"
+            response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
     def run_test_for_whitelisted_domain(self, mock_request):

@@ -296,7 +296,7 @@ def finish_social_signup(request):
     TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
     if not get_can_create_org():
-        return redirect("/login?error=no_new_organizations")
+        return redirect("/login?error_code=no_new_organizations")
 
     if request.method == "POST":
         form = CompanyNameForm(request.POST)

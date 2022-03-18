@@ -2,8 +2,10 @@
 import { Meta } from '@storybook/react'
 import { Login } from './Login'
 import { useStorybookMocks } from '~/mocks/browser'
-import React from 'react'
+import React, { useEffect } from 'react'
 import preflightJson from '../../mocks/fixtures/_preflight.json'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export default {
     title: 'Scenes/Authentication/Login',
@@ -14,7 +16,13 @@ export default {
 export const Cloud = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud', can_create_org: true },
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                realm: 'cloud',
+                can_create_org: true,
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
         },
     })
     return <Login />
@@ -39,9 +47,22 @@ export const SelfHostedWithSAML = (): JSX.Element => {
                 ...preflightJson,
                 cloud: false,
                 realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: true },
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: true },
             },
         },
     })
+    return <Login />
+}
+
+export const SSOError = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': preflightJson,
+        },
+    })
+    useEffect(() => {
+        // change the URL
+        router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`)
+    }, [])
     return <Login />
 }
