@@ -13,7 +13,6 @@ from posthog.settings import (
     CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -47,7 +46,6 @@ class Command(BaseCommand):
             db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
-            cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=False,
         )
         if options["plan"] or options["check"]:
