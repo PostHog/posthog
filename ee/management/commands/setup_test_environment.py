@@ -19,7 +19,6 @@ class Command(BaseCommand):
         from infi.clickhouse_orm import Database
 
         from posthog.settings import (
-            CLICKHOUSE_CLUSTER,
             CLICKHOUSE_DATABASE,
             CLICKHOUSE_HTTP_URL,
             CLICKHOUSE_PASSWORD,
@@ -33,7 +32,6 @@ class Command(BaseCommand):
             db_url=CLICKHOUSE_HTTP_URL,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
-            cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=CLICKHOUSE_VERIFY,
         )
 
