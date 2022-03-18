@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import React, { useState } from 'react'
+import { LemonRow } from '../LemonRow'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
@@ -13,7 +14,7 @@ export interface LemonSwitchProps {
     /** Default switches are inline. Primary switches _with a label_ are wrapped in an outlined block. */
     type?: 'default' | 'primary'
     style?: React.CSSProperties
-    wrapperStyle?: React.CSSProperties
+    rowStyle?: React.CSSProperties
     disabled?: boolean
     'data-attr'?: string
 }
@@ -27,7 +28,7 @@ export function LemonSwitch({
     alt,
     type = 'default',
     style,
-    wrapperStyle,
+    rowStyle,
     disabled,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
@@ -59,15 +60,12 @@ export function LemonSwitch({
     )
 
     return label ? (
-        <div
-            className={clsx('LemonSwitch__wrapper', type !== 'default' && `LemonSwitch__wrapper--${type}`)}
-            style={wrapperStyle}
-        >
+        <LemonRow outlined={type === 'primary'} style={rowStyle}>
             <label className="LemonSwitch__label" htmlFor={id}>
                 {label}
             </label>
             {button}
-        </div>
+        </LemonRow>
     ) : (
         button
     )
