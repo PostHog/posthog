@@ -20,7 +20,7 @@ def migrate_domain_whitelist(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0221_add_activity_log_model"),
+        ("posthog", "0222_fix_deleted_primary_dashboards"),
     ]
 
     operations = [
