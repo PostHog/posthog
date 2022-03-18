@@ -169,7 +169,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         justify="space-between"
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
-                        <PageHeader title={'New Experiment'} />
+                        <PageHeader title={'New experiment'} />
                         <Row>
                             <LemonButton
                                 type="secondary"
@@ -370,7 +370,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
 
                                         <Row className="person-selection">
                                             <div className="mb-05">
-                                                <strong>Select Participants</strong>
+                                                <strong>Select participants</strong>
                                             </div>
                                             <Col>
                                                 <div className="text-muted">
@@ -378,7 +378,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
                                                 <div className="mt mb-05">
-                                                    <strong>Participant Type</strong>
+                                                    <strong>Participant type</strong>
                                                 </div>
                                                 <Select
                                                     value={
