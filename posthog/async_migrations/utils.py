@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
+import posthoganalytics
 import structlog
 from constance import config
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -12,8 +14,17 @@ from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
+
+
+def send_analytics_to_posthog(event, data):
+    try:
+        posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+        posthoganalytics.capture(get_machine_id(), event, data, groups={"instance": settings.SITE_URL})
+    except Exception as e:
+        logger.error(f"Async Migrations: Failed to send {event} to posthog error: {e}")
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -60,6 +71,18 @@ def process_error(
         status=status,
         error=error,
         finished_at=now(),
+    )
+    send_analytics_to_posthog(
+        "Async migrations error",
+        {
+            "name": {migration_instance.name},
+            "error": {error},
+            "current_operation_index": {
+                migration_instance.current_operation_index
+                if current_operation_index is None
+                else current_operation_index
+            },
+        },
     )
 
     if alert:
@@ -136,6 +159,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             finished_at=finished_at,
             progress=100,
         )
+        send_analytics_to_posthog("Async migrations completed", {"name": {migration_instance.name}})
 
         if email and async_migrations_emails_enabled():
             from posthog.tasks.email import send_async_migration_complete_email

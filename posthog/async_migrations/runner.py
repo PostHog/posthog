@@ -13,6 +13,7 @@ from posthog.async_migrations.utils import (
     execute_op,
     mark_async_migration_as_running,
     process_error,
+    send_analytics_to_posthog,
     trigger_migration,
     update_async_migration,
 )
@@ -42,6 +43,7 @@ def start_async_migration(
     6. The migration's healthcheck passes
     7. The migration's dependency has been completed
     """
+    send_analytics_to_posthog("Async migrations start", {"name": {migration_name}})
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS
@@ -199,7 +201,9 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
 
             return
 
-    update_async_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
+    update_async_migration(
+        migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0, current_operation_index=0
+    )
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
