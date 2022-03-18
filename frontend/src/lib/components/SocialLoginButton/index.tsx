@@ -1,12 +1,12 @@
 import { Button } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { SSOProviders } from '~/types'
 import { SSOProviderNames } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface SharedProps {
     queryString?: string
