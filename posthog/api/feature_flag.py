@@ -220,7 +220,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
-            detail=Detail(),
+            detail=Detail(name=serializer.instance.key),
         )
 
     def perform_update(self, serializer):
@@ -242,12 +242,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",
-            detail=Detail(changes=changes),
+            detail=Detail(changes=changes, name=serializer.instance.key),
         )
 
     @log_deletion_metadata_to_posthog
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
+        instance: FeatureFlag = self.get_object()
         instance_id = instance.id
 
         instance.delete()
@@ -259,7 +259,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             item_id=instance_id,
             scope="FeatureFlag",
             activity="deleted",
-            detail=Detail(),
+            detail=Detail(name=instance.key),
         )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)

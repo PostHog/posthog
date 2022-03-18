@@ -21,6 +21,7 @@ class Change:
 @dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
+    name: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):

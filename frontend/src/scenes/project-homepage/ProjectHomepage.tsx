@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement, InsightType } from '~/types'
-import { Button, Row, Typography } from 'antd'
+import { Button, Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -53,6 +53,7 @@ export function ProjectHomepage(): JSX.Element {
                     <div>
                         <Row className="homepage-dashboard-header">
                             <div className="dashboard-title-container">
+                                {!dashboard && <Skeleton active paragraph={false} />}
                                 {dashboard?.name && (
                                     <>
                                         <HomeIcon className="mr-05" style={{ width: 18, height: 18 }} />

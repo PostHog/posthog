@@ -13,7 +13,6 @@ import {
     RocketFilled,
     ApiTwoTone,
 } from '@ant-design/icons'
-import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -44,21 +43,21 @@ function PreflightItem({ name, status, caption, failedState }: PreflightItemInte
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    let textColor: string | undefined
+    let textColor: string
     const { preflightLoading } = useValues(preflightLogic)
 
     if (status) {
-        textColor = green.primary
+        textColor = 'var(--success)'
     } else if (status === false) {
         if (failedState === 'warning') {
-            textColor = volcano.primary
+            textColor = 'var(--warning)'
         } else if (failedState === 'not-required') {
-            textColor = grey.primary
+            textColor = 'var(--border-dark)'
         } else {
-            textColor = red.primary
+            textColor = 'var(--danger)'
         }
     } else {
-        textColor = grey.primary
+        textColor = 'var(--border-dark)'
     }
 
     const icon = (): JSX.Element => {
@@ -212,7 +211,7 @@ export function PreflightCheck(): JSX.Element {
                                     <b style={{ fontSize: 16 }}>
                                         <span>
                                             <span
-                                                style={{ color: blue.primary, cursor: 'pointer' }}
+                                                style={{ color: 'var(--primary)', cursor: 'pointer' }}
                                                 onClick={() => setPreflightMode(null)}
                                             >
                                                 Select launch mode
@@ -278,7 +277,7 @@ export function PreflightCheck(): JSX.Element {
                         <>
                             <div className="space-top text-center" data-attr="preflightStatus">
                                 {isReady ? (
-                                    <b style={{ color: green.primary }}>All systems go!</b>
+                                    <b style={{ color: 'var(--success)' }}>All systems go!</b>
                                 ) : (
                                     <b>Checks in progress…</b>
                                 )}

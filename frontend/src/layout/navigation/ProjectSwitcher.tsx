@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import './ProjectSwitcher.scss'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
@@ -19,7 +20,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
-        <div>
+        <div className="project-switcher-container">
             <h5>Projects</h5>
             <LemonSpacer />
             <CurrentProjectButton />
