@@ -41,8 +41,9 @@ export function FunnelTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md) || screens.xl
     useMountedLogic(funnelCommandLogic)
+
+    const isSmallScreen = !screens.xl
 
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
