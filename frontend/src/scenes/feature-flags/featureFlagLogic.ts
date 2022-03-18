@@ -361,6 +361,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
     }),
     events: ({ props, actions }) => ({
         afterMount: () => {
+            console.log({ afterMount: { props } })
             const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
             if (foundFlag) {
                 actions.setFeatureFlag(foundFlag)

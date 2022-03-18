@@ -33,7 +33,7 @@ import { Field } from 'lib/forms/Field'
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }) => ({ id: id ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: { id } }) => ({ id: id && id !== 'new' ? parseInt(id) : 'new' }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -44,7 +44,7 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps: FeatureFlagLogicProps = { id: id ? parseInt(id) : 'new' }
+    const logicProps: FeatureFlagLogicProps = { id: id && id !== 'new' ? parseInt(id) : 'new' }
     const {
         featureFlag,
         multivariateEnabled,
@@ -88,7 +88,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     props={logicProps}
                     formKey="featureFlag"
                     className="ant-form-vertical ant-form-hide-required-mark"
-                    // scrollToFirstError
                 >
                     <PageHeader
                         title="Feature Flag"
