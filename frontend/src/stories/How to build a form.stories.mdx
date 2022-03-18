@@ -4,152 +4,173 @@ import { Meta } from '@storybook/addon-docs';
 
 # How to build a form?
 
-## Problems with forms
+The steps below work, but may change at any moment. All feedback and suggestions welcome!
 
-The current `antd` <-> `kea` data pipe is bad, causing a lot of tiny daily friction if you ever work with it.
-We need a better solution.
+## 1. Start with the data
 
-Kea is actually pretty good with forms. [There is an approach](https://kea-v1.netlify.app/guide/forms)
-I have used in the past with great success, which boils down to: `const createForm = (opts) => formLogic(transform(opts))`, but
-this breaks down in the typescript/typegen days. Luckily, there's a new plugin that looks promising. More below.
+You should always [think data first](https://keajs.org/blog/data-first-frontend-revolution/). Forms are no exception.
+Start by considering which data in which logic you will to expose to a form.
 
-## Current approach
+For example, this `featureFlagLogic` already has a loader called `featureFlag`. Let's use that in a form by
+creating a new `forms` object:
 
-It's rather clunky:
+```ts
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
+    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
+    props: {} as FeatureFlagLogicProps,
+    key: ({ id }) => id ?? 'new',
+
+    loaders: ({ values, props }) => ({
+        featureFlag: [
+            { ...NEW_FLAG } as FeatureFlagModel,
+            {
+                loadFeatureFlag: () => api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+            }
+        ],
+    }),
+
+    forms: ({ actions }) => ({
+        featureFlag: {
+            // not really needed again since loader already defines it
+            defaults: { ...NEW_FLAG } as FeatureFlagModel,
+
+            // sync validation, will be shown as errors in the form
+            validator: (featureFlag) => ({
+                key: !featureFlag.key ? 'Must have a key' : undefined
+            }),
+
+            // called on the form's onSubmit, unless a validation fails
+            submit: (featureFlag) => {
+                actions.saveFeatureFlag(featureFlag)
+            },
+        }
+    })
+})
+```
+
+The code above will add [a few actions, reducers and selectors](https://github.com/keajs/kea-forms/blob/main/src/plugin.ts#L24-L139)
+to `featureFlagLogic`. This is the list as of kea-forms v0.2.1:
 
 ```tsx
-import { Form } from 'antd'
+export interface featureFlagLogicType extends Logic {
+    actions: {
+        // kea-loaders
+        loadFeatureFlag: () => void
+        loadFeatureFlagSuccess: (featureFlag: any, payload?: any) => void
+        loadFeatureFlagFailure: (error: string, errorObject?: any) => void
 
-export function FeatureFlagForm() {
-    const [form] = Form.useForm()
-    const { featureFlag } = useValues(featureFlagLogic)
-    const { setFeatureFlag, submitForm } = useActions(featureFlagLogic)
-    useEffect(() => {
-        form.setFieldsValue({ ...featureFlag })
-    }, [featureFlag])
+        // kea-forms
+        setFeatureFlagValue: (key: FieldName, value: any) => void
+        setFeatureFlagValues: (values: DeepPartial<FeatureFlagType>) => void
+        touchFeatureFlagField: (key: string) => void
+        resetFeatureFlag: (values?: FeatureFlagType) => void
+        submitFeatureFlag: () => void
+        submitFeatureFlagRequest: (featureFlag: FeatureFlagType) => void
+        submitFeatureFlagSuccess: (featureFlag: FeatureFlagType) => void
+        submitFeatureFlagFailure: (error: Error) => void
+    }
+    values: {
+        // kea-loaders
+        featureFlag: FeatureFlagType
+        featureFlagLoading: boolean
+
+        // kea-forms
+        isFeatureFlagSubmitting: boolean
+        showFeatureFlagErrors: boolean
+        featureFlagChanged: boolean
+        featureFlagTouches: Record<string, boolean>
+    }
+}
+```
+
+The latest documentation can be found here: https://github.com/keajs/kea-forms
+
+## 2. Build the interface
+
+With the logic in order, you may now pull in the `<Form />`, `<Field />` and `<Group />` tags to build your form.
+
+```tsx
+import { Form, Group } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
+
+export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+    const logicProps: FeatureFlagLogicProps = { id: id ? parseInt(id) : 'new' }
+    const {
+        featureFlag, // the values in the object are the values in the form
+        isFeatureFlagSubmitting, // if the submit action is doing something
+    } = useValues(featureFlagLogic(logicProps))
+    const {
+        submitFeatureFlag, // if we need to submit it outside the normal form submit
+        setFeatureFlagValue, // if we need to update any field outside the <Field /> tags
+    } = useActions(featureFlagLogic(logicProps))
 
     return (
         <Form
-            layout="vertical"
-            form={form}
-            initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
-            onValuesChange={(newValues) => setFeatureFlag({ ...featureFlag, ...newValues })}
-            onFinish={(values) => submitForm({ ...featureFlag, ...values })}
+            logic={featureFlagLogic}
+            props={logicProps}
+            formKey="featureFlag"
+            // still WIP
+            className="ant-form-vertical ant-form-hide-required-mark"
         >
-            {/* This tag adds antd styling for labels and validation messages */}
-            <Form.Item
-                name="key"
-                label="Key (must be unique)"
-                rules={[
-                    { required: true, message: 'You need to set a key.' },
-                    {
-                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                        message: 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                    },
-                ]}
-                validateStatus={hasKeyChanged ? 'warning' : undefined}
+            <Field name="active">
+                {/* value, onChange, onValueChange, name, label, id */}
+                {({ value, onValueChange }) => (
+                    <LemonSwitch
+                        checked={value}
+                        onChange={onValueChange}
+                        label={
+                            value ? (
+                                <span className="text-success">Enabled</span>
+                            ) : (
+                                <span className="text-danger">Disabled</span>
+                            )
+                        }
+                    />
+                )}
+            </Field>
+
+            <Field name="name" label="Description">
+                {({ value, onChange }) => (
+                    <Input.TextArea
+                        value={value}
+                        onChange={onChange}
+                        className="ph-ignore-input"
+                        data-attr="feature-flag-description"
+                        placeholder="Adding a helpful description can ensure others know what this feature is for."
+                    />
+                )}
+            </Field>
+
+            {featureFlag?.filters?.multivariate?.variants?.map((_, index) => (
+                // using <Group /> to scope the next fields
+                <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
+                    <Field name="name">
+                        {/* This will update featureFlag.filters.multivariate.variants[index].name */}
+                        {/* If you don't specify ({ value, onChange }) => (), we add these two props automatically */}
+                        <Input
+                            data-attr="feature-flag-variant-name"
+                            className="ph-ignore-input"
+                            placeholder="Description"
+                        />
+                    </Form.Item>
+                </Group>
+            )}
+
+            <Button
+                loading={isFeatureFlagSubmitting}
+                icon={<SaveOutlined />}
+                htmlType="submit"
+                type="primary"
+                data-attr="feature-flag-submit-bottom"
             >
-                <Input {/* Automatically gets value and onChange props */}
-                    data-attr="feature-flag-key"
-                    autoFocus
-                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                />
-            </Form.Item>
+                Save changes
+            </Button>
         </Form>
     )
 }
 ```
 
-## New approach
+## 3. Select your components
 
-A while ago I built a new [kea-forms](https://github.com/keajs/kea-forms) plugin (and its kea-typegen sibling), which looks like this:
-
-```tsx
-import { useActions, useValues } from 'kea'
-import { Form, Field } from 'kea-forms'
-
-export interface UserFormType {
-  name: string
-  email: string
-}
-
-export const userFormLogic = kea<userFormLogicType<UserFormType>>({
-  // ... actions, reducers, ...
-
-  forms: {
-    // userForm will be a `value` that'll just hold a regular object
-    // we will generate a bunch of actions and selectors to help with daily form tasks
-    userForm: {
-      defaults: {
-        name: '',
-        email: '',
-      } as UserFormType,
-      validator: (values) => ({
-        name: !values.name && 'Please enter a name',
-        email: !values.email
-          ? 'Please enter an email'
-          : !validateEmail(values.email)
-          ? 'Please enter a valid email'
-          : null,
-      }),
-      submit: (formValues) => {
-        console.log('submitting!', formValues)
-      },
-    },
-  },
-
-  // ... other listeners, etc
-})
-function MyForm() {
-  const { isUserFormSubmitting } = useValues(userFormLogic)
-  const { setUserFormValue } = useActions(userFormLogic)
-
-  return(
-    <div>
-      <p>Demonstrating a simple form below</p>
-      <Form logic={userFormLogic} form="userForm">
-        <Field name="name" label="Name">
-          {/* "value" and "onChange" added automatically like in antd */}
-          <input className="form-input" />
-          {/* no label or validation styles yet */}
-        </Field>
-
-        <button type="button" onClick={() => setUserFormValue('guest', '')}>No Guest</button>
-        <button type="button" onClick={() => setUserFormValue('guest', 'Other Name')}>Other Guest</button>
-
-        <Field name="subscribe">
-          {({ onChange, value }) => (
-            <label>
-              <input type="checkbox" onChange={(e) => onChange(e.target.checked)} value={value} /> Subscribe to our
-              newsletter!!
-            </label>
-          )}
-        </Field>
-
-        <div>
-          <input type="submit" value={isUserFormSubmitting ? '... ' : 'Submit Form!'} className="form-submit" />
-        </div>
-      </Form>
-    </div>
-  )
-}
-```
-
-## What stalled it?
-
-I wanted the `value` to be typed to the right type, depending on the field's name. That's not possible with global `Field`
-tags. I have a [WIP solution](https://github.com/keajs/kea-forms/compare/changes) here that uses `const { Form, Field } = useForm(formsLogic, 'userForm')`
-to get the typing right, but never finished it.
-
-This fell on the backburner shortly after. There's no reason we can't pick this up.
-
-We also need a standardised set of components for displaying error, validation, hint, etc states. These should be copied from antd initially.
-
-## What's next?
-
-Somebody needs to integrate it into PostHog and just start using it. Then we'll figure out the next steps like standardised
-components, etc.
-
-Demo here:
-- https://github.com/keajs/kea-forms/blob/main/demo/src/forms/Forms.tsx
-- https://github.com/keajs/kea-forms/blob/main/demo/src/forms/formsLogic.ts
+The (WIP) list of form elements in storybook should serve as your guide.

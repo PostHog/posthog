@@ -7,6 +7,7 @@ import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/components/lemonToast'
 import { subscriptionsPlugin } from '~/subscriptionsPlugin'
+import { formsPlugin } from 'kea-forms'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -54,6 +55,7 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                     segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
                 },
             }),
+            formsPlugin,
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
