@@ -1352,7 +1352,7 @@ export interface LicenseType {
     key: string
     plan: LicensePlan
     valid_until: string
-    max_users: string | null
+    max_users: number | null
     created_at: string
 }
 
@@ -1399,6 +1399,7 @@ export interface PropertyDefinition {
 }
 
 export interface PersonProperty {
+    id: number
     name: string
     count: number
 }
