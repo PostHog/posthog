@@ -13,11 +13,7 @@ export interface ActivityLogProps {
     id?: number
 }
 
-const Empty = (): JSX.Element => (
-    <div className="activity-log activity-log__loader">
-        <div className="text-muted">There is no history for this item</div>
-    </div>
-)
+const Empty = (): JSX.Element => <div className="text-muted">There is no history for this item</div>
 
 const SkeletonLog = (): JSX.Element => {
     return (
@@ -44,30 +40,27 @@ const Loading = (): JSX.Element => {
 export const ActivityLog = ({ scope, id }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id })
     const { activity, activityLoading } = useValues(logic)
-    console.log({ activityLoading })
+
+    const activityRows = activity.map((logItem, index) => {
+        return (
+            <div className={'activity-log-row'} key={index}>
+                <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+                <div className="details">
+                    <div>
+                        <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
+                    </div>
+                    <div className={'text-muted'}>
+                        <TZLabel time={logItem.created_at} />
+                    </div>
+                </div>
+            </div>
+        )
+    })
+
     return (
         <div className={clsx('activity-log', activityLoading && 'activity-log__loading')}>
-            {activity && activity.length ? (
-                activity.map((logItem, index) => {
-                    return (
-                        <div className={'activity-log-row'} key={index}>
-                            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
-                            <div className="details">
-                                <div>
-                                    <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
-                                </div>
-                                <div className={'text-muted'}>
-                                    <TZLabel time={logItem.created_at} />
-                                </div>
-                            </div>
-                        </div>
-                    )
-                })
-            ) : activityLoading ? (
-                <Loading />
-            ) : (
-                <Empty />
-            )}
+            <div className="activity-log__loader" />
+            {activityLoading ? <Loading /> : activity.length > 0 ? { activityRows } : <Empty />}
         </div>
     )
 }

@@ -2,7 +2,7 @@
 
 .activity-log {
     position: relative;
-    min-height: 0.25rem;
+    min-height: $default_spacing;
 
     .activity-log-row {
         display: flex;
@@ -29,7 +29,7 @@
     position: absolute;
     left: 0;
     top: 0;
-    margin-top: -$default_spacing;
+    margin-top: -$default_spacing * 2;
     width: 100%;
     height: 0;
     background: var(--primary-bg-active);
