@@ -30,6 +30,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
+import { newDashboardForm } from 'scenes/dashboard/newDashboardForm'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -526,7 +527,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
+                success: (name: string) => {
+                    newDashboardForm.actions.addDashboard({ name })
+                },
             })
         },
         [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
