@@ -190,7 +190,12 @@ export const insightLogic = kea<insightLogicType>({
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
-                    if (insightSceneLogic.values.insightMode === ItemMode.Edit) {
+                    const editMode =
+                        insightSceneLogic.isMounted() &&
+                        insightSceneLogic.values.insight === values.insight &&
+                        insightSceneLogic.values.insightMode === ItemMode.Edit
+
+                    if (editMode) {
                         return { ...values.insight, ...metadata }
                     }
 
@@ -528,10 +533,15 @@ export const insightLogic = kea<insightLogicType>({
             const changedKeysObj: Record<string, any> | undefined =
                 previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
+            const insightMode =
+                insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
+                    ? insightSceneLogic.values.insightMode
+                    : ItemMode.View
+
             eventUsageLogic.actions.reportInsightViewed(
                 values.insight,
                 filters || {},
-                insightSceneLogic.values.insightMode,
+                insightMode,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 0,
@@ -543,7 +553,7 @@ export const insightLogic = kea<insightLogicType>({
             eventUsageLogic.actions.reportInsightViewed(
                 values.insight,
                 filters || {},
-                insightSceneLogic.values.insightMode,
+                insightMode,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 10,
@@ -647,7 +657,7 @@ export const insightLogic = kea<insightLogicType>({
                 { fromPersistentApi: true }
             )
             if (setViewMode) {
-                insightSceneLogic.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             }
             lemonToast.success('Insight saved', {
                 button: {
