@@ -37,10 +37,12 @@ files for mocked data, create a `__mocks__` subdirectory for those files, just l
 
 ```tsx
 // frontend/src/scenes/dashboard/Dashboard.stories.tsx
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { Dashboard } from '../Dashboard'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { Dashboard } from './Dashboard'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export default {
     title: 'Scenes/Dashboard',
@@ -61,7 +63,7 @@ export default {
 export function Dashboard (): JSX.Element {
     // mocks used only in this story
     useStorybookMocks({
-        get: { '/api/projects/dashboard2/': { success: true } },
+        get: { '/api/projects/dashboard/2/': { success: true } },
     })
     useEffect(() => {
         // change the URL
@@ -69,7 +71,7 @@ export function Dashboard (): JSX.Element {
         // call various other actions to set the initial state
         dashboardModel.actions.doSomething()
     }, [])
-    return return <Dashboard id={'1'} />
+    return <Dashboard id={'1'} />
 }
 ```
 
