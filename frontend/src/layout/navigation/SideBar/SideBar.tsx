@@ -216,6 +216,7 @@ function Pages(): JSX.Element {
                         icon={<EventStackGearIcon />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
+                        highlight="beta"
                     />
                     <PageButton
                         icon={<IconPerson />}
