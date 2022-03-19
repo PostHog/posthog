@@ -1,6 +1,9 @@
 @import '~/vars.scss';
 
 .activity-log {
+    position: relative;
+    min-height: 0.25rem;
+
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
@@ -17,5 +20,31 @@
             flex-grow: 1;
             margin-left: $default_spacing / 2;
         }
+    }
+}
+
+/* duplicated from LemonTable__loader */
+.activity-log__loader {
+    transition: height 200ms ease, top 200ms ease;
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin-top: -$default_spacing;
+    width: 100%;
+    height: 0;
+    background: var(--primary-bg-active);
+    overflow: hidden;
+    &::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 50%;
+        height: 100%;
+        animation: loading-bar 1.5s linear infinite;
+        background: var(--primary);
+    }
+    .activity-log__loading & {
+        height: 0.25rem;
     }
 }
