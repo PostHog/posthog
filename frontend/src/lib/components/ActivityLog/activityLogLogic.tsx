@@ -26,9 +26,4 @@ export const activityLogLogic = kea<activityLogLogicType<ActivityLogLogicProps>>
             },
         ],
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.fetchActivity()
-        },
-    }),
 })

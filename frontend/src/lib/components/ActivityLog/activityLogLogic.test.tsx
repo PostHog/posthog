@@ -39,7 +39,7 @@ const aHumanizedPageOfHistory: HumanizedActivityLogItem[] = [
     },
 ]
 
-describe('the history list logic', () => {
+describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
     registerActivityDescriptions({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
 
@@ -60,10 +60,14 @@ describe('the history list logic', () => {
         })
 
         it('can load a page of history', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-                activity: aHumanizedPageOfHistory,
+            await expectLogic(logic, () => {
+                logic.actions.fetchActivity()
             })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    activityLoading: false,
+                    activity: aHumanizedPageOfHistory,
+                })
         })
     })
     describe('when scoped by ID', () => {
@@ -83,10 +87,14 @@ describe('the history list logic', () => {
         })
 
         it('can load a page of history', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                activityLoading: false,
-                activity: aHumanizedPageOfHistory,
+            await expectLogic(logic, () => {
+                logic.actions.fetchActivity()
             })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    activityLoading: false,
+                    activity: aHumanizedPageOfHistory,
+                })
         })
     })
 })
