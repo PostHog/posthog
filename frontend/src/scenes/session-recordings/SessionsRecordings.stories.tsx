@@ -1,14 +1,14 @@
-// Recordings.stories.tsx
 import { Meta } from '@storybook/react'
-import { SessionsRecordings } from './SessionRecordings'
 import recordings from './__mocks__/recordings.json'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { App } from 'scenes/App'
 
-// some metadata and optional parameters
 export default {
     title: 'Scenes/Recordings',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
@@ -18,5 +18,9 @@ export default {
     ],
 } as Meta
 
-// export more stories with different state
-export const Default = (): JSX.Element => <SessionsRecordings />
+export function RecordingsList(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.sessionRecordings())
+    }, [])
+    return <App />
+}

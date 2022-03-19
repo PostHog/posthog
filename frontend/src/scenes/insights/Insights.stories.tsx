@@ -6,7 +6,7 @@ import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene
 
 export default {
     title: 'Scenes/Insights',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {

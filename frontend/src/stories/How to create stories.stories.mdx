@@ -40,7 +40,7 @@ files for mocked data, create a `__mocks__` subdirectory for those files, just l
 import React, { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { Dashboard } from './Dashboard'
+import { App } from 'scenes/App'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -57,7 +57,7 @@ export default {
         }),
     ],
     // NB! These `parameters` only apply for Scene stories.
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' }, // scene mode
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' }, // scene mode
 } as Meta
 
 export function Dashboard (): JSX.Element {
@@ -71,7 +71,7 @@ export function Dashboard (): JSX.Element {
         // call various other actions to set the initial state
         dashboardModel.actions.doSomething()
     }, [])
-    return <Dashboard id={'1'} />
+    return <App />
 }
 ```
 

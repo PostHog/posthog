@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { SavedInsights } from './SavedInsights'
+import { App } from 'scenes/App'
 import insightsJson from './__mocks__/insights.json'
 
 import React, { useEffect } from 'react'
@@ -15,7 +15,7 @@ const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
 export default {
     title: 'Scenes/Saved Insights',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
@@ -36,12 +36,12 @@ export const ListView = (): JSX.Element => {
     useEffect(() => {
         router.actions.push('/insights')
     })
-    return <SavedInsights />
+    return <App />
 }
 
 export const CardView = (): JSX.Element => {
     useEffect(() => {
         router.actions.push('/insights?layoutView=card')
     })
-    return <SavedInsights />
+    return <App />
 }

@@ -1,7 +1,9 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
-import { Dashboard } from './Dashboard'
+import { App } from 'scenes/App'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export default {
     title: 'Scenes/Dashboard',
@@ -14,9 +16,12 @@ export default {
             },
         }),
     ],
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 export const Default = (): JSX.Element => {
-    return <Dashboard id={'1'} />
+    useEffect(() => {
+        router.actions.push(urls.dashboard(1))
+    }, [])
+    return <App />
 }
