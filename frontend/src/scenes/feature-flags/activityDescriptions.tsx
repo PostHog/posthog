@@ -94,7 +94,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): (string | JSX.E
     if (logItem.activity == 'updated') {
         ;(logItem.detail.changes || []).forEach((change) => {
             if (!change?.field) {
-                return
+                return // model changes have to have a "field" to be described
             }
 
             descriptions.push(featureFlagActionsMapping[change?.field](logItem, change))
