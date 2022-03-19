@@ -24,16 +24,22 @@ export const handlers = mocksToHandlers({
         '/api/projects/:team_id/property_definitions/': API_NOOP,
         '/api/projects/:team_id/feature_flags/': API_NOOP,
         '/api/projects/:team_id/explicit_members/': [],
-        '/api/organizations/@current/': { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
+        '/api/organizations/@current/': () => [
+            200,
+            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
+        ],
         '/api/organizations/@current/members/': apiResults([MOCK_DEFAULT_ORGANIZATION_MEMBER]),
         '/api/organizations/@current/invites/': apiResults([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/person/properties/': apiResults(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
         '/api/license/': apiResults([MOCK_DEFAULT_LICENSE]),
-        '/api/users/@me/': {
-            organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
-            team: MOCK_DEFAULT_TEAM,
-        },
+        '/api/users/@me/': () => [
+            200,
+            {
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getFeatures() },
+                team: MOCK_DEFAULT_TEAM,
+            },
+        ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),

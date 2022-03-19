@@ -8,9 +8,19 @@ import {
     TeamType,
 } from '~/types'
 import { OrganizationMembershipLevel } from './constants'
+import apiReal from 'lib/api'
 
 export const MOCK_TEAM_ID: TeamType['id'] = 997
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
+
+type APIMockReturnType = {
+    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
+        ReturnType<typeof apiReal[K]>,
+        Parameters<typeof apiReal[K]>
+    >
+}
+
+export const api = apiReal as any as APIMockReturnType
 
 export const MOCK_DEFAULT_TEAM: Partial<TeamType> = {
     id: MOCK_TEAM_ID,

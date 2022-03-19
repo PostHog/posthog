@@ -1,5 +1,5 @@
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import { api } from 'lib/api.mock'
+import api from 'lib/api'
 import {
     mockActionDefinition,
     mockCohort,
