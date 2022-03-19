@@ -460,7 +460,13 @@ export const insightLogic = kea<insightLogicType>({
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
-        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
+        isViewedOnDashboard: [
+            () => [router.selectors.location],
+            ({ pathname }) =>
+                pathname.startsWith('/dashboard') ||
+                pathname.startsWith('/home') ||
+                pathname.startsWith('/shared-dashboard'),
+        ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
@@ -529,36 +535,38 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            const { fromDashboard } = router.values.hashParams
-            const changedKeysObj: Record<string, any> | undefined =
-                previousFilters && extractObjectDiffKeys(previousFilters, filters)
+            if (!values.isViewedOnDashboard) {
+                const { fromDashboard } = router.values.hashParams
+                const changedKeysObj: Record<string, any> | undefined =
+                    previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
-            const insightMode =
-                insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
-                    ? insightSceneLogic.values.insightMode
-                    : ItemMode.View
+                const insightMode =
+                    insightSceneLogic.isMounted() && insightSceneLogic.values.insight === values.insight
+                        ? insightSceneLogic.values.insightMode
+                        : ItemMode.View
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                0,
-                changedKeysObj
-            )
-            actions.setNotFirstLoad()
-            await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    0,
+                    changedKeysObj
+                )
+                actions.setNotFirstLoad()
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                10,
-                changedKeysObj
-            )
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    10,
+                    changedKeysObj
+                )
+            }
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
