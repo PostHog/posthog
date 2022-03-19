@@ -1,20 +1,12 @@
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { AppContext } from '~/types'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-export const storybookAppContext: AppContext = {
-    // @ts-ignore
-    current_team: {
-        effective_membership_level: OrganizationMembershipLevel.Owner,
-        completed_snippet_onboarding: true,
-        id: 1,
-    },
-    current_user: {
-        // @ts-ignore
-        organization: {
-            membership_level: OrganizationMembershipLevel.Owner,
-            available_features: [],
-        },
-    },
+export const getStorybookAppContext = (): AppContext => ({
+    anonymous: false,
+    current_team: MOCK_DEFAULT_TEAM,
+    current_user: undefined as any, // undefined triggers a fetch and lets us mock the data
     default_event_name: '$pageview',
     persisted_feature_flags: [],
-}
+    preflight: null as any, // null triggers a fetch and lets us mock the data
+    switched_team: null,
+})

@@ -11,12 +11,12 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 export default {
-    title: 'Scenes/Web Performance',
+    title: 'Scenes-App/Web Performance',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/1/events': {
+                '/api/projects/:projectId/events': {
                     results: eventsResponse,
                 },
             },

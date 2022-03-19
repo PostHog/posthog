@@ -11,7 +11,7 @@ import { App } from 'scenes/App'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Insights/Error states',
+    title: 'Scenes-App/Insights/Error states',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
@@ -54,7 +54,7 @@ export function TimeoutState(): JSX.Element {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
-            '/api/projects/1/insights/trend/': (_, __, ctx) => [
+            '/api/projects/:projectId/insights/trend/': (_, __, ctx) => [
                 ctx.delay(86400000),
                 ctx.status(200),
                 ctx.json({ result: insight.result }),

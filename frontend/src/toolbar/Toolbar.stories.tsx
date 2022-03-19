@@ -20,7 +20,7 @@ const editorParams: EditorProps = {
 }
 
 export default {
-    title: 'Scenes/Toolbar',
+    title: 'Scenes-Other/Toolbar',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 

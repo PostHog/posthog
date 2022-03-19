@@ -14,12 +14,12 @@ import funnelTopToBottom from '../insights/__mocks__/funnelTopToBottom.json'
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
 export default {
-    title: 'Scenes/Saved Insights',
+    title: 'Scenes-App/Saved Insights',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/1/insights': {
+                '/api/projects/:projectId/insights': {
                     ...insightsJson,
                     results: insightsJson.results.map((result, i) => ({
                         ...result,

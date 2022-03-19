@@ -1,16 +1,22 @@
 import {
+    CohortType,
     LicensePlan,
     LicenseType,
     OrganizationInviteType,
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
+    PropertyOperator,
     TeamType,
+    UserBasicType,
+    UserType,
 } from '~/types'
-import { OrganizationMembershipLevel } from './constants'
+import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
 import apiReal from 'lib/api'
 
+export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
 export const MOCK_TEAM_ID: TeamType['id'] = 997
+export const MOCK_TEAM_UUID: TeamType['uuid'] = 'TEAM_UUID'
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 type APIMockReturnType = {
@@ -22,24 +28,86 @@ type APIMockReturnType = {
 
 export const api = apiReal as any as APIMockReturnType
 
-export const MOCK_DEFAULT_TEAM: Partial<TeamType> = {
+export const MOCK_DEFAULT_TEAM: TeamType = {
     id: MOCK_TEAM_ID,
-    ingested_event: true,
+    uuid: MOCK_TEAM_UUID,
+    organization: MOCK_ORGANIZATION_ID,
+    api_token: 'default-team-api-token',
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
+    name: 'MockHog App + Marketing',
+    slack_incoming_webhook: '',
+    created_at: '2020-06-30T09:53:35.932534Z',
+    updated_at: '2022-03-17T16:09:21.566252Z',
+    anonymize_ips: false,
     completed_snippet_onboarding: true,
+    ingested_event: true,
+    test_account_filters: [
+        { key: 'email', type: 'person', value: 'posthog.com', operator: PropertyOperator.NotIContains },
+    ],
+    path_cleaning_filters: [],
+    is_demo: false,
+    timezone: 'Europe/Brussels',
+    data_attributes: ['data-attr'],
+    correlation_config: {
+        excluded_event_names: ['$autocapture', '$capture_metrics', '$feature_flag_called', '$groupidentify'],
+        excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],
+        excluded_person_property_names: ['$browser_version'],
+    },
+    session_recording_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    access_control: true,
+    has_group_types: true,
+    primary_dashboard: 20464,
 }
 
-export const MOCK_DEFAULT_ORGANIZATION: Partial<OrganizationType> = {
+export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     id: MOCK_ORGANIZATION_ID,
+    name: 'MockHog',
+    slug: 'mockhog-fstn',
+    created_at: '2020-09-24T15:05:01.254111Z',
+    updated_at: '2022-01-03T13:50:55.369557Z',
     membership_level: OrganizationMembershipLevel.Admin,
+    plugins_access_level: PluginsAccessLevel.Root,
+    teams: [MOCK_DEFAULT_TEAM],
+    available_features: [],
+    is_member_join_email_enabled: true,
+    metadata: {
+        taxonomy_set_events_count: 60,
+        taxonomy_set_properties_count: 17,
+    },
 }
 
-export const MOCK_DEFAULT_BASIC_USER = {
+export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
     id: 178,
-    uuid: '99952779-ee06-43d5-b441-8af718b10d65',
+    uuid: MOCK_USER_UUID,
     distinct_id: 'mock-user-178-distinct-id',
     first_name: 'John',
     email: 'john.doe@posthog.com',
+}
+
+export const MOCK_DEFAULT_USER: UserType = {
+    date_joined: '2022-03-11T13:03:32.333971Z',
+    uuid: MOCK_USER_UUID,
+    distinct_id: 'mock-user-178-distinct-id',
+    first_name: 'John',
+    email: 'john.doe@posthog.com',
+    email_opt_in: true,
+    anonymize_data: false,
+    toolbar_mode: 'toolbar',
+    has_password: true,
+    is_staff: true,
+    is_impersonated: false,
+    team: MOCK_DEFAULT_TEAM,
+    organization: MOCK_DEFAULT_ORGANIZATION,
+    organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
+        id,
+        name,
+        slug,
+        membership_level,
+    })),
+    events_column_config: {
+        active: 'DEFAULT',
+    },
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
@@ -76,3 +144,9 @@ export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [
     { id: 3, name: 'height', count: 3 },
     { id: 4, name: '$browser', count: 4 },
 ]
+
+export const MOCK_DEFAULT_COHORT: CohortType = {
+    id: 1,
+    name: 'Paying Users',
+    groups: [],
+}

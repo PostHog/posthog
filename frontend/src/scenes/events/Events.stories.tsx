@@ -8,10 +8,10 @@ import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 
 export default {
-    title: 'Scenes/Events',
+    title: 'Scenes-App/Events',
     decorators: [
         mswDecorator({
-            get: { '/api/projects/1/events': { next: null, results: eventList } },
+            get: { '/api/projects/:projectId/events': { next: null, results: eventList } },
         }),
     ],
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },

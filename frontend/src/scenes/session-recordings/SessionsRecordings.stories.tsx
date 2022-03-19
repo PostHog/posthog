@@ -7,12 +7,12 @@ import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 
 export default {
-    title: 'Scenes/Recordings',
+    title: 'Scenes-App/Recordings',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/1/session_recordings': { results: recordings },
+                '/api/projects/:projectId/session_recordings': { results: recordings },
             },
         }),
     ],

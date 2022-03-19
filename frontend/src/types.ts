@@ -95,7 +95,7 @@ export interface UserType extends UserBaseType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
-    realm: Realm
+    realm?: Realm
     posthog_version?: string
 }
 
@@ -221,6 +221,8 @@ export interface TeamBasicType {
 }
 
 export interface TeamType extends TeamBasicType {
+    created_at: string
+    updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
     slack_incoming_webhook: string
