@@ -230,12 +230,16 @@ export function ProjectSettings(): JSX.Element {
                     Authorized URLs
                 </h2>
                 <p>
-                    These are the URLs where the <b>Toolbar will automatically launch</b> (if you're logged in) and
-                    where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
+                    These are the URLs where the{' '}
+                    <b>
+                        <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    </b>{' '}
+                    (if you're logged in) and where we'll <b>record sessions</b> (if{' '}
+                    <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
-                    <b>Domans and wilcard subdomains are allowed</b>: <code>https://*.example.com</code> You cannot use
-                    wildcard top-level domains as this could present a security risk.
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
