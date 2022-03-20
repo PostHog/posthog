@@ -165,9 +165,10 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com",},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "alpha-feature"},
+                    "detail": {"changes": None, "name": "alpha-feature", "short_id": None},
                 }
             ],
         )
@@ -365,6 +366,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
@@ -399,14 +401,16 @@ class TestFeatureFlag(APIBaseTest):
                             },
                         ],
                         "name": "a-feature-flag-that-is-updated",
+                        "short_id": None,
                     },
                 },
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated"},
+                    "detail": {"changes": None, "name": "a-feature-flag-that-is-updated", "short_id": None},
                 },
             ],
         )
@@ -488,6 +492,7 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "updated",
+                    "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
@@ -501,14 +506,16 @@ class TestFeatureFlag(APIBaseTest):
                             }
                         ],
                         "name": "feature_with_activity",
+                        "short_id": None,
                     },
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
                     "activity": "created",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "name": "feature_with_activity"},
+                    "detail": {"changes": None, "name": "feature_with_activity", "short_id": None},
                 },
             ],
         )
