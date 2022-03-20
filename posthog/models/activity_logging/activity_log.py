@@ -3,11 +3,14 @@ import json
 from datetime import datetime
 from typing import Any, List, Literal, Optional, Union
 
+import structlog
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,15 +110,18 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
-    ActivityLog.objects.create(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        item_id=str(item_id),
-        scope=scope,
-        activity=activity,
-        detail=detail,
-    )
+    try:
+        ActivityLog.objects.create(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=str(item_id),
+            scope=scope,
+            activity=activity,
+            detail=detail,
+        )
+    except Exception as e:
+        logger.warn("failed to write activity log", scope=scope, team=team_id, exception=e, activity=activity)
 
 
 def load_activity(scope: Literal["FeatureFlag", "Insight"], team_id: int, item_id: Optional[int] = None):
