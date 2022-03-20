@@ -17,7 +17,7 @@ export interface NewDashboardForm {
 
 const defaultFormValues: NewDashboardForm = {
     name: '',
-    show: false,
+    show: true,
     useTemplate: '',
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }

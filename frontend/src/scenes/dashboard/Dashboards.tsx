@@ -246,7 +246,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'New Dashboard',
-                                        show: true,
                                         useTemplate: '',
                                     })
                                 }
@@ -264,7 +263,6 @@ export function Dashboards(): JSX.Element {
                                 onClick={() =>
                                     addDashboard({
                                         name: 'Web App Dashboard',
-                                        show: true,
                                         useTemplate: 'DEFAULT_APP',
                                     })
                                 }

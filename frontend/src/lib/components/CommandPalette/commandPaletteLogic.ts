@@ -689,7 +689,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        newDashboardForm.actions.addDashboard({ name: argument, show: true })
+                                        newDashboardForm.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }
