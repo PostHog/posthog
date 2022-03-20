@@ -79,7 +79,7 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(logged_warning["levelname"], "WARNING")
             self.assertEqual(logged_warning["msg"]["event"], "failed to write activity log")
             self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], self.team.id)
+            self.assertEqual(logged_warning["msg"]["team"], 1)
             self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
             self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
 
