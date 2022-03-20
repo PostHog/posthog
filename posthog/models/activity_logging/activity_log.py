@@ -1,5 +1,6 @@
 import dataclasses
 import json
+from datetime import datetime
 from typing import Any, List, Literal, Optional, Union
 
 from django.db import models
@@ -11,7 +12,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag"]
+    type: Literal["FeatureFlag", "Insight"]
     action: Literal["changed", "created", "deleted"]
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -22,6 +23,7 @@ class Change:
 class Detail:
     changes: Optional[List[Change]] = None
     name: Optional[str] = None
+    short_id: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
@@ -30,6 +32,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.__dict__
         if isinstance(obj, Change):
             return obj.__dict__
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, User):
+            return {"first_name": obj.first_name, "email": obj.email}
 
         return json.JSONEncoder.default(self, obj)
 
@@ -64,7 +70,7 @@ class ActivityLog(UUIDModel):
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag"], previous: Optional[models.Model], current: Optional[models.Model]
+    model_type: Literal["FeatureFlag", "Insight"], previous: Optional[models.Model], current: Optional[models.Model]
 ) -> List[Change]:
     """
     Identifies changes between two models by comparing fields
@@ -112,12 +118,14 @@ def log_activity(
     )
 
 
-def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: int):
+def load_activity(scope: Literal["FeatureFlag", "Insight"], team_id: int, item_id: Optional[int] = None):
     # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
-    activities = list(
-        ActivityLog.objects.select_related("user")
-        .filter(team_id=team_id, scope=scope, item_id=item_id)
-        .order_by("-created_at")[:10]
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
+
+    if item_id is not None:
+        activity_query.filter(item_id=item_id)
+    activities = list(activity_query[:10])
 
     return activities

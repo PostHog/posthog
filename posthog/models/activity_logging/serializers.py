@@ -21,6 +21,7 @@ class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
     name = serializers.CharField(read_only=True)
+    short_id = serializers.CharField(read_only=True)
 
 
 class ActivityLogSerializer(serializers.Serializer):
@@ -32,3 +33,4 @@ class ActivityLogSerializer(serializers.Serializer):
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
     detail = DetailSerializer()
+    created_at = serializers.DateTimeField(read_only=True)

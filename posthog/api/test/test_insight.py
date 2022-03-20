@@ -1,5 +1,7 @@
+import datetime
 import json
 from datetime import timedelta
+from typing import Dict, List, Optional
 from unittest.case import skip
 from unittest.mock import patch
 from uuid import uuid4
@@ -276,11 +278,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 20)
 
+    @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
+                "name": "a created dashboard",
                 "filters": {
                     "events": [{"id": "$pageview"}],
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -289,8 +293,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["description"], None)
-        self.assertEqual(response.json()["tags"], [])
+        response_data = response.json()
+        self.assertEqual(response_data["description"], None)
+        self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
         self.assertEqual(len(objects), 1)
@@ -298,25 +303,133 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
+        self.assert_insight_activity(
+            response_data["id"],
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(response_data["id"]),
+                    "detail": {"changes": None, "name": "a created dashboard", "short_id": response_data["short_id"]},
+                }
+            ],
+        )
+
     def test_update_insight(self):
-        insight = Insight.objects.create(team=self.team, name="special insight", created_by=self.user,)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "insight new name", "description": "Internal system metrics.",},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/insights",
+                data={"name": "insight new name", "description": "Internal system metrics.",},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 
-        response_data = response.json()
-        self.assertEqual(response_data["name"], "insight new name")
-        self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-        self.assertEqual(response_data["description"], "Internal system metrics.")
-        self.assertEqual(
-            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+            insight_id = create_response.json()["id"]
+            short_id = create_response.json()["short_id"]
 
-        insight.refresh_from_db()
-        self.assertEqual(insight.name, "insight new name")
+            frozen_time.tick(delta=datetime.timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"name": "insight new name", "description": "Internal system metrics.",},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+            self.assertEqual(response_data["description"], "Internal system metrics.")
+            self.assertEqual(
+                response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            )
+            self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+
+        self.assertEqual(response.json()["name"], "insight new name")
+
+        self.assert_insight_activity(
+            insight_id,
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "created_at": "2012-01-14T03:31:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "last_modified_at",
+                                "before": "2012-01-14T03:21:34+00:00",
+                                "after": "2012-01-14T03:31:34+00:00",
+                            },
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "updated_at",
+                                "before": "2012-01-14T03:21:34+00:00",
+                                "after": "2012-01-14T03:31:34+00:00",
+                            },
+                        ],
+                        "name": "insight new name",
+                        "short_id": short_id,
+                    },
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                },
+            ],
+        )
+
+    def test_hard_delete_insight(self):
+        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/insights",
+                data={"name": "insight new name", "description": "Internal system metrics.",},
+            )
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+            insight_id = create_response.json()["id"]
+            short_id = create_response.json()["short_id"]
+
+            frozen_time.tick(delta=datetime.timedelta(minutes=10))
+
+            response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        self.assert_insight_activity(
+            insight_id=None,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "deleted",
+                    "created_at": "2012-01-14T03:31:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {"changes": None, "name": "insight new name", "short_id": short_id},
+                },
+            ],
+        )
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -751,3 +864,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         # self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_capture_exception.call_count, 0, patch_capture_exception.call_args_list)
+
+    def _get_insight_activity(
+        self, insight_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        if insight_id is None:
+            url = f"/api/projects/{team_id}/insights/activity"
+        else:
+            url = f"/api/projects/{team_id}/insights/{insight_id}/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_insight_activity(self, insight_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_insight_activity(insight_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
+        )

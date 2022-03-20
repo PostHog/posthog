@@ -8,7 +8,7 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -48,6 +48,8 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Filter, Insight, Team
+from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -158,15 +160,45 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard_item)
+
+        log_activity(
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=team.id,
+            user=self.context["request"].user,
+            item_id=dashboard_item.id,
+            scope="Insight",
+            activity="created",
+            detail=Detail(name=dashboard_item.name, short_id=dashboard_item.short_id),
+        )
         return dashboard_item
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
+        try:
+            before_update = Insight.objects.get(pk=instance.id)
+        except Insight.DoesNotExist:
+            before_update = None
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
-        return super().update(instance, validated_data)
+
+        updated_insight = super().update(instance, validated_data)
+
+        changes = changes_between("Insight", previous=before_update, current=updated_insight)
+
+        log_activity(
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            item_id=updated_insight.id,
+            scope="Insight",
+            activity="updated",
+            detail=Detail(name=updated_insight.name, changes=changes, short_id=updated_insight.short_id),
+        )
+
+        return updated_insight
 
     def get_result(self, insight: Insight):
         if not insight.filters:
@@ -455,6 +487,45 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+    def destroy(self, request, *args, **kwargs):
+        instance: Insight = self.get_object()
+        instance_id = instance.id
+        instance_short_id = instance.short_id
+
+        instance.delete()
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=request.user,
+            item_id=instance_id,
+            scope="Insight",
+            activity="deleted",
+            detail=Detail(name=instance.name, short_id=instance_short_id),
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        activity = load_activity(scope="Insight", team_id=self.team_id)
+        return Response(
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        item_id = kwargs["pk"]
+        if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id,)
+        return Response(
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
 
 
 class LegacyInsightViewSet(InsightViewSet):
