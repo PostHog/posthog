@@ -44,8 +44,9 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
-    const { authenticate } = useActions(loginLogic)
-    const { authenticateResponseLoading, authenticateResponse } = useValues(loginLogic)
+    const { authenticate, precheck } = useActions(loginLogic)
+    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -92,15 +93,18 @@ export function Login(): JSX.Element {
                                     data-attr="login-email"
                                     placeholder="email@yourcompany.com"
                                     type="email"
+                                    onBlur={() => precheck({ email: form.getFieldValue('email') })}
                                 />
                             </Form.Item>
-                            <PasswordInput />
+                            <div className={clsx('password-wrapper', !precheckResponse && 'hidden')}>
+                                <PasswordInput />
+                            </div>
                             <Form.Item>
                                 <Button
                                     className="btn-bridge"
                                     htmlType="submit"
                                     data-attr="password-signup"
-                                    loading={authenticateResponseLoading}
+                                    loading={authenticateResponseLoading || precheckResponseLoading}
                                     block
                                 >
                                     Login

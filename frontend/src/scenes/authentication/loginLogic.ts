@@ -2,11 +2,16 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
+import { SSOProviders } from '~/types'
 
 interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
+}
+
+interface PrecheckResponseType {
+    sso_enforcement: SSOProviders | null
 }
 
 export function afterLoginRedirect(): string {
@@ -20,9 +25,15 @@ export function afterLoginRedirect(): string {
     return location.origin
 }
 
-export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
+export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
     path: ['scenes', 'authentication', 'loginLogic'],
     loaders: {
+        precheckResponse: [
+            null as PrecheckResponseType | null,
+            {
+                precheck: async ({ email }: { email: string }) => await api.create('api/login/precheck', { email }),
+            },
+        ],
         authenticateResponse: [
             null as AuthenticateResponseType | null,
             {
@@ -41,6 +52,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
         authenticateSuccess: ({ authenticateResponse }) => {
             if (authenticateResponse?.success) {
                 window.location.href = afterLoginRedirect()
+            }
+        },
+        precheckSuccess: ({ precheckResponse }) => {
+            if (precheckResponse?.sso_enforcement) {
+                window.location.href = `/login/${precheckResponse.sso_enforcement}/`
             }
         },
     },
