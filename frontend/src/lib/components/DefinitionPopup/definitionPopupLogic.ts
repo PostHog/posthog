@@ -15,6 +15,8 @@ import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
 export enum DefinitionPopupState {
     Edit = 'edit',
     View = 'view',
@@ -44,6 +46,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopupState: (state: DefinitionPopupState) => ({ state }),
         handleCancel: true,
+        recordHoverActivity: true,
     },
     reducers: {
         state: [
@@ -188,14 +191,14 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         ],
     },
     listeners: ({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: async (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
                 values.definition?.name !== selectors.definition(previousState).name
             ) {
                 actions.setPopupState(DefinitionPopupState.View)
-                eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
+                actions.recordHoverActivity()
             }
         },
         handleSave: () => {
@@ -231,10 +234,14 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             props?.onCancel?.()
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
         },
-    }),
-    events: ({ values }) => ({
-        afterMount: () => {
+        recordHoverActivity: async (_, breakpoint) => {
+            await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.recordHoverActivity()
         },
     }),
 })
