@@ -1,13 +1,24 @@
 import { kea } from 'kea'
-import { AnyPropertyFilter, PropertyDefinition } from '~/types'
+import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
-import { combineUrl } from 'kea-router'
-import { PropertyDefinitionsPaginatedResponse } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { combineUrl, router } from 'kea-router'
+import {
+    normalizePropertyDefinitionEndpointUrl,
+    PropertyDefinitionsPaginatedResponse,
+} from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
+import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Filters {
-    event: string
-    properties: AnyPropertyFilter[]
+    property: string
+}
+
+function cleanFilters(filter: Partial<Filters>): Filters {
+    return {
+        property: '',
+        ...filter,
+    }
 }
 
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
@@ -27,7 +38,7 @@ export const eventPropertyDefinitionsTableLogic = kea<
             url,
             orderIdsFirst,
         }),
-        setFilters: (filters: Filters) => ({ filters }),
+        setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
@@ -35,11 +46,13 @@ export const eventPropertyDefinitionsTableLogic = kea<
     reducers: {
         filters: [
             {
-                event: '',
-                properties: [],
+                property: '',
             } as Filters,
             {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
             },
         ],
         hoveredDefinition: [
@@ -75,14 +88,19 @@ export const eventPropertyDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    cache.propertiesStartTime = performance.now()
+                    await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
 
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             ...response,
-                            current: url,
+                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
+                            next: normalizePropertyDefinitionEndpointUrl(response.next),
+                            current: currentUrl,
                             page:
                                 Math.floor(
                                     (combineUrl(url).searchParams.offset ?? 0) / EVENT_PROPERTY_DEFINITIONS_PER_PAGE
@@ -114,10 +132,46 @@ export const eventPropertyDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
+    listeners: ({ actions, values, cache }) => ({
+        setFilters: () => {
+            actions.loadEventPropertyDefinitions(
+                normalizePropertyDefinitionEndpointUrl(
+                    values.eventPropertyDefinitions.current,
+                    {
+                        search: values.filters.property,
+                    },
+                    true
+                )
+            )
+        },
+        loadEventPropertyDefinitionsSuccess: () => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
+                        performance.now() - cache.propertiesStartTime,
+                        values.eventPropertyDefinitions.results.length
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+        loadEventPropertyDefinitionsFailure: ({ error }) => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadFailed(
+                        performance.now() - cache.propertiesStartTime,
+                        error ?? 'There was an unknown error fetching property definitions.'
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+    }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/event-properties': (_, searchParams) => {
-            actions.setFilters(searchParams as Filters)
-            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
+                actions.setFilters(searchParams as Filters)
+            } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
                 actions.loadEventPropertyDefinitions()
             }
         },
@@ -127,6 +181,15 @@ export const eventPropertyDefinitionsTableLogic = kea<
             }
             if (id) {
                 actions.setOpenedDefinition(id)
+            }
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setFilters: () => {
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [router.values.location.pathname, nextValues]
             }
         },
     }),

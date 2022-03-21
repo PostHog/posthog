@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import './HistoryList.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-interface HistoryListProps {
+export interface HistoryListProps {
     type: 'FeatureFlag'
     id: number
 }

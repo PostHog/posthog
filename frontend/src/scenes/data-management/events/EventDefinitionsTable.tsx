@@ -13,6 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { Input } from 'antd'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -21,8 +22,9 @@ export const scene: SceneExport = {
 }
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId } = useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition } =
+    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
+        useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition, setFilters } =
         useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
@@ -96,42 +98,66 @@ export function EventDefinitionsTable(): JSX.Element {
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            className="events-definition-table"
-            data-attr="events-definition-table"
-            loading={eventDefinitionsLoading}
-            rowKey="id"
-            rowStatus={(row) => {
-                return row.id === openedDefinitionId ? 'highlighted' : undefined
-            }}
-            pagination={{
-                controlled: true,
-                currentPage: eventDefinitions?.page ?? 1,
-                entryCount: eventDefinitions?.count ?? 0,
-                pageSize: EVENT_DEFINITIONS_PER_PAGE,
-                onForward: !!eventDefinitions.next
-                    ? () => {
-                          loadEventDefinitions(eventDefinitions.next)
-                      }
-                    : undefined,
-                onBackward: !!eventDefinitions.previous
-                    ? () => {
-                          loadEventDefinitions(eventDefinitions.previous)
-                      }
-                    : undefined,
-            }}
-            expandable={{
-                expandedRowRender: function RenderPropertiesTable(definition) {
-                    return <EventDefinitionProperties definition={definition} />
-                },
-                noIndent: true,
-                isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
-                onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
-            }}
-            dataSource={eventDefinitions.results}
-            emptyState="No event definitions"
-            nouns={['event', 'events']}
-        />
+        <>
+            <div
+                style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    width: '100%',
+                    marginBottom: '1rem',
+                }}
+            >
+                <Input.Search
+                    placeholder="Search for events"
+                    allowClear
+                    enterButton
+                    value={filters.event}
+                    style={{ maxWidth: 600, width: 'initial' }}
+                    onChange={(e) => {
+                        setFilters({ event: e.target.value || '' })
+                    }}
+                />
+            </div>
+            <LemonTable
+                columns={columns}
+                className="events-definition-table"
+                data-attr="events-definition-table"
+                loading={eventDefinitionsLoading}
+                rowKey="id"
+                rowStatus={(row) => {
+                    return row.id === openedDefinitionId ? 'highlighted' : undefined
+                }}
+                pagination={{
+                    controlled: true,
+                    currentPage: eventDefinitions?.page ?? 1,
+                    entryCount: eventDefinitions?.count ?? 0,
+                    pageSize: EVENT_DEFINITIONS_PER_PAGE,
+                    onForward: !!eventDefinitions.next
+                        ? () => {
+                              loadEventDefinitions(eventDefinitions.next)
+                          }
+                        : undefined,
+                    onBackward: !!eventDefinitions.previous
+                        ? () => {
+                              loadEventDefinitions(eventDefinitions.previous)
+                          }
+                        : undefined,
+                }}
+                expandable={{
+                    expandedRowRender: function RenderPropertiesTable(definition) {
+                        return <EventDefinitionProperties definition={definition} />
+                    },
+                    noIndent: true,
+                    isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
+                    onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
+                }}
+                dataSource={eventDefinitions.results}
+                emptyState="No event definitions"
+                nouns={['event', 'events']}
+            />
+        </>
     )
 }

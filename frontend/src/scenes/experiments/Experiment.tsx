@@ -1,4 +1,4 @@
-import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,21 +22,19 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconJavascript } from 'lib/components/icons'
+import { IconDelete, IconJavascript } from 'lib/components/icons'
 import {
     CaretDownOutlined,
+    ExclamationCircleFilled,
     PlusOutlined,
-    DeleteOutlined,
     InfoCircleOutlined,
-    SaveOutlined,
     CloseOutlined,
 } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getChartColors } from 'lib/colors'
@@ -47,6 +45,8 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { LemonButton } from 'lib/components/LemonButton'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: Experiment_,
@@ -152,6 +152,13 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         return 'complete'
     }
 
+    const variantLabelColors = [
+        { background: '#35416b', color: '#fff' },
+        { background: '#C278CE66', color: '#35416B' },
+        { background: '#FFE6AE', color: '#35416B' },
+        { background: '#8DA9E74D', color: '#35416B' },
+    ]
+
     return (
         <>
             {id === 'new' || editingExistingExperiment ? (
@@ -161,7 +168,19 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         justify="space-between"
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
-                        <PageHeader title={'New Experiment'} />
+                        <PageHeader title={'New experiment'} />
+                        <Row>
+                            <LemonButton
+                                type="secondary"
+                                className="mr-05"
+                                onClick={() => router.actions.push(urls.experiments())}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton type="primary" htmlType="submit" form="new-experiment">
+                                Save
+                            </LemonButton>
+                        </Row>
                     </Row>
                     <Form
                         name="new-experiment"
@@ -238,7 +257,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 <div className="text-muted">
                                                     Participants are divided into variant groups evenly. All experiments
                                                     must consist of a control group and at least one test group.
-                                                    Experiments may have at most 3 test groups.
+                                                    Experiments may have at most 3 test groups. Variant names can only
+                                                    contain letters, numbers, hyphens, and underscores.
                                                 </div>
                                                 <Col className="variants">
                                                     {newExperimentData.parameters.feature_flag_variants.map(
@@ -251,9 +271,23 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                 onValuesChange={(changedValues) => {
                                                                     updateExperimentGroup(changedValues, idx)
                                                                 }}
-                                                                validateTrigger={['onChange', 'onBlur']}
                                                             >
-                                                                <Row className="feature-flag-variant">
+                                                                <Row
+                                                                    key={`${variant}-${idx}`}
+                                                                    className={`feature-flag-variant ${
+                                                                        idx === 0
+                                                                            ? 'border-top'
+                                                                            : idx >= 3
+                                                                            ? 'border-bottom'
+                                                                            : ''
+                                                                    }`}
+                                                                >
+                                                                    <div
+                                                                        className="variant-label"
+                                                                        style={{ ...variantLabelColors[idx] }}
+                                                                    >
+                                                                        {idx === 0 ? 'Control' : 'Test'}
+                                                                    </div>
                                                                     <Form.Item
                                                                         name="key"
                                                                         rules={[
@@ -262,18 +296,27 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 message: 'Key should not be empty.',
                                                                             },
                                                                             {
+                                                                                required: true,
                                                                                 pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                                message:
-                                                                                    'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                                                message: (
+                                                                                    <>
+                                                                                        <ExclamationCircleFilled
+                                                                                            style={{ color: '#F96132' }}
+                                                                                        />{' '}
+                                                                                        Variant names can only contain
+                                                                                        letters, numbers, hyphens, and
+                                                                                        underscores.
+                                                                                    </>
+                                                                                ),
                                                                             },
                                                                         ]}
+                                                                        style={{ display: 'contents' }}
                                                                     >
                                                                         <Input
                                                                             disabled={idx === 0}
                                                                             data-attr="feature-flag-variant-key"
                                                                             data-key-index={idx.toString()}
                                                                             className="ph-ignore-input"
-                                                                            style={{ minWidth: 300 }}
                                                                             placeholder={`example-variant-${idx + 1}`}
                                                                             autoComplete="off"
                                                                             autoCapitalize="off"
@@ -281,22 +324,20 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                             spellCheck={false}
                                                                         />
                                                                     </Form.Item>
+
                                                                     <div className="float-right">
                                                                         {!(idx === 0 || idx === 1) && (
                                                                             <Tooltip
                                                                                 title="Delete this variant"
                                                                                 placement="bottomLeft"
                                                                             >
-                                                                                <Button
-                                                                                    type="link"
-                                                                                    icon={<DeleteOutlined />}
+                                                                                <LemonButton
+                                                                                    type="primary-alt"
+                                                                                    compact
+                                                                                    icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
                                                                                     }
-                                                                                    style={{
-                                                                                        color: 'var(--danger)',
-                                                                                        float: 'right',
-                                                                                    }}
                                                                                 />
                                                                             </Tooltip>
                                                                         )}
@@ -307,13 +348,12 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div>
+                                                        <div className="feature-flag-variant border-bottom">
                                                             <Button
                                                                 style={{
                                                                     color: 'var(--primary)',
                                                                     border: 'none',
                                                                     boxShadow: 'none',
-                                                                    marginTop: '2rem',
                                                                     paddingLeft: 0,
                                                                 }}
                                                                 icon={<PlusOutlined />}
@@ -326,12 +366,19 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                 </Col>
                                             </Col>
                                         )}
+
                                         <Row className="person-selection">
-                                            <span>
-                                                <b>Select Participants</b>
-                                            </span>
-                                            <span>
-                                                <b>Participant Type</b>
+                                            <div className="mb-05">
+                                                <strong>Select participants</strong>
+                                            </div>
+                                            <Col>
+                                                <div className="text-muted">
+                                                    Select the entities who will participate in this experiment. If no
+                                                    filters are set, 100% of participants will be targeted.
+                                                </div>
+                                                <div className="mt mb-05">
+                                                    <strong>Participant type</strong>
+                                                </div>
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
@@ -358,16 +405,11 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             })
                                                         }
                                                     }}
-                                                    style={{ marginLeft: 8 }}
                                                     data-attr="participant-aggregation-filter"
                                                     dropdownMatchSelectWidth={false}
-                                                    dropdownAlign={{
-                                                        // Align this dropdown by the right-hand-side of button
-                                                        points: ['tr', 'br'],
-                                                    }}
                                                 >
                                                     <Select.Option key={-1} value={-1}>
-                                                        Users
+                                                        Persons
                                                     </Select.Option>
                                                     {groupTypes.map((groupType) => (
                                                         <Select.Option
@@ -380,11 +422,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                            </span>
-                                            <Col>
-                                                <div className="text-muted">
-                                                    Select the entities who will participate in this experiment. If no
-                                                    filters are set, 100% of participants will be targeted.
+                                                <div className="mt">
+                                                    <strong>Filters</strong>
                                                 </div>
                                                 <PropertyFilters
                                                     pageKey={'experiment-participants-property'}
@@ -405,120 +444,117 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             properties: anyProperties.filter(isValidPropertyFilter),
                                                         })
                                                     }}
-                                                    style={{ marginTop: '1rem' }}
                                                     taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                 />
                                             </Col>
                                         </Row>
-                                        <Row className="metrics-selection">
-                                            <Col style={{ paddingRight: 8 }}>
-                                                <div className="mb-05">
-                                                    <b>Goal type</b>
+                                    </Col>
+
+                                    <Row className="metrics-selection">
+                                        <Col span={12}>
+                                            <div className="mb-05">
+                                                <b>Goal type</b>
+                                                <div className="text-muted">
+                                                    {experimentInsightType === InsightType.TRENDS
+                                                        ? 'Track counts of a specific event or action'
+                                                        : 'Track how many persons complete a sequence of actions and or events'}
+                                                </div>
+                                            </div>
+                                            <Select
+                                                style={{ display: 'flex' }}
+                                                value={experimentInsightType}
+                                                onChange={setExperimentInsightType}
+                                                suffixIcon={<CaretDownOutlined />}
+                                                dropdownMatchSelectWidth={false}
+                                            >
+                                                <Select.Option value={InsightType.TRENDS}>
+                                                    <Col>
+                                                        <span>
+                                                            <b>Trend</b>
+                                                        </span>
+                                                    </Col>
+                                                </Select.Option>
+                                                <Select.Option value={InsightType.FUNNELS}>
+                                                    <Col>
+                                                        <span>
+                                                            <b>Conversion funnel</b>
+                                                        </span>
+                                                    </Col>
+                                                </Select.Option>
+                                            </Select>
+                                            <div className="mb mt">
+                                                <b>Experiment goal</b>
+                                                {experimentInsightType === InsightType.TRENDS && (
                                                     <div className="text-muted">
-                                                        {experimentInsightType === InsightType.TRENDS
-                                                            ? 'Track counts of a specific event or action'
-                                                            : 'Track how many persons complete a sequence of actions and or events'}
+                                                        Trend-based experiments can have at most one graph series. This
+                                                        metric is used to track the progress of your experiment.
                                                     </div>
-                                                </div>
-                                                <Select
-                                                    style={{ display: 'flex' }}
-                                                    value={experimentInsightType}
-                                                    onChange={setExperimentInsightType}
-                                                    suffixIcon={<CaretDownOutlined />}
-                                                    dropdownMatchSelectWidth={false}
+                                                )}
+                                            </div>
+                                            <Row>
+                                                <Card
+                                                    className="action-filters-bordered"
+                                                    style={{ width: '100%', marginRight: 8 }}
+                                                    bodyStyle={{ padding: 0 }}
                                                 >
-                                                    <Select.Option value={InsightType.TRENDS}>
-                                                        <Col>
-                                                            <span>
-                                                                <b>Trend</b>
-                                                            </span>
-                                                        </Col>
-                                                    </Select.Option>
-                                                    <Select.Option value={InsightType.FUNNELS}>
-                                                        <Col>
-                                                            <span>
-                                                                <b>Conversion funnel</b>
-                                                            </span>
-                                                        </Col>
-                                                    </Select.Option>
-                                                </Select>
-                                                <div className="mb mt">
-                                                    <b>Experiment goal</b>
-                                                    {experimentInsightType === InsightType.TRENDS && (
-                                                        <div className="text-muted">
-                                                            Trend-based experiments can have at most one graph series.
-                                                            This metric is used to track the progress of your
-                                                            experiment.
-                                                        </div>
+                                                    {experimentInsightType === InsightType.FUNNELS && (
+                                                        <ActionFilter
+                                                            filters={funnelsFilters}
+                                                            setFilters={(payload) => {
+                                                                setNewExperimentData({ filters: payload })
+                                                                setFilters(payload)
+                                                            }}
+                                                            typeKey={`EditFunnel-action`}
+                                                            hideMathSelector={true}
+                                                            hideDeleteBtn={filterSteps.length === 1}
+                                                            buttonCopy="Add funnel step"
+                                                            buttonType="link"
+                                                            showSeriesIndicator={!isStepsEmpty}
+                                                            seriesIndicatorType="numeric"
+                                                            fullWidth
+                                                            sortable
+                                                            showNestedArrow={true}
+                                                            propertiesTaxonomicGroupTypes={[
+                                                                TaxonomicFilterGroupType.EventProperties,
+                                                                TaxonomicFilterGroupType.PersonProperties,
+                                                                TaxonomicFilterGroupType.Cohorts,
+                                                                TaxonomicFilterGroupType.Elements,
+                                                            ]}
+                                                            rowClassName="action-filters-bordered"
+                                                        />
                                                     )}
-                                                </div>
-                                                <Row>
-                                                    <Card
-                                                        className="action-filters-bordered"
-                                                        style={{ width: '100%', marginRight: 8 }}
-                                                        bodyStyle={{ padding: 0 }}
-                                                    >
-                                                        {experimentInsightType === InsightType.FUNNELS && (
-                                                            <ActionFilter
-                                                                filters={funnelsFilters}
-                                                                setFilters={(payload) => {
-                                                                    setNewExperimentData({ filters: payload })
-                                                                    setFilters(payload)
-                                                                }}
-                                                                typeKey={`EditFunnel-action`}
-                                                                hideMathSelector={true}
-                                                                hideDeleteBtn={filterSteps.length === 1}
-                                                                buttonCopy="Add funnel step"
-                                                                buttonType="link"
-                                                                showSeriesIndicator={!isStepsEmpty}
-                                                                seriesIndicatorType="numeric"
-                                                                fullWidth
-                                                                sortable
-                                                                showNestedArrow={true}
-                                                                propertiesTaxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.EventProperties,
-                                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                                    TaxonomicFilterGroupType.Cohorts,
-                                                                    TaxonomicFilterGroupType.Elements,
-                                                                ]}
-                                                                rowClassName="action-filters-bordered"
-                                                            />
-                                                        )}
-                                                        {experimentInsightType === InsightType.TRENDS && (
-                                                            <ActionFilter
-                                                                horizontalUI
-                                                                filters={trendsFilters}
-                                                                setFilters={(payload: Partial<FilterType>) => {
-                                                                    setNewExperimentData({ filters: payload })
-                                                                    setFilters(payload)
-                                                                }}
-                                                                typeKey={`experiment-trends`}
-                                                                buttonCopy="Add graph series"
-                                                                showSeriesIndicator
-                                                                entitiesLimit={1}
-                                                                hideMathSelector={false}
-                                                                propertiesTaxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.EventProperties,
-                                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                                    TaxonomicFilterGroupType.Cohorts,
-                                                                    TaxonomicFilterGroupType.Elements,
-                                                                ]}
-                                                                customRowPrefix={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE ? (
-                                                                        <>
-                                                                            Showing <b>Unique users</b> who did
-                                                                        </>
-                                                                    ) : undefined
-                                                                }
-                                                            />
-                                                        )}
-                                                    </Card>
-                                                </Row>
-                                            </Col>
-                                        </Row>
-                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                            <Row className="mt">
-                                                <Col>
+                                                    {experimentInsightType === InsightType.TRENDS && (
+                                                        <ActionFilter
+                                                            horizontalUI
+                                                            filters={trendsFilters}
+                                                            setFilters={(payload: Partial<FilterType>) => {
+                                                                setNewExperimentData({ filters: payload })
+                                                                setFilters(payload)
+                                                            }}
+                                                            typeKey={`experiment-trends`}
+                                                            buttonCopy="Add graph series"
+                                                            showSeriesIndicator
+                                                            entitiesLimit={1}
+                                                            hideMathSelector={false}
+                                                            propertiesTaxonomicGroupTypes={[
+                                                                TaxonomicFilterGroupType.EventProperties,
+                                                                TaxonomicFilterGroupType.PersonProperties,
+                                                                TaxonomicFilterGroupType.Cohorts,
+                                                                TaxonomicFilterGroupType.Elements,
+                                                            ]}
+                                                            customRowPrefix={
+                                                                trendsFilters.insight === InsightType.LIFECYCLE ? (
+                                                                    <>
+                                                                        Showing <b>Unique users</b> who did
+                                                                    </>
+                                                                ) : undefined
+                                                            }
+                                                        />
+                                                    )}
+                                                </Card>
+                                            </Row>
+                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
+                                                <Col className="secondary-metrics">
                                                     <div>
                                                         <b>Secondary metrics</b>
                                                         <span className="text-muted ml-05">(optional)</span>
@@ -527,36 +563,39 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         Use secondary metrics to monitor metrics related to your
                                                         experiment goal. You can add up to three secondary metrics.{' '}
                                                     </div>
+                                                    <SecondaryMetrics
+                                                        onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                        initialMetrics={parsedSecondaryMetrics}
+                                                    />
                                                 </Col>
-                                                <SecondaryMetrics
-                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                    initialMetrics={parsedSecondaryMetrics}
-                                                />
-                                            </Row>
-                                        )}
-                                    </Col>
-                                    <Col span={12}>
-                                        <Card className="experiment-preview">
-                                            <ExperimentPreview
-                                                experiment={newExperimentData}
-                                                trendCount={trendCount}
-                                                trendExposure={exposure}
-                                                funnelSampleSize={sampleSize}
-                                                funnelEntrants={entrants}
-                                                funnelConversionRate={conversionRate}
-                                            />
+                                            )}
+                                        </Col>
+                                        <Col span={12} className="pl">
+                                            <div className="card-secondary mb">Goal preview</div>
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}
                                             />
-                                        </Card>
-                                    </Col>
+                                        </Col>
+                                    </Row>
+                                </Row>
+                                <Row>
+                                    <Card className="experiment-preview">
+                                        <ExperimentPreview
+                                            experiment={newExperimentData}
+                                            trendCount={trendCount}
+                                            trendExposure={exposure}
+                                            funnelSampleSize={sampleSize}
+                                            funnelEntrants={entrants}
+                                            funnelConversionRate={conversionRate}
+                                        />
+                                    </Card>
                                 </Row>
                             </BindLogic>
                         </div>
-                        <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
+                        <LemonButton className="float-right" type="primary" htmlType="submit">
                             Save
-                        </Button>
+                        </LemonButton>
                     </Form>
                 </>
             ) : !experimentDataLoading && experimentData ? (
@@ -566,33 +605,36 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             <Col>
                                 <Row>
                                     <PageHeader
-                                        style={{ margin: 0, paddingRight: 8 }}
+                                        style={{ paddingRight: 8 }}
                                         title={`${experimentData?.name}`}
+                                        buttons={
+                                            <>
+                                                <CopyToClipboardInline
+                                                    explicitValue={experimentData.feature_flag_key}
+                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                                >
+                                                    <span className="text-muted">
+                                                        {experimentData.feature_flag_key}
+                                                    </span>
+                                                </CopyToClipboardInline>
+                                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                                    <b className="uppercase">{status()}</b>
+                                                </Tag>
+                                                {experimentResults && experimentData.end_date && (
+                                                    <Tag
+                                                        style={{ alignSelf: 'center' }}
+                                                        color={areResultsSignificant ? 'green' : 'geekblue'}
+                                                    >
+                                                        <b className="uppercase">
+                                                            {areResultsSignificant
+                                                                ? 'Significant Results'
+                                                                : 'Results not significant'}
+                                                        </b>
+                                                    </Tag>
+                                                )}
+                                            </>
+                                        }
                                     />
-                                    <CopyToClipboardInline
-                                        explicitValue={experimentData.feature_flag_key}
-                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                    >
-                                        <span className="text-muted">{experimentData.feature_flag_key}</span>
-                                    </CopyToClipboardInline>
-                                    <Tag
-                                        style={{ alignSelf: 'center', marginLeft: '1rem' }}
-                                        color={statusColors[status()]}
-                                    >
-                                        <b className="uppercase">{status()}</b>
-                                    </Tag>
-                                    {experimentResults && experimentData.end_date && (
-                                        <Tag
-                                            style={{ alignSelf: 'center' }}
-                                            color={areResultsSignificant ? 'green' : 'geekblue'}
-                                        >
-                                            <b className="uppercase">
-                                                {areResultsSignificant
-                                                    ? 'Significant Results'
-                                                    : 'Results not significant'}
-                                            </b>
-                                        </Tag>
-                                    )}
                                 </Row>
                                 <span className="exp-description">
                                     {experimentData.start_date ? (
@@ -828,7 +870,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             <Row justify="space-between" className="mt-05">
                                                                 {experimentData.end_date ? (
                                                                     <div>
-                                                                        Ran for
+                                                                        Ran for{' '}
                                                                         <b>
                                                                             {dayjs(experimentData.end_date).diff(
                                                                                 experimentData.start_date,
@@ -864,20 +906,27 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         <Row justify="space-between" className="mt-05">
                                                             {experimentData.end_date ? (
                                                                 <div>
-                                                                    Saw <b>{funnelResultsPersonsTotal}</b> participants
+                                                                    Saw{' '}
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants
                                                                 </div>
                                                             ) : (
                                                                 <div>
-                                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants seen
                                                                 </div>
                                                             )}
                                                             <div>
                                                                 Goal:{' '}
                                                                 <b>
-                                                                    {
+                                                                    {humanFriendlyNumber(
                                                                         experimentData?.parameters
-                                                                            ?.recommended_sample_size
-                                                                    }
+                                                                            ?.recommended_sample_size || 0
+                                                                    )}
                                                                 </b>{' '}
                                                                 participants
                                                             </div>
@@ -973,7 +1022,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         ) : (
                             experimentResultsLoading && (
                                 <div className="text-center">
-                                    <Spinner />
+                                    <Skeleton active />
                                 </div>
                             )
                         )}
@@ -1012,9 +1061,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             experimentData.start_date && (
                                 <>
                                     <div className="no-experiment-results">
-                                        {experimentResultsLoading ? (
-                                            <Spinner />
-                                        ) : (
+                                        {!experimentResultsLoading && (
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
                                                 <div className="text-default">
@@ -1030,7 +1077,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                     </div>
                 </div>
             ) : (
-                <Spinner />
+                <Skeleton active />
             )}
         </>
     )

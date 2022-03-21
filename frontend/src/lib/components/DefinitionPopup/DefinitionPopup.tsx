@@ -13,6 +13,7 @@ import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface DefinitionPopupProps {
     children: React.ReactNode
@@ -41,18 +42,22 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+    const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
         useValues(definitionPopupLogic)
     const { setPopupState } = useActions(definitionPopupLogic)
+    const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
+        useActions(eventUsageLogic)
     const onEdit = (): void => {
         if (hasTaxonomyFeatures) {
             setPopupState(DefinitionPopupState.Edit)
             _onEdit?.()
+            reportDataManagementDefinitionClickEdit(type)
         }
     }
     const onView = (): void => {
         setPopupState(DefinitionPopupState.View)
         _onView?.()
+        reportDataManagementDefinitionClickView(type)
     }
 
     return (

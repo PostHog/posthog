@@ -219,7 +219,11 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @pytest.mark.ee
-    def test_cant_reset_with_saml_enforced(self):
+    @patch("posthog.api.authentication.get_sso_enforced_provider")
+    def test_cant_reset_with_sso_enforced(self, get_sso_enforced_provider):
+        # Mock-up enforcement to bypass license requirements
+        get_sso_enforced_provider.return_value = "saml"
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True,
             EMAIL_HOST="localhost",
@@ -227,7 +231,7 @@ class TestPasswordResetAPI(APIBaseTest):
             SAML_ENTITY_ID="entityID",
             SAML_ACS_URL="https://saml.posthog.com",
             SAML_X509_CERT="certificate",
-            SAML_ENFORCED=True,
+            SSO_ENFORCEMENT="saml",
         ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -235,8 +239,8 @@ class TestPasswordResetAPI(APIBaseTest):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "saml_enforced",
-                "detail": "Password reset is disabled because SAML login is enforced.",
+                "code": "sso_enforced",
+                "detail": "Password reset is disabled because SSO login is enforced.",
                 "attr": None,
             },
         )

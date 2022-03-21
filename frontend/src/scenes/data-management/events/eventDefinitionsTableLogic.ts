@@ -3,7 +3,9 @@ import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
+import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -22,6 +24,14 @@ interface Filters {
     properties: AnyPropertyFilter[]
 }
 
+function cleanFilters(filter: Partial<Filters>): Filters {
+    return {
+        event: '',
+        properties: [],
+        ...filter,
+    }
+}
+
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
@@ -29,11 +39,29 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
-function normalizePropertyDefinitionEndpointUrl(url: string | null): string | null {
-    if (!url) {
+export function normalizePropertyDefinitionEndpointUrl(
+    url: string | null | undefined,
+    searchParams: Record<string, any> = {},
+    full: boolean = false
+): string | null {
+    if (!full && !url) {
         return null
     }
-    return api.propertyDefinitions.determineListEndpoint(combineUrl(url).searchParams)
+    return api.propertyDefinitions.determineListEndpoint({
+        ...(url ? combineUrl(url).searchParams : {}),
+        ...searchParams,
+    })
+}
+
+function normalizeEventDefinitionEndpointUrl(
+    url: string | null | undefined,
+    searchParams: Record<string, any> = {},
+    full: boolean = false
+): string | null {
+    if (!full && !url) {
+        return null
+    }
+    return api.eventDefinitions.determineListEndpoint({ ...(url ? combineUrl(url).searchParams : {}), ...searchParams })
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -55,7 +83,7 @@ export const eventDefinitionsTableLogic = kea<
         loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
-        setFilters: (filters: Filters) => ({ filters }),
+        setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
@@ -64,12 +92,13 @@ export const eventDefinitionsTableLogic = kea<
     },
     reducers: {
         filters: [
+            cleanFilters({}) as Filters,
             {
-                event: '',
-                properties: [],
-            } as Filters,
-            {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                    properties: convertPropertyGroupToProperties(filters.properties) ?? [],
+                }),
             },
         ],
         hoveredDefinition: [
@@ -111,19 +140,26 @@ export const eventDefinitionsTableLogic = kea<
                             order_ids_first: orderIdsFirst,
                         })
                     }
+                    await breakpoint(200)
+                    cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
+                    const currentUrl = `${normalizeEventDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             ...response,
-                            current: url,
+                            previous: normalizeEventDefinitionEndpointUrl(response.previous),
+                            next: normalizeEventDefinitionEndpointUrl(response.next),
+                            current: currentUrl,
                             page:
-                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
+                                Math.floor(
+                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE
+                                ) + 1,
                         },
                     }
-                    return cache.apiCache[url]
+                    return cache.apiCache[currentUrl]
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
@@ -165,6 +201,7 @@ export const eventDefinitionsTableLogic = kea<
                     actions.setEventDefinitionPropertiesLoading(
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
                     )
+                    cache.propertiesStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
@@ -181,16 +218,17 @@ export const eventDefinitionsTableLogic = kea<
                         }
                     }
 
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [url]: {
+                        [currentUrl]: {
                             count: response.count,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
                             next: normalizePropertyDefinitionEndpointUrl(response.next),
-                            current: url,
+                            current: currentUrl,
                             page:
                                 Math.floor(
-                                    (combineUrl(url).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
+                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
                                 ) + 1,
                             results: response.results.map((prop: PropertyDefinition) => ({
                                 ...prop,
@@ -204,7 +242,7 @@ export const eventDefinitionsTableLogic = kea<
                     )
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [definition.id]: cache.apiCache[url],
+                        [definition.id]: cache.apiCache[currentUrl],
                     }
                 },
                 setLocalPropertyDefinition: ({ event, definition }) => {
@@ -235,10 +273,65 @@ export const eventDefinitionsTableLogic = kea<
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     }),
+    listeners: ({ actions, values, cache }) => ({
+        setFilters: () => {
+            actions.loadEventDefinitions(
+                normalizeEventDefinitionEndpointUrl(
+                    values.eventDefinitions.current,
+                    { search: values.filters.event },
+                    true
+                )
+            )
+        },
+        loadEventDefinitionsSuccess: () => {
+            if (cache.eventsStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
+                        performance.now() - cache.eventsStartTime,
+                        values.eventDefinitions.results.length
+                    )
+                cache.eventsStartTime = undefined
+            }
+        },
+        loadEventDefinitionsFailure: ({ error }) => {
+            if (cache.eventsStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
+                        performance.now() - cache.eventsStartTime,
+                        error ?? 'There was an unknown error fetching event definitions.'
+                    )
+                cache.eventsStartTime = undefined
+            }
+        },
+        loadPropertiesForEventSuccess: () => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
+                        performance.now() - cache.propertiesStartTime
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+        loadPropertiesForEventFailure: ({ error }) => {
+            if (cache.propertiesStartTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
+                        performance.now() - cache.propertiesStartTime,
+                        error ?? 'There was an unknown error fetching nested property definitions.'
+                    )
+                cache.propertiesStartTime = undefined
+            }
+        },
+    }),
     urlToAction: ({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
-            actions.setFilters(searchParams as Filters)
-            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
+                actions.setFilters(searchParams as Filters)
+            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                 actions.loadEventDefinitions()
             }
         },
@@ -248,6 +341,15 @@ export const eventDefinitionsTableLogic = kea<
             }
             if (id) {
                 actions.setOpenedDefinition(id)
+            }
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setFilters: () => {
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [router.values.location.pathname, nextValues]
             }
         },
     }),

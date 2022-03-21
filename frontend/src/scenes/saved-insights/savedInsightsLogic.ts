@@ -11,8 +11,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
+import { PaginationManual } from 'lib/components/PaginationControl'
 
-export const INSIGHTS_PER_PAGE = 20
+export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
     results: InsightModel[]
@@ -125,12 +126,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        ...('page' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page or view that's being updated
+                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
     },
-    selectors: {
+    selectors: ({ actions }) => ({
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -175,7 +177,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     }),
             }),
         ],
-    },
+        pagination: [
+            (s) => [s.filters, s.count],
+            (filters, count): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: INSIGHTS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: count,
+                    onBackward: () =>
+                        actions.setSavedInsightsFilters({
+                            page: filters.page - 1,
+                        }),
+                    onForward: () =>
+                        actions.setSavedInsightsFilters({
+                            page: filters.page + 1,
+                        }),
+                }
+            },
+        ],
+    }),
     listeners: ({ actions, values, selectors }) => ({
         addGraph: ({ type }) => {
             router.actions.push(`/insights?insight=${encodeURIComponent(String(type).toUpperCase())}`)

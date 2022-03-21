@@ -395,3 +395,10 @@ class IncludeRecordingsMixin(BaseParamMixin):
     @include_dict
     def include_recordings_to_dict(self):
         return {"include_recordings": self.include_recordings} if self.include_recordings else {}
+
+
+class SearchMixin(BaseParamMixin):
+    @cached_property
+    def search(self) -> Optional[str]:
+        search = self._data.get("search", None)
+        return search

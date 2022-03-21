@@ -1,4 +1,4 @@
-import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -112,6 +112,8 @@ export const FEATURE_FLAGS = {
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
+    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+    SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
 }
@@ -133,6 +135,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
+    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -145,11 +148,6 @@ export enum FunnelLayout {
 
 export const BinCountAuto = 'auto'
 
-export const ERROR_MESSAGES: Record<string, string> = {
-    no_new_organizations:
-        'Your email address is not associated with an account. Please ask your administrator for an invite.',
-}
-
 // Cohort types
 export const COHORT_STATIC = 'static'
 export const COHORT_DYNAMIC = 'dynamic'
@@ -159,3 +157,10 @@ export const COHORT_DYNAMIC = 'dynamic'
  * See https://github.com/remarkjs/react-markdown/issues/339.
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
+
+export const SSOProviderNames: Record<SSOProviders, string> = {
+    'google-oauth2': 'Google',
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    saml: 'Single sign-on (SAML)',
+}

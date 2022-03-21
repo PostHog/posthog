@@ -15,6 +15,7 @@ export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
     setRef?: (ref: HTMLElement) => void
+    style?: React.CSSProperties
 }
 
 export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
@@ -44,6 +45,7 @@ interface FilterRowProps {
     setRef?: (ref: HTMLElement) => void
     children: string | JSX.Element
     item: AnyPropertyFilter
+    style?: React.CSSProperties
 }
 
 function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
@@ -74,12 +76,12 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return iconElement
 }
 
-export function FilterButton({ onClick, onClose, setRef, children, item }: FilterRowProps): JSX.Element {
+export function FilterButton({ onClick, onClose, setRef, children, item, style }: FilterRowProps): JSX.Element {
     return (
         <Button
             type="primary"
             shape="round"
-            style={{ overflow: 'hidden' }}
+            style={{ overflow: 'hidden', ...style }}
             onClick={onClick}
             ref={setRef}
             className={'property-filter'}

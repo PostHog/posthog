@@ -6,10 +6,12 @@ import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,
+    RecordingConsoleLog,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
     RecordingStartAndEndTime,
+    RRWebRecordingConsoleLogPayload,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -22,8 +24,11 @@ import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/playerUtils'
 import { lemonToast } from 'lib/components/lemonToast'
+import equal from 'fast-deep-equal'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
+const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export interface UnparsedRecordingSegment {
     start_time: string
@@ -383,6 +388,84 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
                 }
+            },
+        ],
+        orderedConsoleLogs: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                const orderedConsoleLogs: RecordingConsoleLog[] = []
+                sessionPlayerData?.metadata?.segments?.forEach((segment: RecordingSegment) => {
+                    sessionPlayerData?.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                        if (
+                            snapshot.type === 6 && // RRWeb plugin event type
+                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME &&
+                            snapshot.timestamp >= segment.startTimeEpochMs &&
+                            snapshot.timestamp <= segment.endTimeEpochMs
+                        ) {
+                            const { level, payload, trace } = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+
+                            const parsedPayload = payload
+                                ?.map?.((item: string) =>
+                                    item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
+                                )
+                                .join(' ')
+
+                            // Parse the trace string
+                            let parsedTraceString
+                            let parsedTraceURL
+                            // trace[] contains strings that looks like:
+                            // * ":123:456"
+                            // * "https://example.com/path/to/file.js:123:456"
+                            // * "Login (https://example.com/path/to/file.js:123:456)"
+                            // Note: there may be other formats too, but we only handle these ones now
+                            if (trace && trace.length > 0) {
+                                const traceWithoutParentheses = trace[0].split('(').slice(-1)[0].replace(')', '')
+                                const splitTrace = traceWithoutParentheses.split(':')
+                                const lineNumbers = splitTrace.slice(-2).join(':')
+                                parsedTraceURL = splitTrace.slice(0, -2).join(':')
+                                if (splitTrace.length >= 4) {
+                                    // Case with URL and line number
+                                    try {
+                                        const fileNameFromURL = new URL(parsedTraceURL).pathname.split('/').slice(-1)[0]
+                                        parsedTraceString = `${fileNameFromURL}:${lineNumbers}`
+                                    } catch (e) {
+                                        // If we can't parse the URL, fall back to this line number
+                                        parsedTraceString = `:${lineNumbers}`
+                                    }
+                                } else {
+                                    // Case with line number only
+                                    parsedTraceString = `:${lineNumbers}`
+                                }
+                            }
+
+                            orderedConsoleLogs.push({
+                                playerPosition: getPlayerPositionFromEpochTime(
+                                    snapshot.timestamp,
+                                    segment.windowId,
+                                    sessionPlayerData?.metadata?.startAndEndTimesByWindowId
+                                ),
+                                parsedTraceURL,
+                                parsedTraceString,
+                                parsedPayload,
+                                level,
+                            })
+                        }
+                    })
+                })
+                return orderedConsoleLogs
+            },
+        ],
+        areAllSnapshotsLoaded: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return (
+                    sessionPlayerData?.bufferedTo &&
+                    sessionPlayerData?.metadata?.segments.slice(-1)[0] &&
+                    equal(
+                        sessionPlayerData?.metadata?.segments.slice(-1)[0].endPlayerPosition,
+                        sessionPlayerData?.bufferedTo
+                    )
+                )
             },
         ],
     },

@@ -17,7 +17,6 @@ export function initKeaTests(): void {
         ...window.POSTHOG_APP_CONTEXT,
     } as unknown as AppContext
     posthog.init('no token', {
-        api_host: 'borked',
         test: true,
         autocapture: false,
         disable_session_recording: true,

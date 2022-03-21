@@ -55,7 +55,6 @@
                     }
                 ],
                 "available_features": [],
-                "domain_whitelist": [],
                 "is_member_join_email_enabled": true
             },
             "currentOrganizationLoading": false,
@@ -153,7 +152,6 @@
                         }
                     ],
                     "available_features": [],
-                    "domain_whitelist": [],
                     "is_member_join_email_enabled": true
                 },
                 "organizations": [

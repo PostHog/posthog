@@ -664,6 +664,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
+    def test_insight_trends_csv(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="2")
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview'}])}&export_name=Pageview count&export_insight_id=test123",
+            )
+
+        lines = response.content.splitlines()
+
+        self.assertEqual(lines[0], b"http://localhost:8000/insights/test123/", lines[0])
+        self.assertEqual(
+            lines[1],
+            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
+            lines[0],
+        )
+        self.assertEqual(lines[2], b"$pageview,0.0,0.0,0.0,0.0,0.0,0.0,2.0,1.0")
+        self.assertEqual(len(lines), 3, response.content)
+
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
