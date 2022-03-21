@@ -8,7 +8,7 @@ export function InsightSaveButton({
     isSaved,
 }: {
     saveAs: () => void
-    saveInsight: () => void
+    saveInsight: (redirect: boolean) => void
     isSaved: boolean | undefined
 }): JSX.Element {
     const menu = (
