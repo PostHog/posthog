@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Input, Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
@@ -23,9 +23,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope, registerActivityDescriptions } from 'lib/components/ActivityLog/humanizeActivity'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
-import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -190,12 +188,7 @@ function OverViewTab(): JSX.Element {
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { fetchActivity } = useActions(activityLogLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACTIVITY_LOG]
-    if (showActivityLog) {
-        registerActivityDescriptions({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
-    }
-
     return (
         <div className="feature_flags">
             <PageHeader
@@ -221,19 +214,12 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
             {showActivityLog ? (
-                <Tabs
-                    defaultActiveKey="overview"
-                    onChange={(activeTab) => {
-                        if (activeTab === 'activity') {
-                            fetchActivity()
-                        }
-                    }}
-                >
+                <Tabs defaultActiveKey="overview" destroyInactiveTabPane>
                     <Tabs.TabPane tab="Overview" key="overview">
                         <OverViewTab />
                     </Tabs.TabPane>
                     <Tabs.TabPane tab="Activity" key="activity">
-                        <ActivityLog scope={'FeatureFlag'} />
+                        <ActivityLog scope="FeatureFlag" describer={flagActivityDescriber} />
                     </Tabs.TabPane>
                 </Tabs>
             ) : (

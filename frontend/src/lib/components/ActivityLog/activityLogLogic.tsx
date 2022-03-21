@@ -2,15 +2,11 @@ import { kea } from 'kea'
 import api, { PaginatedResponse } from 'lib/api'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogicType } from './activityLogLogicType'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
-interface ActivityLogLogicProps {
-    scope: 'FeatureFlag'
-    id?: number
-}
-
-export const activityLogLogic = kea<activityLogLogicType<ActivityLogLogicProps>>({
+export const activityLogLogic = kea<activityLogLogicType>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
-    props: {} as ActivityLogLogicProps,
+    props: {} as ActivityLogProps,
     key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
     loaders: ({ props }) => ({
         activity: [
@@ -21,9 +17,14 @@ export const activityLogLogic = kea<activityLogLogicType<ActivityLogLogicProps>>
                         ? `/api/projects/@current/feature_flags/${props.id}/activity`
                         : `/api/projects/@current/feature_flags/activity`
                     const apiResponse: PaginatedResponse<ActivityLogItem> = await api.get(url)
-                    return humanize(apiResponse?.results)
+                    return humanize(apiResponse?.results, props.describer)
                 },
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.fetchActivity()
+        },
     }),
 })

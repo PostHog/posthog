@@ -38,40 +38,27 @@ export interface HumanizedActivityLogItem {
     created_at: dayjs.Dayjs
 }
 
-type Describer = (logItem: ActivityLogItem) => (string | JSX.Element | null)[]
-const registeredDescribers: Record<ActivityScope, Describer> = {
-    [ActivityScope.FEATURE_FLAG]: () => [],
-}
+export type Describer = (logItem: ActivityLogItem) => (string | JSX.Element | null)[]
 
-/*
-In order to use existing components to describe things without this humanizer depending on many parts of the front end
-Things being described can register a describer here.
-Keeping dependencies pointing into the activity log component, not out of it
- */
-export function registerActivityDescriptions(registration: {
-    describer: (logItem: ActivityLogItem) => (string | JSX.Element | null)[]
-    scope: ActivityScope
-}): void {
-    registeredDescribers[registration.scope] = registration.describer
-}
+export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
+    if (!describer) {
+        // TODO make a default describer
+        return []
+    }
 
-export function humanize(results: ActivityLogItem[]): HumanizedActivityLogItem[] {
-    return (results || []).reduce((acc, logItem) => {
-        const describerForScope: Describer = registeredDescribers[logItem.scope]
-        if (!describerForScope) {
-            return acc
-        }
-        describerForScope(logItem).forEach((description) => {
+    const logLines: HumanizedActivityLogItem[] = []
+
+    for (const logItem of results) {
+        for (const description of describer(logItem)) {
             if (description !== null) {
-                acc.push({
+                logLines.push({
                     email: logItem.user.email,
                     name: logItem.user.first_name,
                     description: description,
                     created_at: dayjs(logItem.created_at),
                 })
             }
-        })
-
-        return acc
-    }, [] as HumanizedActivityLogItem[])
+        }
+    }
+    return logLines
 }
