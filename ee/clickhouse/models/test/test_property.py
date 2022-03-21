@@ -462,7 +462,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             person_query = ClickhousePersonQuery(filter, self.team.pk)
             person_subquery, person_join_params = person_query.get_query()
             joins = f"""
-                INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON events.distinct_id = pdi.distinct_id
+                INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS.format(extra_where='')}) AS pdi ON events.distinct_id = pdi.distinct_id
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
             params.update(person_join_params)
