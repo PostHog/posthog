@@ -15,6 +15,7 @@ export function InsightSaveButton({
     addingToDashboard: boolean
 }): JSX.Element {
     const disabled = isSaved && !filtersChanged
+    const saveAsAvailable = isSaved && !addingToDashboard
 
     return (
         <LemonButtonWithSideAction
@@ -35,7 +36,7 @@ export function InsightSaveButton({
                             >
                                 {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
                             </LemonButton>
-                            {isSaved && !addingToDashboard && (
+                            {saveAsAvailable && (
                                 <LemonButton
                                     onClick={saveAs}
                                     data-attr="insight-save-as-new-insight"
@@ -48,7 +49,8 @@ export function InsightSaveButton({
                         </>
                     ),
                 },
-                disabled,
+                disabled: disabled && !saveAsAvailable,
+                'data-attr': 'insight-save-dropdown',
             }}
         >
             {disabled ? 'No changes to be saved' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}

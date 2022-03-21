@@ -673,10 +673,14 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
             )
-            if (values.sourceDashboardId) {
-                router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
-            } else if (setViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            if (setViewMode) {
+                if (values.sourceDashboardId) {
+                    router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
+                } else {
+                    insightSceneLogic
+                        .findMounted()
+                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                }
             }
             lemonToast.success(`Insight saved${values.sourceDashboardId ? ' and added to dashboard' : ''}`, {
                 button: {
