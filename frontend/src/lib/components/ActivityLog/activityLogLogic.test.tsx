@@ -5,11 +5,7 @@ import React from 'react'
 import { useMocks } from '~/mocks/jest'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
-import {
-    ActivityScope,
-    HumanizedActivityLogItem,
-    registerActivityDescriptions,
-} from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -41,7 +37,6 @@ const aHumanizedPageOfHistory: HumanizedActivityLogItem[] = [
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
-    registerActivityDescriptions({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
 
     describe('when not scoped by ID', () => {
         beforeEach(() => {
@@ -51,7 +46,7 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            logic = activityLogLogic({ scope: 'FeatureFlag' })
+            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
 
@@ -59,15 +54,15 @@ describe('the activity log logic', () => {
             expect(logic.key).toEqual('activity/FeatureFlag/all')
         })
 
-        it('can load a page of history', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.fetchActivity()
+        it('loads on mount', async () => {
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+        })
+
+        it('can load a page of activity', async () => {
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                activityLoading: false,
+                activity: aHumanizedPageOfHistory,
             })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    activityLoading: false,
-                    activity: aHumanizedPageOfHistory,
-                })
         })
     })
     describe('when scoped by ID', () => {
@@ -78,7 +73,7 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            logic = activityLogLogic({ scope: 'FeatureFlag', id: 7 })
+            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, id: 7, describer: flagActivityDescriber })
             logic.mount()
         })
 
@@ -86,15 +81,15 @@ describe('the activity log logic', () => {
             expect(logic.key).toEqual('activity/FeatureFlag/7')
         })
 
-        it('can load a page of history', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.fetchActivity()
+        it('loads on mount', async () => {
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.fetchActivity()])
+        })
+
+        it('can load a page of activity', async () => {
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                activityLoading: false,
+                activity: aHumanizedPageOfHistory,
             })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    activityLoading: false,
-                    activity: aHumanizedPageOfHistory,
-                })
         })
     })
 })

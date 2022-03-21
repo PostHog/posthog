@@ -1,10 +1,4 @@
-import {
-    ActivityChange,
-    ActivityLogItem,
-    ActivityScope,
-    humanize,
-    registerActivityDescriptions,
-} from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityChange, ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { render } from '@testing-library/react'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
@@ -25,11 +19,9 @@ const makeAPIItem = (name: string, activity: string, changes: ActivityChange[] |
 
 describe('humanizing the activity log', () => {
     describe('humanizing feature flags', () => {
-        registerActivityDescriptions({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
-
         it('can handle creation', () => {
             const apiItem = makeAPIItem('test created flag', 'created')
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -45,7 +37,7 @@ describe('humanizing the activity log', () => {
         })
         it('can handle deletion', () => {
             const apiItem = makeAPIItem('test del flag', 'deleted')
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -66,7 +58,7 @@ describe('humanizing the activity log', () => {
                     after: true,
                 },
             ])
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -88,7 +80,7 @@ describe('humanizing the activity log', () => {
                     after: 'tomato',
                 },
             ])
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -112,7 +104,7 @@ describe('humanizing the activity log', () => {
                     after: '36',
                 },
             ])
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -142,7 +134,7 @@ describe('humanizing the activity log', () => {
                     after: 'strawberry',
                 },
             ])
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
@@ -175,7 +167,7 @@ describe('humanizing the activity log', () => {
                     after: { groups: [{ properties: [], rollout_percentage: 99 }], multivariate: null },
                 },
             ])
-            const actual = humanize([apiItem])
+            const actual = humanize([apiItem], flagActivityDescriber)
             expect(actual).toEqual([
                 {
                     email: 'kunal@posthog.com',
