@@ -4,7 +4,6 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import clsx from 'clsx'
 import { Skeleton } from 'antd'
 import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -43,8 +42,7 @@ export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Ele
     const logic = activityLogLogic({ scope, id, describer })
     const { activity, activityLoading } = useValues(logic)
     return (
-        <div className={clsx('activity-log', activityLoading && 'activity-log__loading')}>
-            <div className="activity-log__loader" />
+        <div className="activity-log">
             {activityLoading ? (
                 <Loading />
             ) : activity.length > 0 ? (
