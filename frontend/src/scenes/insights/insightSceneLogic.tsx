@@ -108,38 +108,39 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/insights/:shortId(/:mode)': (
             { shortId, mode },
-            { dashboard },
+            { dashboard, ...searchParams },
             { filters: _filters },
             { method, initial }
         ) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
-            const filters: Partial<FilterType> | null = Object.keys(_filters || {}).length > 0 ? _filters : null
+            const filters: Partial<FilterType> | null =
+                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
             if (initial || insightId !== oldInsightId || insightMode !== values.insightMode || filters) {
                 actions.setSceneState(insightId, insightMode)
 
-                const resetNewInsight = insightId === 'new' && (method === 'PUSH' || initial)
+                const resetNewInsight = insightId === 'new' && (method === 'PUSH' || filters || initial)
                 if (resetNewInsight) {
                     values.insightCache?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new'),
-                            ...(filters ? { filters: cleanFilters(filters) } : {}),
+                            ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboard } : {}),
                         },
                         {
-                            fromPersistentApi: true,
+                            fromPersistentApi: false,
                             overrideFilter: true,
                             shouldMergeWithExisting: false,
                         }
                     )
+                    values.insightCache?.logic.actions.loadResults()
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                } else if (filters) {
-                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
 
                 if (filters) {
+                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                     if (insightMode === ItemMode.Edit && insightId !== 'new') {
                         lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
                     }
