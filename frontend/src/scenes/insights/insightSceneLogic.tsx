@@ -107,14 +107,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights/:shortId(/:mode)': (
-            { shortId, mode },
-            { dashboard, ...searchParams },
-            { filters: _filters },
-            { method, initial }
+            { shortId, mode }, // url params
+            { dashboard, ...searchParams }, // search params
+            { filters: _filters }, // hash params
+            { method, initial } // change event
         ) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
+
+            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
