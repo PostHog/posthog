@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
-import { useFeatures } from '~/mocks/features'
+import { useAvailableFeatures } from '~/mocks/features'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -27,7 +27,7 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(() => {
-        useFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
+        useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/insights/trend/': (req) => {
