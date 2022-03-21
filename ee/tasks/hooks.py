@@ -6,16 +6,19 @@ from celery.task import Task
 from django.core.serializers.json import DjangoJSONEncoder
 
 
+def valid_domain(url) -> bool:
+    target_domain = urlparse(url).netloc
+    return bool(target_domain == "hooks.zapier.com")
+
+
 class DeliverHook(Task):
     max_retries = 3
     ignore_result = True
 
     def run(self, target: str, payload: dict, hook_id: str) -> None:
 
-        # Validate target domain
-        target_domain = urlparse(target).netloc
-        if target_domain != "hooks.zapier.com":
-            return
+        if not valid_domain(target):
+            return False
 
         try:
             response = requests.post(
