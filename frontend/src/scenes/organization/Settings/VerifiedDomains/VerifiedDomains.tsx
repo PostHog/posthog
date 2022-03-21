@@ -1,6 +1,6 @@
 import { Button, Modal, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconLock, IconWarningAmber } from 'lib/components/icons'
+import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -11,12 +11,12 @@ import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { AddDomainModal } from './AddDomainModal'
-import { SSOSelect } from './SSOSelect'
+//import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Link } from 'lib/components/Link'
-import { UPGRADE_LINK } from 'lib/constants'
+//import { Link } from 'lib/components/Link'
+//import { UPGRADE_LINK } from 'lib/constants'
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading, isFeatureAvailable } = useValues(verifiedDomainsLogic)
@@ -61,7 +61,7 @@ function VerifiedDomainsTable(): JSX.Element {
         verifiedDomainsLoading,
         currentOrganization,
         updatingDomainLoading,
-        isSSOEnforcementAvailable,
+        //isSSOEnforcementAvailable,
     } = useValues(verifiedDomainsLogic)
     const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
@@ -133,43 +133,43 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         // TODO: This attribute is not connected yet, hide to avoid confusion
-        {
-            key: 'sso_enforcement',
-            title: (
-                <>
-                    Enforce SSO{' '}
-                    <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                        <InfoCircleOutlined />
-                    </Tooltip>
-                </>
-            ),
-            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }) {
-                if (!isSSOEnforcementAvailable) {
-                    return (
-                        <div className="flex-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} />{' '}
-                            <Link
-                                to={UPGRADE_LINK(preflight?.cloud).url}
-                                target={UPGRADE_LINK(preflight?.cloud).target}
-                                style={{ marginRight: 2 }}
-                            >
-                                Upgrade
-                            </Link>
-                            to enable
-                        </div>
-                    )
-                }
-                return is_verified ? (
-                    <SSOSelect
-                        value={sso_enforcement}
-                        loading={updatingDomainLoading}
-                        onChange={(val) => updateDomain({ id, sso_enforcement: val })}
-                    />
-                ) : (
-                    <span className="text-muted-alt">Verify domain to enable</span>
-                )
-            },
-        },
+        // {
+        //     key: 'sso_enforcement',
+        //     title: (
+        //         <>
+        //             Enforce SSO{' '}
+        //             <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
+        //                 <InfoCircleOutlined />
+        //             </Tooltip>
+        //         </>
+        //     ),
+        //     render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }) {
+        //         if (!isSSOEnforcementAvailable) {
+        //             return (
+        //                 <div className="flex-center">
+        //                     <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} />{' '}
+        //                     <Link
+        //                         to={UPGRADE_LINK(preflight?.cloud).url}
+        //                         target={UPGRADE_LINK(preflight?.cloud).target}
+        //                         style={{ marginRight: 2 }}
+        //                     >
+        //                         Upgrade
+        //                     </Link>
+        //                     to enable
+        //                 </div>
+        //             )
+        //         }
+        //         return is_verified ? (
+        //             <SSOSelect
+        //                 value={sso_enforcement}
+        //                 loading={updatingDomainLoading}
+        //                 onChange={(val) => updateDomain({ id, sso_enforcement: val })}
+        //             />
+        //         ) : (
+        //             <span className="text-muted-alt">Verify domain to enable</span>
+        //         )
+        //     },
+        // },
         {
             key: 'actions',
             width: 32,
