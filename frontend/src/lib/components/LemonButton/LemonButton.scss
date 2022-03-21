@@ -86,6 +86,10 @@
     }
 }
 
+.LemonButton--translucent {
+    background: transparent;
+}
+
 .LemonButtonWithSideAction {
     position: relative;
     .side-button {

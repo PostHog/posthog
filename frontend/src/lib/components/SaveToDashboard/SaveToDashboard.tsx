@@ -1,14 +1,10 @@
 import React, { useState } from 'react'
-import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { DashboardType, InsightModel } from '~/types'
-import { CheckSquareOutlined } from '@ant-design/icons'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
-import { LinkButton } from '../LinkButton'
 import { urls } from '../../../scenes/urls'
-import { Tooltip } from '../Tooltip'
-import { combineUrl } from 'kea-router'
+import { LemonButton } from '../LemonButton'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
@@ -28,26 +24,13 @@ export function SaveToDashboard({ insight, sourceDashboardId }: SaveToDashboardP
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             <SaveToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
             {dashboard ? (
-                <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
-                    <LinkButton
-                        to={combineUrl(urls.dashboard(dashboard.id), { highlightInsightId: insight.short_id }).url}
-                        type="default"
-                        style={{ color: 'var(--primary)' }}
-                        icon={<CheckSquareOutlined />}
-                        className="btn-save"
-                    >
-                        {insight.dashboard ? 'On' : 'Adding to'} dashboard
-                    </LinkButton>
-                </Tooltip>
+                <LemonButton to={urls.dashboard(dashboard.id, insight.short_id)} type="secondary" className="btn-save">
+                    On dashboard: {dashboard?.name}
+                </LemonButton>
             ) : (
-                <Button
-                    onClick={() => setOpenModal(true)}
-                    type="default"
-                    style={{ color: 'var(--primary)' }}
-                    className="btn-save"
-                >
+                <LemonButton onClick={() => setOpenModal(true)} type="secondary" className="btn-save">
                     Add to dashboard
-                </Button>
+                </LemonButton>
             )}
         </span>
     )

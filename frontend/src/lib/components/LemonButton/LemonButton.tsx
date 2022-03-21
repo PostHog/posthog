@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
-import { LemonRow, LemonRowProps, LemonRowPropsBase } from '../LemonRow'
+import { LemonRow, LemonRowProps, LemonRowPropsBase, LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import './LemonButton.scss'
@@ -11,6 +11,8 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     ref?: React.Ref<HTMLButtonElement>
     type?: 'default' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted' | 'primary-alt'
     htmlType?: LemonRowPropsBase<'button'>['type']
+    /** Whether the button should have transparent background in its base state (i.e. non-hover). */
+    translucent?: boolean
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -29,7 +31,8 @@ function LemonButtonInternal(
         children,
         type = 'default',
         htmlType = 'button',
-        active,
+        translucent = false,
+        active = false,
         className,
         popup,
         to,
@@ -44,6 +47,7 @@ function LemonButtonInternal(
             'LemonButton',
             type !== 'default' && `LemonButton--${type}`,
             active && 'LemonButton--active',
+            translucent && 'LemonButton--translucent',
             className
         ),
         type: htmlType,
@@ -78,7 +82,10 @@ function LemonButtonInternal(
 }
 export const LemonButton = React.forwardRef(LemonButtonInternal) as typeof LemonButtonInternal
 
-export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip' | 'data-attr'>
+export type SideAction = Pick<
+    LemonButtonProps,
+    'onClick' | 'popup' | 'to' | 'disabled' | 'icon' | 'tooltip' | 'data-attr'
+>
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
@@ -89,11 +96,28 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
  * Styled button with a side action on the right.
  * We can't use `LemonRow`'s `sideIcon` prop because putting `onClick` on it clashes with the parent`s `onClick`.
  */
-export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonButtonWithSideActionProps): JSX.Element {
+export function LemonButtonWithSideAction({
+    sideAction,
+    children,
+    ...buttonProps
+}: LemonButtonWithSideActionProps): JSX.Element {
+    const { popup: sidePopup, ...sideActionRest } = sideAction
+    const SideComponent = sidePopup ? LemonButtonWithPopup : LemonButton
+
     return (
         <div className="LemonButtonWithSideAction">
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
-            <LemonButton {...buttonProps} sideIcon={<div />} /> <LemonButton className="side-button" {...sideAction} />
+            <LemonButton {...buttonProps} sideIcon={<div />}>
+                {children}
+                {!buttonProps.fullWidth && <LemonSpacer vertical style={{ margin: '0 0 0 0.75rem' }} />}
+            </LemonButton>
+            <SideComponent
+                className="side-button"
+                popup={sidePopup as LemonButtonPopup}
+                {...sideActionRest}
+                type={buttonProps.type}
+                translucent
+            />
         </div>
     )
 }
@@ -115,7 +139,11 @@ export function LemonButtonWithPopup({
     const parentPopupId = useContext(PopupContext)
     const [popupVisible, setPopupVisible] = useState(false)
 
-    if (buttonProps.children && !buttonProps.sideIcon) {
+    if (!buttonProps.children) {
+        if (!buttonProps.icon) {
+            buttonProps.icon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+        }
+    } else if (!buttonProps.sideIcon) {
         buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
     }
 

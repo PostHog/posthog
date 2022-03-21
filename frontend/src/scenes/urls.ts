@@ -15,7 +15,8 @@ To add a new URL to the front end:
 export const urls = {
     default: () => '/',
     dashboards: () => '/dashboard',
-    dashboard: (id: string | number) => `/dashboard/${id}`,
+    dashboard: (id: string | number, highlightInsightId?: string) =>
+        `/dashboard/${id}${highlightInsightId ? `?highlightInsightId=${highlightInsightId}` : ''}`,
     sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
     createAction: () => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/data-management/actions/${id}`,

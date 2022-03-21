@@ -116,6 +116,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
@@ -655,11 +656,11 @@ export const insightLogic = kea<insightLogicType>({
                 { fromPersistentApi: true }
             )
             if (values.sourceDashboardId) {
-                router.actions.push(urls.dashboard(values.sourceDashboardId))
+                router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
             } else if (setViewMode) {
                 insightSceneLogic.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             }
-            lemonToast.success('Insight saved', {
+            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' and added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -737,6 +738,11 @@ export const insightLogic = kea<insightLogicType>({
                     ...nextEntries,
                 },
             })
+        },
+        cancelChanges: () => {
+            actions.setFilters(values.savedFilters)
+            insightSceneLogic.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            eventUsageLogic.actions.reportInsightsTabReset()
         },
     }),
 
