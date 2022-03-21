@@ -195,6 +195,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 values.definition?.name !== selectors.definition(previousState).name
             ) {
                 actions.setPopupState(DefinitionPopupState.View)
+                eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
             }
         },
         handleSave: () => {
@@ -229,6 +230,11 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
+        },
+    }),
+    events: ({ values }) => ({
+        afterMount: () => {
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
         },
     }),
 })
