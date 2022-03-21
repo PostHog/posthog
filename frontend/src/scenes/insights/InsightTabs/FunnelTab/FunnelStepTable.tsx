@@ -558,7 +558,7 @@ export function FunnelStepTable(): JSX.Element | null {
                   columns,
               }
 
-    return stepsWithCount.length > 1 ? (
+    return stepsWithCount.length > 0 ? (
         <Table
             {...tableData}
             scroll={isViewedOnDashboard ? undefined : { x: 'max-content' }}
