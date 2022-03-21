@@ -199,6 +199,14 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         return Response(flags)
 
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        activity = load_activity(scope="FeatureFlag", team_id=self.team_id)
+        return Response(
+            {"results": ActivityLogSerializer(activity, many=True,).data, "next": None, "previous": None,},
+            status=status.HTTP_200_OK,
+        )
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         item_id = kwargs["pk"]

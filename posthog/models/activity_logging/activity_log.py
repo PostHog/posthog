@@ -112,12 +112,14 @@ def log_activity(
     )
 
 
-def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: int):
+def load_activity(scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None):
     # TODO in follow-up to posthog#8931 paging and selecting specific fields into a return type from this query
-    activities = list(
-        ActivityLog.objects.select_related("user")
-        .filter(team_id=team_id, scope=scope, item_id=item_id)
-        .order_by("-created_at")[:10]
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
+
+    if item_id is not None:
+        activity_query.filter(item_id=item_id)
+    activities = list(activity_query[:10])
 
     return activities
