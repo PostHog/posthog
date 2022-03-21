@@ -120,12 +120,16 @@ class ClickhouseTrendsBreakdown:
 
         # If the breakdown_filter is in the form of "WHERE XXX"
         # (true for everything but cohorts)
-        person_join_extra_where = substitute_params(
+        event_extra_where = substitute_params(
             f"{breakdown_filter_params['event_filter']} {breakdown_filter_params['actions_query']} {breakdown_filter_params['parsed_date_from']} {breakdown_filter_params['parsed_date_to']}",
             {**self.params, **_params},
         )
+        distinct_ids_extra_where = substitute_params(
+            f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE e.team_id = %(team_id)s {event_extra_where} GROUP BY distinct_id)",
+            {"team_id": self.team_id},
+        )
 
-        person_join_condition, person_join_params = self._person_join_condition(person_join_extra_where)
+        person_join_condition, person_join_params = self._person_join_condition(distinct_ids_extra_where)
         groups_join_condition, groups_join_params = GroupsJoinQuery(
             self.filter, self.team_id, self.column_optimizer
         ).get_join_query()
@@ -161,7 +165,9 @@ class ClickhouseTrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
-                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(
+                        self.team_id, extra_where=distinct_ids_extra_where
+                    ),
                     **active_user_params,
                     **breakdown_filter_params,
                 )
@@ -334,7 +340,7 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or "none"
 
-    def _person_join_condition(self, extra_where: str) -> Tuple[str, Dict]:
+    def _person_join_condition(self, distinct_ids_extra_where: str) -> Tuple[str, Dict]:
         person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
 
         # The extra_where here helps us fetch fewer rows from the
@@ -344,13 +350,7 @@ class ClickhouseTrendsBreakdown:
         # For an event performed 1000 times in a database with 10 million
         # people, it speeds it up from taking 10s to about 0.5s in a 8vCPU,
         # 128GB memory server
-        distinct_ids_query = get_team_distinct_ids_query(
-            self.team_id,
-            extra_where=substitute_params(
-                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE e.team_id = %(team_id)s {extra_where})",
-                {"team_id": self.team_id},
-            ),
-        )
+        distinct_ids_query = get_team_distinct_ids_query(self.team_id, extra_where=distinct_ids_extra_where,)
         event_join = EVENT_JOIN_PERSON_SQL.format(GET_TEAM_PERSON_DISTINCT_IDS=distinct_ids_query)
         if person_query.is_used:
             query, params = person_query.get_query(

@@ -70,7 +70,7 @@ def get_breakdown_prop_values(
         distinct_ids_query = get_team_distinct_ids_query(
             team_id,
             extra_where=substitute_params(
-                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {extra_where})",
+                f"AND distinct_id IN (SELECT distinct_id FROM events e WHERE team_id = %(team_id)s {extra_where} GROUP BY distinct_id)",
                 {"team_id": team_id, **entity_params, **date_params},
             ),
         )

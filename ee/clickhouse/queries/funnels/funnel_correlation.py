@@ -385,7 +385,7 @@ class FunnelCorrelation:
 
     def _get_aggregation_target_join_query(self) -> str:
         aggregation_person_join = f"""
-            JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
+            JOIN ({get_team_distinct_ids_query(self._team.pk, extra_where=f"AND distinct_id IN (SELECT distinct_id FROM events {self._get_events_where()} GROUP BY distinct_id)")}) AS pdi
                     ON pdi.distinct_id = events.distinct_id
 
                 -- NOTE: I would love to right join here, so we count get total
@@ -408,6 +408,36 @@ class FunnelCorrelation:
             aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join
         )
 
+    def _get_events_where(self) -> str:
+        """
+        Get the conditions that should be added as a part of the SELECT * FROM events ...
+        """
+
+        return f"""
+        -- Make sure we're only looking at events before the final step, or
+        -- failing that, date_to
+        WHERE
+            -- add this condition in to ensure we can filter events before
+            -- joining funnel_actors
+            event.timestamp >= date_from
+            AND event.timestamp < date_to
+
+            AND event.team_id = {self._team.pk}
+
+            -- Add in per actor filtering on event time range. We just want
+            -- to include events that happened within the bounds of the
+            -- actors time in the funnel.
+            AND event.timestamp > actors.first_timestamp
+            AND event.timestamp < COALESCE(
+                actors.final_timestamp,
+                actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
+                date_to)
+                -- Ensure that the event is not outside the bounds of the funnel conversion window
+
+            -- Exclude funnel steps
+            AND event.event NOT IN funnel_step_names
+        """
+
     def _get_events_join_query(self) -> str:
         """
         This query is used to join and filter the events table corresponding to the funnel_actors CTE.
@@ -420,29 +450,7 @@ class FunnelCorrelation:
 
         return f"""
             {self._get_aggregation_target_join_query()}
-
-            -- Make sure we're only looking at events before the final step, or
-            -- failing that, date_to
-            WHERE
-                -- add this condition in to ensure we can filter events before
-                -- joining funnel_actors
-                event.timestamp >= date_from
-                AND event.timestamp < date_to
-
-                AND event.team_id = {self._team.pk}
-
-                -- Add in per actor filtering on event time range. We just want
-                -- to include events that happened within the bounds of the
-                -- actors time in the funnel.
-                AND event.timestamp > actors.first_timestamp
-                AND event.timestamp < COALESCE(
-                    actors.final_timestamp,
-                    actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
-                    date_to)
-                    -- Ensure that the event is not outside the bounds of the funnel conversion window
-
-                -- Exclude funnel steps
-                AND event.event NOT IN funnel_step_names
+            {self._get_events_where()}
         """
 
     def _get_aggregation_join_query(self):
