@@ -18,7 +18,7 @@ class DeliverHook(Task):
     def run(self, target: str, payload: dict, hook_id: str) -> None:
 
         if not valid_domain(target):
-            return False
+            return
 
         try:
             response = requests.post(
