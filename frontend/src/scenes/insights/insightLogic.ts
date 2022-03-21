@@ -116,6 +116,7 @@ export const insightLogic = kea<insightLogicType>({
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
@@ -132,6 +133,7 @@ export const insightLogic = kea<insightLogicType>({
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        setSourceDashboardId: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -177,7 +179,7 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    const updatedInsight: Partial<InsightModel> = {
+                    const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
@@ -217,7 +219,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight: Partial<InsightModel> = { ...values.insight }
+                    const updatedInsight = { ...values.insight } as InsightModel
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -438,6 +440,12 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
+        sourceDashboardId: [
+            null as number | null,
+            {
+                setSourceDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
     }),
     selectors: {
         /** filters for data that's being displayed, might not be same as savedFilters or filters */
@@ -651,6 +659,7 @@ export const insightLogic = kea<insightLogicType>({
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
                 {
                     ...values.insight,
+                    dashboard: values.insight.dashboard || values.sourceDashboardId,
                     derived_name: summarizeInsightFilters(
                         values.insight.filters || {},
                         values.aggregationLabel,
@@ -665,9 +674,15 @@ export const insightLogic = kea<insightLogicType>({
                 { fromPersistentApi: true }
             )
             if (setViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                if (values.sourceDashboardId) {
+                    router.actions.push(urls.dashboard(values.sourceDashboardId, values.insight.short_id))
+                } else {
+                    insightSceneLogic
+                        .findMounted()
+                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                }
             }
-            lemonToast.success('Insight saved', {
+            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
@@ -745,6 +760,11 @@ export const insightLogic = kea<insightLogicType>({
                     ...nextEntries,
                 },
             })
+        },
+        cancelChanges: () => {
+            actions.setFilters(values.savedFilters)
+            insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+            eventUsageLogic.actions.reportInsightsTabReset()
         },
     }),
 

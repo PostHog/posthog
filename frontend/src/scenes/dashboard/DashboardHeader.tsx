@@ -10,7 +10,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType, InsightType } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
@@ -21,10 +21,12 @@ import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { Button } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import { urls } from 'scenes/urls'
+import { Link } from 'lib/components/Link'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
-    const { setDashboardMode, addGraph, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
@@ -199,14 +201,15 @@ export function DashboardHeader(): JSX.Element | null {
                                 Share
                             </Button>
                             {canEditDashboard && (
-                                <Button
-                                    type="primary"
-                                    onClick={() => addGraph()}
-                                    data-attr="dashboard-add-graph-header"
-                                    icon={<PlusOutlined />}
-                                >
-                                    New Insight
-                                </Button>
+                                <Link to={urls.insightNew({ insight: InsightType.TRENDS }, dashboard?.id)}>
+                                    <Button
+                                        type="primary"
+                                        data-attr="dashboard-add-graph-header"
+                                        icon={<PlusOutlined />}
+                                    >
+                                        Add Insight
+                                    </Button>
+                                </Link>
                             )}
                         </>
                     )

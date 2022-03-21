@@ -1,7 +1,7 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Button, Popconfirm, Card } from 'antd'
+import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -15,7 +15,6 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
@@ -29,6 +28,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { LemonButton } from 'lib/components/LemonButton'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
@@ -45,16 +45,15 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
         activeView,
         insight,
         filtersChanged,
-        savedFilters,
         tagLoading,
+        sourceDashboardId,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
+    const { setActiveView, saveInsight, setInsightMetadata, saveAs, cancelChanges } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
-    const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -136,34 +135,33 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                 }
                 buttons={
                     <div className="insights-tab-actions">
-                        {filtersChanged ? (
-                            <Popconfirm
-                                title="Are you sure? This will discard all unsaved changes in this insight."
-                                onConfirm={() => {
-                                    setFilters(savedFilters)
-                                    reportInsightsTabReset()
-                                }}
-                            >
-                                <Button type="link" className="btn-reset">
-                                    Discard changes
-                                </Button>
-                            </Popconfirm>
-                        ) : null}
-                        {insight.short_id && <SaveToDashboard insight={insight} />}
+                        {insightMode === ItemMode.Edit && insight.saved && (
+                            <LemonButton type="secondary" onClick={cancelChanges}>
+                                Cancel
+                            </LemonButton>
+                        )}
+                        {insightMode === ItemMode.View && insight.short_id && (
+                            <SaveToDashboard insight={insight} sourceDashboardId={sourceDashboardId} />
+                        )}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
-                                <HotkeyButton
+                                <LemonButton
                                     type="primary"
                                     style={{ marginLeft: 8 }}
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
-                                    hotkey="e"
                                 >
                                     Edit
-                                </HotkeyButton>
+                                </LemonButton>
                             )
                         ) : (
-                            <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
+                            <InsightSaveButton
+                                saveAs={saveAs}
+                                saveInsight={saveInsight}
+                                isSaved={insight.saved}
+                                addingToDashboard={!!sourceDashboardId}
+                                filtersChanged={filtersChanged}
+                            />
                         )}
                     </div>
                 }
