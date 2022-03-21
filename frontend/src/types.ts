@@ -1224,7 +1224,7 @@ export interface MultivariateFlagOptions {
     variants: MultivariateFlagVariant[]
 }
 
-interface FeatureFlagFilters {
+export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null

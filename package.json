@@ -142,6 +142,7 @@
         "@storybook/addon-links": "^6.4.19",
         "@storybook/addon-storysource": "^6.4.19",
         "@storybook/react": "^6.4.19",
+        "@testing-library/jest-dom": "^5.16.2",
         "@testing-library/react": "^12.1.2",
         "@testing-library/user-event": "^13.5.0",
         "@types/chart.js": "^2.9.34",
