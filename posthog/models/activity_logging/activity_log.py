@@ -2,11 +2,14 @@ import dataclasses
 import json
 from typing import Any, List, Literal, Optional, Union
 
+import structlog
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,6 +104,16 @@ def log_activity(
     activity: str,
     detail: Detail,
 ) -> None:
+    if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+        logger.warn(
+            "'updated' activity was logged with no changes and was ignored",
+            team_id=team_id,
+            organization_id=organization_id,
+            user_id=user.id,
+            scope=scope,
+        )
+        return
+
     ActivityLog.objects.create(
         organization_id=organization_id,
         team_id=team_id,
