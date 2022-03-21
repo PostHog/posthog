@@ -14,10 +14,10 @@ export function afterLoginRedirect(): string {
         const nextPath = router.values.searchParams['next'] || '/'
         const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
         if (url.protocol === 'http:' || url.protocol === 'https:') {
-            return location.origin + url.pathname + url.search + url.hash
+            return url.pathname + url.search + url.hash
         }
     } catch (e) {}
-    return location.origin
+    return '/'
 }
 
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({

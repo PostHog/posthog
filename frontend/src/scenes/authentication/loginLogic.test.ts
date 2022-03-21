@@ -12,13 +12,11 @@ describe('loginLogic', () => {
         const matches = [
             [null, '/'],
             ['/', '/'],
-            ['asdf', ''],
-            ['?next=javascript:something', ''],
-            ['javascript:something', ''],
             ['/bla', '/bla'],
-            [`${origin}/bla`, '/bla'],
-            [`http://some-other.origin/bla`, '/bla'],
-            ['//foo.bar', '//foo.bar'],
+            ['asdf', '/'],
+            ['http://hahaha/bla', '/bla'],
+            ['javascript:something', '/'],
+            ['?next=javascript:something', '/'],
             ['/bla?haha', '/bla?haha'],
             ['/bla?haha#hoho', '/bla?haha#hoho'],
         ]
