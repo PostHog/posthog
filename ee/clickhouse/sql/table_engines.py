@@ -72,3 +72,13 @@ class Distributed:
 
     def __str__(self):
         return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+
+
+# Not MergeTree! Special Merge table engine: https://clickhouse.com/docs/en/engines/table-engines/special/merge/
+class Merge:
+    def __init__(self, database: str, tables_to_merge_regex: str):
+        self.database = database
+        self.tables_to_merge_regex = tables_to_merge_regex
+
+    def __str__(self):
+        return f"Merge('{self.database}', '{self.tables_to_merge_regex}')"
