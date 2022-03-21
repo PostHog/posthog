@@ -17,7 +17,7 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-interface Filters {
+export interface PersonFilters {
     properties?: AnyPropertyFilter[]
     search?: string
     cohort?: number
@@ -29,7 +29,7 @@ export interface PersonLogicProps {
     urlId?: string
 }
 
-export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps, PersonPaginatedResponse>>({
     props: {} as PersonLogicProps,
     key: (props) => {
         if (!props.cohort && !props.syncWithUrl) {
@@ -46,15 +46,16 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         setPerson: (person: PersonType | null) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
-        setListFilters: (payload: Filters) => ({ payload }),
+        setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
+        exportCsv: true,
     },
     reducers: {
         listFilters: [
-            {} as Filters,
+            {} as PersonFilters,
             {
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
@@ -93,7 +94,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             setPerson: (_, { person }): PersonType | null => person,
         },
     },
-    selectors: {
+    selectors: ({ props }) => ({
         showSessionRecordings: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => {
@@ -128,7 +129,12 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 return breadcrumbs
             },
         ],
-    },
+        exportUrl: [
+            (s) => [s.listFilters],
+            (listFilters): string =>
+                props.cohort ? `/api/cohort/${props.cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
+        ],
+    }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
@@ -184,6 +190,10 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         navigateToCohort: ({ cohort }) => {
             router.actions.push(urls.cohort(cohort.id))
         },
+        exportCsv: () => {
+            lemonToast.success('The export is starting. It should finish soon')
+            window.location.href = values.exportUrl
+        },
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
@@ -192,7 +202,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 loadPersons: async ({ url }) => {
                     if (!url) {
                         if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons`
+                            url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
                         } else {
                             url = `api/person/?${toParams(values.listFilters)}`
                         }

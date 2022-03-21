@@ -3,6 +3,8 @@ from functools import lru_cache
 from math import exp, lgamma, log
 from typing import List
 
+from flaky import flaky
+
 from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     ClickhouseFunnelExperimentResult,
     Variant,
@@ -130,6 +132,7 @@ def probability_D_beats_A_B_and_C(
     )
 
 
+@flaky(max_runs=10, min_passes=1)
 class TestFunnelExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
 
@@ -375,6 +378,7 @@ def probability_C_beats_A_and_B_count_data(
     )
 
 
+@flaky(max_runs=10, min_passes=1)
 class TestTrendExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
         variant_a = CountVariant("A", 20, 1, 200)

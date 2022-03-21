@@ -6,6 +6,7 @@ import { Link } from 'lib/components/Link'
 import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '~/types'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -98,14 +99,14 @@ export async function createActionFromEvent(
             lemonToast.error(
                 <>
                     Couldn't create this action. You can try{' '}
-                    <Link to="/action">manually creating an action instead.</Link>
+                    <Link to={urls.createAction()}>manually creating an action instead.</Link>
                 </>
             )
             return
         }
     }
     if (action.id) {
-        router.actions.push(`/action/${action.id}`)
+        router.actions.push(urls.action(action.id))
         lemonToast.success('Action created')
     }
 }

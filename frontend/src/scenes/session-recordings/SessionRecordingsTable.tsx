@@ -4,7 +4,7 @@ import { humanFriendlyDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { Button, Col, Row, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
-import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined, FilterOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
@@ -18,6 +18,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { IconFilter } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -175,20 +177,24 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         </div>
                     )}
                 </div>
-                <Button
-                    style={{ display: showFilters ? 'none' : undefined }}
-                    onClick={() => {
-                        enableFilter()
-                        if (isPersonPage) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
+                {!showFilters && (
+                    <LemonButton
+                        type="secondary"
+                        compact
+                        icon={<IconFilter />}
+                        onClick={() => {
+                            enableFilter()
+                            if (isPersonPage) {
+                                const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                if (entityFilterButtons.length > 0) {
+                                    ;(entityFilterButtons[0] as HTMLElement).click()
+                                }
                             }
-                        }
-                    }}
-                >
-                    <FilterOutlined /> Filter recordings
-                </Button>
+                        }}
+                    >
+                        Filter recordings
+                    </LemonButton>
+                )}
 
                 <Row className="time-filter-row">
                     <Row className="time-filter">

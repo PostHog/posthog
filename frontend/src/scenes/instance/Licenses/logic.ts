@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { licenseLogicType } from './logicType'
 import { APIErrorType, LicenseType } from '~/types'
-import { preflightLogic } from '../../PreflightCheck/logic'
+import { preflightLogic } from '../../PreflightCheck/preflightLogic'
 import { isLicenseExpired } from '.'
 import { lemonToast } from 'lib/components/lemonToast'
 

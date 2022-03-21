@@ -51,7 +51,7 @@ describe('createActionFromEvent()', () => {
         it('directs to the action page and shows toast', async () => {
             await given.subject()
 
-            expect(router.actions.push).toHaveBeenCalledWith('/action/456')
+            expect(router.actions.push).toHaveBeenCalledWith('/data-management/actions/456')
         })
 
         describe('increments', () => {

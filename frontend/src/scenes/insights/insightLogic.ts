@@ -399,6 +399,7 @@ export const insightLogic = kea<insightLogicType>({
             null as string | null,
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
                 setActiveView: () => null,
             },
         ],
@@ -454,7 +455,13 @@ export const insightLogic = kea<insightLogicType>({
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
-        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
+        isViewedOnDashboard: [
+            () => [router.selectors.location],
+            ({ pathname }) =>
+                pathname.startsWith('/dashboard') ||
+                pathname.startsWith('/home') ||
+                pathname.startsWith('/shared-dashboard'),
+        ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
@@ -477,6 +484,19 @@ export const insightLogic = kea<insightLogicType>({
             ({ filters }) => {
                 // any real filter will have the `insight` key in it
                 return 'insight' in (filters ?? {})
+            },
+        ],
+        csvExportUrl: [
+            (s) => [s.insight, s.currentTeamId],
+            (insight: Partial<InsightModel>, currentTeamId: number) => {
+                const { filters, name, short_id, derived_name } = insight
+                if (filters?.insight === InsightType.TRENDS) {
+                    return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
+                        ...filterTrendsClientSideParams(filters),
+                        export_name: name || derived_name,
+                        export_insight_id: short_id,
+                    })}`
+                }
             },
         ],
     },
@@ -510,31 +530,33 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
-            const { fromDashboard } = router.values.hashParams
-            const changedKeysObj: Record<string, any> | undefined =
-                previousFilters && extractObjectDiffKeys(previousFilters, filters)
+            if (!values.isViewedOnDashboard) {
+                const { fromDashboard } = router.values.hashParams
+                const changedKeysObj: Record<string, any> | undefined =
+                    previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightSceneLogic.values.insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                0,
-                changedKeysObj
-            )
-            actions.setNotFirstLoad()
-            await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightSceneLogic.values.insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    0,
+                    changedKeysObj
+                )
+                actions.setNotFirstLoad()
+                await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
-            eventUsageLogic.actions.reportInsightViewed(
-                values.insight,
-                filters || {},
-                insightSceneLogic.values.insightMode,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                10,
-                changedKeysObj
-            )
+                eventUsageLogic.actions.reportInsightViewed(
+                    values.insight,
+                    filters || {},
+                    insightSceneLogic.values.insightMode,
+                    values.isFirstLoad,
+                    Boolean(fromDashboard),
+                    10,
+                    changedKeysObj
+                )
+            }
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)

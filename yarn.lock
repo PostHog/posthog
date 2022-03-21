@@ -2766,6 +2766,26 @@
     regenerator-runtime "^0.13.7"
     ts-dedent "^2.0.0"
 
+"@storybook/addon-storysource@^6.4.19":
+  version "6.4.19"
+  resolved "https://registry.yarnpkg.com/@storybook/addon-storysource/-/addon-storysource-6.4.19.tgz#09ec47b0c9f68ba9590edfcc7bd72984c048d272"
+  integrity sha512-WcjPgd0/m9rGMQbf6H2/wvXUhW5lSELWdXeCCK1taQHQUjhs8tq83fa7OkI9kE25drPiUJuPzObbCoYr94hftQ==
+  dependencies:
+    "@storybook/addons" "6.4.19"
+    "@storybook/api" "6.4.19"
+    "@storybook/client-logger" "6.4.19"
+    "@storybook/components" "6.4.19"
+    "@storybook/router" "6.4.19"
+    "@storybook/source-loader" "6.4.19"
+    "@storybook/theming" "6.4.19"
+    core-js "^3.8.2"
+    estraverse "^5.2.0"
+    loader-utils "^2.0.0"
+    prettier ">=2.2.1 <=2.3.0"
+    prop-types "^15.7.2"
+    react-syntax-highlighter "^13.5.3"
+    regenerator-runtime "^0.13.7"
+
 "@storybook/addon-toolbars@6.4.19":
   version "6.4.19"
   resolved "https://registry.yarnpkg.com/@storybook/addon-toolbars/-/addon-toolbars-6.4.19.tgz#75a8d531c0f7bfda1c6c97d19bf95fdd2ad54d3f"
@@ -3550,6 +3570,11 @@
   version "0.0.4"
   resolved "https://registry.yarnpkg.com/@types/css-font-loading-module/-/css-font-loading-module-0.0.4.tgz#94a835e27d1af444c65cba88523533c174463d64"
   integrity sha512-ENdXf7MW4m9HeDojB2Ukbi7lYMIuQNBHVf98dbzaiG4EEJREBd6oleVAjrLRCrp7dm6CK1mmdmU9tcgF61acbw==
+
+"@types/css-font-loading-module@0.0.7":
+  version "0.0.7"
+  resolved "https://registry.yarnpkg.com/@types/css-font-loading-module/-/css-font-loading-module-0.0.7.tgz#2f98ede46acc0975de85c0b7b0ebe06041d24601"
+  integrity sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==
 
 "@types/d3-array@*":
   version "3.0.1"
@@ -5292,6 +5317,11 @@ balanced-match@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.0.tgz#89b4d199ab2bee49de164ea02b89ce462d71b767"
   integrity sha1-ibTRmasr7kneFk6gK4nORi1xt2c=
+
+base64-arraybuffer@^1.0.1:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/base64-arraybuffer/-/base64-arraybuffer-1.0.2.tgz#1c37589a7c4b0746e34bd1feb951da2df01c1bdc"
+  integrity sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==
 
 base64-js@^1.0.2, base64-js@^1.3.1:
   version "1.5.1"
@@ -10911,6 +10941,11 @@ junk@^3.1.0:
   resolved "https://registry.yarnpkg.com/junk/-/junk-3.1.0.tgz#31499098d902b7e98c5d9b9c80f43457a88abfa1"
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
+kea-forms@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-0.2.2.tgz#aa47cd3849b31615ca28b6e5ececd7eb567e5674"
+  integrity sha512-a/FSZj0r0b47y8okg4a4MJigWMG92VWcqJ62wAqUPyFz1ic5MUp5HryQT+UyiaTGvPRm2B6lBw/meiS9NO11ng==
+
 kea-loaders@^0.5.1:
   version "0.5.1"
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.5.1.tgz#558eeeeaf9d5c613e66b2ede7677f7dbe2f460f1"
@@ -10935,14 +10970,14 @@ kea-test-utils@^0.2.2:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^1.3.0:
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.3.0.tgz#bb2cb334d4643ecea6c675ba17f7d241031802be"
-  integrity sha512-4LADs4rJ8Jh1QhR9ejhG2l2zLlB816k9RgKDHi8JLK53bqS/xc9YJdHUPlenKfq6tuhCsYCPaCVPoJ2Df44u3w==
+kea-typegen@^1.4.3:
+  version "1.4.3"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.4.3.tgz#bdee4c3add82f8eebb1573b3db58ed0b05cb1ffc"
+  integrity sha512-l/WhfaEkMMOG9jPn5e5/tveBQBTiJyXurNBng/+orZbQyt4Rdg7Jrdj+ZYzqJqtWJuzsnO0tYF2vS91wmiDJ/g==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
-    prettier "^2.3.1"
+    prettier "^2.5.1"
     yargs "^16.2.0"
 
 kea-waitfor@^0.2.1:
@@ -10955,10 +10990,10 @@ kea-window-values@^0.1.0:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
   integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
 
-kea@^2.5.8:
-  version "2.5.8"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.8.tgz#3c008aa09bd49d12dbae3758986b6e0c3423a8e3"
-  integrity sha512-VizwozA1XRb9+Oe7ul5ygqtJVyTYiT56F+qK8XUQnEipCQv6I9QGSC8luRhs/D48QGAB0jD6aBwNpAM2Hv1LbQ==
+kea@^2.5.9:
+  version "2.5.9"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.5.9.tgz#df1eeb4487e31b76b1a8c78a5fd4a7869b42680c"
+  integrity sha512-0XbPTzZzr6QvBpWM+t6tAr/lhV0i28Ci5vsUJui5d2scTuGCE9In4ajzRao6bRpafbAqERZLT/dX0AePsGsCPA==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -13016,10 +13051,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.17.9:
-  version "1.17.9"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.17.9.tgz#7d05417a25e943773c19e6531f13fa44046b79a5"
-  integrity sha512-iaUuQqNb5W3qDYKiz0NaugQXcnazvjtG0HzKN2CYYZvs3SYsIPGRTKt3jpKc94QybK6x8xkZP2Gt787gEAnP2Q==
+posthog-js@1.18.0:
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.18.0.tgz#91b063faf8c412472915773b5ab46dae225982ef"
+  integrity sha512-yMJKHfzF8U4dssaqf/ghNS0/Kjgni9P7Xu1b3gN4bXKw2D4drhDq7fUxSunU3kV65o/jH3UCohqS24Ad2rll0A==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
@@ -13051,6 +13086,11 @@ prettier@^2.3.1:
   version "2.3.2"
   resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.3.2.tgz#ef280a05ec253712e486233db5c6f23441e7342d"
   integrity sha512-lnJzDfJ66zkMy58OL5/NY5zp70S7Nz6KqcKkXYzn2tMVrNxvbqaBpg7H3qHaLxCJ5lNMsGuM8+ohS7cZrthdLQ==
+
+prettier@^2.5.1:
+  version "2.6.0"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.6.0.tgz#12f8f504c4d8ddb76475f441337542fa799207d4"
+  integrity sha512-m2FgJibYrBGGgQXNzfd0PuDGShJgRavjUoRCw1mZERIWVSXF0iLzLm+aOqTAbLnC3n6JzUhAA8uZnFVghHJ86A==
 
 pretty-error@^2.1.1:
   version "2.1.2"
@@ -14534,15 +14574,15 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
+rrweb-snapshot@^1.1.13:
+  version "1.1.13"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.13.tgz#fc15adb7eb6354c859c8d594f57b09e1f5bccdd8"
+  integrity sha512-lv4vBSJ5orBcRoJnjLvtly6cSsctC+TNm5orVzYRL9SH3LmtSpQ+wI4bw7eh4AcyKoUf0x4pe1Bn632GggmKWQ==
+
 rrweb-snapshot@^1.1.7:
   version "1.1.7"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
   integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
-
-rrweb-snapshot@^1.1.9:
-  version "1.1.9"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.9.tgz#f8d0f560291a37dab00dc5ac6d9368f76208256f"
-  integrity sha512-kpoWi2gx1AmX2PZU8XNKMvIvh5WPSz9lKfyHs9GYvczYE2H7VNrmPf7+rDin8Y+HcJ9Tu7x9id4JOCD2PsSPQA==
 
 rrweb@^1.0.2:
   version "1.0.2"
@@ -14555,16 +14595,17 @@ rrweb@^1.0.2:
     mitt "^1.1.3"
     rrweb-snapshot "^1.1.7"
 
-rrweb@^1.0.6:
-  version "1.0.6"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.6.tgz#381027a4331c610739145dc4142364be680504ba"
-  integrity sha512-uiRpPMNEd1oMqNYRelKBz28WBLXQEirx9u+nlTIaxk65fbTEUyKBr81GhcUSjeZAsTpkUtIAHacS0Gjz35x/Rw==
+rrweb@^1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.1.2.tgz#65279c8528dcfff7158bb31ed21323d3f26a741f"
+  integrity sha512-D1r3MdfYshY7rA8lN3R0cXqeY6fTtgHlkLQM4lxkU+TdKi023/hNQz6tvDJbXGX3HWGa4mRAmQs3S2uGho6Nsw==
   dependencies:
-    "@types/css-font-loading-module" "0.0.4"
+    "@types/css-font-loading-module" "0.0.7"
     "@xstate/fsm" "^1.4.0"
+    base64-arraybuffer "^1.0.1"
     fflate "^0.4.4"
     mitt "^1.1.3"
-    rrweb-snapshot "^1.1.9"
+    rrweb-snapshot "^1.1.13"
 
 rsvp@^4.8.4:
   version "4.8.5"

@@ -63,6 +63,8 @@ class TeamManager(models.Manager):
         if default_dashboards:
             dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
+            team.primary_dashboard = dashboard
+            team.save()
         return team
 
     def create(self, *args, **kwargs) -> "Team":

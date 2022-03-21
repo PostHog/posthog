@@ -247,12 +247,16 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     if len(variants) == 2:
         # simple case
         probability = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0]])
-        return [1 - probability, probability]
+        return [max(0, 1 - probability), probability]
 
     elif len(variants) == 3:
         probability_third_wins = simulate_winning_variant_for_arrival_rates(variants[2], [variants[0], variants[1]])
         probability_second_wins = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0], variants[2]])
-        return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
+        return [
+            max(0, 1 - probability_third_wins - probability_second_wins),
+            probability_second_wins,
+            probability_third_wins,
+        ]
 
     elif len(variants) == 4:
         probability_fourth_wins = simulate_winning_variant_for_arrival_rates(
@@ -265,7 +269,7 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
             variants[1], [variants[0], variants[2], variants[3]]
         )
         return [
-            1 - probability_fourth_wins - probability_third_wins - probability_second_wins,
+            max(0, 1 - probability_fourth_wins - probability_third_wins - probability_second_wins),
             probability_second_wins,
             probability_third_wins,
             probability_fourth_wins,

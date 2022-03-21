@@ -1,9 +1,7 @@
 import React, { useEffect } from 'react'
-import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
@@ -42,13 +40,12 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
     const {
         dashboard,
         canEditDashboard,
-        allItemsLoading: loadingFirstTime,
+        allItemsLoading,
         items,
         filters: dashboardFilters,
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
 
     useEffect(() => {
@@ -84,11 +81,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (dashboardsLoading || loadingFirstTime) {
-        return <SceneLoading />
-    }
-
-    if (!dashboard) {
+    if (!dashboard && !allItemsLoading) {
         return <NotFound object="dashboard" />
     }
 
@@ -101,7 +94,7 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
-                <EmptyDashboardComponent />
+                <EmptyDashboardComponent loading={allItemsLoading} />
             ) : (
                 <div>
                     <div className="dashboard-items-actions">

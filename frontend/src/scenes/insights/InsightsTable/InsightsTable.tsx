@@ -11,7 +11,7 @@ import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -23,6 +23,8 @@ import './InsightsTable.scss'
 import clsx from 'clsx'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport, IconEdit } from 'lib/components/icons'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -66,7 +68,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, csvExportUrl } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -154,10 +156,10 @@ export function InsightsTable({
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
-                        <EditOutlined
-                            title="Rename graph series"
-                            className="edit-icon"
+                        <LemonButton
                             onClick={() => handleEditClick(item)}
+                            title="Rename graph series"
+                            icon={<IconEdit className="edit-icon" />}
                         />
                     )}
                 </div>
@@ -265,17 +267,31 @@ export function InsightsTable({
     }
 
     return (
-        <LemonTable
-            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
-            embedded={embedded}
-            columns={columns}
-            rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            loading={resultsLoading}
-            emptyState="No insight results"
-            data-attr="insights-table-graph"
-            className="insights-table"
-        />
+        <>
+            {csvExportUrl && (
+                <Tooltip title="Export this table as csv." placement="left">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                        href={csvExportUrl}
+                        style={{ float: 'right', marginBottom: '1rem', marginTop: '0.5rem' }}
+                    >
+                        Export
+                    </LemonButton>
+                </Tooltip>
+            )}
+            <LemonTable
+                dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+                embedded={embedded}
+                columns={columns}
+                rowKey="id"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                loading={resultsLoading}
+                emptyState="No insight results"
+                data-attr="insights-table-graph"
+                className="insights-table"
+            />
+        </>
     )
 }
 

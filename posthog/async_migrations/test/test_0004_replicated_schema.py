@@ -16,6 +16,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.conftest import create_clickhouse_tables
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0004_replicated_schema"
@@ -72,10 +73,37 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         migration_successful = start_async_migration(MIGRATION_NAME)
         self.assertTrue(migration_successful)
 
-        self.verify_table_engines_correct()
+        self.verify_table_engines_correct(
+            expected_engine_types=(
+                "ReplicatedReplacingMergeTree",
+                "ReplicatedCollapsingMergeTree",
+                "Distributed",
+                "Kafka",
+            )
+        )
         self.assertEqual(self.get_event_table_row_count(), 2)
 
-    def verify_table_engines_correct(self):
+    def test_rollback(self):
+        # :TRICKY: Relies on tables being migrated as unreplicated before.
+
+        _create_event(team=self.team, distinct_id="test", event="$pageview")
+        _create_event(team=self.team, distinct_id="test2", event="$pageview")
+
+        settings.CLICKHOUSE_REPLICATION = True
+
+        setup_async_migrations()
+        migration = get_async_migration_definition(MIGRATION_NAME)
+
+        self.assertEqual(len(migration.operations), 53)
+        migration.operations[30].sql = "THIS WILL FAIL!"  # type: ignore
+
+        migration_successful = start_async_migration(MIGRATION_NAME)
+        self.assertFalse(migration_successful)
+        self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
+
+        self.verify_table_engines_correct(expected_engine_types=("ReplacingMergeTree", "CollapsingMergeTree", "Kafka"))
+
+    def verify_table_engines_correct(self, expected_engine_types):
         table_engines = sync_execute(
             """
             SELECT name, engine_full
@@ -93,15 +121,15 @@ class Test0004ReplicatedSchema(BaseTest, ClickhouseTestMixin):
         )
 
         for name, engine in table_engines:
-            self.assert_correct_engine_type(name, engine)
+            self.assert_correct_engine_type(name, engine, expected_engine_types)
             assert (name, self.sanitize(engine)) == self.snapshot
 
-    def assert_correct_engine_type(self, name, engine):
-        valid_engine = any(engine_type in engine for engine_type in ("Replicated", "Distributed", "Kafka"))
+    def assert_correct_engine_type(self, name, engine, expected_engine_types):
+        valid_engine = any(engine.startswith(engine_type) for engine_type in expected_engine_types)
         assert valid_engine, f"Unexpected table engine for '{name}': {engine}"
 
     def get_event_table_row_count(self):
         return sync_execute("SELECT count() FROM events")[0][0]
 
     def sanitize(self, engine):
-        return re.sub(r"/clickhouse/tables/[^_]+_", "/clickhouse/tables/", engine)
+        return re.sub(r"/clickhouse/tables/am0004_\d+", "/clickhouse/tables/am0004_20220201000000", engine)

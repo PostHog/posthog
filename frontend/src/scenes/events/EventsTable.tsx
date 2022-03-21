@@ -28,6 +28,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -88,6 +90,7 @@ export function EventsTable({
         setPollingActive,
         setProperties,
     } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -203,7 +206,7 @@ export function EventsTable({
     const columns = useMemo(() => {
         const columnsSoFar =
             selectedColumns === 'DEFAULT'
-                ? defaultColumns
+                ? [...defaultColumns]
                 : selectedColumns.map(
                       (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
                           defaultColumns.find((d) => d.key === e) || {
@@ -333,7 +336,18 @@ export function EventsTable({
 
     return (
         <div data-attr="manage-events-table">
-            <div className="events" data-attr="events-table">
+            <div
+                className="events"
+                data-attr="events-table"
+                style={
+                    featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]
+                        ? {
+                              paddingTop: '1rem',
+                              borderTop: '1px solid var(--border)',
+                          }
+                        : {}
+                }
+            >
                 {!disableActions && (
                     <div
                         className="mb"
@@ -392,7 +406,6 @@ export function EventsTable({
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}
                                 onChange={toggleAutomaticLoad}
-                                wrapperStyle={{ fontWeight: 400, flexGrow: 0 }}
                             />
                             <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
                                 {!hideTableConfig && (
@@ -423,6 +436,7 @@ export function EventsTable({
                     columns={columns}
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
+                    loadingSkeletonRows={20}
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
                           eventFilter ? (

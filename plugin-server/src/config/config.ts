@@ -83,6 +83,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
         MAX_PENDING_PROMISES_PER_WORKER: 100,
+        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
     }
 }
 
@@ -149,6 +150,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
         MAX_PENDING_PROMISES_PER_WORKER:
             '(advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.',
+        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY:
+            '(advanced) how many kafka partitions the plugin server should consume from concurrently',
     }
 }
 

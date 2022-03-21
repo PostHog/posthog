@@ -54,7 +54,7 @@ describe('Invite Signup', () => {
         cy.get('#first_name').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
-        cy.location('pathname').should('include', urls.savedInsights())
+        cy.location('pathname').should('include', urls.projectHomepage())
     })
 
     it('can navigate to organization settings and invite/change users', () => {
@@ -80,7 +80,7 @@ describe('Invite Signup', () => {
         cy.get('#first_name').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
-        cy.location('pathname').should('include', urls.savedInsights())
+        cy.location('pathname').should('include', urls.projectHomepage())
 
         // Log out, log in as main
         cy.get('[data-attr=top-menu-toggle]').click()

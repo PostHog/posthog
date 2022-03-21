@@ -6,6 +6,10 @@ import { AppContext } from '~/types'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 
+process.on('unhandledRejection', (err) => {
+    console.warn(err)
+})
+
 export function initKeaTests(): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
@@ -13,7 +17,6 @@ export function initKeaTests(): void {
         ...window.POSTHOG_APP_CONTEXT,
     } as unknown as AppContext
     posthog.init('no token', {
-        api_host: 'borked',
         test: true,
         autocapture: false,
         disable_session_recording: true,

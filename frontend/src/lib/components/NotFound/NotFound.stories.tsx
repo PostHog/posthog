@@ -4,14 +4,13 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { NotFound } from './index'
 
 export default {
-    title: 'PostHog/Components/NotFound',
+    title: 'Components/Not Found',
     component: NotFound,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof NotFound>
 
 const Template: ComponentStory<typeof NotFound> = (args) => <NotFound {...args} />
 
-export const Person = Template.bind({})
-Person.args = {
+export const NotFound_ = Template.bind({})
+NotFound_.args = {
     object: 'Person',
 }

@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Input, Row, Tabs } from 'antd'
-import { EyeOutlined, EditOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
@@ -14,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -109,7 +107,6 @@ export function Dashboards(): JSX.Element {
                         overlay={
                             <div style={{ maxWidth: 250 }}>
                                 <LemonButton
-                                    icon={<EyeOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -124,7 +121,6 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    icon={<EditOutlined />}
                                     type="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
@@ -138,12 +134,7 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton
-                                    icon={<CopyOutlined />}
-                                    type="stealth"
-                                    onClick={() => duplicateDashboard({ id, name })}
-                                    fullWidth
-                                >
+                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
@@ -155,7 +146,6 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonSpacer />
                                 <LemonButton
-                                    icon={<DeleteOutlined />}
                                     type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
@@ -209,18 +199,12 @@ export function Dashboards(): JSX.Element {
                 />
             </div>
             <LemonSpacer large />
-            {dashboardsLoading ? (
-                <div className="flex-center" style={{ flexDirection: 'column' }}>
-                    <Spinner />
-                    <div className="mt">
-                        <b>Loading dashboards</b>
-                    </div>
-                </div>
-            ) : dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
                     columns={columns}
+                    loading={dashboardsLoading}
                     defaultSorting={{ columnKey: 'name', order: 1 }}
                     emptyState={
                         searchTerm ? (

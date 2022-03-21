@@ -6,7 +6,7 @@ from celery import states
 from celery.result import AsyncResult
 from constance.test import override_config
 
-from posthog.async_migrations.examples.test import Migration
+from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
@@ -39,7 +39,7 @@ def run_async_migration_mock(migration_name: str, _: Any) -> TaskMock:
 
 class TestAsyncMigrations(BaseTest):
     def setUp(self) -> None:
-        create_async_migration(name="test", description=TEST_MIGRATION_DESCRIPTION)
+        create_async_migration(name="test_migration", description=TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
     @pytest.mark.ee
@@ -55,13 +55,13 @@ class TestAsyncMigrations(BaseTest):
         from where we left off
         """
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
 
@@ -86,11 +86,11 @@ class TestAsyncMigrations(BaseTest):
         and instead roll it back.
         """
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
 

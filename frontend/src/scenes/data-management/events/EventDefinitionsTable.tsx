@@ -13,6 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { Input } from 'antd'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -20,22 +21,36 @@ export const scene: SceneExport = {
     paramsToProps: () => ({ syncWithUrl: true }),
 }
 
-interface EventDefinitionsTableProps {
-    compact?: boolean
-}
-
-export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId } = useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition } = useActions(eventDefinitionsTableLogic)
+export function EventDefinitionsTable(): JSX.Element {
+    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
+        useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition, setFilters } =
+        useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
+        {
+            key: 'icon',
+            className: 'definition-column-icon',
+            render: function Render(_, definition: EventDefinition) {
+                return <EventDefinitionHeader definition={definition} hideView hideText />
+            },
+        },
         {
             title: 'Name',
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideView />
+                return (
+                    <EventDefinitionHeader
+                        definition={definition}
+                        hideView
+                        hideIcon
+                        updateRemoteItem={(nextEventDefinition) =>
+                            setLocalEventDefinition(nextEventDefinition as EventDefinition)
+                        }
+                    />
+                )
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
@@ -83,41 +98,66 @@ export function EventDefinitionsTable({}: EventDefinitionsTableProps = {}): JSX.
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            className="events-definition-table"
-            data-attr="events-definition-table"
-            loading={eventDefinitionsLoading}
-            rowKey="id"
-            pagination={{
-                controlled: true,
-                currentPage: eventDefinitions?.page ?? 1,
-                entryCount: eventDefinitions?.count ?? 0,
-                pageSize: EVENT_DEFINITIONS_PER_PAGE,
-                onForward: !!eventDefinitions.next
-                    ? () => {
-                          loadEventDefinitions(eventDefinitions.next)
-                          window.scrollTo(0, 0)
-                      }
-                    : undefined,
-                onBackward: !!eventDefinitions.previous
-                    ? () => {
-                          loadEventDefinitions(eventDefinitions.previous)
-                          window.scrollTo(0, 0)
-                      }
-                    : undefined,
-            }}
-            expandable={{
-                expandedRowRender: function RenderPropertiesTable(definition) {
-                    return <EventDefinitionProperties definition={definition} />
-                },
-                noIndent: true,
-                isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
-                onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
-            }}
-            dataSource={eventDefinitions.results}
-            emptyState="No event definitions"
-            nouns={['definition', 'definitions']}
-        />
+        <>
+            <div
+                style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    width: '100%',
+                    marginBottom: '1rem',
+                }}
+            >
+                <Input.Search
+                    placeholder="Search for events"
+                    allowClear
+                    enterButton
+                    value={filters.event}
+                    style={{ maxWidth: 600, width: 'initial' }}
+                    onChange={(e) => {
+                        setFilters({ event: e.target.value || '' })
+                    }}
+                />
+            </div>
+            <LemonTable
+                columns={columns}
+                className="events-definition-table"
+                data-attr="events-definition-table"
+                loading={eventDefinitionsLoading}
+                rowKey="id"
+                rowStatus={(row) => {
+                    return row.id === openedDefinitionId ? 'highlighted' : undefined
+                }}
+                pagination={{
+                    controlled: true,
+                    currentPage: eventDefinitions?.page ?? 1,
+                    entryCount: eventDefinitions?.count ?? 0,
+                    pageSize: EVENT_DEFINITIONS_PER_PAGE,
+                    onForward: !!eventDefinitions.next
+                        ? () => {
+                              loadEventDefinitions(eventDefinitions.next)
+                          }
+                        : undefined,
+                    onBackward: !!eventDefinitions.previous
+                        ? () => {
+                              loadEventDefinitions(eventDefinitions.previous)
+                          }
+                        : undefined,
+                }}
+                expandable={{
+                    expandedRowRender: function RenderPropertiesTable(definition) {
+                        return <EventDefinitionProperties definition={definition} />
+                    },
+                    noIndent: true,
+                    isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
+                    onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
+                }}
+                dataSource={eventDefinitions.results}
+                emptyState="No event definitions"
+                nouns={['event', 'events']}
+            />
+        </>
     )
 }

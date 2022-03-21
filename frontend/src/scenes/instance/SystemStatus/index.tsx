@@ -5,7 +5,7 @@ import { Alert, Tabs } from 'antd'
 import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
@@ -13,6 +13,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InstanceConfigTab } from './InstanceConfigTab'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { StaffUsersTab } from './StaffUsersTab'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -20,7 +21,7 @@ export const scene: SceneExport = {
 }
 
 export function SystemStatus(): JSX.Element {
-    const { tab, error, systemStatus } = useValues(systemStatusLogic)
+    const { tab, error } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
@@ -92,21 +93,33 @@ export function SystemStatus(): JSX.Element {
                 <Tabs.TabPane tab="System overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
-                {systemStatus?.internal_metrics.clickhouse && (
-                    <Tabs.TabPane tab="Internal metrics" key="metrics">
-                        <InternalMetricsTab />
-                    </Tabs.TabPane>
+                {user?.is_staff && (
+                    <>
+                        <Tabs.TabPane tab="Internal metrics" key="metrics">
+                            <InternalMetricsTab />
+                        </Tabs.TabPane>
+                        <Tabs.TabPane
+                            tab={
+                                <>
+                                    Settings <LemonTag type="warning">Beta</LemonTag>
+                                </>
+                            }
+                            key="settings"
+                        >
+                            <InstanceConfigTab />
+                        </Tabs.TabPane>
+                    </>
                 )}
                 {user?.is_staff && (
                     <Tabs.TabPane
                         tab={
                             <>
-                                Settings <LemonTag type="warning">Beta</LemonTag>
+                                Staff Users <LemonTag type="success">New</LemonTag>
                             </>
                         }
-                        key="settings"
+                        key="staff_users"
                     >
-                        <InstanceConfigTab />
+                        <StaffUsersTab />
                     </Tabs.TabPane>
                 )}
             </Tabs>
