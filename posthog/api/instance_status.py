@@ -54,10 +54,6 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             )
 
         metrics.append(
-            {"key": "analytics_database", "metric": "Analytics database in use", "value": "ClickHouse",}
-        )
-
-        metrics.append(
             {"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()}
         )
         metrics.append(

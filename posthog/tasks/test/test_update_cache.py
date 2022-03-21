@@ -144,55 +144,54 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(PRIMARY_DB="clickhouse"):
-            filter = base_filter
-            funnel_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_mock.assert_called_once()
+        filter = base_filter
+        funnel_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_mock.assert_called_once()
 
-            # trends funnel
-            filter = base_filter.with_data({"funnel_viz_type": "trends"})
-            funnel_trends_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_trends_mock.assert_called_once()
+        # trends funnel
+        filter = base_filter.with_data({"funnel_viz_type": "trends"})
+        funnel_trends_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_trends_mock.assert_called_once()
 
-            # time to convert funnel
-            filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
-            funnel_time_to_convert_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_time_to_convert_mock.assert_called_once()
+        # time to convert funnel
+        filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
+        funnel_time_to_convert_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_time_to_convert_mock.assert_called_once()
 
-            # strict funnel
-            filter = base_filter.with_data({"funnel_order_type": "strict"})
-            funnel_strict_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_strict_mock.assert_called_once()
+        # strict funnel
+        filter = base_filter.with_data({"funnel_order_type": "strict"})
+        funnel_strict_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_strict_mock.assert_called_once()
 
-            # unordered funnel
-            filter = base_filter.with_data({"funnel_order_type": "unordered"})
-            funnel_unordered_mock.return_value.run.return_value = {}
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-            funnel_unordered_mock.assert_called_once()
+        # unordered funnel
+        filter = base_filter.with_data({"funnel_order_type": "unordered"})
+        funnel_unordered_mock.return_value.run.return_value = {}
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
+        funnel_unordered_mock.assert_called_once()
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,

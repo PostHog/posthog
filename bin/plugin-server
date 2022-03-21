@@ -26,8 +26,8 @@ export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
 # Crudely extract netlocs by removing "kafka://" in a compatibility approach
 export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
-# Check PRIMARY_DB in a compatibility approach
-export KAFKA_ENABLED=${KAFKA_ENABLED:-$([[ $PRIMARY_DB = "clickhouse" ]] && echo "true" || echo "false")}
+# Make sure KAFKA_ENABLED is true - eventually this should be redundant
+export KAFKA_ENABLED="true"
 
 # On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
 # Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
