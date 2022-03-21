@@ -27,7 +27,13 @@ class ClickhouseTrendsTotalVolume:
         aggregate_operation, join_condition, math_params = process_math(entity, team)
 
         trend_event_query = TrendsEventQuery(
-            filter=filter, entity=entity, team=team, should_join_distinct_ids=True if join_condition != "" else False,
+            filter=filter,
+            entity=entity,
+            team=team,
+            should_join_distinct_ids=True
+            if join_condition != ""
+            or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
+            else False,
         )
         event_query, event_query_params = trend_event_query.get_query()
 
