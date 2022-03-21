@@ -73,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PRIMARY_DB",
-                    "value": "clickhouse"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },

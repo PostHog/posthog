@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -115,8 +114,6 @@ KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
-
-PRIMARY_DB = AnalyticsDBMS.CLICKHOUSE
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

@@ -67,7 +67,6 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
-            PRIMARY_DB: 'clickhouse'
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: $POSTHOG_SECRET
