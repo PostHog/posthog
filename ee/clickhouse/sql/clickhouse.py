@@ -2,7 +2,6 @@
 from typing import Literal
 
 from django.conf import settings
-from django.forms import ValidationError
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
@@ -54,20 +53,13 @@ def kafka_engine(
         return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")
 
 
-def ttl_period(field: str = "created_at", value: int = 3, interval_unit: str = "WEEK"):
+def ttl_period(field: str = "created_at", interval: str = "3 WEEKS", convert_to_date: bool = True):
     if settings.TEST:
         return ""
 
-    if interval_unit not in CLICKHOUSE_SUPPORTED_INTERVAL_UNITS:
-        supported_units_str = ", ".join(CLICKHOUSE_SUPPORTED_INTERVAL_UNITS)
-        raise ValidationError(f"interval_unit in ttl_period must be one of {supported_units_str}")
+    field = f"toDate({field})" if convert_to_date else field
 
-    date = f"{field}"
-
-    if interval_unit not in ["SECOND", "MINUTE", "HOUR"]:
-        date = f"toDate({field})"
-
-    return "" if settings.TEST else f"TTL {date} + INTERVAL {value} {interval_unit}"
+    return f"TTL {field} + INTERVAL {interval}"
 
 
 def trim_quotes_expr(expr: str) -> str:

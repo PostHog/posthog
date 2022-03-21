@@ -1,13 +1,13 @@
 from django.conf import settings
 
 from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
-from ee.clickhouse.sql.table_engines import Distributed, Merge, ReplacingMergeTree, ReplicationScheme
+from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
-LIVE_EVENTS_DATA_TABLE = lambda: "sharded_live_events" if settings.CLICKHOUSE_REPLICATION else "live_events"
+LIVE_EVENTS_DATA_TABLE = "sharded_live_events"
 
 LIVE_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "live_events", ver="_timestamp", replication_scheme=ReplicationScheme.NOT_SHARDED
+    "live_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 
 LIVE_EVENTS_TABLE_BASE_SQL = """
@@ -34,12 +34,12 @@ LIVE_EVENTS_TABLE_SQL = lambda: (
     {ttl_period}
     """
 ).format(
-    table_name=LIVE_EVENTS_DATA_TABLE(),
+    table_name=LIVE_EVENTS_DATA_TABLE,
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=LIVE_EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     settings="SETTINGS merge_with_ttl_timeout=3600",
-    ttl_period=ttl_period("_timestamp", 10, "MINUTE"),
+    ttl_period=ttl_period("_timestamp", "10 MINUTE"),
 )
 
 KAFKA_LIVE_EVENTS_TABLE_BASE_SQL = """
@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     sent_at VARCHAR
 ) ENGINE = {engine}
 {settings}
-
 """
 
 KAFKA_LIVE_EVENTS_TABLE_SQL = lambda: KAFKA_LIVE_EVENTS_TABLE_BASE_SQL.format(
@@ -80,40 +79,19 @@ _timestamp,
 _offset
 FROM {database}.kafka_live_events
 """.format(
-    target_table="writable_live_events" if settings.CLICKHOUSE_REPLICATION else LIVE_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+    target_table="writable_live_events", cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
 )
 
 WRITABLE_LIVE_EVENTS_TABLE_SQL = lambda: LIVE_EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_live_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=LIVE_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(data_table=LIVE_EVENTS_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
 )
 
-# This table is responsible for reading from events on a cluster setting
 DISTRIBUTED_LIVE_EVENTS_TABLE_SQL = lambda: LIVE_EVENTS_TABLE_BASE_SQL.format(
     table_name="live_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=LIVE_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(data_table=LIVE_EVENTS_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
-)
-
-MERGE_LIVE_EVENTS_TABLE_SQL = lambda: """
-CREATE TABLE {table_name}
-(
-    uuid UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    timestamp DateTime64(6, 'UTC'),
-    team_id Int64,
-    distinct_id VARCHAR,
-    elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC'),
-    _timestamp DateTime,
-    _offset UInt64
-) ENGINE = {engine}
-""".format(
-    table_name="live_events_merge", engine=Merge(settings.CLICKHOUSE_DATABASE, "^(events|live_events)$")
 )

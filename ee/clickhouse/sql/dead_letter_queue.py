@@ -43,7 +43,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
-    ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
+    ttl_period=ttl_period("_timestamp", "4 WEEK"),  # 4 weeks
 )
 
 KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
