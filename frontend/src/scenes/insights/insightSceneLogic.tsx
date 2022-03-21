@@ -125,6 +125,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     values.insightCache?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new'),
+                            ...(filters ? { filters: cleanFilters(filters) } : {}),
                             ...(dashboard ? { dashboard } : {}),
                         },
                         {
