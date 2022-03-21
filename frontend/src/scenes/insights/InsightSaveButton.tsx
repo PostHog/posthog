@@ -8,7 +8,7 @@ export function InsightSaveButton({
     isSaved,
 }: {
     saveAs: () => void
-    saveInsight: (options: Record<string, any>) => void
+    saveInsight: () => void
     isSaved: boolean | undefined
 }): JSX.Element {
     const menu = (
@@ -27,7 +27,7 @@ export function InsightSaveButton({
         <Dropdown.Button
             style={{ marginLeft: 8 }}
             type="primary"
-            onClick={() => saveInsight({ setViewMode: true })}
+            onClick={saveInsight}
             overlay={menu}
             data-attr="insight-save-button"
             icon={<IconArrowDropDown data-attr="insight-save-dropdown" style={{ fontSize: 25 }} />}
