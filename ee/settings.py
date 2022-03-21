@@ -15,8 +15,6 @@ HOOK_EVENTS: Dict[str, str] = {
     "action_performed": "posthog.Action.performed",
     "annotation_created": "posthog.Annotation.created_custom",
 }
-HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
-HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
 # SAML
 SAML_CONFIGURED = False

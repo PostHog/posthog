@@ -4,7 +4,6 @@ from django.db import models
 from rest_hooks.models import AbstractHook
 from statshog.defaults.django import statsd
 
-from ee.tasks.hooks import DeliverHook
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token
@@ -29,8 +28,3 @@ def find_and_fire_hook(
     for hook in hooks:
         statsd.incr("posthog_cloud_hooks_rest_fired")
         hook.deliver_hook(instance, payload_override)
-
-
-def deliver_hook_wrapper(target, payload, instance, hook):
-    # pass IDs not objects because using pickle for objects is a bad thing
-    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id))
