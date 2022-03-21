@@ -6,7 +6,6 @@ from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_respon
 from ee.clickhouse.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.volume import (
-    ACTIVE_USER_DISTINCT_ID_SQL,
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
@@ -52,22 +51,15 @@ class ClickhouseTrendsTotalVolume:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                if not team.aggregate_users_by_distinct_id:
-                    content_sql = ACTIVE_USER_SQL.format(
-                        event_query=event_query,
-                        **content_sql_params,
-                        parsed_date_to=trend_event_query.parsed_date_to,
-                        parsed_date_from=trend_event_query.parsed_date_from,
-                        **trend_event_query.active_user_params,
-                    )
-                else:
-                    content_sql = ACTIVE_USER_DISTINCT_ID_SQL.format(
-                        event_query=event_query,
-                        **content_sql_params,
-                        parsed_date_to=trend_event_query.parsed_date_to,
-                        parsed_date_from=trend_event_query.parsed_date_from,
-                        **trend_event_query.active_user_params,
-                    )
+                content_sql = ACTIVE_USER_SQL.format(
+                    event_query=event_query,
+                    **content_sql_params,
+                    parsed_date_to=trend_event_query.parsed_date_to,
+                    parsed_date_from=trend_event_query.parsed_date_from,
+                    aggregator="distinct_id"
+                    if team.aggregate_users_by_distinct_id
+                    else "person_id" ** trend_event_query.active_user_params,
+                )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(event_query=cumulative_sql, **content_sql_params)
