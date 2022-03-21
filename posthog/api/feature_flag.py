@@ -205,12 +205,14 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         offset = int(request.query_params.get("offset", "0"))
 
-        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, offset=offset)
+        activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, offset=offset)
 
         return Response(
             {
-                "results": ActivityLogSerializer(activity, many=True,).data,
-                "next": format_query_params_absolute_url(request, offset + limit, limit),
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, offset + limit, limit)
+                if activity_page.has_next()
+                else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -224,11 +226,15 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity = load_activity(scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, offset=offset)
+        activity_page = load_activity(
+            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, offset=offset
+        )
         return Response(
             {
-                "results": ActivityLogSerializer(activity, many=True,).data,
-                "next": format_query_params_absolute_url(request, offset + limit, limit),
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, offset + limit, limit)
+                if activity_page.has_next()
+                else None,
             },
             status=status.HTTP_200_OK,
         )

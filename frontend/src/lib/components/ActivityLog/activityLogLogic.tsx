@@ -37,13 +37,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 ? `/api/projects/@current/feature_flags/${props.id}/activity`
                 : `/api/projects/@current/feature_flags/activity`) as string | null,
             {
-                fetchActivitySuccess: (_, { activityAPI }) => {
-                    if (activityAPI.results.length === 10 && activityAPI.next) {
-                        // this page was full, and we've got a next page URL, we've not reached the end
-                        return activityAPI.next
-                    }
-                    return null
-                },
+                fetchActivitySuccess: (_, { activityAPI }) => activityAPI.next || null,
             },
         ],
     }),

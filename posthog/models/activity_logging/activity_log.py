@@ -112,9 +112,20 @@ def log_activity(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class ActivityPage:
+    total_count: int
+    offset: int
+    limit: int
+    results: list[ActivityLog]
+
+    def has_next(self):
+        return self.offset < self.total_count - self.limit
+
+
 def load_activity(
     scope: Literal["FeatureFlag"], team_id: int, item_id: Optional[int] = None, limit: int = 10, offset: int = 0,
-):
+) -> ActivityPage:
     # TODO in follow-up to posthog#8931 selecting specific fields into a return type from this query
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
@@ -127,4 +138,6 @@ def load_activity(
     page_end = offset + limit
     activities = list(activity_query[page_start:page_end])
 
-    return activities
+    total_count = activity_query.count()
+
+    return ActivityPage(results=activities, total_count=total_count, offset=offset, limit=limit)
