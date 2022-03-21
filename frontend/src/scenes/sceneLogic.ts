@@ -14,7 +14,7 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightSceneLogic } from './insights/insightSceneLogic'
+import { insightSceneLogic, confirmDiscardingInsightChanges } from './insights/insightSceneLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -226,14 +226,10 @@ export const sceneLogic = kea<sceneLogicType>({
             if (
                 values.scene === Scene.Insight &&
                 scene !== Scene.Insight &&
-                insightSceneLogic.findMounted()?.values.insightCache?.logic.values.filtersChanged
+                insightSceneLogic.findMounted()?.values.insightCache?.logic.values.filtersChanged &&
+                !confirmDiscardingInsightChanges()
             ) {
-                if (confirm('Leave insight? Changes you made may not be saved.')) {
-                    insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.discardChanges()
-                } else {
-                    history.back()
-                    return
-                }
+                return
             }
 
             const sceneConfig = sceneConfigurations[scene] || {}

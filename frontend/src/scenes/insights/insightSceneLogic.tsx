@@ -12,11 +12,22 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+export function confirmDiscardingInsightChanges(): boolean {
+    const shouldDiscardChanges = confirm('Leave insight? Changes you made will be discarded.')
+    if (shouldDiscardChanges) {
+        insightSceneLogic.findMounted()?.values.insightCache?.logic.actions.discardChanges()
+    } else {
+        history.back()
+    }
+    return shouldDiscardChanges
+}
 
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
     connect: {
-        logic: [eventUsageLogic],
+        logic: [eventUsageLogic, featureFlagLogic],
     },
     actions: {
         createNewInsight: (filters: Partial<FilterType>) => ({ filters }),
@@ -94,7 +105,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     name: '',
                     description: '',
                     tags: [],
-                    filters: cleanFilters(filters || {}),
+                    filters: cleanFilters(filters || {}, undefined, featureFlagLogic.values.featureFlags),
                     result: null,
                 }
             )
@@ -137,14 +148,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                     sceneLogic.values.scene === Scene.Insight &&
                     insightId !== oldInsightId &&
                     oldInsightId !== 'new' &&
-                    values.insightCache?.logic.values.filtersChanged
+                    values.insightCache?.logic.values.filtersChanged &&
+                    !confirmDiscardingInsightChanges()
                 ) {
-                    if (confirm('Leave insight? Changes you made may not be saved.')) {
-                        values.insightCache.logic.actions.discardChanges()
-                    } else {
-                        history.back()
-                        return
-                    }
+                    return
                 }
                 actions.setSceneState(insightId, insightMode)
                 if (insightId !== oldInsightId && insightId === 'new') {

@@ -45,9 +45,6 @@ export function PropertyGroupFilters({
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
-        // TRICKY: This disrupts `insightLogic`'s `filtersChanged` selector,
-        // as this is a different default value from what was used before logical operators
-        // (back then empty filters were indicated by `[]` instead of `{ type: FilterLogicalOperator.And, values: [] }`)
         setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
     }, [propertyFilters])
 

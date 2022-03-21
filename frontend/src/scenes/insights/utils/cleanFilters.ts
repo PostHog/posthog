@@ -1,4 +1,15 @@
-import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, InsightType, PathType } from '~/types'
+import {
+    AnyPropertyFilter,
+    ChartDisplayType,
+    Entity,
+    EntityTypes,
+    FilterLogicalOperator,
+    FilterType,
+    FunnelVizType,
+    InsightType,
+    PathType,
+    PropertyGroupFilter,
+} from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
@@ -70,6 +81,9 @@ export function cleanFilters(
     featureFlags?: FeatureFlagsSet
 ): Partial<FilterType> {
     const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
+    const defaultProperties: AnyPropertyFilter[] | PropertyGroupFilter = featureFlags?.[FEATURE_FLAGS.AND_OR_FILTERING]
+        ? { type: FilterLogicalOperator.And, values: [] }
+        : []
 
     if (filters.insight === InsightType.RETENTION) {
         return {
@@ -87,7 +101,7 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
-            properties: filters.properties || [],
+            properties: filters.properties || defaultProperties,
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -155,7 +169,7 @@ export function cleanFilters(
     } else if (filters.insight === InsightType.PATHS) {
         return {
             insight: InsightType.PATHS,
-            properties: filters.properties || [],
+            properties: filters.properties || defaultProperties,
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
@@ -189,7 +203,7 @@ export function cleanFilters(
                 : filters.display || ChartDisplayType.ActionsLineGraph,
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
-            properties: filters.properties || [],
+            properties: filters.properties || defaultProperties,
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }
