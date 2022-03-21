@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 describe('Trends', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
-        cy.location('pathname').should('include', '/edit')
+        cy.location('pathname').should('include', urls.insightNew())
     })
 
     it('Can load a graph from a URL directly', () => {
