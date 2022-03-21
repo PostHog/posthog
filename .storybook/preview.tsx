@@ -3,13 +3,14 @@ import '~/styles'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
-import { storybookAppContext } from 'storybook/app-context'
+import { getStorybookAppContext } from 'storybook/app-context'
+import { useFeatures } from '~/mocks/features'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start()
     ;(window as any).__mockServiceWorker = worker
-    ;(window as any).POSTHOG_APP_CONTEXT = storybookAppContext
+    ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
 }
 setupMsw()
 
@@ -54,6 +55,7 @@ export const decorators = [
     // Make sure the msw service worker is started, and reset the handlers to
     // defaults.
     (Story: any) => {
+        useFeatures([])
         return (
             <KeaStory>
                 <Story />

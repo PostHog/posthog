@@ -35,7 +35,7 @@ export const sceneLogic = kea<sceneLogicType>({
         scenes?: Record<Scene, () => any>
     },
     connect: {
-        logic: [router],
+        logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
     },
     path: ['scenes', 'sceneLogic'],

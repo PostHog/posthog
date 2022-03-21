@@ -1,6 +1,6 @@
 import { createMemoryHistory } from 'history'
 import { initKea } from '~/initKea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { getContext, Provider } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
@@ -9,14 +9,13 @@ import { worker } from '~/mocks/browser'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-export function resetKeaStory(url?: string, state?: Record<string, any>): void {
+export function resetKeaStory(): void {
     worker.resetHandlers()
 
-    const initialLocation = url ? combineUrl(url) : state?.kea?.router?.location
-    const history = createMemoryHistory(initialLocation ? { initialEntries: [initialLocation] } : {})
+    const history = createMemoryHistory({})
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
-    initKea({ state, routerLocation: history.location, routerHistory: history })
+    initKea({ routerLocation: history.location, routerHistory: history })
     featureFlagLogic.mount()
     teamLogic.mount()
     userLogic.mount()
@@ -25,22 +24,11 @@ export function resetKeaStory(url?: string, state?: Record<string, any>): void {
     store.dispatch({ type: 'storybook init' })
 }
 
-export function KeaStory<T = React.ReactNode>({
-    url,
-    state,
-    onInit,
-    children,
-}: {
-    url?: string
-    state?: Record<string, any>
-    onInit?: () => void
-    children: T
-}): T | JSX.Element | null {
+export function KeaStory<T = React.ReactNode>({ children }: { children: T }): T | JSX.Element | null {
     const [didReset, setDidReset] = useState(false)
     useEffect(() => {
         if (!didReset) {
-            resetKeaStory(url, state)
-            onInit?.()
+            resetKeaStory()
             setDidReset(true)
         }
     }, [didReset])

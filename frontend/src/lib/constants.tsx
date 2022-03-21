@@ -1,4 +1,4 @@
-import { AnnotationScope, AvailableFeature, LicensePlan } from '../types'
+import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
 // ... and remove once all files have migrated to TypeScript
@@ -104,7 +104,6 @@ export const FEATURE_FLAGS = {
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
-    EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
@@ -116,6 +115,7 @@ export const FEATURE_FLAGS = {
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
+    FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -135,6 +135,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
+    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -156,3 +157,10 @@ export const COHORT_DYNAMIC = 'dynamic'
  * See https://github.com/remarkjs/react-markdown/issues/339.
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
+
+export const SSOProviderNames: Record<SSOProviders, string> = {
+    'google-oauth2': 'Google',
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    saml: 'Single sign-on (SAML)',
+}

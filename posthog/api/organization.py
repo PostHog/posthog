@@ -73,7 +73,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "plugins_access_level",
             "teams",
             "available_features",
-            "domain_whitelist",  # DEPRECATED #9053; will be removed in frontend pair PR
             "is_member_join_email_enabled",
             "metadata",
         ]

@@ -35,7 +35,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { BinCountAuto, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
@@ -63,7 +63,6 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
@@ -1155,17 +1154,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
                     })
             })
-        },
-        loadCorrelationsSuccess: async () => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
-                lemonToast.info('Correlation analysis is ready', {
-                    toastId: 'correlation',
-                    button: {
-                        label: 'View results',
-                        action: () => window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' }),
-                    },
-                })
-            }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             values.visibleStepsWithConversionMetrics?.forEach((step) => {

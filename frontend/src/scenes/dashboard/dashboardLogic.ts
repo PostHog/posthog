@@ -1,7 +1,6 @@
 import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
@@ -64,7 +63,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
             receivedErrors,
         }),
-        addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
         }: {
@@ -519,19 +517,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache, props }) => ({
-        addNewDashboard: async () => {
-            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
-                title: 'New dashboard',
-                placeholder: 'Please enter a name',
-                value: '',
-                error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
-            })
-        },
-        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
-        },
+    listeners: ({ actions, values, cache, props }) => ({
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
             eventUsageLogic.actions.reportDashboardShareToggled(isShared)
@@ -697,7 +683,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             if (values.allItems) {
                 eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
-                if (router.values.location.pathname === urls.dashboard(values.allItems.id)) {
+                if (
+                    router.values.location.pathname === urls.dashboard(values.allItems.id) ||
+                    router.values.location.pathname === urls.projectHomepage() ||
+                    (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
+                ) {
                     eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
                 }
             } else {

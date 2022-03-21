@@ -411,7 +411,6 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
 
         # SAML
         if not user:
-            # Domain whitelist?
             user = process_social_saml_signup(backend, user_email, user_name)
             if user:
                 backend_processor = "saml"

@@ -1,7 +1,5 @@
-// EmptyStates.stories.tsx
 import React, { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { InsightScene } from '../InsightScene'
 import funnelOneStep from './funnelOneStep.json'
 import { useStorybookMocks } from '~/mocks/browser'
 import { router } from 'kea-router'
@@ -9,11 +7,12 @@ import insight from '../__mocks__/trendsLine.json'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
 import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene'
+import { App } from 'scenes/App'
 
 // some metadata and optional parameters
 export default {
-    title: 'Scenes/Insights/Error states',
-    parameters: { options: { showPanel: false }, viewMode: 'canvas' },
+    title: 'Scenes-App/Insights/Error states',
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
 export function EmptyState(): JSX.Element {
@@ -29,7 +28,7 @@ export function EmptyState(): JSX.Element {
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
     }, [])
-    return <InsightScene />
+    return <App />
 }
 
 export function ErrorState(): JSX.Element {
@@ -45,7 +44,7 @@ export function ErrorState(): JSX.Element {
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
     }, [])
-    return <InsightScene />
+    return <App />
 }
 
 export function TimeoutState(): JSX.Element {
@@ -55,7 +54,7 @@ export function TimeoutState(): JSX.Element {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
-            '/api/projects/1/insights/trend/': (_, __, ctx) => [
+            '/api/projects/:projectId/insights/trend/': (_, __, ctx) => [
                 ctx.delay(86400000),
                 ctx.status(200),
                 ctx.json({ result: insight.result }),
@@ -69,7 +68,7 @@ export function TimeoutState(): JSX.Element {
             logic.actions.setShowTimeoutMessage(true)
         }, 100)
     }, [])
-    return <InsightScene />
+    return <App />
 }
 
 export const FunelSingleStep = createInsightScene(funnelOneStep as any)

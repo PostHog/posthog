@@ -1,101 +1,206 @@
 import { Meta } from '@storybook/addon-docs';
 
-<Meta title="Scenes/ How to build a scene?" />
+<Meta title=" How to build a scene?" />
 
 # How to build a scene?
 
-If you want to add a new scene in the frontend, here's what you need to do
+If you want to add a new scene in the PostHog App frontend, here are 7 easy steps for fun and profit.
 
-## 1. Create the scene under `frontend/src/scenes/my-component/MyComponent.tsx`
+## 1. Create the component, logic and styles.
+
+But first, you must answer one question: Does your scene depend on an `id` in the URL, like `/dashboard/:id`?
+
+## 1.1. I'm buliding a global scene that does not depend on an `id` in the URL.
+
+Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
 ```ts
-// frontend/src/scenes/web-performance/WebPerformance.tsx
-import './WebPerformance.scss'
-import { webPerformanceLogic } './webPerformanceLogic.ts'
+import './Dashboards.scss'
+import { dashboardsLogic } './dashboardsLogic.ts'
 
-export function WebPerformance (): JSX.Element {
+export function Dashboards (): JSX.Element {
+    const { dashboards } = useValues(dashboardsLogic)
+
     return (
-        <div className='WebPerformance'>
-            Web Performance Scene!
+        // TODO: consolidate on a recommended naming convention
+        <div className='dashboard-scene'>
+            Dashboard Scene!
         </div>
     )
 }
 
 export const scene: SceneExport = {
-    component: WebPerformance,
-    logic: webPerformanceLogic,
-    // url params to logic props. This mounts the right logic with turbo mode before the component renders.
-    paramsToProps: ({ id }) => ({ scope: id || 'global' }),
+    component: Dashboards,
+    logic: dashboardsLogic,
 }
 ```
 
+Create the logic: `frontend/src/scenes/dashboard/dashboardsLogic.tsx`
+
 ```ts
-// frontend/src/scenes/web-performance/webPerformanceLogic.ts
-export const webPerformanceLogic = kea({
-    key: ({ scope }) => scope,
-    // ...
+import { dashboardsLogicType } from './dashboardsLogicType'
+
+export const dashboardsLogic = kea<dashboardsLogicType>({
+    path: ['scenes', 'dashboard', 'dashboardsLogic'],
 })
 ```
 
-```ts
-// frontend/src/scenes/web-performance/WebPerformance.scss
+Create the styles `frontend/src/scenes/dashboard/Dashboards.scss`.
 
-// this is in global scope! choose a unique class name and scope everything under it
-.WebPerformance {
-    // ...
+```ts
+.dashboards-scene {
+    // put all your styles inside this scope, as everything is global
 }
 ```
 
+## 1.2. My scene depends on an `id` in the URL (`/dashboard/:id`).
 
-## 1. Add a URL function in `urls.ts`
+Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
 ```ts
-// frontend/src/scenes/urls.ts
+import './Dashboard.scss'
+import { dashboardLogic } './dashboardLogic.ts'
+
+export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
+    const { dashboard } = useValues(dashboardLogic({ scope: id ? parseInt(id) : 'new' }))
+    const { reloadDashboard } = useActions(dashboardLogic({ scope: id ? parseInt(id) : 'new' }))
+    return (
+        // TODO: consolidate on a recommended naming convention
+        <div className='dashboard-scene'>
+            Dashboard Scene!
+        </div>
+    )
+}
+
+export const scene: SceneExport = {
+    component: Dashboard,
+    logic: dashboardLogic,
+    // url params to logic props. This mounts the right logic with turbo mode before the component renders.
+    paramsToProps: ({ id }) => ({ scope: id ? parseInt(id) : 'new' }),
+}
+```
+
+Create the logic: `frontend/src/scenes/dashboard/dashboardLogic.tsx`
+
+```ts
+import { dashboardLogicType } from './dashboardLogicType'
+
+export interface DashboardLogicProps {
+    id: number
+}
+
+export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+    path: ['scenes', 'dashboard', 'dashboardLogic'],
+    props: {} as DashboardLogicProps,
+    key: (props) => props.id,
+
+})
+```
+
+Create the styles `frontend/src/scenes/dashboard/Dashboard.scss`.
+
+```ts
+.dashboard-scene {
+    // put all your styles inside this scope, as everything is global
+}
+```
+
+## 2. Add a URL function
+
+in `frontend/src/scenes/urls.ts`
+
+```ts
 export const urls = {
-    // ...
-    webPerformance: (id?: string | number) => `/web-performance${id ? `/${id}` : ''}`,
+    dashboard: (id: string | number) => `/dashboard{id ? `/${id}` : ''}`,
+    dashboards: () => `/dashboard`,
 }
 ```
 
-## 2. Add a scene to the enum in `sceneTypes.ts`
+## 3. Add a scene to the enum
+
+in `frontend/src/scenes/sceneTypes.ts`
 
 ```ts
-// frontend/src/scenes/sceneTypes.ts
 export enum Scene {
-    WebPerformance = 'WebPerformance',
+    Dashboard = 'Dashboard',
 }
 ```
 
-## 3. Add a scene configuration and a route to scene mapping in `scenes.ts`
+## 4. Add a scene configuration and a route to scene mapping
+
+in `frontend/src/scenes/scenes.ts`
 
 ```ts
-// frontend/src/scenes/scenes.ts
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.WebPerformance]: {
+    [Scene.Dashboard]: {
         projectBased: true,
-        name: 'Web Performance',
+        name: 'Dashboard',
     },
 }
 
 export const routes: Record<string, Scene> = {
-    // this `:id` gets used in "params" in "paramsToProps"
-    [urls.webPerformance(':id')]: Scene.WebPerformance,
-    [urls.webPerformance()]: Scene.WebPerformance,
+    // this `:id` gets used in "params" in "paramsToProps" and passed to the <Dashboard /> component
+    [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboards()]: Scene.Dashboard,
 }
 ```
 
-## 5. Add a scene import in `appScenes.ts`
+## 5. Add a scene import
+
+in `frontend/src/scenes/appScenes.ts`
 
 ```ts
-// frontend/src/scenes/appScenes.ts
-
 export const appScenes: Record<Scene, () => any> = {
-    [Scene.WebPerformance]: () => import('./web-performance/WebPerformance'),
+    [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
+}
+```
+
+## 6. Create a story for your scene
+
+In the same folder as your component, create a file like `frontend/src/scenes/dashboard/Dashboard.stories.tsx`.
+If you need a lot of `.json` files for mocked data, create a `__mocks__` subdirectory for those files, just like you would with `jest`.
+
+```tsx
+import React, { useEffect } from 'react'
+import { Meta } from '@storybook/react'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { App } from 'scenes/App'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+
+export default {
+    title: 'Scenes-App/Dashboard',
+    decorators: [
+        // mocks used by all stories in this file
+        mswDecorator({
+            get: {
+                '/api/projects/1/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/projects/1/dashboards/1/': require('./__mocks__/dashboard1.json'),
+                '/api/projects/1/dashboards/1/collaborators/': [],
+            },
+        }),
+    ],
+    // NB! These `parameters` only apply for Scene stories.
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' }, // scene mode
+} as Meta
+
+export function NewDashboard (): JSX.Element {
+    // mocks used only in this story
+    useStorybookMocks({
+        get: { '/api/projects/dashboard/2/': require('./__mocks__/dashboard2.json') },
+    })
+    useEffect(() => {
+        // change the URL
+        router.actions.push(urls.dashboard(2))
+        // call various other actions to set the initial state
+        newDashboardForm.actions.showNewDashboardModal()
+    }, [])
+    return <App />
 }
 ```
 
 ## 7. Add some components
 
 Read next:
-- [How to use components](/docs/components-how-to-use-components--page)
-- [How to build a form](/docs/forms-how-to-build-a-form--page)
+- [How to use components](/docs/how-to-use-components--page)
+- [How to build a form](/docs/how-to-build-a-form--page)

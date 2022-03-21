@@ -124,7 +124,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
                 if (insightId) {
-                    const logic = insightLogic({ dashboardItemId: insightId })
+                    const logic = insightLogic.build({ dashboardItemId: insightId }, false)
                     const unmount = logic.mount()
                     const selector = logic.selectors.insight
                     actions.setInsightLogic(logic, selector, unmount)

@@ -1,7 +1,7 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Button, Popconfirm, Card } from 'antd'
+import { Button, Popconfirm, Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -28,9 +28,8 @@ import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -58,10 +57,12 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const screens = useBreakpoint()
+
+    const isSmallScreen = !screens.xl
 
     // Whether to display the control tab on the side instead of on top
-    const verticalLayout = activeView === InsightType.FUNNELS
+    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -226,24 +227,23 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                 }
             />
             {insightMode === ItemMode.View ? (
-                <Row style={{ marginTop: 16 }}>
-                    <Col span={24}>
-                        <InsightContainer />
-                    </Col>
-                </Row>
+                <InsightContainer />
             ) : (
                 <>
-                    <Row style={{ marginTop: 8 }}>
-                        <InsightsNav />
-                    </Row>
+                    <InsightsNav />
 
-                    <Row
-                        gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}
-                        style={verticalLayout ? { marginBottom: 64 } : undefined}
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: verticalLayout ? 'row' : 'column',
+                            marginBottom: verticalLayout ? 64 : 0,
+                        }}
                     >
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8) : undefined}
+                        <div
+                            style={{
+                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                marginRight: verticalLayout ? '1rem' : 0,
+                            }}
                         >
                             {verticalLayout ? (
                                 insightTab
@@ -255,14 +255,16 @@ export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Eleme
                                     </div>
                                 </Card>
                             )}
-                        </Col>
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16) : undefined}
+                        </div>
+                        <div
+                            style={{
+                                flexGrow: 1,
+                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                            }}
                         >
                             <InsightContainer />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     <NPSPrompt />
                     <FeedbackCallCTA />
                 </>
