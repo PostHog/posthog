@@ -42,26 +42,30 @@ const Loading = (): JSX.Element => {
 export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, describer })
     const { activity, activityLoading } = useValues(logic)
-    const activityRows = activity.map((logItem, index) => {
-        return (
-            <div className={'activity-log-row'} key={index}>
-                <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
-                <div className="details">
-                    <div>
-                        <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
-                    </div>
-                    <div className={'text-muted'}>
-                        <TZLabel time={logItem.created_at} />
-                    </div>
-                </div>
-            </div>
-        )
-    })
-
     return (
         <div className={clsx('activity-log', activityLoading && 'activity-log__loading')}>
             <div className="activity-log__loader" />
-            {activityLoading ? <Loading /> : activity.length > 0 ? activityRows : <Empty />}
+            {activityLoading ? (
+                <Loading />
+            ) : activity.length > 0 ? (
+                activity.map((logItem, index) => {
+                    return (
+                        <div className={'activity-log-row'} key={index}>
+                            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+                            <div className="details">
+                                <div>
+                                    <strong>{logItem.name ?? 'unknown user'}</strong> {logItem.description}
+                                </div>
+                                <div className={'text-muted'}>
+                                    <TZLabel time={logItem.created_at} />
+                                </div>
+                            </div>
+                        </div>
+                    )
+                })
+            ) : (
+                <Empty />
+            )}
         </div>
     )
 }
