@@ -113,14 +113,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (insightId !== oldInsightId || insightMode !== values.insightMode) {
                 actions.setSceneState(insightId, insightMode)
             }
+
             if (filters && Object.keys(filters).length > 0) {
-                // Redirect #filters={} to just /new or /edit.
-                values.insightCache?.logic.actions.setFilters(filters)
+                // Redirect an URL with #filters={} to just /new or /edit.
+                values.insightCache?.logic.actions.setFilters(cleanFilters(filters))
+                if (insightId === 'new') {
+                    eventUsageLogic.actions.reportInsightCreated(filters.insight)
+                } else {
+                    lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
+                }
                 router.actions.replace(insightId === 'new' ? urls.insightNew() : urls.insightEdit(insightId))
-                lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
             } else if (insightId === 'new' && (method === 'PUSH' || initial)) {
                 // if opening the site on /insights/new or clicked on a new button, clear new page
-                values.insightCache?.logic.actions.setFilters(cleanFilters({}))
+                const emptyFilters = cleanFilters({})
+                values.insightCache?.logic.actions.setFilters(emptyFilters)
+                eventUsageLogic.actions.reportInsightCreated(emptyFilters.insight || null)
             }
         },
     }),

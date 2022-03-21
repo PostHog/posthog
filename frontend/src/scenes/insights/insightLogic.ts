@@ -672,11 +672,6 @@ export const insightLogic = kea<insightLogicType>({
                   )
                 : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
 
-            if (!insightNumericId) {
-                // TODO: make sure this is right
-                eventUsageLogic.actions.reportInsightCreated(savedInsight.filters?.insight || null)
-            }
-
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true }
