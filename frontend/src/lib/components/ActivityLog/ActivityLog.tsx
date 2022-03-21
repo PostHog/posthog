@@ -44,7 +44,7 @@ export const ActivityLog = ({ scope, id, describer }: ActivityLogProps): JSX.Ele
     const { fetchActivity } = useActions(logic)
     return (
         <div className="activity-log">
-            {activityAPILoading ? (
+            {activityAPILoading && humanizedActivity.length === 0 ? (
                 <Loading />
             ) : humanizedActivity.length > 0 ? (
                 <>
