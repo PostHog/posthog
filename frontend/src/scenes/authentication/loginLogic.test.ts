@@ -24,10 +24,7 @@ describe('loginLogic', () => {
         for (const [next, result] of matches) {
             it(`for next param "${next}" it returns "${result}"`, () => {
                 router.actions.push(next ? `${origin}/?next=${encodeURIComponent(next)}` : origin)
-
-                // ensure origin remains the same each time
-                const expectedResult = origin + result
-                expect(afterLoginRedirect()).toEqual(expectedResult)
+                expect(afterLoginRedirect()).toEqual(result)
             })
         }
     })
