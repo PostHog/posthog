@@ -38,7 +38,7 @@ describe('the activity log logic', () => {
                 nextPageURL: 'a provided url',
             })
 
-            // react fragments confuse equality check so stringify to confirm this prop has the humanized version of the response
+            // react fragments confuse equality check so stringify to confirm this value has the humanized version of the response
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
@@ -73,7 +73,7 @@ describe('the activity log logic', () => {
                 nextPageURL: 'a provided url',
             })
 
-            // react fragments confuse equality check so stringify to confirm this prop has the humanized version of the response
+            // react fragments confuse equality check so stringify to confirm this value has the humanized version of the response
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
             )
