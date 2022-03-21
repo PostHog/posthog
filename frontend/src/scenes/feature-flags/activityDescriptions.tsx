@@ -92,13 +92,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem): (string | JSX.E
         descriptions.push(<>deleted the flag: {logItem.detail.name}</>)
     }
     if (logItem.activity == 'updated') {
-        ;(logItem.detail.changes || []).forEach((change) => {
+        for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
-                return // model changes have to have a "field" to be described
+                continue // model changes have to have a "field" to be described
             }
 
-            descriptions.push(featureFlagActionsMapping[change?.field](logItem, change))
-        })
+            descriptions.push(featureFlagActionsMapping[change.field](logItem, change))
+        }
     }
     return descriptions
 }
