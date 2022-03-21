@@ -191,7 +191,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         ],
     },
     listeners: ({ actions, selectors, values, props, cache }) => ({
-        setDefinition: async (_, __, ___, previousState) => {
+        setDefinition: (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
