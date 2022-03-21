@@ -207,7 +207,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         data-attr="dashboard-add-graph-header"
                                         icon={<PlusOutlined />}
                                     >
-                                        New Insight
+                                        Add Insight
                                     </Button>
                                 </Link>
                             )}

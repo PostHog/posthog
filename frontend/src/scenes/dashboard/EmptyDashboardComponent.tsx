@@ -91,7 +91,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                         <div className="mt text-center">
                             <Link to={urls.insightNew({ insight: InsightType.TRENDS }, dashboard?.id)}>
                                 <HotkeyButton data-attr="dashboard-add-graph-header" icon={<PlusOutlined />} hotkey="n">
-                                    New Insight
+                                    Add Insight
                                 </HotkeyButton>
                             </Link>
                         </div>
