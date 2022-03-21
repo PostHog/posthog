@@ -28,6 +28,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -45,15 +46,14 @@ export function InsightContainer(
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { insightMode } = useValues(insightSceneLogic)
     const {
         insightProps,
-        lastRefresh,
         canEditInsight,
         insightLoading,
         activeView,
         loadedView,
         filters,
-        insightMode,
         showTimeoutMessage,
         showErrorMessage,
     } = useValues(insightLogic)
@@ -63,7 +63,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || insightLoading) {
+        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
                     {
@@ -165,10 +165,12 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        <Col>{lastRefresh && <ComputationTimeWithRefresh />}</Col>
                         <Col>
-                            <FunnelCanvasLabel />
-                            <PathCanvasLabel />
+                            <ComputationTimeWithRefresh />
+                        </Col>
+                        <Col>
+                            {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
+                            {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
                             <InsightLegendButton />
                         </Col>
                     </Row>

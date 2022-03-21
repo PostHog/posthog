@@ -72,6 +72,7 @@ class License(models.Model):
         AvailableFeature.DASHBOARD_PERMISSIONING,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
+        AvailableFeature.SSO_ENFORCEMENT,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
 

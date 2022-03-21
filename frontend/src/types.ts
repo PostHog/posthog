@@ -21,6 +21,7 @@ import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogLevel } from 'rrweb'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -31,6 +32,7 @@ export enum AvailableFeature {
     PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
+    SSO_ENFORCEMENT = 'sso_enforcement',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
@@ -52,6 +54,14 @@ export enum Realm {
     Demo = 'demo',
     SelfHostedPostgres = 'hosted',
     SelfHostedClickHouse = 'hosted-clickhouse',
+}
+
+export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export interface AuthBackends {
+    'google-oauth2'?: boolean
+    gitlab?: boolean
+    github?: boolean
+    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -122,9 +132,18 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    domain_whitelist: string[]
     is_member_join_email_enabled: boolean
     metadata?: OrganizationMetadata
+}
+
+export interface OrganizationDomainType {
+    id: string
+    domain: string
+    is_verified: boolean
+    verified_at: string // Datetime
+    verification_challenge: string
+    jit_provisioning_enabled: boolean
+    sso_enforcement: SSOProviders | ''
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -371,6 +390,20 @@ export type SessionRecordingId = string
 export interface PlayerPosition {
     time: number
     windowId: string
+}
+
+export interface RRWebRecordingConsoleLogPayload {
+    level: LogLevel
+    payload: string[]
+    trace: string[]
+}
+
+export interface RecordingConsoleLog {
+    playerPosition: PlayerPosition | null
+    parsedPayload: string
+    parsedTraceURL?: string
+    parsedTraceString?: string
+    level: LogLevel
 }
 
 export interface RecordingSegment {
@@ -676,7 +709,7 @@ export interface InsightModel {
     favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
-    order: number
+    order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -687,7 +720,6 @@ export interface InsightModel {
     refreshing: boolean
     is_sample: boolean
     dashboard: number | null
-    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags?: string[]
@@ -1150,24 +1182,17 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: InsightShortId
-    color?: string
-    filters: Partial<FilterType>
+    inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult[]
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | null
-    /** enable url handling for this insight */
-    syncWithUrl?: boolean
-    /** cached results, avoid making a request */
-    cachedResults?: any
-    /** cached filters, avoid making a request */
-    filters?: Partial<FilterType> | null
+    /** cached insight */
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to make unsaved queries */
     doNotPersist?: boolean
     /** enable this to avoid API requests */
@@ -1234,13 +1259,6 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
-}
-
-interface AuthBackends {
-    'google-oauth2'?: boolean
-    gitlab?: boolean
-    github?: boolean
-    saml?: boolean
 }
 
 interface InstancePreferencesInterface {
@@ -1402,7 +1420,7 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number
+    id: number | 'new'
     name: string
     description?: string
     feature_flag_key: string
@@ -1652,4 +1670,5 @@ export interface InstanceSetting {
     value_type: 'bool' | 'str' | 'int'
     description?: string
     editable: boolean
+    is_secret: boolean
 }

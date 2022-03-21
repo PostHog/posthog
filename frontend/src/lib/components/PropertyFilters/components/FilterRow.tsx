@@ -11,7 +11,7 @@ import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple thi
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CloseButton } from 'lib/components/CloseButton'
 
@@ -30,6 +30,7 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     orFiltering?: boolean
+    useLemonButton?: boolean // To be removed once lemon is completely released
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -46,6 +47,7 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     orFiltering,
+    useLemonButton = false,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -126,6 +128,17 @@ export const FilterRow = React.memo(function FilterRow({
                                         >
                                             {`${item['alias']}::${item['regex']}`}
                                         </FilterButton>
+                                    ) : useLemonButton ? (
+                                        <LemonButton
+                                            ref={setRef}
+                                            onClick={() => setOpen(!open)}
+                                            className="new-prop-filter"
+                                            data-attr={'new-prop-filter-' + pageKey}
+                                            type="secondary"
+                                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                                        >
+                                            {label}
+                                        </LemonButton>
                                     ) : (
                                         <Button
                                             ref={setRef}

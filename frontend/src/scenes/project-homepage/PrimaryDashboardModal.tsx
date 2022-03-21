@@ -5,7 +5,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
-import { Skeleton } from 'antd'
+import { Skeleton, Typography } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { HomeIcon } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -54,11 +54,12 @@ export function PrimaryDashboardModal(): JSX.Element {
                         const rowContents = [
                             <div key={1} className="dashboard-label-container">
                                 <strong>{dashboard.name}</strong>
-                                {dashboard.description && (
-                                    <p className="text-small text-muted-alt dashboard-description">
-                                        {dashboard.description}
-                                    </p>
-                                )}
+                                <Typography.Paragraph
+                                    ellipsis={{ rows: 1 }}
+                                    className="text-small dashboard-description"
+                                >
+                                    {dashboard.description}
+                                </Typography.Paragraph>
                             </div>,
                             <div key={2}>
                                 {isPrimary ? (
@@ -73,7 +74,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                         ]
                         if (isPrimary) {
                             return (
-                                <LemonRow key={dashboard.id} fullWidth className="dashboard-row primary-dashboard-row">
+                                <LemonRow key={dashboard.id} fullWidth status="muted" className="dashboard-row">
                                     {rowContents}
                                 </LemonRow>
                             )

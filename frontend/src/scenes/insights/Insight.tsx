@@ -1,11 +1,12 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Button, Popconfirm, Card } from 'antd'
+import { Button, Popconfirm, Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from '~/types'
+import { HotKeys, ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -14,7 +15,6 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { SceneExport } from 'scenes/sceneTypes'
 import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -28,30 +28,28 @@ import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
-export const scene: SceneExport = {
-    component: Insight,
-    logic: insightLogic,
-    paramsToProps: ({ params: { shortId } }) => ({ dashboardItemId: shortId, syncWithUrl: true }),
-}
+export function Insight({ insightId }: { insightId: InsightShortId }): JSX.Element {
+    const { insightMode } = useValues(insightSceneLogic)
+    const { setInsightMode } = useActions(insightSceneLogic)
 
-export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
-    const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: insightId })
     const {
         insightProps,
+        insightLoading,
+        filtersKnown,
         filters,
         canEditInsight,
         activeView,
         insight,
-        insightMode,
         filtersChanged,
         savedFilters,
         tagLoading,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
+    const { setActiveView, saveInsight, setFilters, setInsightMetadata, saveAs } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -60,10 +58,12 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const screens = useBreakpoint()
+
+    const isSmallScreen = !screens.xl
 
     // Whether to display the control tab on the side instead of on top
-    const verticalLayout = activeView === InsightType.FUNNELS
+    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -94,6 +94,12 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
             disabled: insightMode !== ItemMode.View,
         },
     })
+
+    // Show the skeleton if loading an insight for which we only know the id
+    // This helps with the UX flickering and showing placeholder "name" text.
+    if (insightLoading && !filtersKnown) {
+        return <InsightSkeleton />
+    }
 
     /* These are insight specific filters. They each have insight specific logics */
     const insightTab = {
@@ -210,24 +216,23 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                 }
             />
             {insightMode === ItemMode.View ? (
-                <Row style={{ marginTop: 16 }}>
-                    <Col span={24}>
-                        <InsightContainer />
-                    </Col>
-                </Row>
+                <InsightContainer />
             ) : (
                 <>
-                    <Row style={{ marginTop: 8 }}>
-                        <InsightsNav />
-                    </Row>
+                    <InsightsNav />
 
-                    <Row
-                        gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}
-                        style={verticalLayout ? { marginBottom: 64 } : undefined}
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: verticalLayout ? 'row' : 'column',
+                            marginBottom: verticalLayout ? 64 : 0,
+                        }}
                     >
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8) : undefined}
+                        <div
+                            style={{
+                                width: verticalLayout ? 'min(32rem, 50%)' : 'unset',
+                                marginRight: verticalLayout ? '1rem' : 0,
+                            }}
                         >
                             {verticalLayout ? (
                                 insightTab
@@ -239,14 +244,16 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                     </div>
                                 </Card>
                             )}
-                        </Col>
-                        <Col
-                            span={24}
-                            xl={verticalLayout ? (featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16) : undefined}
+                        </div>
+                        <div
+                            style={{
+                                flexGrow: 1,
+                                width: verticalLayout ? 'calc(100% - min(32rem, 50%) - 1rem)' : 'unset',
+                            }}
                         >
                             <InsightContainer />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     <NPSPrompt />
                     <FeedbackCallCTA />
                 </>

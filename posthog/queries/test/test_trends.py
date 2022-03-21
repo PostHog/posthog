@@ -2385,7 +2385,24 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         ),
                         self.team,
                     )
-
                 self.assertEqual(daily_response[0]["data"][0], 2)
+
+                # breakdown person props
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "breakdown_type": "person",
+                                "breakdown": "$some_prop",
+                            }
+                        ),
+                        self.team,
+                    )
+                self.assertEqual(daily_response[0]["data"][0], 1)
+                self.assertEqual(daily_response[0]["label"], "sign up - none")
+                self.assertEqual(daily_response[1]["data"][0], 2)
+                self.assertEqual(daily_response[1]["label"], "sign up - some_val")
 
     return TestTrends

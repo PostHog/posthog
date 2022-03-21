@@ -1,10 +1,15 @@
 from django.core.management.base import BaseCommand
 
+from posthog.settings import TEST
+
 
 class Command(BaseCommand):
     help = "Set up databases for non-Python tests that depend on the Django server"
 
     def handle(self, *args, **options):
+        if not TEST:
+            raise ValueError("TEST environment variable needs to be set for this command to function")
+
         from django.test.runner import DiscoverRunner as TestRunner
 
         test_runner = TestRunner(interactive=False)

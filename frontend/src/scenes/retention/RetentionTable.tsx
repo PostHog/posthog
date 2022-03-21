@@ -12,7 +12,7 @@ import './RetentionTable.scss'
 
 import { RetentionModal } from './RetentionModal'
 
-export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
+export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
@@ -99,14 +99,14 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 size="small"
                 className="retention-table"
                 pagination={false}
-                rowClassName={dashboardItemId ? '' : 'cursor-pointer'}
+                rowClassName={inCardView ? '' : 'cursor-pointer'}
                 dataSource={results}
                 columns={columns}
                 rowKey="date"
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (!dashboardItemId && rowIndex !== undefined) {
+                        if (!inCardView && rowIndex !== undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)

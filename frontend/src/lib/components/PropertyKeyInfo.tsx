@@ -645,7 +645,7 @@ export function PropertyKeyInfo({
     value = `${value}` // convert to string
 
     const data = getKeyMapping(value, type)
-    const baseValue = (!data ? value : data.label).trim()
+    const baseValue = (data ? data.label : value)?.trim() ?? ''
     const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
 
     // By this point, property is a PH defined property

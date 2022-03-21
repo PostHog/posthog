@@ -19,10 +19,9 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
-import {
-    EVENT_DEFINITIONS_PER_PAGE,
-    PROPERTY_DEFINITIONS_PER_EVENT,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { PersonFilters } from 'scenes/persons/personsLogic'
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -158,6 +157,10 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    public persons(): ApiRequest {
+        return this.addPathComponent('person')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -273,46 +276,88 @@ const api = {
     },
 
     eventDefinitions: {
-        async list(
-            limit: number = EVENT_DEFINITIONS_PER_PAGE,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<EventDefinition>> {
-            const params: Record<string, any> = { limit, offset }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).get()
+        async list({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<EventDefinition>> {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .get()
         },
-        determineListEndpoint(
-            limit: number = EVENT_DEFINITIONS_PER_PAGE,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): string {
-            const params: Record<string, any> = { limit, offset }
-            return new ApiRequest().eventDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        determineListEndpoint({
+            limit = EVENT_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .eventDefinitions(teamId)
+                .withQueryString(toParams({ limit, ...params }))
+                .assembleFullUrl()
         },
     },
 
     propertyDefinitions: {
-        async list(
-            event_names?: string[],
-            excluded_properties?: string[],
-            is_event_property?: boolean,
-            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PropertyDefinition>> {
-            const params: Record<string, any> = { event_names, excluded_properties, is_event_property, limit, offset }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).get()
+        async list({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): Promise<PaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .get()
         },
-        determineListEndpoint(
-            event_names?: string[],
-            excluded_properties?: string[],
-            is_event_property?: boolean,
-            limit: number = PROPERTY_DEFINITIONS_PER_EVENT,
-            offset?: number,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): string {
-            const params: Record<string, any> = { event_names, excluded_properties, is_event_property, limit, offset }
-            return new ApiRequest().propertyDefinitions(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        determineListEndpoint({
+            limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            teamId = getCurrentTeamId(),
+            ...params
+        }: {
+            event_names?: string[]
+            order_ids_first?: string[]
+            excluded_ids?: string[]
+            excluded_properties?: string[]
+            is_event_property?: boolean
+            limit?: number
+            offset?: number
+            teamId?: TeamType['id']
+        }): string {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(
+                    toParams({
+                        limit,
+                        ...params,
+                    })
+                )
+                .assembleFullUrl()
         },
     },
 
@@ -362,6 +407,12 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    person: {
+        determineCSVUrl(filters: PersonFilters): string {
+            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 

@@ -717,6 +717,11 @@ export const dateMapping: Record<string, dateMappingOption> = {
             `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
     },
+    'Last 3 days': {
+        values: ['-3d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
     'Last 7 days': {
         values: ['-7d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>

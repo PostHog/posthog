@@ -1,6 +1,6 @@
 .LemonButton {
+    font-weight: 500;
     color: var(--primary);
-    font-weight: 600;
     cursor: pointer;
     &:not(:disabled):hover,
     &.LemonButton--active {

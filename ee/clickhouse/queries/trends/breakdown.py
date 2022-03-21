@@ -70,7 +70,7 @@ class ClickhouseTrendsBreakdown:
             table_name="e",
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
-        aggregate_operation, _, math_params = process_math(self.entity, self.team)
+        aggregate_operation, _, math_params = process_math(self.entity, self.team, event_table_alias="e")
 
         action_query = ""
         action_params: Dict = {}

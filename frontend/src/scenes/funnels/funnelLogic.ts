@@ -108,15 +108,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            [
-                'filters',
-                'insight',
-                'insightLoading',
-                'insightMode',
-                'isViewedOnDashboard',
-                'hiddenLegendKeys',
-                'syncWithUrl',
-            ],
+            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1163,19 +1155,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
                     })
             })
-
-            // load correlation table after funnel. Maybe parallel?
-            if (
-                values.correlationAnalysisAvailable &&
-                insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
-                values.steps?.length > 1 &&
-                values.syncWithUrl
-            ) {
-                // syncWithUrl implies correlations are loaded only on insight view page
-                // and not in Experiments or dashboards
-                actions.loadCorrelations()
-                actions.setPropertyNames(values.allProperties) // select all properties by default
-            }
         },
         loadCorrelationsSuccess: async () => {
             if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {

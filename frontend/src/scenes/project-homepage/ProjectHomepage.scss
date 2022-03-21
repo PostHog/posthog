@@ -1,8 +1,8 @@
 @import '~/vars';
 
 .project-homepage {
-    .dashboard-header {
-        justify-content: 'space-between';
+    .homepage-dashboard-header {
+        justify-content: space-between;
         align-items: center;
         .dashboard-title-container {
             display: flex;
@@ -10,6 +10,12 @@
             align-items: center;
             .dashboard-name {
                 margin: 0;
+            }
+            .ant-skeleton {
+                width: 300px;
+                h3 {
+                    margin: 0;
+                }
             }
         }
     }

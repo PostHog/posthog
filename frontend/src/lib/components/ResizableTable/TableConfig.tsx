@@ -13,6 +13,8 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconTuning } from 'lib/components/icons'
 
 interface TableConfigProps {
     immutableColumns?: string[] //the titles of the columns that are always displayed
@@ -31,6 +33,24 @@ export function TableConfig(props: TableConfigProps): JSX.Element {
             <Button data-attr="events-table-column-selector" onClick={showModal} icon={<ControlOutlined rotate={90} />}>
                 Customize columns
             </Button>
+            <ColumnConfigurator immutableColumns={props.immutableColumns} defaultColumns={props.defaultColumns} />
+        </>
+    )
+}
+
+export function LemonTableConfig(props: TableConfigProps): JSX.Element {
+    const { showModal } = useActions(tableConfigLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                data-attr="events-table-column-selector"
+                onClick={showModal}
+                icon={<IconTuning style={{ color: 'var(--primary)' }} />}
+            >
+                Customize columns
+            </LemonButton>
             <ColumnConfigurator immutableColumns={props.immutableColumns} defaultColumns={props.defaultColumns} />
         </>
     )

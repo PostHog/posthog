@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IconTrendUp, IconOpenInNew, IconErrorOutline } from 'lib/components/icons'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
@@ -16,9 +16,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
+export function InsightEmptyState(): JSX.Element {
     return (
-        <div className={clsx('insight-empty-state', color)}>
+        <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
@@ -31,7 +31,6 @@ export function InsightEmptyState({ color }: { color?: string }): JSX.Element {
 }
 
 export function InsightDeprecatedState({
-    color,
     itemId,
     itemName,
     deleteCallback,
@@ -39,11 +38,10 @@ export function InsightDeprecatedState({
     itemId: number
     itemName: string
     deleteCallback?: () => void
-    color?: string
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     return (
-        <div className={clsx('insight-empty-state', color)}>
+        <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <WarningOutlined />

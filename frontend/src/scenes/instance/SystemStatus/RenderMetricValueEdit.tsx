@@ -12,6 +12,7 @@ export function RenderMetricValueEdit({
     value,
     value_type,
     onValueChanged,
+    isSecret,
 }: MetricValueEditInterface): JSX.Element | string {
     if (value_type === 'bool') {
         return (
@@ -24,10 +25,13 @@ export function RenderMetricValueEdit({
         )
     }
 
+    const parsedValue = isSecret && value ? '' : (value as string | number | ReadonlyArray<string>)
+
     return (
         <Input
-            defaultValue={value as string | number | ReadonlyArray<string>}
+            defaultValue={parsedValue}
             type={value_type === 'int' ? 'number' : 'text'}
+            placeholder={isSecret && value ? 'Keep existing secret value' : undefined}
             onBlur={(e) => onValueChanged(key, e.target.value)}
         />
     )

@@ -73,7 +73,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "plugins_access_level",
             "teams",
             "available_features",
-            "domain_whitelist",
             "is_member_join_email_enabled",
             "metadata",
         ]

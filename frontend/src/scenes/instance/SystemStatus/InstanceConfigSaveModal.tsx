@@ -9,9 +9,10 @@ import { MetricRow, systemStatusLogic } from './systemStatusLogic'
 interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
     oldValue?: boolean | string | number | null
     metricKey: string
+    isSecret?: boolean
 }
 
-function ChangeRow({ metricKey, oldValue, value }: ChangeRowInterface): JSX.Element | null {
+function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface): JSX.Element | null {
     if (value?.toString() === oldValue?.toString()) {
         return null
     }
@@ -24,14 +25,22 @@ function ChangeRow({ metricKey, oldValue, value }: ChangeRowInterface): JSX.Elem
                 <code>{metricKey}</code>
             </div>
             <div style={{ color: 'var(--text-muted)' }}>
-                Value will be changed from{' '}
+                Value will be changed
+                {!isSecret && (
+                    <>
+                        {' from '}
+                        <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                            {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
+                        </span>
+                    </>
+                )}
+                {' to '}
                 <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset' })}
-                </span>{' '}
-                to{' '}
-                <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value })}
+                    {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
+                {isSecret && (
+                    <div className="text-danger">This field is secret – you won't see its value once saved</div>
+                )}
             </div>
         </div>
     )
@@ -79,6 +88,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                     metricKey={key}
                     value={instanceConfigEditingState[key]}
                     oldValue={editableInstanceSettings.find((record) => record.key === key)?.value}
+                    isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
                 />
             ))}
             {loading && (

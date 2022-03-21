@@ -42,6 +42,10 @@
             color: var(--success);
         }
     }
+
+    &.LemonRow--status-muted {
+        background: $bg_side;
+    }
 }
 
 .LemonRow__main-area {
@@ -115,6 +119,10 @@
     color: var(--muted-alt);
     &:not(:first-child):last-child {
         margin-right: -0.5rem;
+    }
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
     }
 }
 

@@ -4,9 +4,17 @@ const babelConfig = require('../babel.config')
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: [
+        {
+            name: '@storybook/addon-docs',
+            options: {
+                sourceLoaderOptions: {
+                    injectStoryParameters: false,
+                },
+            },
+        },
         '@storybook/addon-links',
         '@storybook/addon-essentials',
-        './ApiSelector/register.js',
+        '@storybook/addon-storysource',
         {
             name: 'storybook-addon-turbo-build',
             options: {
@@ -14,7 +22,8 @@ module.exports = {
             },
         },
     ],
-    babel: async (options) => {
+    staticDirs: ['public'],
+    babel: async () => {
         // compile babel to "defaults" target (ES5)
         const envPreset = babelConfig.presets.find(
             (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
@@ -24,7 +33,7 @@ module.exports = {
     },
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
-        const newConfig = {
+        return {
             ...config,
             resolve: {
                 ...config.resolve,
@@ -36,9 +45,21 @@ module.exports = {
                 rules: [
                     ...mainConfig.module.rules,
                     ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
+                    {
+                        test: /\.stories\.tsx?$/,
+                        use: [
+                            {
+                                loader: require.resolve('@storybook/source-loader'),
+                                options: { parser: 'typescript' },
+                            },
+                        ],
+                        enforce: 'pre',
+                    },
                 ],
             },
         }
-        return newConfig
+    },
+    features: {
+        postcss: false,
     },
 }

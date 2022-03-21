@@ -1,5 +1,5 @@
 import React from 'react'
-import { Insight } from './Insight'
+import { InsightScene } from './InsightScene'
 import * as helpers from 'cypress/support/helpers'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 // Could still be useful locally
 
 xdescribe('<Insights /> trends', () => {
-    const mount = () => helpers.mountPage(<Insight />)
+    const mount = () => helpers.mountPage(<InsightScene />)
 
     const mountAndCheckAPI = () => {
         helpers.setLocation(urls.insightNew(given.params))

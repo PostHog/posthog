@@ -4,7 +4,11 @@ from ee.clickhouse.sql.person import (
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
 )
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -35,22 +39,22 @@ class Migration(AsyncMigrationDefinition):
     ]
 
     operations = [
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 INSERT INTO {TEMPORARY_TABLE_NAME} (distinct_id, person_id, team_id, _sign, _timestamp, _offset)
@@ -65,7 +69,7 @@ class Migration(AsyncMigrationDefinition):
             """,
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME}",
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
@@ -80,12 +84,12 @@ class Migration(AsyncMigrationDefinition):
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             """,
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL(),
             rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
         ),
-        AsyncMigrationOperation.simple_op(
+        AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
             rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",

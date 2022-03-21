@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext, useActions, useValues } from 'kea'
 import {
+    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -31,8 +32,13 @@ import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 //--Chart Style Options--//
+if (registerables) {
+    // required for storybook to work, not found in esbuild
+    Chart.register(...registerables)
+}
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
@@ -42,12 +48,11 @@ interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
-    color: string
     type: GraphType
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    insightId?: number
+    insightNumericId?: number
     inSharedMode?: boolean
     percentage?: boolean
     showPersonsModal?: boolean
@@ -59,16 +64,23 @@ interface LineGraphProps {
 
 const noop = (): void => {}
 
-export function LineGraph({
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            <LineGraph_ {...props} />
+        </ErrorBoundary>
+    )
+}
+
+export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
     labels,
-    color,
     type,
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    insightId,
+    insightNumericId,
     inSharedMode = false,
     percentage = false,
     showPersonsModal = true,
@@ -92,11 +104,11 @@ export function LineGraph({
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
     const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightId }))
+        ? useActions(annotationsLogic({ insightNumericId }))
         : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightId }))
+        ? useValues(annotationsLogic({ insightNumericId }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -104,7 +116,7 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
-    const colors = getGraphColors(color === 'white')
+    const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
@@ -117,7 +129,7 @@ export function LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, hiddenLegendKeys])
+    }, [datasets, hiddenLegendKeys])
 
     // annotation related effects
 
@@ -182,7 +194,7 @@ export function LineGraph({
     }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
-        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const colorList = getChartColors('white', _datasets.length, isCompare)
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
@@ -651,7 +663,7 @@ export function LineGraph({
                         leftExtent={leftExtent}
                         interval={boundaryInterval}
                         topExtent={topExtent}
-                        insightId={insightId}
+                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused || annotationsFocused
                                 ? selectedDayLabel
@@ -666,14 +678,14 @@ export function LineGraph({
                         onClose={() => {
                             setAnnotationsFocused(false)
                         }}
-                        graphColor={color}
+                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />
                 )}
                 {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                     <AnnotationMarker
-                        insightId={insightId}
+                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
                         }
@@ -690,7 +702,7 @@ export function LineGraph({
                             const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                             if (date) {
                                 if (applyAll) {
-                                    createGlobalAnnotation(textInput, date, insightId)
+                                    createGlobalAnnotation(textInput, date, insightNumericId)
                                 } else {
                                     createAnnotation(textInput, date)
                                 }
@@ -701,7 +713,7 @@ export function LineGraph({
                         left={(focused ? holdLeft : left) - 12.5}
                         top={topExtent}
                         label="Add note"
-                        graphColor={color}
+                        graphColor={'white'}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
                     />

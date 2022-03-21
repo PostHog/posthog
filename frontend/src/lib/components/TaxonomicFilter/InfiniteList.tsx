@@ -132,11 +132,11 @@ const renderItemContents = ({
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
-                {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && icon}
+                {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
                     disablePopover
-                    disableIcon={!!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]}
+                    disableIcon={!!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]}
                     style={{ maxWidth: '100%' }}
                 />
             </div>
@@ -149,7 +149,7 @@ const renderItemContents = ({
                 <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
             ) : (
                 <>
-                    {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && icon}
+                    {featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT] && icon}
                     {item.name ?? ''}
                 </>
             )}
@@ -291,7 +291,7 @@ export function InfiniteList(): JSX.Element {
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
-    const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+    const showNewPopups = !!featureFlags[FEATURE_FLAGS.DATA_MANAGEMENT]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)

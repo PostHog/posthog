@@ -23,7 +23,7 @@ import { Button } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, addGraph, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -33,59 +33,61 @@ export function DashboardHeader(): JSX.Element | null {
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
 
-    return (
-        dashboard && (
-            <>
-                {dashboardMode === DashboardMode.Fullscreen && (
-                    <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
-                )}
-                {dashboard && (
-                    <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />
-                )}
-                <PageHeader
-                    title={
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <EditableField
-                                name="name"
-                                value={dashboard.name || ''}
-                                placeholder="Name this dashboard"
-                                onSave={(value) => updateDashboard({ id: dashboard.id, name: value })}
-                                minLength={1}
-                                maxLength={400} // Sync with Dashboard model
-                                mode={!canEditDashboard ? 'view' : undefined}
-                                notice={
-                                    !canEditDashboard
-                                        ? {
-                                              icon: <IconLock />,
-                                              tooltip:
-                                                  "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
-                                          }
-                                        : undefined
-                                }
-                            />
-                        </div>
-                    }
-                    buttons={
-                        dashboardMode === DashboardMode.Edit ? (
-                            <Button
-                                data-attr="dashboard-edit-mode-save"
-                                type="primary"
-                                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-                                tabIndex={10}
-                            >
-                                Done editing
-                            </Button>
-                        ) : dashboardMode === DashboardMode.Fullscreen ? (
-                            <Button
-                                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-                                data-attr="dashboard-exit-presentation-mode"
-                            >
-                                Exit full screen
-                            </Button>
-                        ) : (
-                            <>
-                                <More
-                                    overlay={
+    return dashboard || allItemsLoading ? (
+        <>
+            {dashboardMode === DashboardMode.Fullscreen && (
+                <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
+            )}
+            {dashboard && <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />}
+            <PageHeader
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <EditableField
+                            name="name"
+                            value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
+                            placeholder="Name this dashboard"
+                            onSave={
+                                dashboard ? (value) => updateDashboard({ id: dashboard.id, name: value }) : undefined
+                            }
+                            minLength={1}
+                            maxLength={400} // Sync with Dashboard model
+                            mode={!canEditDashboard ? 'view' : undefined}
+                            notice={
+                                dashboard && !canEditDashboard
+                                    ? {
+                                          icon: <IconLock />,
+                                          tooltip:
+                                              "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
+                                      }
+                                    : undefined
+                            }
+                        />
+                    </div>
+                }
+                buttons={
+                    dashboardMode === DashboardMode.Edit ? (
+                        <Button
+                            data-attr="dashboard-edit-mode-save"
+                            type="primary"
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            tabIndex={10}
+                            disabled={allItemsLoading}
+                        >
+                            Done editing
+                        </Button>
+                    ) : dashboardMode === DashboardMode.Fullscreen ? (
+                        <Button
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            data-attr="dashboard-exit-presentation-mode"
+                            disabled={allItemsLoading}
+                        >
+                            Exit full screen
+                        </Button>
+                    ) : (
+                        <>
+                            <More
+                                overlay={
+                                    dashboard ? (
                                         <>
                                             {dashboard.created_by && (
                                                 <>
@@ -180,77 +182,75 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </LemonButton>
                                             )}
                                         </>
-                                    }
-                                />
-                                <LemonSpacer vertical />
-                                {dashboard && (
-                                    <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => setIsShareModalVisible((state) => !state)}
-                                    />
-                                )}
-                                <Button
-                                    data-attr="dashboard-share-button"
+                                    ) : undefined
+                                }
+                            />
+                            <LemonSpacer vertical />
+                            {dashboard && (
+                                <CollaboratorBubbles
+                                    dashboard={dashboard}
                                     onClick={() => setIsShareModalVisible((state) => !state)}
-                                >
-                                    Share
-                                </Button>
-                                {canEditDashboard && (
-                                    <Button
-                                        type="primary"
-                                        onClick={() => addGraph()}
-                                        data-attr="dashboard-add-graph-header"
-                                        icon={<PlusOutlined />}
-                                    >
-                                        New Insight
-                                    </Button>
-                                )}
-                            </>
-                        )
-                    }
-                    caption={
-                        <>
-                            {!!(canEditDashboard || dashboard.description) && (
-                                <EditableField
-                                    multiline
-                                    name="description"
-                                    value={dashboard.description || ''}
-                                    placeholder="Description (optional)"
-                                    onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
-                                    compactButtons
-                                    mode={!canEditDashboard ? 'view' : undefined}
-                                    paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                                 />
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && dashboard.tags && (
-                                <>
-                                    {canEditDashboard ? (
-                                        <ObjectTags
-                                            tags={dashboard.tags}
-                                            onChange={(_, tags) => triggerDashboardUpdate({ tags })}
-                                            saving={dashboardLoading}
-                                            tagsAvailable={dashboardTags.filter(
-                                                (tag) => !dashboard.tags?.includes(tag)
-                                            )}
-                                            className="insight-metadata-tags"
-                                        />
-                                    ) : dashboard.tags.length ? (
-                                        <ObjectTags
-                                            tags={dashboard.tags}
-                                            saving={dashboardLoading}
-                                            staticOnly
-                                            className="insight-metadata-tags"
-                                        />
-                                    ) : null}
-                                </>
+                            <Button
+                                data-attr="dashboard-share-button"
+                                onClick={() => setIsShareModalVisible((state) => !state)}
+                            >
+                                Share
+                            </Button>
+                            {canEditDashboard && (
+                                <Button
+                                    type="primary"
+                                    onClick={() => addGraph()}
+                                    data-attr="dashboard-add-graph-header"
+                                    icon={<PlusOutlined />}
+                                >
+                                    New Insight
+                                </Button>
                             )}
                         </>
-                    }
-                    delimited
-                />
-            </>
-        )
-    )
+                    )
+                }
+                caption={
+                    <>
+                        {dashboard && !!(canEditDashboard || dashboard.description) && (
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={dashboard.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                compactButtons
+                                mode={!canEditDashboard ? 'view' : undefined}
+                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                            />
+                        )}
+                        {dashboard?.tags && hasAvailableFeature(AvailableFeature.TAGGING) && (
+                            <>
+                                {canEditDashboard ? (
+                                    <ObjectTags
+                                        tags={dashboard.tags}
+                                        onChange={(_, tags) => triggerDashboardUpdate({ tags })}
+                                        saving={dashboardLoading}
+                                        tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                        className="insight-metadata-tags"
+                                    />
+                                ) : dashboard.tags.length ? (
+                                    <ObjectTags
+                                        tags={dashboard.tags}
+                                        saving={dashboardLoading}
+                                        staticOnly
+                                        className="insight-metadata-tags"
+                                    />
+                                ) : null}
+                            </>
+                        )}
+                    </>
+                }
+                delimited
+            />
+        </>
+    ) : null
 }
 
 function CollaboratorBubbles({

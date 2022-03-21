@@ -29,8 +29,11 @@ export const handlers = mocksToHandlers({
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
+        '/api/instance_status': require('./fixtures/_instance_status.json'),
     },
     post: {
         '/e/': () => [200, 'ok'],
+        '/decide/': () => [200, 'ok'],
+        'https://app.posthog.com/decide/': () => [200, 'ok'],
     },
 })

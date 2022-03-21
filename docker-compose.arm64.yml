@@ -14,8 +14,18 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        # Built with: yarn arm64:build:clickhouse
-        image: posthog/clickhouse:v21.9.2.17-stable
+        #
+        # Custom ClickHouse image for ARM64 architecture.
+        # See the `docker/clickhouse-builder` folder for more info.
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        # Note2: we are temporary keeping `v21.9.2.17` on ARM64 due to some
+        #        CI issue happening only on this architecture. As we want to
+        #        move forward with the upgrade everywhere else.
+        #        See: https://github.com/PostHog/posthog/issues/8940
+        image: posthog/clickhouse:${CLICKHOUSE_SERVER_IMAGE_VERSION:-v21.9.2.17-stable}
         depends_on:
             - kafka
             - zookeeper

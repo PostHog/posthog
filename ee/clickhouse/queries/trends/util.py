@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -24,14 +24,16 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity, team: Team) -> Tuple[str, str, Dict[str, Any]]:
+def process_math(
+    entity: Entity, team: Team, event_table_alias: Optional[str] = None
+) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
     params: Dict[str, Any] = {}
     if entity.math == "dau":
         if team.aggregate_users_by_distinct_id:
             join_condition = ""
-            aggregate_operation = "count(DISTINCT distinct_id)"
+            aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
             join_condition = EVENT_JOIN_PERSON_SQL
             aggregate_operation = "count(DISTINCT person_id)"

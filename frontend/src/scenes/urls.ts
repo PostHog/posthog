@@ -17,21 +17,18 @@ export const urls = {
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
     sharedDashboard: (shareToken: string) => `/shared_dashboard/${shareToken}`,
-    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
-    action: (id: string | number) => `/action/${id}`,
-    actions: () => '/events/actions',
-    eventStats: () => '/events/stats',
-    eventStat: (id: string | number) => `/events/stats/${id}`,
-    eventPropertyStats: () => '/events/properties',
-    eventPropertyStat: (id: string | number) => `/events/properties/${id}`,
+    createAction: () => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
+    action: (id: string | number) => `/data-management/actions/${id}`,
+    actions: () => '/data-management/actions',
+    eventDefinitions: () => '/data-management/events',
+    eventDefinition: (id: string | number) => `/data-management/events/${id}`,
+    eventPropertyDefinitions: () => '/data-management/event-properties',
+    eventPropertyDefinition: (id: string | number) => `/data-management/event-properties/${id}`,
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) =>
         `/insights/new${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightRouter: (id: string) => `/i/${id}`,
-    insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}/edit${filters ? combineUrl('', '', { filters }).hash : ''}`,
-    insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
-        `/insights/${id}${filters ? combineUrl('', '', { filters }).hash : ''}`,
+    insightEdit: (id: InsightShortId) => `/insights/${id}/edit`,
+    insightView: (id: InsightShortId) => `/insights/${id}`,
     savedInsights: () => '/insights',
     webPerformance: () => '/web-performance',
     sessionRecordings: () => '/recordings',
@@ -70,6 +67,7 @@ export const urls = {
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
     instanceStatus: () => '/instance/status',
+    instanceStaffUsers: () => '/instance/staff_users',
     instanceSettings: () => '/instance/settings',
     instanceMetrics: () => `/instance/metrics`,
     asyncMigrations: () => '/instance/async_migrations',

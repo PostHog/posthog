@@ -53,10 +53,6 @@
                     "value": "--max-old-space-size=4096"
                 },
                 {
-                    "name": "STALENESS_RESTART_SECONDS",
-                    "value": "300"
-                },
-                {
                     "name": "JOB_QUEUES",
                     "value": "graphile"
                 },
@@ -94,6 +90,10 @@
                 },
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
+                },
+                {
+                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "1"
                 }
             ],
@@ -166,8 +166,8 @@
                 "retries": 10,
                 "command": ["CMD-SHELL", "curl -f http://localhost:6738/_ready || exit 1"],
                 "timeout": 10,
-                "interval": 15,
-                "startPeriod": 30
+                "interval": 20,
+                "startPeriod": 60
             }
         }
     ],

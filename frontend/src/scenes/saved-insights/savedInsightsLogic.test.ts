@@ -1,13 +1,11 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { InsightModel, InsightShortId, InsightType } from '~/types'
+import { InsightModel, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
-
-const Insight42 = 'ii42' as InsightShortId
 
 const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
@@ -154,28 +152,6 @@ describe('savedInsightsLogic', () => {
     })
 
     describe('redirects old /insights urls to the real URL', () => {
-        it('in view mode with a #fromItem=', async () => {
-            router.actions.push(
-                combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
-            )
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightView(Insight42) }),
-                hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
-            })
-        })
-
-        it('in edit mode with a #fromItem=', async () => {
-            router.actions.push(
-                combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
-            )
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightEdit(Insight42) }),
-                hashParams: { filters: partial({ insight: InsightType.TRENDS }) },
-            })
-        })
-
         it('new mode with ?insight= and no hash params', async () => {
             router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
             await expectLogic(router).toMatchValues({

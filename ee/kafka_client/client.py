@@ -74,7 +74,7 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b)
+        self.producer.send(topic, value=b, key=key)
 
     def close(self):
         self.producer.flush()

@@ -12,7 +12,7 @@ import { IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

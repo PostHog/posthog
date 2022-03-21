@@ -13,6 +13,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum DefinitionPopupState {
     Edit = 'edit',
@@ -29,13 +30,11 @@ export interface DefinitionPopupLogicProps {
     onSave?: () => void
     hideView?: boolean
     hideEdit?: boolean
+    openDetailInNewTab?: boolean
 }
 
 export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
-    props: {
-        hideView: false,
-        hideEdit: false,
-    } as DefinitionPopupLogicProps,
+    props: {} as DefinitionPopupLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature']],
     },
@@ -61,7 +60,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             },
         ],
     },
-    loaders: ({ values, props }) => ({
+    loaders: ({ values, props, cache }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
@@ -75,6 +74,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                         ...values.definition,
                         ...values.localDefinition,
                     } as TaxonomicDefinitionTypes
+                    cache.startTime = performance.now()
                     try {
                         if (values.isAction) {
                             // Action Definitions
@@ -124,8 +124,12 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
         onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
-        hideView: [() => [(_, props) => props.hideView], (hideView) => hideView],
-        hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit],
+        hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
+        hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
+        openDetailInNewTab: [
+            () => [(_, props) => props.openDetailInNewTab],
+            (openDetailInNewTab) => openDetailInNewTab ?? true,
+        ],
         singularType: [(s) => [s.type], (type) => getSingularType(type)],
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],
@@ -171,10 +175,10 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     return urls.action((definition as ActionType).id)
                 } else if (isEvent) {
                     // Event Definitions
-                    return urls.eventStat((definition as EventDefinition).id)
+                    return urls.eventDefinition((definition as EventDefinition).id)
                 } else if (isProperty) {
                     // Property Definitions
-                    return urls.eventPropertyStat((definition as PropertyDefinition).id)
+                    return urls.eventPropertyDefinition((definition as PropertyDefinition).id)
                 } else if (isCohort) {
                     // Cohort
                     return urls.cohort((definition as CohortType).id)
@@ -183,7 +187,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             },
         ],
     },
-    listeners: ({ actions, selectors, values, props }) => ({
+    listeners: ({ actions, selectors, values, props, cache }) => ({
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popup to view mode if context is switched
             if (
@@ -197,10 +201,34 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
             actions.setPopupState(DefinitionPopupState.View)
             props?.onSave?.()
         },
+        handleSaveSuccess: () => {
+            if (cache.startTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions?.reportDataManagementDefinitionSaveSucceeded(
+                        values.type,
+                        performance.now() - cache.startTime
+                    )
+                cache.startTime = undefined
+            }
+        },
+        handleSaveFailure: ({ error }) => {
+            if (cache.startTime !== undefined) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions?.reportDataManagementDefinitionSaveFailed(
+                        values.type,
+                        performance.now() - cache.startTime,
+                        error
+                    )
+                cache.startTime = undefined
+            }
+        },
         handleCancel: () => {
             actions.setPopupState(DefinitionPopupState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
+            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
         },
     }),
 })

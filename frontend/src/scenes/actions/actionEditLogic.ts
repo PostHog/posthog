@@ -62,7 +62,8 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
                 saveAction: async () => {
-                    let action = Object.assign({}, values.action) as ActionType
+                    // TODO: don't nix tags once tags are also added to actions
+                    let action = Object.assign({}, values.action, { tags: undefined }) as ActionType
 
                     action.steps = action.steps
                         ? action.steps.filter((step) => {

@@ -13,14 +13,15 @@ import { userLogic } from 'scenes/userLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
 import { Tooltip } from 'lib/components/Tooltip'
+import { HomeIcon } from 'lib/components/icons'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -34,6 +35,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal, setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -58,6 +60,7 @@ export function Dashboards(): JSX.Element {
             dataIndex: 'name',
             width: '40%',
             render: function Render(name, { id, description, _highlight, is_shared }) {
+                const isPrimary = id === currentTeam?.primary_dashboard
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
@@ -67,6 +70,11 @@ export function Dashboards(): JSX.Element {
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
+                                </Tooltip>
+                            )}
+                            {isPrimary && (
+                                <Tooltip title="Primary dashboards are shown on the project home page">
+                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
                                 </Tooltip>
                             )}
                         </div>
@@ -97,7 +105,7 @@ export function Dashboards(): JSX.Element {
                 return (
                     <More
                         overlay={
-                            <>
+                            <div style={{ maxWidth: 250 }}>
                                 <LemonButton
                                     type="stealth"
                                     to={urls.dashboard(id)}
@@ -130,15 +138,22 @@ export function Dashboards(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonSpacer />
+                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
+                                    <span>
+                                        Change the default dashboard on the{' '}
+                                        <Link to={urls.projectHomepage()}>project home page</Link>.
+                                    </span>
+                                </LemonRow>
+                                <LemonSpacer />
                                 <LemonButton
                                     type="stealth"
-                                    style={{ color: 'var(--danger)' }}
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
+                                    status="danger"
                                 >
                                     Delete dashboard
                                 </LemonButton>
-                            </>
+                            </div>
                         }
                     />
                 )
@@ -184,18 +199,12 @@ export function Dashboards(): JSX.Element {
                 />
             </div>
             <LemonSpacer large />
-            {dashboardsLoading ? (
-                <div className="flex-center" style={{ flexDirection: 'column' }}>
-                    <Spinner />
-                    <div className="mt">
-                        <b>Loading dashboards</b>
-                    </div>
-                </div>
-            ) : dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     dataSource={dashboards}
                     rowKey="id"
                     columns={columns}
+                    loading={dashboardsLoading}
                     defaultSorting={{ columnKey: 'name', order: 1 }}
                     emptyState={
                         searchTerm ? (
