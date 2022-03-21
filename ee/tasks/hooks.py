@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 
 import requests
 from celery.task import Task
@@ -10,6 +11,12 @@ class DeliverHook(Task):
     ignore_result = True
 
     def run(self, target: str, payload: dict, hook_id: str) -> None:
+
+        # Validate target domain
+        target_domain = urlparse(target).netloc
+        if target_domain != "hooks.zapier.com":
+            return
+
         try:
             response = requests.post(
                 url=target,
