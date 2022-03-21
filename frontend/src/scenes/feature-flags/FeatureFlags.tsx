@@ -210,7 +210,7 @@ export function FeatureFlags(): JSX.Element {
                             New Feature Flag
                         </LinkButton>
                     ) : (
-                        <></>
+                        false
                     )
                 }
             />
