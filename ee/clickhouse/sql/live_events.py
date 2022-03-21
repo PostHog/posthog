@@ -30,6 +30,7 @@ LIVE_EVENTS_TABLE_SQL = lambda: (
     + """
     PARTITION BY toStartOfTenMinutes(timestamp)
     ORDER BY (team_id, timestamp, event, cityHash64(distinct_id), cityHash64(uuid))
+    {settings}
     {ttl_period}
     """
 ).format(
@@ -37,6 +38,7 @@ LIVE_EVENTS_TABLE_SQL = lambda: (
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=LIVE_EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
+    settings="SETTINGS merge_with_ttl_timeout=3600",
     ttl_period=ttl_period("_timestamp", 10, "MINUTE"),
 )
 
@@ -49,7 +51,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     distinct_id VARCHAR,
     sent_at VARCHAR
 ) ENGINE = {engine}
-SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505
+{settings}
+
 """
 
 KAFKA_LIVE_EVENTS_TABLE_SQL = lambda: KAFKA_LIVE_EVENTS_TABLE_BASE_SQL.format(
@@ -58,6 +61,7 @@ KAFKA_LIVE_EVENTS_TABLE_SQL = lambda: KAFKA_LIVE_EVENTS_TABLE_BASE_SQL.format(
     engine=kafka_engine(
         topic=KAFKA_EVENTS_PLUGIN_INGESTION, group="clickhouse-live-events-1"
     ),  # being very specific with the group name to avoid clashes
+    settings="SETTINGS kafka_max_block_size=65505, kafka_skip_broken_messages=65505",
 )
 
 LIVE_EVENTS_TABLE_MV_SQL = lambda: """
