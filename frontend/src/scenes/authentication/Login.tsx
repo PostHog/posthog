@@ -94,6 +94,7 @@ export function Login(): JSX.Element {
                                     placeholder="email@yourcompany.com"
                                     type="email"
                                     onBlur={() => precheck({ email: form.getFieldValue('email') })}
+                                    autoComplete="off"
                                 />
                             </Form.Item>
                             <div className={clsx('password-wrapper', !precheckResponse && 'hidden')}>
