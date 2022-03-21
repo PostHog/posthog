@@ -52,6 +52,13 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
+export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' ? insightId : undefined,
+    tags: [],
+    filters: {},
+    result: null,
+})
+
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
@@ -135,13 +142,7 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ??
-                ({
-                    short_id: props.dashboardItemId,
-                    tags: [],
-                    filters: {},
-                    result: null,
-                } as Partial<InsightModel>),
+            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -443,7 +444,15 @@ export const insightLogic = kea<insightLogicType>({
         /** filters for data that's being displayed, might not be same as savedFilters or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
-        insightName: [(s) => [s.insight], (insight) => insight.name],
+        derivedName: [
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
+                summarizeInsightFilters(insight.filters || {}, aggregationLabel, cohortsById, mathDefinitions).slice(
+                    0,
+                    400
+                ),
+        ],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -505,7 +514,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     },
-    listeners: ({ actions, selectors, values, props }) => ({
+    listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
@@ -648,12 +657,7 @@ export const insightLogic = kea<insightLogicType>({
             const { name, description, favorited, filters, deleted, layouts, color, dashboard, tags } = values.insight
             const insightRequest: Partial<InsightModel> = {
                 name,
-                derived_name: summarizeInsightFilters(
-                    filters || {},
-                    values.aggregationLabel,
-                    values.cohortsById,
-                    values.mathDefinitions
-                ).slice(0, 400),
+                derived_name: values.derivedName,
                 description,
                 favorited,
                 filters,
@@ -706,7 +710,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: values.filters,
                 saved: true,
             })
-            lemonToast.info(`You're now working on a copy of ${values.insight.name}`)
+            lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             router.actions.push(urls.insightEdit(insight.short_id))
@@ -716,22 +720,6 @@ export const insightLogic = kea<insightLogicType>({
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()
-            }
-        },
-        // called when search query was successful
-        loadResultsSuccess: async ({ insight }, breakpoint) => {
-            if (props.doNotPersist) {
-                return
-            }
-            if (!insight.short_id) {
-                const createdInsight: InsightModel = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                    filters: insight.filters,
-                })
-                breakpoint()
-                actions.setInsight(
-                    { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
-                    {}
-                )
             }
         },
         toggleInsightLegend: () => {

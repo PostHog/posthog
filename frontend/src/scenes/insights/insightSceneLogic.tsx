@@ -1,11 +1,11 @@
 import { BuiltLogic, kea } from 'kea'
-import { Breadcrumb, InsightModel, InsightShortId, ItemMode } from '~/types'
+import { Breadcrumb, FilterType, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { router } from 'kea-router'
 import { insightSceneLogicType } from './insightSceneLogicType'
 import { urls } from 'scenes/urls'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
@@ -106,28 +106,40 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters }, { method, initial }) => {
+        '/insights/:shortId(/:mode)': ({ shortId, mode }, _, { filters: _filters }, { method, initial }) => {
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
             const oldInsightId = values.insightId
-            if (insightId !== oldInsightId || insightMode !== values.insightMode) {
-                actions.setSceneState(insightId, insightMode)
-            }
+            const filters: Partial<FilterType> | null = Object.keys(_filters || {}).length > 0 ? _filters : null
 
-            if (filters && Object.keys(filters).length > 0) {
-                // Redirect an URL with #filters={} to just /new or /edit.
-                values.insightCache?.logic.actions.setFilters(cleanFilters(filters))
-                if (insightId === 'new') {
-                    eventUsageLogic.actions.reportInsightCreated(filters.insight)
-                } else {
+            if (initial || insightId !== oldInsightId || insightMode !== values.insightMode || filters) {
+                actions.setSceneState(insightId, insightMode)
+
+                if ((insightId === 'new' && (method === 'PUSH' || initial)) || filters) {
+                    values.insightCache?.logic.actions.setInsight(createEmptyInsight('new'), {
+                        fromPersistentApi: false,
+                        overrideFilter: true,
+                        shouldMergeWithExisting: false,
+                    })
+                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
+                    if (insightId === 'new') {
+                        eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
+                    }
+                }
+
+                if (insightMode === ItemMode.Edit && insightId !== 'new') {
                     lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
                 }
-                router.actions.replace(insightId === 'new' ? urls.insightNew() : urls.insightEdit(insightId))
-            } else if (insightId === 'new' && (method === 'PUSH' || initial)) {
-                // if opening the site on /insights/new or clicked on a new button, clear new page
-                const emptyFilters = cleanFilters({})
-                values.insightCache?.logic.actions.setFilters(emptyFilters)
-                eventUsageLogic.actions.reportInsightCreated(emptyFilters.insight || null)
+
+                if (filters) {
+                    router.actions.replace(
+                        insightId === 'new'
+                            ? urls.insightNew()
+                            : insightMode === ItemMode.Edit
+                            ? urls.insightEdit(insightId)
+                            : urls.insightView(insightId)
+                    )
+                }
             }
         },
     }),
