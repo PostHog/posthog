@@ -84,7 +84,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal) as typeof Lemon
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'popup' | 'to' | 'disabled' | 'icon' | 'tooltip' | 'data-attr'
+    'onClick' | 'popup' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr'
 >
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
@@ -112,11 +112,11 @@ export function LemonButtonWithSideAction({
                 {!buttonProps.fullWidth && <LemonSpacer vertical style={{ margin: '0 0 0 0.75rem' }} />}
             </LemonButton>
             <SideComponent
-                className="side-button"
-                popup={sidePopup as LemonButtonPopup}
-                {...sideActionRest}
+                className="LemonButtonWithSideAction--side-button"
                 type={buttonProps.type}
+                popup={sidePopup as LemonButtonPopup}
                 translucent
+                {...sideActionRest}
             />
         </div>
     )
