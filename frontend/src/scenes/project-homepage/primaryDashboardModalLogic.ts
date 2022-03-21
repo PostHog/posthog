@@ -6,6 +6,7 @@ import { primaryDashboardModalLogicType } from './primaryDashboardModalLogicType
 export const primaryDashboardModalLogic = kea<primaryDashboardModalLogicType>({
     path: ['scenes', 'project-homepage', 'primaryDashboardModalLogic'],
     connect: {
+        logic: [eventUsageLogic],
         actions: [teamLogic, ['updateCurrentTeam']],
         values: [teamLogic, ['currentTeam']],
     },
