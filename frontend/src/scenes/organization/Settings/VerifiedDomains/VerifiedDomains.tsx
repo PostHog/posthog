@@ -1,6 +1,6 @@
 import { Button, Modal, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconWarningAmber } from 'lib/components/icons'
+import { IconCheckmark, IconDelete, IconExclamation, IconLock, IconWarningAmber } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -15,6 +15,8 @@ import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from 'lib/components/Link'
+import { UPGRADE_LINK } from 'lib/constants'
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading, isFeatureAvailable } = useValues(verifiedDomainsLogic)
@@ -54,8 +56,13 @@ export function VerifiedDomains(): JSX.Element {
 }
 
 function VerifiedDomainsTable(): JSX.Element {
-    const { verifiedDomains, verifiedDomainsLoading, currentOrganization, updatingDomainLoading } =
-        useValues(verifiedDomainsLogic)
+    const {
+        verifiedDomains,
+        verifiedDomainsLoading,
+        currentOrganization,
+        updatingDomainLoading,
+        isSSOEnforcementAvailable,
+    } = useValues(verifiedDomainsLogic)
     const { updateDomain, deleteVerifiedDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -125,6 +132,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 )
             },
         },
+        // TODO: This attribute is not connected yet, hide to avoid confusion
         {
             key: 'sso_enforcement',
             title: (
@@ -136,6 +144,21 @@ function VerifiedDomainsTable(): JSX.Element {
                 </>
             ),
             render: function SSOEnforcement(_, { sso_enforcement, is_verified, id }) {
+                if (!isSSOEnforcementAvailable) {
+                    return (
+                        <div className="flex-center">
+                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} />{' '}
+                            <Link
+                                to={UPGRADE_LINK(preflight?.cloud).url}
+                                target={UPGRADE_LINK(preflight?.cloud).target}
+                                style={{ marginRight: 2 }}
+                            >
+                                Upgrade
+                            </Link>
+                            to enable
+                        </div>
+                    )
+                }
                 return is_verified ? (
                     <SSOSelect
                         value={sso_enforcement}

@@ -1,3 +1,4 @@
+import { urls } from 'scenes/urls'
 import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
 
 // Sync these with the ChartDisplayType enum in types.ts
@@ -164,3 +165,8 @@ export const SSOProviderNames: Record<SSOProviders, string> = {
     gitlab: 'GitLab',
     saml: 'Single sign-on (SAML)',
 }
+
+// TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
+// pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
+export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
+    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
