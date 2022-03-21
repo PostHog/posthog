@@ -117,7 +117,7 @@ class ActivityPage:
     total_count: int
     offset: int
     limit: int
-    results: list[ActivityLog]
+    results: List[ActivityLog]
 
     def has_next(self):
         return self.offset < self.total_count - self.limit
