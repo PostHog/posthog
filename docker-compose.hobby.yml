@@ -39,15 +39,20 @@ services:
         image: wurstmeister/zookeeper
         restart: on-failure
     kafka:
-        image: wurstmeister/kafka
+        image: bitnami/kafka:2.8.1-debian-10-r99
         restart: on-failure
         depends_on:
             - zookeeper
         ports:
             - '9092:9092'
         environment:
-            KAFKA_ADVERTISED_HOST_NAME: kafka
-            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_BROKER_ID: 1001
+            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
+            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            ALLOW_PLAINTEXT_LISTENER: 'true'
+
     worker: &worker
         image: posthog/posthog:$POSTHOG_APP_TAG
         command: ./bin/docker-worker-celery --with-scheduler
