@@ -13,7 +13,7 @@ export function InsightSaveButton({
 }): JSX.Element {
     const menu = (
         <Menu>
-            <Menu.Item key="2" onClick={saveInsight} data-attr="insight-save-and-continue">
+            <Menu.Item key="2" onClick={() => saveInsight(false)} data-attr="insight-save-and-continue">
                 Save and continue editing
             </Menu.Item>
             {isSaved && (
@@ -27,7 +27,7 @@ export function InsightSaveButton({
         <Dropdown.Button
             style={{ marginLeft: 8 }}
             type="primary"
-            onClick={saveInsight}
+            onClick={() => saveInsight(true)}
             overlay={menu}
             data-attr="insight-save-button"
             icon={<IconArrowDropDown data-attr="insight-save-dropdown" style={{ fontSize: 25 }} />}

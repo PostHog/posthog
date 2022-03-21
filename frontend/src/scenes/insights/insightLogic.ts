@@ -124,7 +124,7 @@ export const insightLogic = kea<insightLogicType>({
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
         setInsightDescription: (description: string) => ({ description }),
-        saveInsight: true,
+        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
@@ -642,7 +642,7 @@ export const insightLogic = kea<insightLogicType>({
                 clearTimeout(values.timeout)
             }
         },
-        saveInsight: async () => {
+        saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
 
@@ -689,10 +689,14 @@ export const insightLogic = kea<insightLogicType>({
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
-            if (insightNumericId) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-            } else {
-                router.actions.push(urls.insightView(savedInsight.short_id))
+            if (redirectToViewMode) {
+                if (insightNumericId) {
+                    insightSceneLogic
+                        .findMounted()
+                        ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                } else {
+                    router.actions.push(urls.insightView(savedInsight.short_id))
+                }
             }
         },
         saveAs: async () => {
