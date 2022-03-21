@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 LIVE_EVENTS_TABLE_SQL = lambda: (
     LIVE_EVENTS_TABLE_BASE_SQL
     + """
-    PARTITION BY toStartOfTenMinutes(timestamp)
+    PARTITION BY toStartOfTenMinutes(_timestamp)
     ORDER BY (team_id, timestamp, event, cityHash64(distinct_id), cityHash64(uuid))
     {settings}
     {ttl_period}
