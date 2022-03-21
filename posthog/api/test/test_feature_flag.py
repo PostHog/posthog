@@ -742,17 +742,7 @@ class TestFeatureFlag(APIBaseTest):
             [log_item["detail"]["name"] for log_item in second_page_json["results"]], ["4", "3", "2", "1", "0"],
         )
         self.assertEqual(
-            second_page_json["next"],
-            f"http://testserver/api/projects/{self.team.id}/feature_flags/activity?offset=20&limit=10",
-        )
-
-        # check the third page of data is empty
-        third_page_response = self.client.get(second_page_json["next"])
-        self.assertEqual(third_page_response.status_code, status.HTTP_200_OK)
-        third_page_json = third_page_response.json()
-
-        self.assertEqual(
-            [log_item["detail"]["name"] for log_item in third_page_json["results"]], [],
+            second_page_json["next"], None,
         )
 
     def test_paging_specific_feature_flag_activity(self):
@@ -793,19 +783,7 @@ class TestFeatureFlag(APIBaseTest):
             ["4", "3", "2", "1", "0"],
         )
         self.assertEqual(
-            second_page_json["next"],
-            f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?offset=20&limit=10",
-        )
-
-        # check the third page of data is empty
-        third_page_response = self.client.get(second_page_json["next"])
-        self.assertEqual(third_page_response.status_code, status.HTTP_200_OK)
-        third_page_json = third_page_response.json()
-
-        self.assertEqual(
-            # feature flag activity writes the flag key to the detail name
-            [log_item["detail"]["name"] for log_item in third_page_json["results"]],
-            [],
+            second_page_json["next"], None,
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
