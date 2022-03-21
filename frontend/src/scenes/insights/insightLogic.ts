@@ -682,7 +682,7 @@ export const insightLogic = kea<insightLogicType>({
                         ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 }
             }
-            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' and added to dashboard' : ''}`, {
+            lemonToast.success(`Insight saved${values.sourceDashboardId ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
                     action: () => router.actions.push(urls.savedInsights()),
